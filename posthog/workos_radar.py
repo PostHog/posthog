@@ -1,0 +1,337 @@
+"""
+WorkOS Radar integration for bot/fraud detection during authentication flows.
+
+This module provides a client for the WorkOS Radar Attempts API to evaluate
+signup attempts for potential fraud or bot activity. When Radar returns a
+BLOCK verdict, the attempt is rejected with a SuspiciousAttemptBlocked
+exception unless the email is on the Redis bypass list managed via the
+admin tool.
+"""
+
+import time
+import hashlib
+from enum import StrEnum
+from typing import Optional
+
+from django.conf import settings
+from django.http import HttpRequest
+
+import requests
+import structlog
+import posthoganalytics
+from rest_framework.exceptions import APIException
+
+from posthog.redis import get_client
+from posthog.turnstile import create_challenge_nonce, validate_and_consume_nonce, verify_turnstile_token
+from posthog.utils import get_ip_address, get_short_user_agent
+
+logger = structlog.get_logger(__name__)
+
+WORKOS_RADAR_API_URL = "https://api.workos.com/radar/attempts"
+WORKOS_RADAR_TIMEOUT = 5.0
+WORKOS_RADAR_BYPASS_REDIS_KEY = "workos_radar_bypass_emails"
+
+
+class SuspiciousAttemptBlocked(APIException):
+    status_code = 403
+    default_detail = (
+        "Your account has been flagged for suspicious activity. Please contact support@posthog.com to resolve this."
+    )
+    default_code = "suspicious_attempt_blocked"
+    default_type = "authentication_error"
+
+
+class ChallengeRequired(APIException):
+    status_code = 428
+    default_detail = "Additional verification is required to complete signup."
+    default_code = "challenge_required"
+    default_type = "authentication_error"
+
+    def __init__(self, challenge_nonce: str, turnstile_site_key: str):
+        super().__init__()
+        self.extra = {
+            "challenge_nonce": challenge_nonce,
+            "turnstile_site_key": turnstile_site_key,
+        }
+
+
+class RadarAction(StrEnum):
+    SIGNUP = "signup"
+    SIGNIN = "login"
+
+
+class RadarAuthMethod(StrEnum):
+    PASSWORD = "Password"
+    PASSKEY = "Passkey"
+
+
+class RadarVerdict(StrEnum):
+    ALLOW = "allow"
+    CHALLENGE = "challenge"
+    BLOCK = "block"
+    ERROR = "error"
+    DISABLED = "disabled"
+
+
+def _hash_email(email: str) -> str:
+    """Hash email for logging purposes to avoid PII in logs."""
+    return hashlib.sha256(email.lower().encode()).hexdigest()[:16]
+
+
+def _get_raw_user_agent(request: HttpRequest) -> str:
+    """Extract raw user agent from request for the WorkOS API."""
+    return request.headers.get("user-agent", "")
+
+
+def is_radar_bypass_email(email: str) -> bool:
+    return bool(get_client().sismember(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower()))
+
+
+def add_radar_bypass_email(email: str) -> None:
+    get_client().sadd(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
+
+
+def remove_radar_bypass_email(email: str) -> None:
+    get_client().srem(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
+
+
+def evaluate_auth_attempt(
+    request: HttpRequest,
+    email: str,
+    action: RadarAction,
+    auth_method: RadarAuthMethod,
+    user_id: Optional[str] = None,
+    turnstile_token: str = "",
+    challenge_nonce: str = "",
+) -> Optional[RadarVerdict]:
+    """
+    Evaluate an authentication attempt using the WorkOS Radar Attempts API.
+
+    Raises:
+        SuspiciousAttemptBlocked: When verdict is BLOCK and the email is
+            not in the Redis bypass list.
+        ChallengeRequired: When verdict is CHALLENGE and no valid Turnstile
+            token was provided.
+    """
+    if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
+        return None
+
+    if action != RadarAction.SIGNUP:
+        return None
+
+    ip_address = get_ip_address(request)
+    short_user_agent = get_short_user_agent(request)
+
+    verdict, duration_ms = _evaluate_verdict(
+        email=email,
+        ip_address=ip_address,
+        user_agent=_get_raw_user_agent(request),
+        action=action,
+        auth_method=auth_method,
+        turnstile_token=turnstile_token,
+        challenge_nonce=challenge_nonce,
+    )
+
+    outcome = _decide_outcome(verdict, email, turnstile_token, challenge_nonce, ip_address)
+
+    _log_radar_event(
+        email=email,
+        user_id=user_id,
+        action=action,
+        auth_method=auth_method,
+        verdict=verdict,
+        ip_address=ip_address,
+        user_agent=short_user_agent,
+        duration_ms=duration_ms,
+        was_blocked=outcome == "block",
+        was_bypassed=outcome == "bypass",
+        was_challenged=outcome == "challenge",
+        was_challenge_completed=outcome == "completed",
+    )
+
+    if outcome == "block":
+        logger.warning("workos_radar_attempt_blocked", action=action.value, email_hash=_hash_email(email))
+        raise SuspiciousAttemptBlocked()
+
+    if outcome == "challenge":
+        if not settings.CLOUDFLARE_TURNSTILE_SITE_KEY:
+            logger.error("workos_radar_challenge_no_site_key", action=action.value, email_hash=_hash_email(email))
+            raise SuspiciousAttemptBlocked()
+
+        nonce = create_challenge_nonce(email, ip_address)
+        logger.info("workos_radar_challenge_issued", action=action.value, email_hash=_hash_email(email))
+        raise ChallengeRequired(
+            challenge_nonce=nonce,
+            turnstile_site_key=settings.CLOUDFLARE_TURNSTILE_SITE_KEY,
+        )
+
+    return verdict
+
+
+def _evaluate_verdict(
+    email: str,
+    ip_address: str,
+    user_agent: str,
+    action: RadarAction,
+    auth_method: RadarAuthMethod,
+    turnstile_token: str,
+    challenge_nonce: str,
+) -> tuple[RadarVerdict, float]:
+    """Return (verdict, api_duration_ms). Skip the Radar API call on challenge resubmits."""
+    if turnstile_token and challenge_nonce:
+        return RadarVerdict.CHALLENGE, 0.0
+
+    start_time = time.perf_counter()
+    verdict = _call_radar_api(
+        email=email,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        action=action,
+        auth_method=auth_method,
+    )
+    return verdict, (time.perf_counter() - start_time) * 1000
+
+
+def _decide_outcome(
+    verdict: RadarVerdict,
+    email: str,
+    turnstile_token: str,
+    challenge_nonce: str,
+    ip_address: str,
+) -> str:
+    """Return one of: 'allow', 'block', 'bypass', 'challenge', 'completed'."""
+    if turnstile_token and challenge_nonce:
+        nonce_valid = validate_and_consume_nonce(challenge_nonce, email, ip_address)
+        token_valid = nonce_valid and verify_turnstile_token(turnstile_token, ip_address)
+        return "completed" if token_valid else "block"
+
+    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE) and is_radar_bypass_email(email):
+        return "bypass"
+
+    if verdict == RadarVerdict.BLOCK:
+        return "block"
+
+    if verdict == RadarVerdict.CHALLENGE:
+        return "challenge"
+
+    return "allow"
+
+
+def _call_radar_api(
+    email: str,
+    ip_address: str,
+    user_agent: str,
+    action: RadarAction,
+    auth_method: RadarAuthMethod,
+) -> RadarVerdict:
+    """
+    Make the actual API call to WorkOS Radar.
+    """
+    try:
+        response = requests.post(
+            WORKOS_RADAR_API_URL,
+            headers={
+                "Authorization": f"Bearer {settings.WORKOS_RADAR_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "email": email,
+                "ip_address": ip_address,
+                "user_agent": user_agent,
+                "action": action.value,
+                "auth_method": auth_method.value,
+            },
+            timeout=WORKOS_RADAR_TIMEOUT,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            verdict_str = data.get("verdict", "allow").lower()
+
+            if verdict_str == "allow":
+                return RadarVerdict.ALLOW
+            elif verdict_str == "challenge":
+                return RadarVerdict.CHALLENGE
+            elif verdict_str == "block":
+                return RadarVerdict.BLOCK
+            else:
+                logger.warning(
+                    "workos_radar_unknown_verdict",
+                    verdict=verdict_str,
+                    email_hash=_hash_email(email),
+                )
+                return RadarVerdict.ALLOW
+        else:
+            logger.error(
+                "workos_radar_api_error",
+                status_code=response.status_code,
+                response_body=response.text[:500],
+                email_hash=_hash_email(email),
+            )
+            return RadarVerdict.ERROR
+
+    except requests.exceptions.Timeout:
+        logger.warning(
+            "workos_radar_timeout",
+            email_hash=_hash_email(email),
+        )
+        return RadarVerdict.ERROR
+    except Exception as e:
+        logger.exception(
+            "workos_radar_exception",
+            email_hash=_hash_email(email),
+            error=str(e),
+        )
+        return RadarVerdict.ERROR
+
+
+def _log_radar_event(
+    email: str,
+    user_id: Optional[str],
+    action: RadarAction,
+    auth_method: RadarAuthMethod,
+    verdict: RadarVerdict,
+    ip_address: str,
+    user_agent: str,
+    duration_ms: float,
+    was_blocked: bool = False,
+    was_bypassed: bool = False,
+    was_challenged: bool = False,
+    was_challenge_completed: bool = False,
+) -> None:
+    """
+    Log the Radar decision as a PostHog event for analysis.
+    """
+    distinct_id = user_id or f"pre_signup_{_hash_email(email)}"
+
+    properties = {
+        "action": action.value,
+        "auth_method": auth_method.value,
+        "verdict": verdict.value,
+        "would_challenge": verdict == RadarVerdict.CHALLENGE,
+        "would_block": verdict == RadarVerdict.BLOCK,
+        "was_blocked": was_blocked,
+        "was_bypassed": was_bypassed,
+        "was_challenged": was_challenged,
+        "was_challenge_completed": was_challenge_completed,
+        "is_error": verdict == RadarVerdict.ERROR,
+        "ip_address_hash": hashlib.sha256(ip_address.encode()).hexdigest()[:16],
+        "user_agent": user_agent,
+        "email_domain": email.split("@")[-1] if "@" in email else "",
+        "radar_api_duration_ms": round(duration_ms, 2),
+    }
+
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event="workos_radar_attempt",
+        properties=properties,
+    )
+
+    logger.info(
+        "workos_radar_attempt_logged",
+        action=action.value,
+        auth_method=auth_method.value,
+        verdict=verdict.value,
+        email_hash=_hash_email(email),
+        duration_ms=round(duration_ms, 2),
+    )

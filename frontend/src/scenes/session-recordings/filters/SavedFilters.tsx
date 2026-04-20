@@ -29,7 +29,8 @@ import {
 } from '~/types'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
-import { playlistLogic } from '../playlist/playlistLogic'
+import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
+import { stripSessionIds } from '../playlist/playlistUtils'
 import { SavedFiltersEmptyState, SavedFiltersLoadingState } from './SavedFiltersStates'
 
 export function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsCounts {
@@ -127,7 +128,7 @@ export function SavedFilters({
     const { deletePlaylist, setSavedPlaylistsFilters, setAppliedSavedFilter } = useActions(
         sessionRecordingSavedFiltersLogic
     )
-    const { setActiveFilterTab } = useActions(playlistLogic)
+    const { setActiveFilterTab } = useActions(playlistFiltersLogic)
 
     if (savedFiltersLoading && !filters.search) {
         return <SavedFiltersLoadingState />
@@ -150,7 +151,7 @@ export function SavedFilters({
                         <div
                             onClick={() => {
                                 if (filter && filter.filters) {
-                                    setFilters(filter.filters)
+                                    setFilters(stripSessionIds(filter.filters))
                                     setActiveFilterTab('filters')
                                     setAppliedSavedFilter(filter)
                                 }

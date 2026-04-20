@@ -8,17 +8,24 @@ on:
 
 permissions:
     contents: read
-    pull-requests: write
 
 jobs:
     update-bot-ips:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
 
         steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+
+            - name: Checkout repository
+              uses: actions/checkout@v6
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
 
             - name: Run update script
               run: |
@@ -27,36 +34,71 @@ jobs:
             - name: Check for changes
               id: check-changes
               run: |
-                  if git diff --quiet plugin-server/assets/bot-ips.txt; then
+                  if git diff --quiet nodejs/assets/bot-ips.txt; then
                     echo "changes=false" >> $GITHUB_OUTPUT
                     echo "No changes detected in bot IPs"
                   else
                     echo "changes=true" >> $GITHUB_OUTPUT
                     echo "Changes detected in bot IPs"
-                    git diff --stat plugin-server/assets/bot-ips.txt
+                    git diff --stat nodejs/assets/bot-ips.txt
                   fi
 
-            - name: Create Pull Request
+            - name: Clean up stale branch
+              if: steps.check-changes.outputs.changes == 'false'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/update-bot-ips" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    gh pr close "$existing_pr" --delete-branch || true
+                    echo "Closed stale PR #$existing_pr and deleted branch"
+                  fi
+
+            - name: Ensure branch exists
               if: steps.check-changes.outputs.changes == 'true'
-              uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v5
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  if ! gh api repos/${{ github.repository }}/git/ref/heads/chore/update-bot-ips 2>/dev/null; then
+                    master_sha=$(gh api repos/${{ github.repository }}/git/ref/heads/master --jq '.object.sha')
+                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/update-bot-ips -f sha="$master_sha"
+                    echo "Created branch from master at $master_sha"
+                  fi
+
+            - name: Commit via GitHub API (signed)
+              if: steps.check-changes.outputs.changes == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
-                  commit-message: 'Update bot IPs from GoodBots repository'
-                  title: '🤖 Update bot IPs from GoodBots repository'
-                  body: |
-                      This PR updates the bot IPs list from the [GoodBots repository](https://github.com/AnTheMaker/GoodBots).
+                  commit_message: 'Update bot IPs from GoodBots repository'
+                  repo: ${{ github.repository }}
+                  branch: chore/update-bot-ips
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
-                      **Changes:**
-                      - Updated `plugin-server/assets/bot-ips.txt` with latest bot IPs
+            - name: Create pull request
+              if: steps.check-changes.outputs.changes == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/update-bot-ips" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    echo "PR #$existing_pr already exists — updated by commit"
+                  else
+                    gh pr create \
+                      --title "chore(ci): Update bot IPs from GoodBots repository" \
+                      --body "$(cat <<'BODY'
+                  This PR updates the bot IPs list from the [GoodBots repository](https://github.com/AnTheMaker/GoodBots).
 
-                      **Source:** https://raw.githubusercontent.com/AnTheMaker/GoodBots/main/all.ips
+                  **Changes:**
+                  - Updated `nodejs/assets/bot-ips.txt` with latest bot IPs
 
-                      This is an automated update that runs daily.
-                  base: master
-                  delete-branch: true
-                  labels: |
-                      automated
-                      bot-ips
-                      dependencies
-                  reviewers: |
-                      PostHog/team-workflows
+                  **Source:** https://raw.githubusercontent.com/AnTheMaker/GoodBots/main/all.ips
+
+                  This is an automated update that runs daily.
+                  BODY
+                  )" \
+                      --base master \
+                      --head chore/update-bot-ips \
+                      --label "automated" --label "bot-ips" --label "dependencies" \
+                      --reviewer "PostHog/team-workflows" --reviewer "PostHog/team-ingestion"
+                  fi

@@ -101,9 +101,12 @@ class QueryLogArchiveTable(LazyTable):
 
         fields: list[ast.Expr] = [get_alias(name, chain) for name, chain in requested_fields.items()]
 
+        where_clause = ast.Not(expr=ast.Field(chain=[table_name, "lc_is_impersonated"]))
+
         return ast.SelectQuery(
             select=fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+            where=where_clause,
         )
 
 
@@ -130,6 +133,7 @@ class RawQueryLogArchiveTable(Table):
         "exception_code": IntegerDatabaseField(name="exception_code", nullable=False),
         "exception_name": StringDatabaseField(name="exception_name", nullable=False),
         "lc_access_method": StringDatabaseField(name="lc_access_method", nullable=False),
+        "lc_is_impersonated": BooleanDatabaseField(name="lc_is_impersonated", nullable=False),
         "lc_api_key_label": StringDatabaseField(name="lc_api_key_label", nullable=False),
         "lc_api_key_mask": StringDatabaseField(name="lc_api_key_mask", nullable=False),
         "lc_query__kind": StringDatabaseField(name="lc_query__kind", nullable=False),

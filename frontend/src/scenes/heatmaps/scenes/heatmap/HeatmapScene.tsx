@@ -30,6 +30,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         type,
         displayUrl,
         widthOverride,
+        heightOverride,
         screenshotUrl,
         generatingScreenshot,
         screenshotLoaded,
@@ -38,8 +39,15 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         effectiveWidth,
         scalePercent,
     } = useValues(logic)
-    const { setName, updateHeatmap, onIframeLoad, setScreenshotLoaded, exportHeatmap, setContainerWidth } =
-        useActions(logic)
+    const {
+        setName,
+        changeCaptureMethod,
+        updateHeatmap,
+        onIframeLoad,
+        setScreenshotLoaded,
+        exportHeatmap,
+        setContainerWidth,
+    } = useActions(logic)
 
     const measureRef = useRef<HTMLDivElement | null>(null)
     useEffect(() => {
@@ -71,7 +79,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         <BindLogic logic={heatmapLogic} props={logicProps}>
             <SceneContent>
                 <SceneTitleSection
-                    name={name || 'No name'}
+                    name={name}
                     resourceType={{
                         type: 'heatmap',
                     }}
@@ -126,16 +134,17 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         disabledReason: !displayUrl ? 'Select a URL first' : undefined,
                     }}
                 >
-                    You're viewing {type === 'screenshot' ? 'a' : 'an'}{' '}
-                    <LemonTag type="highlight">{type === 'screenshot' ? 'Screenshot' : 'Iframe'}</LemonTag> heatmap. We
-                    recommend trying both methods to see which works best for your site. You can also open your website
-                    using the toolbar and verify results there (useful for auth-protected pages).
+                    You can also open your website using the toolbar and verify results there (useful for auth-protected
+                    pages).
                 </LemonBanner>
                 <HeatmapHeader />
-                <FilterPanel />
+                <FilterPanel captureMethod={type} onCaptureMethodChange={changeCaptureMethod} />
                 <SceneDivider />
                 <div ref={measureRef} className="w-full">
-                    <div className="border mx-auto bg-white rounded-lg" style={{ width: effectiveWidth ?? '100%' }}>
+                    <div
+                        className="border mx-auto bg-surface-primary rounded-lg"
+                        style={{ width: effectiveWidth ?? '100%' }}
+                    >
                         <div className="p-2 border-b text-muted-foreground gap-x-2 flex items-center">
                             <IconBrowser /> {displayUrl}
                             {typeof widthOverride === 'number' && containerWidth && widthOverride > containerWidth ? (
@@ -178,6 +187,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                         <img
                                             id="heatmap-screenshot"
                                             src={screenshotUrl}
+                                            alt="Website screenshot for heatmap analysis"
                                             style={{
                                                 width: '100%',
                                                 height: 'auto',
@@ -195,7 +205,11 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 ) : null}
                             </div>
                         ) : (
-                            <div className="relative min-h-screen">
+                            <div
+                                className="relative"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ height: heightOverride }}
+                            >
                                 <HeatmapCanvas
                                     positioning="absolute"
                                     widthOverride={desiredNumericWidth ?? undefined}
@@ -203,9 +217,10 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 />
                                 <iframe
                                     id="heatmap-iframe"
-                                    className="min-h-screen bg-white rounded-b-lg"
+                                    title="Heatmap browser"
+                                    className="bg-white rounded-b-lg"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width: '100%' }}
+                                    style={{ width: '100%', height: heightOverride }}
                                     src={displayUrl || ''}
                                     onLoad={onIframeLoad}
                                     // these two sandbox values are necessary so that the site and toolbar can run

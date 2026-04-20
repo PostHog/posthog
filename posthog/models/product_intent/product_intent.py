@@ -9,18 +9,19 @@ from rest_framework import serializers
 from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.dashboard import Dashboard
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.insight import Insight
-from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.experiments.backend.models.experiment import Experiment
+from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 """
 How to use this model:
@@ -105,7 +106,9 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
     def has_activated_experiments(self) -> bool:
         # the team has any launched experiments
-        return Experiment.objects.filter(team=self.team, start_date__isnull=False).exists()
+        return Experiment.objects.filter(
+            team=self.team, status__in=[Experiment.Status.RUNNING, Experiment.Status.STOPPED]
+        ).exists()
 
     def has_activated_error_tracking(self) -> bool:
         # the team has resolved any issues
@@ -115,9 +118,12 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
 
     def has_activated_feature_flags(self) -> bool:
-        # Get feature flags that have at least one filter group, excluding ones used by experiments and surveys
+        # Get feature flags that have at least one filter group, excluding ones used by experiments, surveys, and product tours
         experiment_flags = Experiment.objects.filter(team=self.team).values_list("feature_flag_id", flat=True)
         survey_flags = Survey.objects.filter(team=self.team).values_list("targeting_flag_id", flat=True)
+        product_tour_flags = ProductTour.all_objects.filter(team=self.team).values_list(
+            "internal_targeting_flag_id", flat=True
+        )
 
         feature_flags = (
             FeatureFlag.objects.filter(
@@ -126,6 +132,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             )
             .exclude(id__in=experiment_flags)
             .exclude(id__in=survey_flags)
+            .exclude(id__in=product_tour_flags)
             .only("id", "filters")
         )
 

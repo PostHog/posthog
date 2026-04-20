@@ -21,7 +21,6 @@ export const recordingMetaJson: SessionRecordingType = {
         created_at: '2023-05-01T14:46:20.838000Z',
         uuid: '0187d7c7-61b7-0000-d6a1-59b207080ac0',
     },
-    storage: 'object_storage',
     viewers: [],
     snapshot_source: 'web',
     expiry_time: '2023-06-01T00:00:00.000000Z',

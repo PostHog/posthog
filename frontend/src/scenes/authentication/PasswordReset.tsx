@@ -4,20 +4,21 @@ Scene to request a password reset email.
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SupportModalButton } from './SupportModalButton'
 import { passwordResetLogic } from './passwordResetLogic'
+import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -27,6 +28,13 @@ export const scene: SceneExport = {
 export function PasswordReset(): JSX.Element {
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { requestPasswordResetSucceeded, requestPasswordResetManualErrors } = useValues(passwordResetLogic)
+    const { resetRequestPasswordReset } = useActions(passwordResetLogic)
+
+    useEffect(() => {
+        return () => {
+            resetRequestPasswordReset()
+        }
+    }, [resetRequestPasswordReset])
 
     return (
         <BridgePage view="password-reset" footer={<SupportModalButton />}>

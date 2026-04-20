@@ -1,12 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
+import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { hexToRGBA } from 'lib/utils'
+import { hexToRGBA, pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ExperimentMetric,
@@ -17,9 +18,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType } from '~/types'
 
+import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 import { COLORS } from './MetricsView/shared/colors'
 import { getVariantInterval } from './MetricsView/shared/utils'
-import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 
 export interface ProcessedTimeseriesDataPoint {
     date: string
@@ -28,6 +29,7 @@ export interface ProcessedTimeseriesDataPoint {
     lower_bound: number | null
     hasRealData: boolean
     number_of_samples?: number
+    denominator_sum?: number
     significant?: boolean
 }
 
@@ -58,6 +60,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     path((key) => ['scenes', 'experiments', 'experimentTimeseriesLogic', key]),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentTimeseriesRecalculated']],
+        values: [teamLogic, ['currentProjectId']],
     })),
 
     actions(() => ({
@@ -65,7 +68,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
         recalculateTimeseries: ({ metric }: { metric: ExperimentMetric }) => ({ metric }),
     })),
 
-    loaders(({ actions, props }) => ({
+    loaders(({ actions, props, values }) => ({
         timeseries: [
             null as ExperimentMetricTimeseries | null,
             {
@@ -78,7 +81,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     }
 
                     const response = await api.get(
-                        `api/projects/@current/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
+                        `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
                     )
                     return response
                 },
@@ -90,7 +93,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                     try {
                         const response = await api.createResponse(
-                            `api/projects/@current/experiments/${props.experiment.id}/recalculate_timeseries/`,
+                            `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/recalculate_timeseries/`,
                             {
                                 metric: metric,
                                 fingerprint: metric.fingerprint,
@@ -173,6 +176,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                     lower_bound: lower,
                                     hasRealData: true,
                                     number_of_samples: variant.number_of_samples || 0,
+                                    denominator_sum: variant.denominator_sum || 0,
                                     significant: variant.significant ?? false,
                                 }
 
@@ -198,6 +202,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                             lower_bound: 0,
                             hasRealData: false,
                             number_of_samples: 0,
+                            denominator_sum: 0,
                             significant: false,
                         }
                     })
@@ -223,7 +228,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                 // If all days are computed, show "Calculated N days"
                 if (computedDays === totalDays) {
-                    return `Calculated ${totalDays} day${totalDays === 1 ? '' : 's'}`
+                    return `Calculated ${pluralize(totalDays, 'day')}`
                 }
 
                 // Otherwise show progress "Computed N of M days"
@@ -292,11 +297,14 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     // Create a simple approach: just two datasets with segmented colors
                     const datasets: ChartDataset[] = []
 
+                    // We use the same color for upper and lower bound lines for clear association with the variant line
+                    const boundLineColor = variantColor
+
                     // Upper bounds dataset
                     datasets.push({
                         label: 'Upper bound',
                         data: upperBounds,
-                        borderColor: COLORS.BAR_DEFAULT,
+                        borderColor: boundLineColor,
                         borderWidth: 1,
                         fill: false,
                         tension: 0,
@@ -307,7 +315,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     datasets.push({
                         label: 'Lower bound',
                         data: lowerBounds,
-                        borderColor: COLORS.BAR_DEFAULT,
+                        borderColor: boundLineColor,
                         borderWidth: 1,
                         fill: '-1',
                         backgroundColor: (context: any) => {

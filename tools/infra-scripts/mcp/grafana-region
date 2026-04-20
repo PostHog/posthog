@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Switch Grafana MCP server between prod-us, prod-eu, and dev regions
+#
+# Usage:
+#   grafana-region         # Show current region
+#   grafana-region us      # Switch to prod-us
+#   grafana-region eu      # Switch to prod-eu
+#   grafana-region dev     # Switch to dev
+#
+# After switching, restart your MCP client (e.g., Claude Code: /exit)
+
+REGION_FILE="$HOME/.grafana-region"
+
+show_current() {
+    if [ -f "$REGION_FILE" ] && [ -s "$REGION_FILE" ]; then
+        local region=$(head -n1 "$REGION_FILE" | tr -cd '[:alnum:]')
+        echo "Current Grafana region: $region"
+    else
+        echo "Current Grafana region: us (default)"
+    fi
+}
+
+show_usage() {
+    echo "Usage: grafana-region [us|eu|dev]"
+    echo ""
+    echo "Commands:"
+    echo "  (no args)  Show current region"
+    echo "  us         Switch to prod-us (us-east-1)"
+    echo "  eu         Switch to prod-eu (eu-central-1)"
+    echo "  dev        Switch to dev (us-east-1)"
+    echo ""
+    echo "After switching, restart your MCP client to apply the change."
+}
+
+case "${1:-}" in
+    "")
+        show_current
+        ;;
+    us|eu|dev)
+        echo "$1" > "$REGION_FILE"
+        echo "Switched Grafana region to: $1"
+        echo ""
+        echo "Restart your MCP client to apply the change."
+        ;;
+    -h|--help)
+        show_usage
+        ;;
+    *)
+        echo "Error: Invalid region '$1'. Must be 'us', 'eu', or 'dev'." >&2
+        echo ""
+        show_usage
+        exit 1
+        ;;
+esac

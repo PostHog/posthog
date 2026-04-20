@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconGear } from '@posthog/icons'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { SettingsSnapshot } from 'lib/components/SettingsSnapshot'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
@@ -14,6 +16,22 @@ import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
+
+const SNAPSHOT_SCOPE: string[] = [
+    'session_recording_opt_in',
+    'session_recording_sample_rate',
+    'session_recording_minimum_duration_milliseconds',
+    'session_recording_linked_flag',
+    'session_recording_network_payload_capture_config',
+    'session_recording_masking_config',
+    'session_recording_url_trigger_config',
+    'session_recording_url_blocklist_config',
+    'session_recording_event_trigger_config',
+    'session_recording_retention_period',
+    'session_recording_trigger_match_type_config',
+    'session_replay_config',
+    'recording_domains',
+]
 
 function getFilterState(
     filterGroup: UniversalFiltersGroup,
@@ -60,7 +78,7 @@ export function PlayerSidebarOverviewGrid({
 } = {}): JSX.Element {
     const { logicProps: contextLogicProps } = useValues(sessionRecordingPlayerLogic)
     const logicProps = logicPropsOverride || contextLogicProps
-    const { displayOverviewItems, loading, isPropertyPopoverOpen } = useValues(playerMetaLogic(logicProps))
+    const { displayOverviewItems, loading, isPropertyPopoverOpen, snapshotAt } = useValues(playerMetaLogic(logicProps))
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
     const { togglePropertyFilter } = useActions(sessionRecordingsPlaylistLogic)
     const { filters } = useValues(sessionRecordingsPlaylistLogic)
@@ -132,6 +150,16 @@ export function PlayerSidebarOverviewGrid({
                         })}
                     </OverviewGrid>
                 )}
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'replay-settings',
+                            header: 'Settings at the time of the recording',
+                            content: <SettingsSnapshot at={snapshotAt} scope={SNAPSHOT_SCOPE} title="" />,
+                        },
+                    ]}
+                    className="mt-4"
+                />
             </div>
         </>
     )

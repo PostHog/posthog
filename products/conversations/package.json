@@ -1,0 +1,33 @@
+{
+    "name": "@posthog/products-conversations",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "posthog-js": "catalog:",
+        "ts-pattern": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@posthog/lemon-ui": "*",
+        "@tiptap/core": "*",
+        "@tiptap/extension-code-block-lowlight": "*",
+        "@tiptap/extension-document": "*",
+        "@tiptap/extension-image": "*",
+        "@tiptap/extension-link": "*",
+        "@tiptap/extension-underline": "*",
+        "@tiptap/extensions": "*",
+        "@tiptap/react": "*",
+        "@tiptap/starter-kit": "*",
+        "@types/react": "*",
+        "@types/react-dom": "*",
+        "clsx": "*",
+        "lowlight": "*",
+        "react": "*",
+        "react-dom": "*"
+    }
+}

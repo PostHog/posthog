@@ -5,10 +5,7 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import {
-    FilterTypeActionsAndEvents,
-    actionsAndEventsToSeries,
-} from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import type {
     ActionsNode,
     BreakdownFilter,
@@ -22,6 +19,7 @@ import type {
     ExperimentFunnelMetricStep,
     ExperimentMetric,
     ExperimentMetricTypeProps,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
     InsightVizNode,
@@ -223,27 +221,34 @@ export const getQuery =
     }
 
 /**
- * converts a funnel metric to a series of events and actions
+ * converts a funnel metric to a series of events, actions, and data warehouse nodes
  * this is part of the conversion pipeline for funnel metrics.
  *
  * Funnel series are validated with:
- * Metric Series -> Filter -> Query Series
+ * Metric Series (ExperimentDataWarehouseNode) -> Filter (FunnelDatawarehouseFilter) -> Query Series (FunnelsDataWarehouseNode)
+ *
+ * Note: ExperimentDataWarehouseNode is converted to FunnelsDataWarehouseNode via actionsAndEventsToSeries
  */
-const getFunnelSeries = (funnelMetric: ExperimentFunnelMetric): (EventsNode | ActionsNode)[] => {
-    const { events, actions } = getFilter(funnelMetric)
+const getFunnelSeries = (
+    funnelMetric: ExperimentFunnelMetric
+): (EventsNode | ActionsNode | FunnelsDataWarehouseNode)[] => {
+    const { events, actions, data_warehouse } = getFilter(funnelMetric)
 
     return actionsAndEventsToSeries(
         {
             actions,
             events,
-            data_warehouse: [], // Data warehouse not supported in funnels
-        } as FilterTypeActionsAndEvents,
+            data_warehouse,
+        } as any,
         true, // includeProperties
-        MathAvailability.None // No math for funnels
-    ).filter((series) => series.kind === NodeKind.EventsNode || series.kind === NodeKind.ActionsNode) as (
-        | EventsNode
-        | ActionsNode
-    )[]
+        MathAvailability.None, // No math for funnels
+        NodeKind.FunnelsDataWarehouseNode // Convert data warehouse filters to FunnelsDataWarehouseNode
+    ).filter(
+        (series) =>
+            series.kind === NodeKind.EventsNode ||
+            series.kind === NodeKind.ActionsNode ||
+            series.kind === NodeKind.FunnelsDataWarehouseNode
+    ) as (EventsNode | ActionsNode | FunnelsDataWarehouseNode)[]
 }
 
 /**
@@ -289,17 +294,24 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
              * we create a source node for each step on the funnel series.
              */
             const funnelSteps = funnelMetric.series.map((step, index) => {
+                const type =
+                    step.kind === NodeKind.EventsNode
+                        ? 'events'
+                        : step.kind === NodeKind.ActionsNode
+                          ? 'actions'
+                          : 'data_warehouse'
+
                 return {
                     ...createSourceNode(step),
                     order: index,
-                    type: step.kind === NodeKind.EventsNode ? 'events' : 'actions',
+                    type,
                 }
             })
 
             return {
                 events: funnelSteps.filter((step) => step.type === 'events'),
                 actions: funnelSteps.filter((step) => step.type === 'actions'),
-                data_warehouse: [], // datawarehouse nodes are not supported for funnel metrics yet
+                data_warehouse: funnelSteps.filter((step) => step.type === 'data_warehouse'),
             }
         })
         .with({ metric_type: ExperimentMetricType.RATIO }, (ratioMetric) => {
@@ -327,7 +339,13 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
 type ExperimentMetricSourceWithType =
     | (EventsNode & { type: 'events'; id: string; name: string })
     | (ActionsNode & { type: 'actions'; id: number; name: string })
-    | (ExperimentDataWarehouseNode & { type: 'data_warehouse'; id: string; name: string })
+    | (ExperimentDataWarehouseNode & {
+          type: 'data_warehouse'
+          id: string
+          name: string
+          id_field: string
+          aggregation_target_field: string
+      })
 
 /**
  * Converts filter data to a metric source (EventsNode, ActionsNode, or ExperimentDataWarehouseNode)
@@ -467,6 +485,9 @@ const createSourceNode = (step: ExperimentFunnelMetricStep | ExperimentMetricSou
             type: 'data_warehouse' as const,
             id: dwStep.table_name,
             name: dwStep.name || dwStep.table_name,
+            // Map ExperimentDataWarehouseNode fields to FunnelDatawarehouseFilter fields
+            id_field: dwStep.data_warehouse_join_key,
+            aggregation_target_field: dwStep.events_join_key,
         }))
         .exhaustive()
 
@@ -568,10 +589,10 @@ export const addExposureToQuery =
     (exposureEvent: EventsNode | ActionsNode) =>
     (query: FunnelsQuery | TrendsQuery | undefined): FunnelsQuery | TrendsQuery | undefined =>
         query
-            ? {
+            ? ({
                   ...query,
                   series: [exposureEvent, ...query.series],
-              }
+              } as typeof query)
             : undefined
 
 type InsightVizNodeOptions = {

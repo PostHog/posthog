@@ -7,8 +7,11 @@ from posthog.models import HogFunction
 class Command(BaseCommand):
     help = "Re-enables HogFunctions that are connected to integrations by triggering a reload on the plugin server"
 
+    def add_arguments(self, parser):
+        parser.add_argument("--silent", action="store_true", help="Do not print per-HogFunction or summary messages")
+
     def handle(self, *args, **options):
-        # SQL query to get HogFunctions connected to integrations
+        silent = options.get("silent", False)
         query = """
         SELECT DISTINCT hf.id
         FROM posthog_hogfunction hf
@@ -30,6 +33,8 @@ class Command(BaseCommand):
         for function in HogFunction.objects.filter(id__in=hog_function_ids):
             function.save(update_fields=["updated_at"])  # Minimal save to trigger the signal
             count += 1
-            self.stdout.write(f"Triggered reload for HogFunction {function.id}")
+            if not silent:
+                self.stdout.write(f"Triggered reload for HogFunction {function.id}")
 
-        self.stdout.write(self.style.SUCCESS(f"Successfully triggered reload for {count} HogFunctions"))
+        if not silent:
+            self.stdout.write(self.style.SUCCESS(f"Successfully triggered reload for {count} HogFunctions"))

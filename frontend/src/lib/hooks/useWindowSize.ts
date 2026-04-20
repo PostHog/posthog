@@ -1,8 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 
 import { TAILWIND_BREAKPOINTS } from 'lib/constants'
-
-import { useOnMountEffect } from './useOnMountEffect'
 
 type WindowSize = {
     width: number | undefined
@@ -11,42 +9,47 @@ type WindowSize = {
 
 type Breakpoint = keyof typeof TAILWIND_BREAKPOINTS
 
+type UseWindowSizeOptions = {
+    /** Pixels to subtract from window width when checking breakpoints (e.g. side panel width) */
+    widthOffset?: number
+}
+
 type UseWindowSize = {
     windowSize: WindowSize
     isWindowLessThan: (breakpoint: Breakpoint) => boolean
 }
 
-export function useWindowSize(): UseWindowSize {
-    const isClient = typeof window === 'object'
+function subscribeToResize(callback: () => void): () => void {
+    window.addEventListener('resize', callback)
+    return () => window.removeEventListener('resize', callback)
+}
 
-    const getSize = useCallback(() => {
-        return {
-            width: isClient ? window.innerWidth : undefined,
-            height: isClient ? window.innerHeight : undefined,
-        }
-    }, [isClient])
+let cachedSize: WindowSize = { width: undefined, height: undefined }
 
-    const [windowSize, setWindowSize] = useState(getSize)
+function getWindowSize(): WindowSize {
+    const width = window.innerWidth
+    const height = window.innerHeight
+    if (cachedSize.width !== width || cachedSize.height !== height) {
+        cachedSize = { width, height }
+    }
+    return cachedSize
+}
+
+const serverSnapshot: WindowSize = { width: undefined, height: undefined }
+
+function getServerSnapshot(): WindowSize {
+    return serverSnapshot
+}
+
+export function useWindowSize(options?: UseWindowSizeOptions): UseWindowSize {
+    const windowSize = useSyncExternalStore(subscribeToResize, getWindowSize, getServerSnapshot)
+    const widthOffset = options?.widthOffset ?? 0
 
     const isWindowLessThan = useCallback(
         (breakpoint: keyof typeof TAILWIND_BREAKPOINTS) =>
-            !!windowSize?.width && windowSize.width < TAILWIND_BREAKPOINTS[breakpoint],
-        [windowSize]
+            !!windowSize?.width && windowSize.width - widthOffset < TAILWIND_BREAKPOINTS[breakpoint],
+        [windowSize, widthOffset]
     )
-
-    useOnMountEffect(() => {
-        if (!isClient) {
-            return
-        }
-
-        function handleResize(): void {
-            const size = getSize()
-            setWindowSize(size)
-        }
-
-        window.addEventListener('resize', handleResize)
-        return () => window.removeEventListener('resize', handleResize)
-    })
 
     return { windowSize, isWindowLessThan }
 }

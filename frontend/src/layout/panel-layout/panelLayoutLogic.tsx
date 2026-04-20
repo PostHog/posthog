@@ -14,7 +14,9 @@ export type PanelLayoutNavIdentifier =
     | 'Games'
     | 'Shortcuts'
     | 'DataManagement'
-    | 'Database'
+    | 'DataAndPeople'
+    | 'Chat'
+export type NavExperimentTab = 'home' | 'chat'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
@@ -29,7 +31,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         closePanel: true,
         showLayoutNavBar: (visible: boolean) => ({ visible }),
         showLayoutPanel: (visible: boolean) => ({ visible }),
-        toggleLayoutPanelPinned: (pinned: boolean) => ({ pinned }),
         // TODO: This is a temporary action to set the active navbar item
         // We should remove this once we have a proper way to handle the navbar item
         setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => ({ identifier }),
@@ -43,6 +44,9 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setPanelWillHide: (willHide: boolean) => ({ willHide }),
         resetPanelLayout: (keyboardAction: boolean) => ({ keyboardAction }),
         setMainContentRect: (rect: DOMRect) => ({ rect }),
+        setSidePanelWidth: (width: number) => ({ width }),
+        toggleNavSection: (section: string) => ({ section }),
+        setNavExperimentTab: (tab: NavExperimentTab) => ({ tab }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -64,7 +68,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             true,
             {
                 showLayoutPanel: () => true,
-                toggleLayoutPanelPinned: () => false,
             },
         ],
         isLayoutNavbarVisible: [
@@ -76,21 +79,14 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         isLayoutPanelVisible: [
             false,
-            { persist: true },
+            { persist: true, prefix: '2', separator: '.' },
             {
                 showLayoutPanel: (_, { visible }) => visible,
             },
         ],
-        isLayoutPanelPinned: [
-            false,
-            { persist: true },
-            {
-                toggleLayoutPanelPinned: (_, { pinned }) => pinned,
-            },
-        ],
         activePanelIdentifier: [
             '',
-            { persist: true },
+            { persist: true, prefix: '2', separator: '.' },
             {
                 setActivePanelIdentifier: (_, { identifier }) => identifier,
                 clearActivePanelIdentifier: () => '',
@@ -147,6 +143,29 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 setMainContentRect: (_, { rect }) => rect,
             },
         ],
+        sidePanelWidth: [
+            0,
+            {
+                setSidePanelWidth: (_, { width }) => width,
+            },
+        ],
+        navExperimentActiveTab: [
+            'home' as NavExperimentTab,
+            { persist: true },
+            {
+                setNavExperimentTab: (_, { tab }) => tab,
+            },
+        ],
+        expandedNavSections: [
+            { ai: true, project: true, files: true, favorites: false, apps: true } as Record<string, boolean>,
+            { persist: true },
+            {
+                toggleNavSection: (state, { section }) => ({
+                    ...state,
+                    [section]: !state[section],
+                }),
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         closePanel: () => {
@@ -162,11 +181,9 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             }
         },
         resetPanelLayout: ({ keyboardAction = false }) => {
-            // Hide the panel if it's not pinned and clear active panel identifier
-            if (!values.isLayoutPanelPinned) {
-                actions.clearActivePanelIdentifier()
-                actions.showLayoutPanel(false)
-            }
+            // Hide the panel and clear active panel identifier
+            actions.clearActivePanelIdentifier()
+            actions.showLayoutPanel(false)
             // Hide the navbar if it's mobile and navbar is visible (which is an overlay on mobile)
             if (values.mobileLayout && values.isLayoutNavbarVisible) {
                 actions.showLayoutNavBar(false)
@@ -184,12 +201,16 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 // Set up new ResizeObserver for the new container
                 if (typeof ResizeObserver !== 'undefined') {
                     cache.disposables.add(() => {
+                        // ref.current may be null when disposable resumes after visibility change
+                        if (!ref.current) {
+                            return () => {}
+                        }
                         const observer = new ResizeObserver(() => {
                             if (ref?.current) {
                                 actions.setMainContentRect(ref.current.getBoundingClientRect())
                             }
                         })
-                        observer.observe(ref.current!)
+                        observer.observe(ref.current)
                         return () => observer.disconnect()
                     }, 'resizeObserver')
                 }
@@ -212,6 +233,23 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
 
                 if (cleanPath === '/persons' || cleanPath === '/cohorts' || cleanPath.startsWith('/groups/')) {
                     return 'People'
+                }
+
+                return ''
+            },
+        ],
+        activePanelIdentifierFromUrlAiFirst: [
+            () => [router.selectors.location],
+            (location): PanelLayoutNavIdentifier | '' => {
+                const cleanPath = removeProjectIdIfPresent(location.pathname)
+
+                if (
+                    cleanPath.startsWith('/data-management/') ||
+                    cleanPath === '/persons' ||
+                    cleanPath === '/cohorts' ||
+                    cleanPath.startsWith('/groups/')
+                ) {
+                    return 'DataAndPeople'
                 }
 
                 return ''

@@ -5,8 +5,8 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -26,8 +26,6 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
             return 'Collections'
         case ReplayTabs.Templates:
             return 'What to watch'
-        case ReplayTabs.Settings:
-            return 'Settings'
         default:
             return capitalizeFirstLetter(tab)
     }

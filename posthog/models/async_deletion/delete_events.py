@@ -129,6 +129,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
     def _verify_by_column(self, distinct_columns: str, async_deletions: list[AsyncDeletion]) -> set[tuple[Any, ...]]:
         conditions, args = self._conditions(async_deletions)
+        # nosemgrep: clickhouse-fstring-param-audit - distinct_columns hardcoded, conditions internal
         clickhouse_result = sync_execute(
             f"""
             SELECT DISTINCT {distinct_columns}

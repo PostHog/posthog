@@ -75,7 +75,5 @@ class Command(BaseCommand):
         # Output summary
         duration = time.time() - start_time
         self.stdout.write(
-            self.style.SUCCESS(
-                f"Update completed in {duration:.2f}s. " f"Found: {total_found}, " f"Updated: {updated_count}, "
-            )
+            self.style.SUCCESS(f"Update completed in {duration:.2f}s. Found: {total_found}, Updated: {updated_count}, ")
         )

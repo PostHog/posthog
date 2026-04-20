@@ -86,6 +86,17 @@ class QueryDateRange:
             # we can't support multiple week intervals without breaking backwards compatibility
             raise ValueError("IntervalType.WEEK cannot be used with interval_count > 1")
 
+    def pin_now(self, now: datetime) -> None:
+        """Replace the _now_ used by date computations (e.g. to match a materialized
+        snapshot time instead of request time).
+
+        Must be called before any date property is read — otherwise cached values
+        would be stale. Raises ``RuntimeError`` if that happens.
+        """
+        if "now_with_timezone" in self.__dict__:
+            raise RuntimeError("pin_now() called after now_with_timezone was already cached")
+        self._now_without_timezone = now
+
     def date_to(self) -> datetime:
         date_to = self.now_with_timezone
         delta_mapping = None
@@ -96,6 +107,7 @@ class QueryDateRange:
                 self._timezone_info,
                 always_truncate=False,
                 now=self.now_with_timezone,
+                team_week_start_day=self._team.week_start_day,
             )
         elif self._exact_timerange:
             return date_to
@@ -131,6 +143,7 @@ class QueryDateRange:
                 # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
                 # when we look at graphs by minute (last hour or last three hours), don't truncate
                 always_truncate=not (self.interval_name in ("second", "minute") or self._exact_timerange),
+                team_week_start_day=self._team.week_start_day,
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -451,8 +464,8 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
         return date_to
 
-    def get_start_of_interval_hogql(self, *, source: ast.Expr = None) -> ast.Expr:
-        trunc_func = get_trunc_func_ch(self._interval.name.lower())
+    def get_start_of_interval_hogql(self, *, source: ast.Expr | None = None) -> ast.Expr:
+        trunc_func = get_trunc_func_ch(self.interval_type.name.lower())
         trunc_func_args = [source] if source else [ast.Constant(value=self.date_from())]
         if trunc_func == "toStartOfWeek":
             trunc_func_args.append(

@@ -1,0 +1,542 @@
+{
+    "id": "019cd30c-1652-0000-5ef1-980212d928fc",
+    "name": "Send congrats for a milestone reached",
+    "description": "Celebrate when users reach an important milestone in your product and encourage them to keep going. This can be when they: create a new project, workflow, complete a task, generate a report, etc.",
+    "version": 1,
+    "created_at": "2026-03-09T14:41:50.674613Z",
+    "created_by": {
+        "id": 310726,
+        "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+        "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+        "first_name": "Sara",
+        "last_name": "Miteva",
+        "email": "sara@posthog.com",
+        "is_email_verified": true,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "updated_at": "2026-03-09T14:44:05.540256Z",
+    "trigger": {
+        "type": "event",
+        "filters": {}
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "bytecode": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "exit_node",
+            "from": "action_function_email_2eebc858-f38e-4167-b0f7-cd2d7d030e91",
+            "type": "continue"
+        },
+        {
+            "to": "action_delay_bf518294-3455-4c47-97c0-1bb473be8e87",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "action_function_email_2eebc858-f38e-4167-b0f7-cd2d7d030e91",
+            "from": "action_delay_bf518294-3455-4c47-97c0-1bb473be8e87",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Milestone reached",
+            "description": "Add the event that marks the key milestone.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {}
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_2eebc858-f38e-4167-b0f7-cd2d7d030e91",
+            "name": "Celebrate milestone",
+            "description": "Send a congrats email to the user.",
+            "on_error": null,
+            "created_at": 1773067400983,
+            "updated_at": 1773067400983,
+            "type": "function_email",
+            "config": {
+                "template_id": "template-email",
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  \n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } #u_body a { color: #000000; text-decoration: underline; }\n    </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #ffffff;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" id=\"u_body\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #ffffff;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #ffffff;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n  <tr>\n    <td style=\"padding-right: 0px;padding-left: 0px;\" align=\"center\">\n      \n      <img align=\"center\" border=\"0\" src=\"https://assets.unlayer.com/projects/0/1744132370840-unnamed.png?w=960px\" alt=\"\" title=\"\" style=\"outline: none;text-decoration: none;-ms-interpolation-mode: bicubic;clear: both;display: inline-block !important;border: none;height: auto;float: none;width: 100%;max-width: 480px;\" width=\"480\"/>\n      \n    </td>\n  </tr>\n</table>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n  <tr>\n    <td style=\"padding-right: 0px;padding-left: 0px;\" align=\"center\">\n      \n      <img align=\"center\" border=\"0\" src=\"https://assets.unlayer.com/projects/275430/1773067522697-Template%20cover%20(5).jpg?w=960px\" alt=\"\" title=\"\" style=\"outline: none;text-decoration: none;-ms-interpolation-mode: bicubic;clear: both;display: inline-block !important;border: none;height: auto;float: none;width: 100%;max-width: 480px;\" width=\"480\"/>\n      \n    </td>\n  </tr>\n</table>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n  <!--[if mso]><table role=\"presentation\" width=\"100%\"><tr><td><![endif]-->\n    <h1 style=\"margin: 0px; color: #555555; line-height: 140%; text-align: center; word-wrap: break-word; font-family: trebuchet ms,geneva; font-size: 22px; font-weight: 400;\"><strong>Small celebration moment</strong></h1>\n  <!--[if mso]></td></tr></table><![endif]-->\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; color: #555555; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Nice work &ndash; you just hit a milestone. Moments like this are usually where things start to get interesting. Most teams discover new ways to use the product once they get past the first few steps.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If you&rsquo;re curious, this might be a good time to try something slightly more advanced. </p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Either way, congrats on the progress.</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n  <table role=\"presentation\" aria-label=\"divider\" height=\"0px\" align=\"center\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;border-top: 1px solid #BBBBBB;-ms-text-size-adjust: 100%;-webkit-text-size-adjust: 100%\">\n    <tbody>\n      <tr style=\"vertical-align: top\">\n        <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top;font-size: 0px;line-height: 0px;mso-line-height-rule: exactly;-ms-text-size-adjust: 100%;-webkit-text-size-adjust: 100%\">\n          <span>&#160;</span>\n        </td>\n      </tr>\n    </tbody>\n  </table>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n  <div style=\"font-family: trebuchet ms,geneva; font-size: 14px; color: #555555; line-height: 140%; text-align: center; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">p.s. This email was sent with <strong><a rel=\"noopener\" href=\"https://app.posthog.com/workflows\" target=\"_blank\">PostHog Workflows</a></strong>! 🦔</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        <p style=\"text-align: center;\"><span style=\"font-size: 12px; color: rgb(85, 85, 85);\">Boring, legal bit: We're at 2261 Market Street #4008, CA 94114. Unsubscribe?</span></p>\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n<div align=\"center\" style=\"direction: ltr;\" aria-label=\"social\">\n  <div style=\"display: table; max-width:-5px;\">\n  <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"-5\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"border-collapse:collapse;\" align=\"center\"><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse; mso-table-lspace: 0pt;mso-table-rspace: 0pt; width:-5px;\"><tr><![endif]-->\n  \n    \n    \n    <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n  </div>\n</div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "text": "Small celebration moment\nNice work – you just hit a milestone. Moments like this are usually where\nthings start to get interesting. Most teams discover new ways to use the product\nonce they get past the first few steps.\n\nIf you’re curious, this might be a good time to try something slightly more\nadvanced.\n\nEither way, congrats on the progress.\n\np.s. This email was sent with\n\n[PostHog Workflows]\nhttps://app.posthog.com/workflows\n\n! 🦔\n\nBoring, legal bit: We're at 2261 Market Street #4008, CA 94114. Unsubscribe?",
+                            "replyTo": "",
+                            "subject": "Small celebration moment 🎉",
+                            "preheader": "",
+                            "design": {
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 3,
+                                    "u_content_image": 2,
+                                    "u_content_button": 2,
+                                    "u_content_social": 1,
+                                    "u_content_divider": 1,
+                                    "u_content_heading": 2,
+                                    "u_content_custom_unsubscribe_link": 1
+                                },
+                                "body": {
+                                    "id": "TlJ2GekAva",
+                                    "rows": [
+                                        {
+                                            "id": "-sL7LJ6rhD",
+                                            "cells": [1],
+                                            "columns": [
+                                                {
+                                                    "id": "IT_J8vPWTn",
+                                                    "contents": [
+                                                        {
+                                                            "id": "qofM9mV3d9",
+                                                            "type": "image",
+                                                            "values": {
+                                                                "containerPadding": "10px",
+                                                                "anchor": "",
+                                                                "src": {
+                                                                    "url": "https://assets.unlayer.com/projects/0/1744132370840-unnamed.png",
+                                                                    "width": 1224,
+                                                                    "height": 128,
+                                                                    "size": 15244,
+                                                                    "dynamic": true,
+                                                                    "contentType": "image/png"
+                                                                },
+                                                                "textAlign": "center",
+                                                                "altText": "",
+                                                                "action": {
+                                                                    "name": "web",
+                                                                    "values": {
+                                                                        "href": "",
+                                                                        "target": "_blank"
+                                                                    }
+                                                                },
+                                                                "hideDesktop": false,
+                                                                "displayCondition": null,
+                                                                "_styleGuide": null,
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_image_1",
+                                                                    "htmlClassNames": "u_content_image"
+                                                                },
+                                                                "selectable": true,
+                                                                "draggable": true,
+                                                                "duplicatable": true,
+                                                                "deletable": true,
+                                                                "hideable": true,
+                                                                "locked": false,
+                                                                "pending": false
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "kNKkrtK_YU",
+                                                            "type": "image",
+                                                            "values": {
+                                                                "containerPadding": "10px",
+                                                                "anchor": "",
+                                                                "src": {
+                                                                    "url": "https://assets.unlayer.com/projects/275430/1773067522697-Template%20cover%20(5).jpg",
+                                                                    "width": 1920,
+                                                                    "height": 1080,
+                                                                    "id": 37926357,
+                                                                    "size": 438239,
+                                                                    "dynamic": true,
+                                                                    "filename": "Template cover (5).jpg",
+                                                                    "maxWidth": "100%",
+                                                                    "autoWidth": true,
+                                                                    "contentType": "image/jpeg"
+                                                                },
+                                                                "textAlign": "center",
+                                                                "altText": "",
+                                                                "action": {
+                                                                    "name": "web",
+                                                                    "values": {
+                                                                        "href": "",
+                                                                        "target": "_blank"
+                                                                    }
+                                                                },
+                                                                "hideDesktop": false,
+                                                                "displayCondition": null,
+                                                                "_styleGuide": null,
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_image_2",
+                                                                    "htmlClassNames": "u_content_image"
+                                                                },
+                                                                "selectable": true,
+                                                                "draggable": true,
+                                                                "duplicatable": true,
+                                                                "deletable": true,
+                                                                "hideable": true,
+                                                                "locked": false,
+                                                                "pending": false
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "JiIVAlg2uz",
+                                                            "type": "heading",
+                                                            "values": {
+                                                                "containerPadding": "10px",
+                                                                "anchor": "",
+                                                                "headingType": "h1",
+                                                                "fontFamily": {
+                                                                    "url": "",
+                                                                    "label": "Trebuchet MS",
+                                                                    "value": "trebuchet ms,geneva",
+                                                                    "weights": null,
+                                                                    "defaultFont": true
+                                                                },
+                                                                "fontSize": "22px",
+                                                                "color": "#555555",
+                                                                "textAlign": "center",
+                                                                "lineHeight": "140%",
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "hideDesktop": false,
+                                                                "displayCondition": null,
+                                                                "_styleGuide": null,
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_heading_1",
+                                                                    "htmlClassNames": "u_content_heading"
+                                                                },
+                                                                "selectable": true,
+                                                                "draggable": true,
+                                                                "duplicatable": true,
+                                                                "deletable": true,
+                                                                "hideable": true,
+                                                                "locked": false,
+                                                                "textJson": "{\"root\":{\"children\":[{\"children\":[{\"detail\":0,\"format\":0,\"mode\":\"normal\",\"style\":\"\",\"text\":\"Heading\",\"type\":\"extended-text\",\"version\":1}],\"format\":\"\",\"indent\":0,\"type\":\"heading-paragraph\",\"version\":1,\"textFormat\":0,\"textStyle\":\"\"}],\"format\":\"\",\"indent\":0,\"type\":\"root\",\"version\":1}}",
+                                                                "text": "<strong>Small celebration moment</strong>",
+                                                                "_languages": {}
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "_IgTaKHuTl",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "containerPadding": "10px",
+                                                                "anchor": "",
+                                                                "fontSize": "14px",
+                                                                "color": "#555555",
+                                                                "textAlign": "left",
+                                                                "lineHeight": "140%",
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "hideDesktop": false,
+                                                                "displayCondition": null,
+                                                                "_styleGuide": null,
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_2",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "selectable": true,
+                                                                "draggable": true,
+                                                                "duplicatable": true,
+                                                                "deletable": true,
+                                                                "hideable": true,
+                                                                "locked": false,
+                                                                "text": "<p style=\"line-height: 140%;\">Nice work &ndash; you just hit a milestone. Moments like this are usually where things start to get interesting. Most teams discover new ways to use the product once they get past the first few steps.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If you&rsquo;re curious, this might be a good time to try something slightly more advanced.&nbsp;</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Either way, congrats on the progress.</p>",
+                                                                "_languages": {}
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "tGhCekKfD6",
+                                                            "type": "divider",
+                                                            "values": {
+                                                                "width": "100%",
+                                                                "border": {
+                                                                    "borderTopWidth": "1px",
+                                                                    "borderTopStyle": "solid",
+                                                                    "borderTopColor": "#BBBBBB"
+                                                                },
+                                                                "textAlign": "center",
+                                                                "containerPadding": "10px",
+                                                                "anchor": "",
+                                                                "hideDesktop": false,
+                                                                "displayCondition": null,
+                                                                "_styleGuide": null,
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_divider_1",
+                                                                    "htmlClassNames": "u_content_divider"
+                                                                },
+                                                                "selectable": true,
+                                                                "draggable": true,
+                                                                "duplicatable": true,
+                                                                "deletable": true,
+                                                                "hideable": true,
+                                                                "locked": false
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "WNwt-dJknl",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "containerPadding": "10px",
+                                                                "anchor": "",
+                                                                "fontFamily": {
+                                                                    "url": "",
+                                                                    "label": "Trebuchet MS",
+                                                                    "value": "trebuchet ms,geneva",
+                                                                    "weights": null,
+                                                                    "defaultFont": true
+                                                                },
+                                                                "fontSize": "14px",
+                                                                "color": "#555555",
+                                                                "textAlign": "center",
+                                                                "lineHeight": "140%",
+                                                                "linkStyle": {
+                                                                    "inherit": false,
+                                                                    "linkColor": "#000000",
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverUnderline": true,
+                                                                    "body": false
+                                                                },
+                                                                "hideDesktop": false,
+                                                                "displayCondition": null,
+                                                                "_styleGuide": null,
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_3",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "selectable": true,
+                                                                "draggable": true,
+                                                                "duplicatable": true,
+                                                                "deletable": true,
+                                                                "hideable": true,
+                                                                "locked": false,
+                                                                "text": "<p style=\"line-height: 140%;\">p.s. This email was sent with&nbsp;<strong><a rel=\"noopener\" href=\"https://app.posthog.com/workflows\" target=\"_blank\" data-u-link-value=\"eyJuYW1lIjoid2ViIiwiYXR0cnMiOnsiaHJlZiI6Int7aHJlZn19IiwidGFyZ2V0Ijoie3t0YXJnZXR9fSJ9LCJ2YWx1ZXMiOnsiaHJlZiI6Imh0dHBzOi8vYXBwLnBvc3Rob2cuY29tL3dvcmtmbG93cyIsInRhcmdldCI6Il9ibGFuayJ9fQ==\">PostHog Workflows</a></strong>! 🦔</p>",
+                                                                "_languages": {}
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "EK1fUWH3Ow",
+                                                            "type": "custom",
+                                                            "slug": "unsubscribe_link",
+                                                            "values": {
+                                                                "displayCondition": null,
+                                                                "_styleGuide": null,
+                                                                "containerPadding": "10px",
+                                                                "anchor": "",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_custom_unsubscribe_link_1",
+                                                                    "htmlClassNames": "u_content_custom_unsubscribe_link"
+                                                                },
+                                                                "selectable": true,
+                                                                "draggable": true,
+                                                                "duplicatable": true,
+                                                                "deletable": true,
+                                                                "hideable": true,
+                                                                "locked": false,
+                                                                "unsubscribe_link_content": "<p style=\"text-align: center;\"><span style=\"font-size: 12px; color: rgb(85, 85, 85);\">Boring, legal bit: We're at 2261 Market Street #4008, CA 94114. Unsubscribe?</span></p>"
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "FML4rsWoO6",
+                                                            "type": "social",
+                                                            "values": {
+                                                                "containerPadding": "10px",
+                                                                "anchor": "",
+                                                                "icons": {
+                                                                    "iconType": "circle",
+                                                                    "icons": []
+                                                                },
+                                                                "align": "center",
+                                                                "iconSize": 32,
+                                                                "spacing": 5,
+                                                                "hideDesktop": false,
+                                                                "displayCondition": null,
+                                                                "_styleGuide": null,
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_social_1",
+                                                                    "htmlClassNames": "u_content_social"
+                                                                },
+                                                                "selectable": true,
+                                                                "draggable": true,
+                                                                "duplicatable": true,
+                                                                "deletable": true,
+                                                                "hideable": true,
+                                                                "locked": false
+                                                            }
+                                                        }
+                                                    ],
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    }
+                                                }
+                                            ],
+                                            "values": {
+                                                "displayCondition": null,
+                                                "columns": false,
+                                                "_styleGuide": null,
+                                                "backgroundColor": "",
+                                                "columnsBackgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "fullWidth": true,
+                                                    "repeat": "no-repeat",
+                                                    "size": "custom",
+                                                    "position": "center",
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "padding": "0px",
+                                                "anchor": "",
+                                                "hideDesktop": false,
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "selectable": true,
+                                                "draggable": true,
+                                                "duplicatable": true,
+                                                "deletable": true,
+                                                "hideable": true,
+                                                "locked": false
+                                            }
+                                        }
+                                    ],
+                                    "headers": [],
+                                    "footers": [],
+                                    "values": {
+                                        "_styleGuide": null,
+                                        "popupPosition": "center",
+                                        "popupDisplayDelay": 0,
+                                        "popupWidth": "600px",
+                                        "popupHeight": "auto",
+                                        "borderRadius": "10px",
+                                        "contentAlign": "center",
+                                        "contentVerticalAlign": "center",
+                                        "contentWidth": "500px",
+                                        "fontFamily": {
+                                            "label": "Trebuchet MS",
+                                            "value": "trebuchet ms,geneva",
+                                            "url": "",
+                                            "weights": null,
+                                            "defaultFont": true
+                                        },
+                                        "textColor": "#000000",
+                                        "popupBackgroundColor": "#FFFFFF",
+                                        "popupBackgroundImage": {
+                                            "url": "",
+                                            "fullWidth": true,
+                                            "repeat": "no-repeat",
+                                            "size": "cover",
+                                            "position": "center"
+                                        },
+                                        "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                                        "popupCloseButton_position": "top-right",
+                                        "popupCloseButton_backgroundColor": "#DDDDDD",
+                                        "popupCloseButton_iconColor": "#000000",
+                                        "popupCloseButton_borderRadius": "0px",
+                                        "popupCloseButton_margin": "0px",
+                                        "popupCloseButton_action": {
+                                            "name": "close_popup",
+                                            "attrs": {
+                                                "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                                            }
+                                        },
+                                        "language": {},
+                                        "backgroundColor": "#ffffff",
+                                        "preheaderText": "",
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#000000",
+                                            "linkHoverColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverUnderline": true,
+                                            "inherit": false
+                                        },
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "fullWidth": true,
+                                            "repeat": "no-repeat",
+                                            "size": "custom",
+                                            "position": "center"
+                                        },
+                                        "accessibilityTitle": "",
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        }
+                                    }
+                                },
+                                "schemaVersion": 23
+                            }
+                        },
+                        "templating": "liquid"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_bf518294-3455-4c47-97c0-1bb473be8e87",
+            "name": "Delay",
+            "description": "Wait for 2 days.",
+            "on_error": null,
+            "created_at": 1773067409061,
+            "updated_at": 1773067409061,
+            "type": "delay",
+            "config": {
+                "delay_duration": "2d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function_email"],
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_5_012dbe0114.jpg",
+    "tags": ["milestone", "email", "messaging"],
+    "scope": "global"
+}

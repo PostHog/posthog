@@ -11,7 +11,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -43,6 +42,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             self.modifiers
             and self.modifiers.useWebAnalyticsPreAggregatedTables
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
+            and not self.query.conversionGoal
         )
 
         if not should_use_preaggregated:
@@ -117,12 +117,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
                 to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
             ]
 
-        if self.query.includeRevenue:
-            if self.query.conversionGoal:
-                results.append(to_data("conversion revenue", "currency", row[8], get_prev_val(9, False)))
-            else:
-                results.append(to_data("revenue", "currency", row[10], get_prev_val(11, False)))
-
         return WebOverviewQueryResponse(
             results=results,
             samplingRate=self._sample_rate,
@@ -189,11 +183,6 @@ HAVING {inside_start_timestamp_period}
         if self.conversion_count_expr and self.conversion_person_id_expr:
             parsed_select.select.append(ast.Alias(alias="conversion_count", expr=self.conversion_count_expr))
             parsed_select.select.append(ast.Alias(alias="conversion_person_id", expr=self.conversion_person_id_expr))
-            if self.query.includeRevenue:
-                parsed_select.select.append(
-                    ast.Alias(alias="session_conversion_revenue", expr=self.conversion_revenue_expr)
-                )
-
         else:
             parsed_select.select.append(
                 ast.Alias(
@@ -207,13 +196,6 @@ HAVING {inside_start_timestamp_period}
                     alias="is_bounce", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$is_bounce"])])
                 )
             )
-            if self.query.includeRevenue:
-                parsed_select.select.append(
-                    ast.Alias(
-                        alias="session_revenue",
-                        expr=revenue_sum_expression_for_events(self.team),
-                    )
-                )
 
         return parsed_select
 
@@ -308,19 +290,12 @@ HAVING {inside_start_timestamp_period}
             )
 
             select.extend([conversion_rate, previous_conversion_rate])
-
-            if self.query.includeRevenue:
-                select.extend(metric_pair("sum", "session_conversion_revenue", "conversion_revenue"))
-
         else:
             select.extend(metric_pair("uniq", "session_person_id", "unique_users"))
             select.extend(metric_pair("sum", "filtered_pageview_count", "total_filtered_pageview_count"))
             select.extend(metric_pair("uniq", "session_id", "unique_sessions"))
             select.extend(metric_pair("avg", "session_duration", "avg_duration_s"))
             select.extend(metric_pair("avg", "is_bounce", "bounce_rate"))
-
-            if self.query.includeRevenue:
-                select.extend(metric_pair("sum", "session_revenue", "revenue"))
 
         return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
 

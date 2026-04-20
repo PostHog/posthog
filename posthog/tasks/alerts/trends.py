@@ -1,5 +1,7 @@
 from typing import NotRequired, Optional, TypedDict, cast
 
+import numpy as np
+
 from posthog.schema import (
     AlertCondition,
     AlertConditionType,
@@ -14,6 +16,7 @@ from posthog.schema import (
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.fetch_from_cache import InsightResult
+from posthog.event_usage import EventSource
 from posthog.models import AlertConfiguration, Insight
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES, AlertEvaluationResult
 
@@ -38,6 +41,28 @@ class TrendResult(TypedDict):
     filter: dict
 
 
+def _is_empty_query_result(
+    calculation_result: InsightResult,
+    alert: AlertConfiguration,
+    bounds: InsightsThresholdBounds,
+    threshold_type: InsightThresholdType,
+    condition: AlertCondition,
+    interval_type: IntervalType | None,
+) -> AlertEvaluationResult | None:
+    # is None -> Indicates that the query layer swallowed a legitimate error, in this case we still want
+    # to raise an exception to avoid mis-fires of the alert.
+    if calculation_result.result is None:
+        raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+
+    # For other "empty" cases we assume that they had no legitimate results and as a result will treat it as a 0 value
+    # in terms of alerting. See: https://github.com/PostHog/posthog/pull/48701
+    if not calculation_result.result:
+        breaches = _breach_messages(bounds, 0, threshold_type, condition.type, interval_type, "empty result")
+        return AlertEvaluationResult(value=0, breaches=breaches)
+
+    return None
+
+
 def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: TrendsQuery) -> AlertEvaluationResult:
     """
     Calculates insight value for the needed time periods and compares it with the threshold.
@@ -50,10 +75,10 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     So then we check current interval value first and alert if threshold breached, otherwise fallback and process previous interval.
     """
 
-    if "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
+    if alert.config and "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
         config = TrendsAlertConfig.model_validate(alert.config)
     else:
-        ValueError(f"Unsupported alert config type: {alert.config}")
+        raise ValueError(f"Unsupported alert config type: {alert.config}")
 
     condition = AlertCondition.model_validate(alert.condition)
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
@@ -61,9 +86,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     if not threshold or not threshold.bounds:
         return AlertEvaluationResult(value=0, breaches=[])
 
-    has_breakdown = query.breakdownFilter and (
-        (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type) or query.breakdownFilter.breakdowns
-    )
+    has_breakdown = _has_breakdown(query)
     is_non_time_series = _is_non_time_series_trend(query)
     check_current_interval = config.check_ongoing_interval
 
@@ -94,12 +117,15 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 execution_mode=execution_mode,
                 user=None,
                 filters_override=filters_override,
+                analytics_props={"source": EventSource.ALERT},
             )
 
-            if not calculation_result.result:
-                raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
-
             interval = query.interval if not is_non_time_series else None
+
+            if no_result_evaluation := _is_empty_query_result(
+                calculation_result, alert, threshold.bounds, threshold.type, condition, interval
+            ):
+                return no_result_evaluation
 
             if check_current_interval and threshold.bounds.upper is None:
                 # checking for value > X so we can also check current interval value
@@ -109,7 +135,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
             if has_breakdown:
                 # for breakdowns, we need to check all values in calculation_result.result
-                breakdown_results = calculation_result.result
+                breakdown_results = cast(list[TrendResult], calculation_result.result)
 
                 for breakdown_result in breakdown_results:
                     if check_current_interval or is_non_time_series:
@@ -185,7 +211,13 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 execution_mode=execution_mode,
                 user=None,
                 filters_override=filters_overrides,
+                analytics_props={"source": EventSource.ALERT},
             )
+
+            if no_result_evaluation := _is_empty_query_result(
+                calculation_result, alert, threshold.bounds, threshold.type, condition, query.interval
+            ):
+                return no_result_evaluation
 
             results_to_evaluate: list[TrendResult] = []
 
@@ -197,9 +229,6 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 # for non breakdowns, we pick the series (config.series_index) from calculation_result.result
                 selected_series_result = _pick_series_result(config, calculation_result)
                 results_to_evaluate.append(selected_series_result)
-
-            if not results_to_evaluate:
-                raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
 
             # if we don't have breakdown, we'll have to evaluate just one result
             # and increase will be the evaluated value of that result
@@ -292,21 +321,24 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                 execution_mode=execution_mode,
                 user=None,
                 filters_override=filters_overrides,
+                analytics_props={"source": EventSource.ALERT},
             )
+
+            if no_result_evaluation := _is_empty_query_result(
+                calculation_result, alert, threshold.bounds, threshold.type, condition, query.interval
+            ):
+                return no_result_evaluation
 
             results_to_evaluate = []
 
             if has_breakdown:
                 # for breakdowns, we need to check all values in calculation_result.result
-                breakdown_results = calculation_result.result
+                breakdown_results = cast(list[TrendResult], calculation_result.result)
                 results_to_evaluate.extend(breakdown_results)
             else:
                 # for non breakdowns, we pick the series (config.series_index) from calculation_result.result
                 selected_series_result = _pick_series_result(config, calculation_result)
                 results_to_evaluate.append(selected_series_result)
-
-                # for non breakdowns, we pick the series (config.series_index) from calculation_result.result
-                selected_series_result = _pick_series_result(config, calculation_result)
 
             # if we don't have breakdown, we'll have to evaluate just one result
             # and increase will be the evaluated value of that result
@@ -351,6 +383,32 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
 def _is_non_time_series_trend(query: TrendsQuery) -> bool:
     return bool(query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES)
+
+
+def _drop_incomplete_current_interval(
+    data: np.ndarray, dates: list[str], is_non_time_series: bool
+) -> tuple[np.ndarray, list[str]]:
+    """Drop the current (incomplete) interval — always the last element.
+
+    The query does not set date_to, so the result includes the ongoing
+    interval whose value is still accumulating.  Comparing this partial
+    value against complete historical intervals causes systematic false
+    positives.
+    """
+    if not is_non_time_series and len(data) > 1:
+        data = data[:-1]
+        dates = dates[:-1] if dates else dates
+    return data, dates
+
+
+def _has_breakdown(query: TrendsQuery) -> bool:
+    return bool(
+        query.breakdownFilter
+        and (
+            (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type)
+            or query.breakdownFilter.breakdowns
+        )
+    )
 
 
 def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int = 1) -> Optional[dict]:

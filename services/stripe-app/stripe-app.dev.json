@@ -1,0 +1,15 @@
+{
+    "extends": "stripe-app.json",
+    "constants": {
+        "POSTHOG_US_BASE_URL": "http://localhost:8010",
+        "POSTHOG_EU_BASE_URL": "http://localhost:8010",
+        "POSTHOG_DASHBOARD_URL": "http://localhost:8010",
+        "POSTHOG_NEW_SOURCE_URL": "http://localhost:8010/data-warehouse/new-source?kind=Stripe"
+    },
+    "ui_extension": {
+        "content_security_policy": {
+            "connect-src": ["http://localhost:8010/api"],
+            "purpose": "Connect to local PostHog API to populate the UI with PostHog data"
+        }
+    }
+}

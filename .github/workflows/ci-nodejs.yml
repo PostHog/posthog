@@ -18,31 +18,35 @@ env:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-    # Job to decide if we should run plugin server ci
+    # Job to decide if we should run nodejs services ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run Node.js checks
+        permissions:
+            contents: read
+            pull-requests: read
         outputs:
-            nodejs: ${{ steps.filter.outputs.nodejs }}
+            nodejs: ${{ steps.filter.outputs.nodejs || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
 
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
-                        - 'plugin-server/**'
+                        - 'nodejs/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
@@ -53,64 +57,96 @@ jobs:
 
     lint:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Code quality
+        name: Node.js Code quality (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
+        timeout-minutes: 10
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22.17.1
+                  node-version-file: .nvmrc
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
               run: |
-                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/plugin-server prepare
+                  pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Check formatting with prettier
-              run: pnpm --filter=@posthog/plugin-server prettier:check
+              run: pnpm --filter=@posthog/nodejs format:check
 
             - name: Lint with ESLint
-              run: pnpm --filter=@posthog/plugin-server lint
+              run: pnpm --filter=@posthog/nodejs lint
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Build
+        name: Node.js Build (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
+        timeout-minutes: 10
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22.17.1
+                  node-version-file: .nvmrc
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
               run: |
-                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/plugin-server prepare
+                  pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Check builds correctly
-              run: pnpm --filter=@posthog/plugin-server build
+              run: pnpm --filter=@posthog/nodejs build
 
             - name: Sanity check output
               run: |
-                  cd plugin-server
+                  cd nodejs
                   # We expect it to fail but check that the error isn't "MODULE_NOT_FOUND"
                   if node dist/index.js 2>&1 | grep "MODULE_NOT_FOUND"; then
                       echo "❌ Build is invalid - failed with 'MODULE_NOT_FOUND' error"
@@ -121,15 +157,16 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests (${{matrix.shard}}/3)
+        name: Node.js Tests ${{matrix.shard}}/3 (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 30 # We know tests don't take this long
 
         strategy:
             fail-fast: false
             matrix:
-                shard: [1, 2, 3]
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"shard":1,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":2,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":3,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":1,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true},{"shard":2,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true},{"shard":3,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"shard":1,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":2,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":3,"runner":"depot-ubuntu-latest-4","is_shadow":false}]') }}
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -139,7 +176,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -149,30 +186,50 @@ jobs:
               continue-on-error: true
 
             - name: Stop/Start stack with Docker Compose
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: dev_tools,localstack
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  bin/ci-wait-for-docker launch --down
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: dev_tools,localstack
+              run: bin/ci-wait-for-docker wait
+
+            - name: Add service hostnames to /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
-                  version: 0.8.19
+                  cache-dependency-glob: uv.lock
+                  # Avoid cross-runner pollution: shadow restores but never saves
+                  save-cache: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  # Avoid cross-runner pollution: shadow restores but never saves
+                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
 
             - name: Install sqlx-cli
               working-directory: rust
@@ -189,35 +246,93 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22.17.1
+                  node-version-file: .nvmrc
                   cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Download MaxMind Database
               run: |
                   ./bin/download-mmdb
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
+              run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
-            - name: Wait for Clickhouse, Redis, Kafka
+            - name: Wait for Clickhouse, Redis, Kafka, Localstack
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
+
+            - name: Fetch base branch for diff
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.base_ref }}
+              run: git fetch origin "$BASE_REF" --depth=1
+
+            - name: Check for migrations in this PR
+              id: check_migrations
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.base_ref }}
               run: |
-                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse maildev -d --wait
-                  bin/check_kafka_clickhouse_up
+                  if git diff --name-only "origin/$BASE_REF..HEAD" | grep -E '(migrations/|rust/.*migrate)'; then
+                    echo "has_migrations=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "has_migrations=false" >> $GITHUB_OUTPUT
+                  fi
 
-            - name: Set up databases
+            - name: Set up databases (fast path - restore schema)
+              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Download pre-migrated schema from CI
+                  ./bin/hogli db:download-schema
 
-              run: pnpm --filter=@posthog/plugin-server setup:test
+                  # Create test databases
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
+
+                  # Restore schema to test database
+                  echo "Restoring schema to test_posthog database..."
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+                  echo "✅ Schema restored"
+
+                  # Run Rust migrations for test databases
+                  cd nodejs && pnpm run setup:test:rust
+
+                  # Create dedicated persons database for postgres-parity tests
+                  pnpm run setup:test:persons-parity
+
+                  # Set up ClickHouse test database and schema
+                  cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
+
+            - name: Set up databases (slow path - run migrations)
+              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
+              env:
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+              run: |
+                  pnpm --filter=@posthog/nodejs setup:test
+                  # Create dedicated persons database for postgres-parity tests
+                  cd nodejs && pnpm run setup:test:persons-parity
 
             - name: Test with Jest
               env:
@@ -226,13 +341,26 @@ jobs:
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
                   PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
-                  PERSONS_READONLY_MIGRATION_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
-              run: bin/turbo run test --filter=@posthog/plugin-server
+                  # Enable localstack integration tests for DynamoDB/KMS
+                  LOCALSTACK_ENABLED: '1'
+              run: bin/turbo run test --filter=@posthog/nodejs
+
+            - name: Test postgres-parity (isolated DB)
+              if: (success() || failure()) && matrix.shard == 1
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
+                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
+                  REDIS_URL: 'redis://localhost'
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+                  LOG_LEVEL: info
+              run: cd nodejs && pnpm run test:postgres-parity
 
             - name: Output logs on failure
               if: failure()
@@ -245,6 +373,7 @@ jobs:
         needs: [tests, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - run: exit 0

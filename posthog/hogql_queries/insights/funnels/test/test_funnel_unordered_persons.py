@@ -1,12 +1,40 @@
 from datetime import datetime
+from typing import Any, Optional, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from posthog.schema import FunnelsQuery
+
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.models import Team
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
+
+
+def get_actors_legacy_filters(
+    filters: dict[str, Any],
+    team: Team,
+    funnel_step: Optional[int] = None,
+    funnel_step_breakdown: Optional[str | float | list[str | float]] = None,
+    funnel_trends_drop_off: Optional[bool] = None,
+    funnel_trends_entrance_period_start: Optional[str] = None,
+    offset: Optional[int] = None,
+    include_recordings: bool = False,
+) -> list[list]:
+    funnels_query = cast(FunnelsQuery, filter_to_query(filters))
+    return get_actors(
+        funnels_query,
+        team,
+        funnel_step,
+        funnel_step_breakdown,
+        funnel_trends_drop_off,
+        funnel_trends_entrance_period_start,
+        offset,
+        include_recordings,
+    )
 
 
 class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
@@ -46,13 +74,13 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         }
 
         with self.assertRaisesMessage(ValueError, "Input should be a valid integer"):
-            get_actors(filters, self.team, funnel_step="blah")  # type: ignore
+            get_actors_legacy_filters(filters, self.team, funnel_step="blah")  # type: ignore
 
         with self.assertRaisesMessage(ValueError, "Funnel steps are 1-indexed, so step 0 doesn't exist"):
-            get_actors(filters, self.team, funnel_step=0)
+            get_actors_legacy_filters(filters, self.team, funnel_step=0)
 
         with self.assertRaisesMessage(ValueError, "The first valid drop-off argument for funnelStep is -2"):
-            get_actors(filters, self.team, funnel_step=-1)
+            get_actors_legacy_filters(filters, self.team, funnel_step=-1)
 
     def test_first_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -70,7 +98,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=1)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=1)
 
         self.assertEqual(35, len(results))
 
@@ -90,7 +118,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=3)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=3)
 
         self.assertEqual(5, len(results))
 
@@ -110,7 +138,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=-2)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=-2)
 
         self.assertEqual(20, len(results))
 
@@ -130,6 +158,6 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnel_step=-3)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=-3)
 
         self.assertEqual(10, len(results))

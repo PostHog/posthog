@@ -1,0 +1,24 @@
+syntax = "proto3";
+package personhog.leader.v1;
+
+import "personhog/types/v1/person.proto";
+
+// Leader-specific get request that includes the partition for cache routing.
+message LeaderGetPersonRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  // The partition this person belongs to, computed by the router.
+  uint32 partition = 3;
+}
+
+// PersonHogLeader is the internal write API exposed by leader pods.
+// The router calls this service after hashing (team_id, person_id) to a
+// partition and resolving the owning pod via the coordination routing table.
+service PersonHogLeader {
+  // Apply property updates to a person. Merges $set, $set_once, and $unset
+  // diffs into the cached person state.
+  rpc UpdatePersonProperties(personhog.types.v1.UpdatePersonPropertiesRequest) returns (personhog.types.v1.UpdatePersonPropertiesResponse);
+
+  // Strong consistency read: returns the latest person state from the leader's cache.
+  rpc GetPerson(LeaderGetPersonRequest) returns (personhog.types.v1.GetPersonResponse);
+}

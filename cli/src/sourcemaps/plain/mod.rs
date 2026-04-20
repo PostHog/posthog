@@ -1,3 +1,4 @@
+use anyhow::Result;
 use clap::Subcommand;
 
 use crate::sourcemaps::{
@@ -41,11 +42,19 @@ pub struct ProcessArgs {
     pub batch_size: usize,
 }
 
+impl ProcessArgs {
+    /// Resolve stdin paths once so they can be shared between inject and upload.
+    pub fn resolve_stdin(mut self) -> Result<Self> {
+        self.file_selection = self.file_selection.resolve_stdin()?;
+        Ok(self)
+    }
+}
+
 impl From<ProcessArgs> for (InjectArgs, upload::Args) {
     fn from(args: ProcessArgs) -> Self {
         let inject_args = InjectArgs {
             file_selection: args.file_selection.clone(),
-            release: args.release,
+            release: args.release.clone(),
             public_path_prefix: args.public_path_prefix.clone(),
         };
         let upload_args = upload::Args {
@@ -54,8 +63,7 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             delete_after: args.delete_after,
             skip_ssl_verification: false,
             batch_size: args.batch_size,
-            project: None,
-            version: None,
+            release: args.release,
         };
 
         (inject_args, upload_args)

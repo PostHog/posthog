@@ -1,3 +1,4 @@
+import json
 import asyncio
 import logging
 from uuid import uuid4
@@ -7,20 +8,30 @@ from django.core.management.base import BaseCommand
 
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.temporal.ai import WORKFLOWS as AI_WORKFLOWS
+from posthog.temporal.ai import AI_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
+from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
-from posthog.temporal.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
-from posthog.temporal.enforce_max_replay_retention import WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+from posthog.temporal.dlq_replay import WORKFLOWS as DLQ_REPLAY_WORKFLOWS
+from posthog.temporal.event_screenshots import WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS
+from posthog.temporal.llm_analytics import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
+from posthog.temporal.session_replay.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.enforce_max_replay_retention import (
+    WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
+)
+from posthog.temporal.session_replay.export_recording import WORKFLOWS as EXPORT_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.import_recording import WORKFLOWS as IMPORT_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.rasterize_recording import WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
+from products.web_analytics.backend.temporal import WORKFLOWS as WA_DIGEST_WORKFLOWS
 
 
 class Command(BaseCommand):
@@ -70,7 +81,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--server-root-ca-cert",
-            default=settings.TEMPORAL_CLIENT_ROOT_CA,
+            default=None,
             help="Optional root server CA cert",
         )
         parser.add_argument(
@@ -126,6 +137,7 @@ class Command(BaseCommand):
         WORKFLOWS = (
             BATCH_EXPORT_WORKFLOWS
             + DATA_IMPORT_WORKFLOWS
+            + DLQ_REPLAY_WORKFLOWS
             + PROXY_SERVICE_WORKFLOWS
             + DELETE_PERSONS_WORKFLOWS
             + USAGE_REPORTS_WORKFLOWS
@@ -135,7 +147,14 @@ class Command(BaseCommand):
             + TEST_WORKFLOWS
             + DELETE_RECORDING_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+            + EXPORT_RECORDING_WORKFLOWS
+            + IMPORT_RECORDING_WORKFLOWS
             + WEEKLY_DIGEST_WORKFLOWS
+            + DATA_MODELING_WORKFLOWS
+            + LLM_ANALYTICS_WORKFLOWS
+            + EVENT_SCREENSHOTS_WORKFLOWS
+            + RASTERIZE_RECORDING_WORKFLOWS
+            + WA_DIGEST_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
@@ -157,4 +176,4 @@ class Command(BaseCommand):
                 retry_policy=retry_policy,
             )
         )
-        logging.info("Workflow output: %s", result)
+        logging.info("Workflow output:\n%s", json.dumps(result, indent=2, default=str))

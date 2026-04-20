@@ -1,8 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use axum::async_trait;
+use async_trait::async_trait;
 use base64::Engine;
-use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
+use posthog_symbol_data::{read_symbol_data_with_byte_count, write_symbol_data, SourceAndMap};
 use reqwest::Url;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-use super::{Fetcher, Parser};
+use super::{caching::Countable, dart_minified_names::parse_dart_minified_names, Fetcher, Parser};
 
 pub struct SourcemapProvider {
     pub client: reqwest::Client,
@@ -28,6 +28,11 @@ pub struct SourcemapProvider {
 #[derive(Debug)]
 pub struct OwnedSourceMapCache {
     data: Vec<u8>,
+    /// dart2js minified names mapping (minified -> original) for Flutter Web support.
+    /// Parsed from the x_org_dartlang_dart2js.minified_names.global extension.
+    dart_minified_names: Option<HashMap<String, String>>,
+    /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
+    decompressed_bytes: usize,
 }
 
 impl OwnedSourceMapCache {
@@ -35,21 +40,46 @@ impl OwnedSourceMapCache {
         // Pass-through parse once to assert we're given valid data, so the unwrap below
         // is safe.
         SourceMapCache::parse(&data)?;
-        Ok(Self { data })
+        let decompressed_bytes = data.len();
+        Ok(Self {
+            data,
+            dart_minified_names: None,
+            decompressed_bytes,
+        })
     }
 
     pub fn from_source_and_map(
         sam: SourceAndMap,
+        decompressed_bytes: usize,
     ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
+        // Parse dart2js minified names before we lose access to the raw JSON
+        let dart_minified_names = parse_dart_minified_names(&sam.sourcemap);
+
         let mut data = Vec::with_capacity(sam.minified_source.len() + sam.sourcemap.len() + 16);
         let smcw = SourceMapCacheWriter::new(&sam.minified_source, &sam.sourcemap)?;
         smcw.serialize(&mut data).unwrap();
-        Ok(Self { data })
+        Ok(Self {
+            data,
+            dart_minified_names,
+            decompressed_bytes,
+        })
     }
 
     pub fn get_smc(&self) -> SourceMapCache<'_> {
         // UNWRAP - we've already parsed this data once, so we know it's valid
         SourceMapCache::parse(&self.data).unwrap()
+    }
+
+    /// Returns the dart2js minified names map if this sourcemap has the extension.
+    /// Used for remapping Flutter Web minified exception types like "minified:BA".
+    pub fn get_dart_minified_names(&self) -> Option<&HashMap<String, String>> {
+        self.dart_minified_names.as_ref()
+    }
+}
+
+impl Countable for OwnedSourceMapCache {
+    fn byte_count(&self) -> usize {
+        self.decompressed_bytes
     }
 }
 
@@ -125,8 +155,9 @@ impl Parser for SourcemapProvider {
     type Err = ResolveError;
     async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        let sam: SourceAndMap = read_symbol_data(data).map_err(JsResolveErr::JSDataError)?;
-        let smc = OwnedSourceMapCache::from_source_and_map(sam)
+        let (sam, decompressed_bytes): (SourceAndMap, usize) =
+            read_symbol_data_with_byte_count(data).map_err(JsResolveErr::JSDataError)?;
+        let smc = OwnedSourceMapCache::from_source_and_map(sam, decompressed_bytes)
             .map_err(|_| JsResolveErr::InvalidSourceAndMap)?;
 
         start.label("success", "true").fin();

@@ -23,6 +23,28 @@ const replaceWithWildcard = (part: string): string => {
     return part
 }
 
+const autoWildcardHref = (url: string): string => {
+    const urlParts = url.split('?')
+
+    url = urlParts[0]
+        .split('/')
+        .map((part) => replaceWithWildcard(part))
+        .join('/')
+
+    // Iterate over query params and do the same for their values
+    if (urlParts.length > 1) {
+        const queryParams = urlParts[1].split('&')
+
+        for (let i = 0; i < queryParams.length; i++) {
+            const [key, value] = queryParams[i].split('=')
+            queryParams[i] = `${key}=${replaceWithWildcard(value)}`
+        }
+
+        url = `${url}\\?${queryParams.join('&')}`
+    }
+
+    return url
+}
 /**
  * Sometimes we are able to set the href before the posthog init fragment is removed
  * we never want to store it as it will mean the heatmap URL is too specific and doesn't match
@@ -52,6 +74,7 @@ export const currentPageLogic = kea<currentPageLogicType>([
         setHref: (href: string) => ({ href }),
         setWildcardHref: (href: string) => ({ href }),
         autoWildcardHref: true,
+        setAutoWildcardEnabled: (enabled: boolean) => ({ enabled }),
     })),
     reducers(() => ({
         href: [withoutPostHogInit(window.location.href), { setHref: (_, { href }) => withoutPostHogInit(href) }],
@@ -62,40 +85,32 @@ export const currentPageLogic = kea<currentPageLogicType>([
                 setWildcardHref: (_, { href }) => withoutPostHogInit(href),
             },
         ],
+        autoWildcardEnabled: [
+            false,
+            { persist: true },
+            {
+                setAutoWildcardEnabled: (_, { enabled }) => enabled,
+            },
+        ],
     })),
 
     listeners(({ actions, values }) => ({
         autoWildcardHref: () => {
-            let url = values.wildcardHref
-
-            const urlParts = url.split('?')
-
-            url = urlParts[0]
-                .split('/')
-                .map((part) => replaceWithWildcard(part))
-                .join('/')
-
-            // Iterate over query params and do the same for their values
-            if (urlParts.length > 1) {
-                const queryParams = urlParts[1].split('&')
-
-                for (let i = 0; i < queryParams.length; i++) {
-                    const [key, value] = queryParams[i].split('=')
-                    queryParams[i] = `${key}=${replaceWithWildcard(value)}`
-                }
-
-                url = `${url}\\?${queryParams.join('&')}`
-            }
-
-            actions.setWildcardHref(url)
+            actions.setWildcardHref(autoWildcardHref(values.wildcardHref))
         },
     })),
 
     afterMount(({ actions, values, cache }) => {
+        if (values.autoWildcardEnabled) {
+            actions.autoWildcardHref()
+        }
         cache.disposables.add(
             makeNavigateWrapper((): void => {
                 if (window.location.href !== values.href) {
                     actions.setHref(withoutPostHogInit(window.location.href))
+                    if (values.autoWildcardEnabled) {
+                        actions.autoWildcardHref()
+                    }
                 }
             }, '__ph_current_page_logic_wrapped__'),
             'historyProxy'

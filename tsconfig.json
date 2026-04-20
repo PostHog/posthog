@@ -7,11 +7,18 @@
             "@posthog/lemon-ui": ["@posthog/lemon-ui/src/index"],
             "@posthog/lemon-ui/*": ["@posthog/lemon-ui/src/*"],
             "@posthog/icons": ["node_modules/@posthog/icons"],
+            "@posthog/shared-onboarding/*": ["../docs/onboarding/*"],
             "storybook/*": ["../.storybook/*"],
-            "@posthog/ee/exports": ["../ee/exports", "@posthog/ee/exports"],
             "~/*": ["src/*"],
             "public/*": ["public/*"],
-            "products/*": ["../products/*"]
+            "products/*": ["../products/*"],
+            "@common/*": ["../common/*"],
+            "@posthog/mosaic": ["../common/mosaic/src/index.ts"],
+            "@posthog/mosaic/*": ["../common/mosaic/src/*"],
+            "@posthog/replay-shared": ["../common/replay-shared/src/index.ts"],
+            "@posthog/replay-shared/*": ["../common/replay-shared/src/*"],
+            // Needed to access the subpath since torph didn't set up types properly
+            "torph/react": ["node_modules/torph/dist/react/index"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
         "allowJs": true, // Allow JavaScript files to be compiled
@@ -32,22 +39,23 @@
         "declaration": true, // Generate corresponding .d.ts file
         "noUnusedLocals": true, // Report errors on unused locals
         "noUnusedParameters": true, // Report errors on unused parameters
+        "noImplicitOverride": true, // Require the `override` modifier when overriding a base class member
+        "allowUnreachableCode": false, // Raise errors on unreachable code
+        "allowUnusedLabels": false, // Raise errors on unused labels
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
-        // FIXME: suppressImplicitAnyIndexErrors is deprecated and will be removed in TS 5.5, but we have MANY of these
-        "suppressImplicitAnyIndexErrors": true, // Index objects by number
-        "ignoreDeprecations": "5.0",
         "lib": ["dom", "es2023"]
     },
     "include": [
         "frontend/**/*",
         ".storybook/**/*",
         "playwright/**/*",
-        "ee/frontend/**/*",
         "products/**/frontend/**/*",
         "products/**/manifest.tsx",
         "common/esbuilder/*",
-        "common/storybook/*"
+        "common/replay-shared/src/**/*",
+        "common/storybook/*",
+        "docs/onboarding/**/*"
     ],
     "exclude": ["frontend/dist/**/*", "**/*.mdx"],
     "ts-node": {

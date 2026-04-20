@@ -12,19 +12,17 @@ build = [ # Build CPython wheels on Linux and macOS, for x86 as well as ARM
 build-frontend = "build" # This is the successor to building with pip
 
 [tool.cibuildwheel.macos]
-before-build = [
-    "brew install boost antlr4-cpp-runtime",
-]
+before-build = ["brew install antlr4-cpp-runtime"]
 
 [tool.cibuildwheel.linux]
 before-all = [
     # manylinux_2_28 is based on AlmaLinux 8, which uses Fedora's dnf as its package manager
-    "dnf install -y boost-devel unzip cmake curl uuid pkg-config",
+    "dnf install -y unzip cmake curl uuid pkg-config",
     # update cmake for antlr
     "dnf install -y epel-release",
     "dnf install -y cmake3",
     "cmake3 --version",
-    "curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip",
+    "curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip",
     # Check that the downloaded archive is the expected runtime - a security measure
     "antlr_known_md5sum=\"c875c148991aacd043f733827644a76f\"",
     "antlr_found_ms5sum=\"$(md5sum antlr4-source.zip | cut -d' ' -f1)\"",

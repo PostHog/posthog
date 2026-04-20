@@ -1,4 +1,6 @@
-from typing import cast
+from typing import Optional, cast
+
+from django.conf import settings
 
 import gspread
 
@@ -39,9 +41,17 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         }
 
     def get_schemas(
-        self, config: GoogleSheetsSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: GoogleSheetsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
     ) -> list[SourceSchema]:
         sheets = get_google_sheets_schemas(config)
+
+        if names is not None:
+            names_set = set(names)
+            sheets = [(name, row_count) for name, row_count in sheets if name in names_set]
 
         schemas: list[SourceSchema] = []
         for name, _ in sheets:
@@ -68,7 +78,9 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             else None,
         )
 
-    def validate_credentials(self, config: GoogleSheetsSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: GoogleSheetsSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         client = google_sheets_client()
         try:
             client.open_by_url(config.spreadsheet_url)
@@ -101,7 +113,9 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        caption=f'Share the sheet with our service account by entering **{settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}** into the "Add people" field. We only require "Viewer" permissions to sync the sheet.',
                     )
                 ],
             ),
+            featured=True,
         )

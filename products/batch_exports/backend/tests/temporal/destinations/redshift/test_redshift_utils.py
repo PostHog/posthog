@@ -7,6 +7,7 @@ from unittest import mock
 from django.conf import settings
 
 import aioboto3
+import pytest_asyncio
 import botocore.exceptions
 
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
@@ -45,7 +46,7 @@ def bucket_name(request) -> str:
         return f"{TEST_ROOT_BUCKET}-{str(uuid.uuid4())}"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def minio_client(bucket_name):
     """Manage an S3 client to interact with a MinIO bucket.
 

@@ -10,7 +10,8 @@ export interface DataSourceTableProps<T extends Record<string, any>> {
     dataSource: BuiltLogic<DataSourceLogic<T>>
     className?: string
     children?: React.ReactNode
-    embedded?: boolean
+    embedded?: LemonTableProps<T>['embedded']
+    stealth?: LemonTableProps<T>['stealth']
     expandable?: LemonTableProps<T>['expandable']
     onRowClick?: (item: T, evt: MouseEvent) => void
     rowRibbonColor?: LemonTableProps<T>['rowRibbonColor']
@@ -20,6 +21,7 @@ export function DataSourceTable<T extends Record<string, any>>({
     dataSource,
     className,
     embedded = false,
+    stealth = false,
     onRowClick,
     rowRibbonColor,
     expandable,
@@ -35,6 +37,7 @@ export function DataSourceTable<T extends Record<string, any>>({
                 title: props.title,
                 align: props.align,
                 width: props.width,
+                className: props.className,
                 render: (_, record: T, recordIndex: number, rowCount: number) =>
                     props.cellRenderer(record, recordIndex, rowCount),
             } as LemonTableColumn<T, keyof T | undefined>
@@ -47,10 +50,8 @@ export function DataSourceTable<T extends Record<string, any>>({
             }
             return {
                 // onClick handler adds style to row we don't want
-                onClick: (event: MouseEvent) => {
-                    onRowClick(record, event)
-                },
-                className: 'hover:bg-fill-highlight-50',
+                onClick: (event: MouseEvent) => onRowClick(record, event),
+                className: 'hover:bg-color-accent-highlight-secondary',
             }
         },
         [onRowClick]
@@ -62,6 +63,7 @@ export function DataSourceTable<T extends Record<string, any>>({
             columns={columns}
             loading={itemsLoading}
             embedded={embedded}
+            stealth={stealth}
             onRow={onRow}
             className={className}
             footer={<DataSourceTableFooter dataSource={dataSource} />}
@@ -102,6 +104,7 @@ export interface DataSourceTableColumnProps<T> {
     title?: string
     align?: 'left' | 'right' | 'center'
     width?: string
+    className?: string
     cellRenderer: (item: T, itemIdx: number, rowCount: number) => React.ReactNode
 }
 

@@ -8,7 +8,7 @@ ENV TZ=UTC
 
 # Install system packages (expanded for coding environments)
 RUN apt-get update && \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
     # Core tools
     curl \
     wget \
@@ -50,29 +50,63 @@ RUN apt-get update && \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20.x
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
+# Install Node.js 24.x
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
 
 # Install additional language package managers
 RUN npm install -g yarn pnpm typescript ts-node nodemon
+
+# Install GitHub CLI without adding another apt repository refresh.
+ARG GH_CLI_VERSION=2.89.0
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    curl -fsSL -o /tmp/gh.deb \
+      "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_${arch}.deb" && \
+    dpkg -i /tmp/gh.deb && \
+    rm /tmp/gh.deb
+
+# Install agentsh for runtime egress policy enforcement
+ARG AGENTSH_TAG=v0.16.7
+RUN set -eux; \
+    version="${AGENTSH_TAG#v}"; \
+    arch="$(dpkg --print-architecture)"; \
+    curl -fsSL -o /tmp/agentsh.deb \
+      "https://github.com/canyonroad/agentsh/releases/download/${AGENTSH_TAG}/agentsh_${version}_linux_${arch}.deb" && \
+    dpkg -i /tmp/agentsh.deb && \
+    rm /tmp/agentsh.deb && \
+    agentsh --version && \
+    mkdir -p /var/lib/agentsh/sessions /var/lib/agentsh/quarantine /var/log/agentsh && \
+    chmod 777 /var/lib/agentsh /var/lib/agentsh/sessions /var/lib/agentsh/quarantine /var/log/agentsh
+
+ENV AGENTSH_SERVER=http://127.0.0.1:18080
 
 ###
 # Agent SDK
 ###
 
 # Set up /scripts as a Node.js project and install @posthog/agent
+# COMMIT_HASH changes every build, busting the cache so we always get @latest
+ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    npm install @posthog/agent
+    CACHE_BUST=${COMMIT_HASH} npm install @posthog/agent@latest
 
-# Download agent runner script from GitHub
-RUN cd /scripts && \
-    curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgent.mjs \
-    -o runAgent.mjs && \
-    chmod +x runAgent.mjs
+# Install pre-built skills (PostHog + context-mill) into the plugin directory.
+# The dist/skills/ directory is populated by the CD workflow's build_skills job.
+COPY products/posthog_ai/dist/skills/ /tmp/skills/
+COPY products/tasks/backend/sandbox/images/install-skills.sh /tmp/install-skills.sh
+RUN chmod +x /tmp/install-skills.sh && \
+    /tmp/install-skills.sh /tmp/skills && \
+    rm -rf /tmp/install-skills.sh /tmp/skills
+
+# Default git identity for bot-authored commits.
+# Runs configured for user-authored pull requests receive
+# GIT_AUTHOR_*/GIT_COMMITTER_* env vars that override these defaults.
+RUN git config --global user.email "code@posthog.com" && \
+    git config --global user.name "PostHog Code"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
 ENV IS_SANDBOX=1

@@ -1,6 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
+import { IconBell } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
@@ -8,26 +10,85 @@ import {
     LemonInput,
     LemonTable,
     LemonTableColumn,
+    LemonTag,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType } from '~/types'
+import { HogFunctionConfigurationContextId, HogFunctionType } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
+import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
+
+const INTERNAL_DESTINATION_CONTEXT: Partial<
+    Record<HogFunctionConfigurationContextId, { label: string; url?: string }>
+> = {
+    'activity-log': {
+        label: 'Activity log',
+        url: urls.settings('environment-activity-logs', 'activity-log-notifications'),
+    },
+    'discussion-mention': {
+        label: 'Discussions',
+        url: urls.settings('environment-discussions', 'discussion-mention-integrations'),
+    },
+    'error-tracking': {
+        label: 'Error tracking',
+        url: urls.settings('environment-error-tracking', 'error-tracking-alerting'),
+    },
+    'insight-alerts': { label: 'Insight alerts' },
+    'experiment-alerts': { label: 'Experiment alerts' },
+}
+
+function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {
+    const eventId = hogFunction.filters?.events?.[0]?.id
+    const contextId = eventToHogFunctionContextId(eventId)
+    const context = INTERNAL_DESTINATION_CONTEXT[contextId]
+    if (!context) {
+        return null
+    }
+
+    const tooltipTitle = context.url
+        ? `Notification managed in ${context.label} settings. Click to go there.`
+        : `Notification managed in ${context.label} settings.`
+
+    return (
+        <Tooltip title={tooltipTitle}>
+            <LemonTag
+                size="small"
+                type="muted"
+                icon={<IconBell />}
+                onClick={
+                    context.url
+                        ? (e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              router.actions.push(context.url!)
+                          }
+                        : undefined
+                }
+                className={
+                    context.url ? 'cursor-pointer hover:bg-fill-button-tertiary-hover transition-colors' : undefined
+                }
+            >
+                {context.label}
+            </LemonTag>
+        </Tooltip>
+    )
+}
 
 const urlForHogFunction = (hogFunction: HogFunctionType): string => {
     if (hogFunction.id.startsWith('plugin-')) {
@@ -42,8 +103,17 @@ const urlForHogFunction = (hogFunction: HogFunctionType): string => {
 export function HogFunctionList({
     extraControls,
     hideFeedback = false,
+    emptyText,
+    onDeleteHogFunction,
+    onEditHogFunction,
     ...props
-}: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
+}: HogFunctionListLogicProps & {
+    extraControls?: JSX.Element
+    hideFeedback?: boolean
+    emptyText?: string
+    onDeleteHogFunction?: (hogFunction: HogFunctionType) => void
+    onEditHogFunction?: (hogFunction: HogFunctionType) => void
+}): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
     )
@@ -82,11 +152,15 @@ export function HogFunctionList({
                     return (
                         <LemonTableLink
                             to={urlForHogFunction(hogFunction)}
+                            onClick={onEditHogFunction ? () => onEditHogFunction(hogFunction) : undefined}
                             title={
                                 <>
                                     <Tooltip title="Click to update configuration, view metrics, and more">
                                         <span>{hogFunction.name}</span>
                                     </Tooltip>
+                                    {hogFunction.type === 'internal_destination' && (
+                                        <NotificationContextTag hogFunction={hogFunction} />
+                                    )}
                                 </>
                             }
                             description={hogFunction.description}
@@ -94,6 +168,7 @@ export function HogFunctionList({
                     )
                 },
             },
+            createdByColumn() as LemonTableColumn<HogFunctionType, any>,
 
             updatedAtColumn() as LemonTableColumn<HogFunctionType, any>,
             {
@@ -174,7 +249,10 @@ export function HogFunctionList({
                                                   {
                                                       label: 'Delete',
                                                       status: 'danger' as const, // for typechecker happiness
-                                                      onClick: () => deleteHogFunction(hogFunction),
+                                                      onClick: () => {
+                                                          onDeleteHogFunction?.(hogFunction)
+                                                          deleteHogFunction(hogFunction)
+                                                      },
                                                   },
                                               ]
                                     }
@@ -208,10 +286,18 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        props.type,
+        humanizedType,
+        toggleEnabled,
+        deleteHogFunction,
+        isManualFunction,
+        onDeleteHogFunction,
+        onEditHogFunction,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container flex flex-col gap-4">
             <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
@@ -220,18 +306,31 @@ export function HogFunctionList({
                     onChange={(e) => setFilters({ search: e })}
                 />
                 {!hideFeedback ? (
-                    <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
+                    <Link
+                        className="hidden @lg:inline text-sm font-semibold"
+                        subtle
+                        onClick={() => openFeedbackDialog(props.type)}
+                    >
                         Can't find what you're looking for?
                     </Link>
                 ) : null}
                 <div className="flex-1" />
-                <LemonCheckbox
-                    label="Show paused"
-                    bordered
-                    size="small"
-                    checked={filters.showPaused}
-                    onChange={(e) => setFilters({ showPaused: e ?? undefined })}
-                />
+                <div className="hidden @lg:flex flex-col xl:flex-row items-center gap-0.5 xl:gap-2 shrink-0">
+                    <span className="text-xs xl:text-sm">Created by:</span>
+                    <MemberSelect
+                        value={filters.createdBy || null}
+                        onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
+                    />
+                </div>
+                <div className="hidden @lg:block">
+                    <LemonCheckbox
+                        label="Show paused"
+                        bordered
+                        size="small"
+                        checked={filters.showPaused}
+                        onChange={(e) => setFilters({ showPaused: e ?? undefined })}
+                    />
+                </div>
                 {extraControls}
             </div>
 
@@ -241,9 +340,10 @@ export function HogFunctionList({
                     size="small"
                     loading={loading}
                     columns={columns}
+                    pagination={{ pageSize: 30 }}
                     emptyState={
                         hogFunctions.length === 0 && !loading ? (
-                            `No ${humanizedType}s found`
+                            (emptyText ?? `No ${humanizedType}s found`)
                         ) : (
                             <>
                                 No {humanizedType}s matching filters.{' '}

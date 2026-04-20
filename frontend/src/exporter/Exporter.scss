@@ -16,9 +16,17 @@ body.ExporterBody {
         max-height: 100vh;
     }
 
+    &--heatmap {
+        padding: 0;
+
+        ::-webkit-scrollbar {
+            display: none;
+        }
+    }
+
     .SharedDashboard-header {
         .SharedDashboard-header-team {
-            display: none;
+            margin-top: 0.25rem;
         }
 
         @include screen($md) {
@@ -33,7 +41,7 @@ body.ExporterBody {
             }
 
             .SharedDashboard-header-team {
-                display: block;
+                margin-top: 0;
             }
         }
     }

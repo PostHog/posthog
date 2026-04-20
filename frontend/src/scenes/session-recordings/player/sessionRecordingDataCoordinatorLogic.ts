@@ -3,9 +3,16 @@ import { actions, beforeUnmount, connect, kea, key, listeners, path, props, redu
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import {
+    getHrefFromSnapshot,
+    keyForSource,
+    processAllSnapshots,
+    SnapshotStore,
+    SourceLoadingState,
+} from '@posthog/replay-shared'
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs, now } from 'lib/dayjs'
 
 import {
     RecordingSegment,
@@ -23,8 +30,9 @@ import { sessionEventsDataLogic } from './sessionEventsDataLogic'
 import { sessionRecordingCommentsLogic } from './sessionRecordingCommentsLogic'
 import type { sessionRecordingDataCoordinatorLogicType } from './sessionRecordingDataCoordinatorLogicType'
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
-import { getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
-import { ProcessingCache, processAllSnapshots } from './snapshot-processing/process-all-snapshots'
+import { posthogTelemetry } from './snapshot-processing/process-all-snapshots'
+import { snapshotDataLogic } from './snapshotDataLogic'
+import { convertSegmentKinds } from './utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 export interface SessionRecordingDataCoordinatorLogicProps {
@@ -53,6 +61,11 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         const commentsLogic = sessionRecordingCommentsLogic({
             sessionRecordingId,
         })
+        const snapLogic = snapshotDataLogic({
+            sessionRecordingId,
+            blobV2PollingDisabled,
+            accessToken,
+        })
         return {
             actions: [
                 sessionRecordingEventUsageLogic,
@@ -63,14 +76,13 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'loadRecordingMetaSuccess',
                     'loadRecordingMetaFailure',
                     'maybeLoadRecordingMeta',
-                    'persistRecording',
-                    'maybePersistRecording',
                     'setTrackedWindow',
                     'loadSnapshots',
                     'loadSnapshotSources',
                     'loadSnapshotsForSourceSuccess',
                     'setSnapshots',
                     'loadRecordingFromFile',
+                    'registerWindowId',
                 ],
                 eventsLogic,
                 ['loadEvents', 'loadFullEventData', 'loadEventsSuccess'],
@@ -81,6 +93,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'loadRecordingCommentsSuccess',
                     'loadRecordingNotebookCommentsSuccess',
                 ],
+                snapLogic,
+                ['storeUpdated'],
             ],
             values: [
                 metaLogic,
@@ -88,15 +102,20 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionPlayerMetaData',
                     'sessionPlayerMetaDataLoading',
                     'isNotFound',
+                    'loadMetaError',
                     'trackedWindow',
                     'snapshotSources',
-                    'snapshotsBySources',
                     'snapshotsLoading',
                     'snapshotsLoaded',
                     'currentTeam',
                     'annotations',
                     'annotationsLoading',
                     'isLoadingSnapshots',
+                    'uuidToIndex',
+                    'getWindowId',
+                    'isRecordingDeleted',
+                    'recordingDeletedAt',
+                    'recordingDeletedBy',
                 ],
                 eventsLogic,
                 [
@@ -113,6 +132,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionNotebookComments',
                     'sessionNotebookCommentsLoading',
                 ],
+                snapLogic,
+                ['snapshotStore', 'storeVersion', 'sourceLoadingStates'],
             ],
         }
     }),
@@ -120,6 +141,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         loadRecordingData: true,
         reportUsageIfFullyLoaded: true,
         setRecordingReportedLoaded: true,
+        processSnapshotsAsync: true,
+        setProcessedSnapshots: (snapshots: RecordingSnapshot[]) => ({ snapshots }),
     }),
     reducers(() => ({
         reportedLoaded: [
@@ -128,14 +151,22 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 setRecordingReportedLoaded: () => true,
             },
         ],
+        processedSnapshots: [
+            [] as RecordingSnapshot[],
+            {
+                setProcessedSnapshots: (_, { snapshots }) => snapshots,
+            },
+        ],
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props, cache }) => ({
         loadRecordingData: () => {
             actions.loadRecordingMeta()
         },
 
         loadRecordingMetaSuccess: () => {
-            actions.loadSnapshotSources()
+            if (props.sessionRecordingId) {
+                actions.loadSnapshotSources()
+            }
             actions.reportUsageIfFullyLoaded()
         },
 
@@ -149,6 +180,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         loadSnapshotsForSourceSuccess: () => {
             actions.reportUsageIfFullyLoaded()
+            actions.processSnapshotsAsync()
         },
 
         loadRecordingCommentsSuccess: () => {
@@ -157,6 +189,50 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         loadRecordingNotebookCommentsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
+        },
+
+        setProcessedSnapshots: () => {
+            actions.reportUsageIfFullyLoaded()
+        },
+
+        processSnapshotsAsync: async (_, breakpoint) => {
+            cache.processingCache = cache.processingCache || { snapshots: {} }
+
+            const sources = values.snapshotSources
+            const snapshotsBySource = {} as Record<string, { snapshots: RecordingSnapshot[] }>
+            if (sources) {
+                for (let i = 0; i < sources.length; i++) {
+                    const entry = values.snapshotStore.getEntry(i)
+                    if (entry?.state === 'loaded' && entry.processedSnapshots?.length) {
+                        snapshotsBySource[keyForSource(sources[i])] = {
+                            snapshots: entry.processedSnapshots,
+                        }
+                    }
+                }
+            }
+
+            const result = await processAllSnapshots(
+                sources,
+                snapshotsBySource,
+                cache.processingCache,
+                values.viewportForTimestamp,
+                props.sessionRecordingId,
+                posthogTelemetry
+            )
+
+            breakpoint()
+
+            // processAllSnapshots may synthesize full snapshots (e.g. for mobile recordings).
+            // Sync them back to the store so canPlayAt() and LoadingScheduler work correctly.
+            if (values.snapshotStore.syncFullSnapshotTimestamps(result)) {
+                actions.storeUpdated()
+            }
+
+            // Release raw snapshot arrays from the store — only the metadata
+            // (fullSnapshotTimestamps, metaTimestamps, state) is still needed.
+            values.snapshotStore.clearSnapshotData()
+
+            actions.setProcessedSnapshots(result)
         },
 
         reportUsageIfFullyLoaded: (_, breakpoint) => {
@@ -169,18 +245,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
     })),
     selectors(({ cache }) => ({
         snapshots: [
-            (s, p) => [s.snapshotSources, s.viewportForTimestamp, p.sessionRecordingId, s.snapshotsBySources],
-            (sources, viewportForTimestamp, sessionRecordingId, snapshotsBySources): RecordingSnapshot[] => {
-                cache.processingCache = cache.processingCache || ({} as ProcessingCache)
-                const snapshots = processAllSnapshots(
-                    sources,
-                    snapshotsBySources,
-                    cache.processingCache,
-                    viewportForTimestamp,
-                    sessionRecordingId
-                )
-
-                return snapshots || []
+            (s) => [s.processedSnapshots],
+            (processedSnapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
+                return processedSnapshots
             },
         ],
 
@@ -213,39 +280,47 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         durationMs: [
-            (s) => [s.start, s.end],
-            (start, end): number => {
-                return !!start && !!end ? end.diff(start) : 0
+            (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded],
+            (start, end, meta: SessionRecordingType | null, fullyLoaded: boolean): number => {
+                if (!start || !end) {
+                    return 0
+                }
+                const snapshotDuration = end.diff(start)
+                if (fullyLoaded && meta?.recording_duration) {
+                    return Math.min(snapshotDuration, meta.recording_duration * 1000)
+                }
+                return snapshotDuration
             },
         ],
 
         segments: [
-            (s) => [s.snapshots, s.start, s.end, s.trackedWindow, s.snapshotsByWindowId, s.isLoadingSnapshots],
+            (s) => [
+                s.snapshots,
+                s.start,
+                s.end,
+                s.trackedWindow,
+                s.snapshotsByWindowId,
+                s.isLoadingSnapshots,
+                s.snapshotStore,
+                s.storeVersion,
+            ],
             (
                 snapshots: RecordingSnapshot[],
                 start: Dayjs | null,
                 end: Dayjs | null,
-                trackedWindow: string | null,
-                snapshotsByWindowId: Record<string, eventWithTime[]>,
-                isLoadingSnapshots: boolean
+                trackedWindow: number | null,
+                snapshotsByWindowId: Record<number, eventWithTime[]>,
+                isLoadingSnapshots: boolean,
+                snapshotStore: SnapshotStore
             ): RecordingSegment[] => {
                 const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
-
-                return segments.map((segment) => {
-                    if (segment.kind === 'buffer') {
-                        return {
-                            ...segment,
-                            isLoading: isLoadingSnapshots,
-                        }
-                    }
-                    return segment
-                })
+                return convertSegmentKinds(segments, snapshotStore, isLoadingSnapshots)
             },
         ],
 
         snapshotsByWindowId: [
             (s) => [s.snapshots],
-            (snapshots) => {
+            (snapshots: RecordingSnapshot[]): Record<number, eventWithTime[]> => {
                 return mapSnapshotsToWindowId(snapshots || [])
             },
         ],
@@ -271,9 +346,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         windowIdForTimestamp: [
             (s) => [s.segments],
             (segments) =>
-                (timestamp: number): string | undefined => {
+                (timestamp: number): number | undefined => {
                     cache.windowIdForTimestamp = cache.windowIdForTimestamp || {}
-                    if (cache.windowIdForTimestamp[timestamp]) {
+                    if (cache.windowIdForTimestamp[timestamp] !== undefined) {
                         return cache.windowIdForTimestamp[timestamp]
                     }
                     const matchingWindowId = segments.find(
@@ -303,13 +378,16 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         windowsHaveFullSnapshot: [
             (s) => [s.snapshotsByWindowId],
-            (snapshotsByWindowId: Record<string, eventWithTime[]>) => {
-                return Object.entries(snapshotsByWindowId).reduce((acc, [windowId, events]) => {
-                    acc[`window-id-${windowId}-has-full-snapshot`] = events.some(
-                        (event) => event.type === EventType.FullSnapshot
-                    )
-                    return acc
-                }, {})
+            (snapshotsByWindowId: Record<number, eventWithTime[]>) => {
+                return Object.entries(snapshotsByWindowId).reduce(
+                    (acc, [windowId, events]) => {
+                        acc[`window-id-${windowId}-has-full-snapshot`] = events.some(
+                            (event) => event.type === EventType.FullSnapshot
+                        )
+                        return acc
+                    },
+                    {} as Record<string, boolean>
+                )
             },
             {
                 resultEqualityCheck: equal,
@@ -332,18 +410,22 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 const anyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
                 const everyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
 
+                const recordingAgeMs = now().diff(start, 'millisecond')
+
                 if (everyWindowMissingFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
                         watchedSession: sessionRecordingId,
                         teamId: currentTeam?.id,
                         teamName: currentTeam?.name,
+                        recordingAgeMs,
                     })
                 } else if (anyWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
                         watchedSession: sessionRecordingId,
                         teamID: currentTeam?.id,
                         teamName: currentTeam?.name,
+                        recordingAgeMs,
                     })
                 }
 
@@ -361,8 +443,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         windowIds: [
             (s) => [s.snapshotsByWindowId],
-            (snapshotsByWindowId: Record<string, eventWithTime[]>): string[] => {
-                return Object.keys(snapshotsByWindowId)
+            (snapshotsByWindowId: Record<number, eventWithTime[]>): number[] => {
+                return Object.keys(snapshotsByWindowId).map(Number)
             },
         ],
 
@@ -386,6 +468,23 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             (s) => [s.snapshots],
             (snapshots): customEvent[] => {
                 return snapshots.filter((snapshot) => snapshot.type === EventType.Custom).map((x) => x as customEvent)
+            },
+        ],
+
+        effectiveSourceLoadingStates: [
+            (s) => [s.sourceLoadingStates, s.segments],
+            (states: SourceLoadingState[], segments: RecordingSegment[]): SourceLoadingState[] => {
+                let lastNonGapState: 'loaded' | 'unloaded' = 'unloaded'
+                return states.map((s) => {
+                    const inGap = !segments.some(
+                        (seg) => seg.kind !== 'gap' && seg.startTimestamp < s.endMs && seg.endTimestamp > s.startMs
+                    )
+                    if (inGap) {
+                        return { ...s, state: lastNonGapState }
+                    }
+                    lastNonGapState = s.state
+                    return s
+                })
             },
         ],
 
@@ -437,7 +536,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             ],
             (
                 meta: SessionRecordingType | null,
-                snapshotsByWindowId: Record<string, eventWithTime[]>,
+                snapshotsByWindowId: Record<number, eventWithTime[]>,
                 segments: RecordingSegment[],
                 bufferedToTime: number | null,
                 start: Dayjs | null,
@@ -459,9 +558,18 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             }),
         ],
     })),
-    beforeUnmount(({ cache }) => {
+    beforeUnmount(({ cache, actions, values }) => {
         cache.windowIdForTimestamp = undefined
         cache.processingCache = undefined
+        // Force clear processedSnapshots to release memory immediately
+        // This breaks the reference chain in selector memoization cache
+        if (actions) {
+            actions.setProcessedSnapshots([])
+            // Force selectors to recompute with empty snapshots by reading them
+            // This updates the reselect cache with empty values instead of leaving old data cached
+            void values.snapshotsByWindowId
+            void values.sessionPlayerData
+        }
     }),
     subscriptions(({ values }) => ({
         isRecentAndInvalid: (prev: boolean, next: boolean) => {

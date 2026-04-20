@@ -1,13 +1,13 @@
 import re
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -33,8 +33,10 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VITALLY
 
-    def get_schemas(self, config: VitallySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: VitallySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=VITALLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -43,8 +45,14 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             )
             for endpoint in VITALLY_ENDPOINTS
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
-    def validate_credentials(self, config: VitallySourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: VitallySourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z-]+$")
         if config.region.selection == "US" and not subdomain_regex.match(config.region.subdomain):
             return False, "Vitally subdomain is incorrect"
@@ -76,7 +84,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             partition_count=1,  # this enables partitioning
             partition_size=1,  # this enables partitioning
             partition_mode="datetime",
-            partition_format="month",
+            partition_format="week",
             partition_keys=["created_at"],
             sort_mode="desc" if inputs.schema_name == "Messages" else "asc",
         )
@@ -93,7 +101,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                     SourceFieldInputConfig(
                         name="secret_token",
                         label="Secret token",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="sk_live_...",
                     ),
@@ -103,8 +111,8 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                         required=True,
                         defaultValue="EU",
                         options=[
-                            Option(label="EU", value="EU"),
-                            Option(
+                            SourceFieldSelectConfigOption(label="EU", value="EU"),
+                            SourceFieldSelectConfigOption(
                                 label="US",
                                 value="US",
                                 fields=cast(

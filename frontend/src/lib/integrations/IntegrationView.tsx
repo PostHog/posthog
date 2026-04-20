@@ -1,15 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
+import { IconGear, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { TeamMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
-import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconBranch } from 'lib/lemon-ui/icons'
 
-import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 import { integrationsLogic } from './integrationsLogic'
 
@@ -20,9 +24,13 @@ export function IntegrationView({
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
-    schema?: CyclotronJobInputSchemaType
+    schema?: { requiredScopes?: string }
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const errors = (integration.errors && integration.errors?.split(',')) || []
     const { githubRepositoriesLoading, getGitHubRepositories } = useValues(integrationsLogic)
@@ -30,6 +38,7 @@ export function IntegrationView({
 
     const isGitHub = integration.kind === 'github'
     const repositories = isGitHub ? getGitHubRepositories(integration.id) : []
+    const refreshedAtTimestamp = integration.config?.refreshed_at || null
 
     useEffect(() => {
         if (isGitHub) {
@@ -44,6 +53,7 @@ export function IntegrationView({
                 status="danger"
                 onClick={() => deleteIntegration(integration.id)}
                 icon={<IconTrash />}
+                disabledReason={restrictedReason}
             >
                 Disconnect
             </LemonButton>
@@ -54,76 +64,101 @@ export function IntegrationView({
         <div className="rounded border bg-surface-primary">
             <div className="flex justify-between items-center p-2">
                 <div className="flex gap-4 items-center ml-2">
-                    <img src={integration.icon_url} className="w-10 h-10 rounded" />
+                    <img
+                        src={integration.icon_url}
+                        alt={`${integration.kind} integration`}
+                        className="w-10 h-10 rounded"
+                    />
                     <div>
                         <div className="flex gap-2">
                             <span>
-                                Connected to <strong>{integration.display_name}</strong>
+                                {refreshedAtTimestamp ? (
+                                    <Tooltip
+                                        title={
+                                            <div className="flex gap-1 items-baseline">
+                                                Last refreshed <TZLabel time={dayjs.unix(refreshedAtTimestamp)} />
+                                            </div>
+                                        }
+                                    >
+                                        <strong className="cursor-help underline">Connected</strong>
+                                    </Tooltip>
+                                ) : (
+                                    <>Connected</>
+                                )}{' '}
+                                to <strong>{integration.display_name}</strong>
                             </span>
                         </div>
                         {integration.created_by ? (
-                            <UserActivityIndicator
-                                at={integration.created_at}
-                                by={integration.created_by}
-                                prefix="Updated"
-                                className="text-secondary"
-                            />
-                        ) : null}
-                        {isGitHub && (
-                            <div className="mt-1">
-                                {githubRepositoriesLoading ? (
-                                    <div className="flex items-center gap-1 text-xs text-muted">
-                                        <Spinner className="text-sm" />
-                                        Loading repositories...
-                                    </div>
-                                ) : repositories.length > 0 ? (
-                                    <div className="flex items-center gap-2">
-                                        <div className="text-xs text-muted">
-                                            <IconBranch className="inline mr-1" />
-                                            {repositories.length} repositor{repositories.length === 1 ? 'y' : 'ies'}:{' '}
-                                            {repositories.join(', ')}
-                                        </div>
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            icon={<IconOpenInNew />}
-                                            onClick={() => {
-                                                const installationId = integration.config?.installation_id
-                                                if (installationId) {
-                                                    window.open(
-                                                        `https://github.com/settings/installations/${installationId}`,
-                                                        '_blank'
-                                                    )
-                                                }
-                                            }}
-                                            tooltip="Manage repository access on GitHub"
-                                        />
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center gap-2">
-                                        <div className="text-xs text-muted">
-                                            <IconBranch className="inline mr-1" />
-                                            No repositories accessible
-                                        </div>
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            icon={<IconOpenInNew />}
-                                            onClick={() => {
-                                                const installationId = integration.config?.installation_id
-                                                if (installationId) {
-                                                    window.open(
-                                                        `https://github.com/settings/installations/${installationId}`,
-                                                        '_blank'
-                                                    )
-                                                }
-                                            }}
-                                            tooltip="Configure repository access"
-                                        />
-                                    </div>
-                                )}
+                            <div className="flex items-center">
+                                <UserActivityIndicator
+                                    at={integration.created_at}
+                                    by={integration.created_by}
+                                    prefix="Created"
+                                    className="text-secondary"
+                                />
                             </div>
-                        )}
+                        ) : null}
+                        {isGitHub &&
+                            (githubRepositoriesLoading && repositories.length === 0 ? (
+                                <div className="flex items-center gap-1 text-xs text-muted mr-4 min-h-5">
+                                    <Spinner className="text-sm" />
+                                    Loading repositories...
+                                </div>
+                            ) : repositories.length > 0 ? (
+                                <div className="flex items-center gap-2 mr-4 min-h-5">
+                                    <div className="text-xs text-muted">
+                                        <IconBranch className="inline mr-1 text-sm" />
+                                        {repositories.length} repositor
+                                        {repositories.length === 1 ? 'y' : 'ies'} allowed:{' '}
+                                        {repositories.length <= 3
+                                            ? repositories.join(', ')
+                                            : `${repositories.slice(0, 3).join(', ')} and ${repositories.length - 3} more`}
+                                    </div>
+                                    <LemonButton
+                                        size="xxsmall"
+                                        type="secondary"
+                                        icon={<IconGear />}
+                                        onClick={() => {
+                                            const installationId = integration.config?.installation_id
+                                            if (installationId) {
+                                                const accountType = integration.config?.account?.type
+                                                const accountName = integration.config?.account?.name
+                                                const basePath =
+                                                    accountType === 'Organization' && accountName
+                                                        ? `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
+                                                        : `https://github.com/settings/installations/${installationId}`
+                                                window.open(basePath, '_blank')
+                                            }
+                                        }}
+                                        tooltip="Manage repository access on GitHub"
+                                    />
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2 mr-4 min-h-5">
+                                    <div className="text-xs text-muted">
+                                        <IconBranch className="inline mr-1" />
+                                        No repositories accessible
+                                    </div>
+                                    <LemonButton
+                                        size="xxsmall"
+                                        type="secondary"
+                                        icon={<IconGear />}
+                                        onClick={() => {
+                                            const installationId = integration.config?.installation_id
+                                            if (installationId) {
+                                                const accountType = integration.config?.account?.type
+                                                const accountName = integration.config?.account?.name
+                                                const basePath =
+                                                    accountType === 'Organization' && accountName
+                                                        ? `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
+                                                        : `https://github.com/settings/installations/${installationId}`
+                                                window.open(basePath, '_blank')
+                                            }
+                                        }}
+                                        tooltip="Configure repository access"
+                                    />
+                                </div>
+                            ))}
                     </div>
                 </div>
 
@@ -141,6 +176,7 @@ export function IntegrationView({
                                 kind: integration.kind,
                                 next: window.location.pathname,
                             }),
+                            disabledReason: restrictedReason,
                         }}
                     >
                         {errors[0] === 'TOKEN_REFRESH_FAILED'

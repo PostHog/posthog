@@ -6,6 +6,7 @@ from django.conf import settings
 import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
+from rest_framework.request import Request
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -135,10 +136,13 @@ class PromptUnclear(Exception):
     pass
 
 
-def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
-    database = Database.create_for(team=team)
+def write_sql_from_prompt(
+    prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User", request: Optional["Request"] = None
+) -> str:
+    database = Database.create_for(team=team, user=user)
     context = HogQLContext(
         team_id=team.pk,
+        user=user,
         enable_select_queries=True,
         database=database,
         modifiers=create_default_modifiers_for_team(team),
@@ -211,15 +215,17 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         {
             "prompt": prompt,
             "response": candidate_sql or error,
-            "result": ("valid_hogql" if generated_valid_hogql else "invalid_hogql")
-            if candidate_sql
-            else "prompt_unclear",
+            "result": (
+                ("valid_hogql" if generated_valid_hogql else "invalid_hogql") if candidate_sql else "prompt_unclear"
+            ),
             "attempt_count": attempt_count,
             "prompt_tokens_last": prompt_tokens_last,
             "completion_tokens_last": completion_tokens_last,
             "prompt_tokens_total": prompt_tokens_total,
             "completion_tokens_total": completion_tokens_total,
         },
+        team=team,
+        request=request,
     )
 
     if candidate_sql:
@@ -228,15 +234,16 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         raise PromptUnclear(error)
 
 
-def hit_openai(messages, user) -> tuple[str, int, int]:
+def hit_openai(messages, user, posthog_properties=None) -> tuple[str, int, int]:
     if not openai_client:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 
-    result = openai_client.chat.completions.create(
+    result = openai_client.chat.completions.create(  # type: ignore
         model="gpt-4.1-mini",
         temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
+        posthog_properties=posthog_properties,
     )
 
     content: str = ""
@@ -292,6 +299,7 @@ replaceAll(arg: string, needle: string, replacement: string): string
 generateUUIDv4(): string
 position(haystack: string, needle: string): integer
 positionCaseInsensitive(haystack: string, needle: string): integer
+substring(arg: string, offset: integer, length?: integer): string
 Objects and arrays
 length(arg: any[] | object): integer
 empty(arg: any[] | object): boolean
@@ -396,6 +404,11 @@ let str := 'string'
 print(str || ' world') // prints 'string world', SQL concat
 print(f'hello {str}') // prints 'hello string'
 print(f'hello {f'{str} world'}') // prints 'hello string world'
+String truncation
+// Truncate a string to a maximum length
+if (length(s) > 2000) {
+    s := substring(s, 1, 2000)
+}
 Functions and lambdas
 Functions are first class variables, just like in JavaScript. You can define them with fun, or inline as lambdas:
 
@@ -455,6 +468,7 @@ Here are a few key differences compared to other programming languages:
 - All arrays in Hog start from index 1. Yes, for real. Trust us, we know. However that's how SQL has always worked, so we adopted it.
 - The easiest way to debug your code is to print() the variables in question, and then check the logs.
 - Strings must always be written with 'single quotes'. You may use f-string templates like f'Hello {name}'.
+- Never use arr[a:b]; Hog does not support slice syntax. Use substring(str, offset, length) for strings.
 - delete does not work in Hog.
 
 """
@@ -790,7 +804,7 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 // SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
-subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT ALL | EXCEPT | UNION ALL (BY NAME)? | UNION DISTINCT (BY NAME)? | UNION (BY NAME)? | INTERSECT ALL | INTERSECT DISTINCT | INTERSECT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 selectStmt:
     with=withClause?
@@ -1244,6 +1258,11 @@ Here is the taxonomy for event properties:
             "label": "Python version",
             "description": "The Python version that was used to capture the event.",
             "examples": ["3.11.5"],
+        },
+        "$go_version": {
+            "label": "Go version",
+            "description": "The Go version that was used to capture the event.",
+            "examples": ["go1.23.0"],
         },
         "$sdk_debug_replay_internal_buffer_length": {
             "label": "Replay internal buffer length",
@@ -1806,6 +1825,11 @@ Here is the taxonomy for event properties:
             "label": "OS version",
             "description": "The Operating System version.",
             "examples": ["15.5"],
+        },
+        "$os_distro": {
+            "label": "OS distro",
+            "description": "The distribution name in case of Linux.",
+            "examples": ["Ubuntu", "Debian", "Fedora"],
         },
         "$timezone": {
             "label": "Timezone",
@@ -2590,6 +2614,11 @@ Here is the taxonomy for event properties:
             "label": "AI latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361],
+        },
+        "$ai_time_to_first_token": {
+            "label": "AI time to first token (LLM)",
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [0.125, 0.5],
         },
         "$ai_model": {
             "label": "AI model (LLM)",

@@ -1,10 +1,11 @@
 import { BuiltLogic, actions, kea, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import { router } from 'kea-router'
 
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -19,6 +20,7 @@ import {
 } from './experimentLogic'
 import type { experimentLogicType } from './experimentLogicType'
 import type { experimentSceneLogicType } from './experimentSceneLogicType'
+import { stepStorageKey } from './ExperimentWizard/experimentWizardLogic'
 
 export interface ExperimentSceneLogicProps extends ExperimentLogicProps {
     tabId?: string
@@ -42,14 +44,13 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
         }),
         setEditMode: (editing: boolean) => ({ editing }),
         resetExperimentState: (experimentConfig: Experiment) => ({ experimentConfig }),
-        loadExperimentData: true,
-        loadExposuresData: (forceRefresh: boolean = false) => ({ forceRefresh }),
     }),
     reducers({
         activeTabKey: [
             'metrics' as string,
             {
                 setActiveTabKey: (_, { activeTabKey }) => activeTabKey,
+                setSceneState: () => 'metrics',
             },
         ],
         experimentId: [
@@ -110,21 +111,21 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             ],
             (experimentMissing): boolean => experimentMissing ?? false,
         ],
-        isExperimentRunningSelector: [
+        isExperimentLaunchedSelector: [
             (s) => [s.experimentLogicRef],
-            (experimentLogicRef) => experimentLogicRef?.logic.selectors.isExperimentRunning,
+            (experimentLogicRef) => experimentLogicRef?.logic.selectors.isExperimentLaunched,
         ],
-        isExperimentRunning: [
+        isExperimentLaunched: [
             (s) => [
                 (state, props) => {
                     try {
-                        return s.isExperimentRunningSelector?.(state, props)?.(state, props)
+                        return s.isExperimentLaunchedSelector?.(state, props)?.(state, props)
                     } catch {
                         return false
                     }
                 },
             ],
-            (isExperimentRunning): boolean => isExperimentRunning ?? false,
+            (isExperimentLaunched): boolean => isExperimentLaunched ?? false,
         ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
@@ -196,10 +197,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             }
         },
     })),
-    listeners(({ actions, sharedListeners, values }) => ({
+    listeners(({ sharedListeners, values }) => ({
         setSceneState: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            actions.loadExperimentData()
+            values.experimentLogicRef?.logic.actions.loadExperiment({ triggeredBy: 'page_load' })
         },
         setEditMode: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
@@ -207,17 +208,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
         },
         resetExperimentState: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            if (payload.experimentConfig) {
-                values.experimentLogicRef?.logic.actions.resetExperiment(payload.experimentConfig)
-            }
-        },
-        loadExperimentData: (payload, breakpoint, action, previousState) => {
-            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            values.experimentLogicRef?.logic.actions.loadExperiment()
-        },
-        loadExposuresData: (payload, breakpoint, action, previousState) => {
-            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            values.experimentLogicRef?.logic.actions.loadExposures(payload.forceRefresh)
         },
     })),
     tabAwareActionToUrl(({ values }) => {
@@ -238,7 +228,9 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                       ? undefined
                       : formMode
 
-            return [urls.experiment(id, effectiveFormMode), undefined, undefined]
+            // Preserve search params (e.g. ?metric=...) when navigating to a new experiment
+            const search = id === 'new' ? router.values.currentLocation.searchParams : undefined
+            return [urls.experiment(id, effectiveFormMode), search, undefined]
         }
 
         return {
@@ -255,42 +247,47 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
 
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
-            actions.setEditMode(false)
-
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 const formMode = parsedId === 'new' ? FORM_MODES.create : FORM_MODES.update
                 const existingProps = values.experimentLogicRef?.props
                 const matchesExistingLogic =
                     existingProps?.experimentId === parsedId && existingProps?.formMode === formMode
+                const isSameSceneState = values.experimentId === parsedId && values.formMode === formMode
+
+                actions.setEditMode(false)
+
+                if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
+                    return
+                }
 
                 actions.setSceneState(parsedId, formMode)
+
+                if (query.activity) {
+                    actions.setActiveTabKey('history')
+                }
 
                 if (parsedId === 'new') {
                     // Only reset if we're not already viewing a new experiment (tab switch scenario)
                     const shouldReset = currentLocation.initial || values.experimentId !== 'new'
 
                     if (shouldReset) {
+                        // Clear wizard step before the wizard mounts so it starts on 'about'
+                        try {
+                            sessionStorage.removeItem(stepStorageKey(values.tabId!))
+                        } catch {
+                            // ignore
+                        }
                         actions.resetExperimentState({
                             ...NEW_EXPERIMENT,
                             metrics: query.metric ? [query.metric] : [],
                             name: query.name ?? '',
                         })
                     }
-                } else {
-                    // Only load if this is a different experiment or we have no cached logic yet
-                    const shouldLoad = currentLocation.initial || !matchesExistingLogic
-
-                    if (shouldLoad) {
-                        actions.loadExperimentData()
-                        if (values.isExperimentRunning) {
-                            actions.loadExposuresData()
-                        }
-                    }
                 }
             }
         },
-        '/experiments/:id/:formMode': ({ id, formMode }, _, __, currentLocation, previousLocation) => {
+        '/experiments/:id/:formMode': ({ id, formMode }, query, __, currentLocation, previousLocation) => {
             // Ignore routes where id is not a valid experiment identifier (number or 'new')
             // This prevents matching routes like /experiments/shared-metrics/new
             if (!id || (id !== 'new' && isNaN(parseInt(id, 10)))) {
@@ -310,15 +307,18 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 const existingProps = values.experimentLogicRef?.props
                 const matchesExistingLogic =
                     existingProps?.experimentId === parsedId && existingProps?.formMode === parsedFormMode
+                const isSameSceneState = values.experimentId === parsedId && values.formMode === parsedFormMode
+
+                actions.setEditMode(false)
+
+                if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
+                    return
+                }
 
                 actions.setSceneState(parsedId, parsedFormMode)
 
-                // For form modes, always reload to ensure proper data transformation (duplicate/edit)
-                // unless we're just switching back to a tab that already has this exact experiment+formMode loaded
-                const shouldLoad = currentLocation.initial || !matchesExistingLogic
-
-                if (shouldLoad) {
-                    actions.loadExperimentData()
+                if (query.activity) {
+                    actions.setActiveTabKey('history')
                 }
             }
         },

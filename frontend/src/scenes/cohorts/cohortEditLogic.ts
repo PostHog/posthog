@@ -6,11 +6,14 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isOperatorDate } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import {
     applyAllCriteriaGroup,
     applyAllNestedCriteria,
@@ -25,8 +28,9 @@ import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
@@ -35,7 +39,10 @@ import {
     CohortGroupType,
     CohortType,
     FilterLogicalOperator,
+    PropertyDefinitionType,
     PropertyFilterType,
+    PropertyOperator,
+    PropertyType,
 } from '~/types'
 
 import type { cohortEditLogicType } from './cohortEditLogicType'
@@ -44,6 +51,21 @@ export type CohortLogicProps = {
     id?: CohortType['id']
     tabId?: string
 }
+
+export type StaticCohortMode = 'criteria' | 'people'
+
+const checkIsPendingCalculation = (cohort: CohortType): boolean =>
+    cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
+
+const hasFilterCriteria = (cohort: CohortType): boolean =>
+    Array.isArray(cohort.filters?.properties?.values) && cohort.filters.properties.values.length > 0
+
+const inferStaticCohortMode = (cohort: CohortType): StaticCohortMode =>
+    cohort.id === 'new' || cohort.id == null
+        ? 'people'
+        : cohort.is_static && hasFilterCriteria(cohort)
+          ? 'criteria'
+          : 'people'
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
@@ -89,12 +111,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
         updateCohortCount: true,
-        setCreationPersonQuery: (query: Node) => ({ query }),
+        setCreationPersonQuery: (query: ActorsQuery) => ({ query }),
         addPersonToCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCohort: (personId: string) => ({ personId }),
         resetPersonsToCreateStaticCohort: true,
         refreshPersonsData: true,
+        setStaticCohortMode: (mode: StaticCohortMode) => ({ mode }),
     }),
 
     reducers(({ props }) => ({
@@ -213,35 +236,29 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             } as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
-                setCohort: (state, { cohort }) => ({
-                    ...state,
-                    source: {
-                        ...state.source,
-                        select: cohort.is_static
-                            ? ['person_display_name -- Person', 'id', 'created_at', 'person.$delete']
-                            : ['person_display_name -- Person', 'id', 'created_at'],
-                    },
-                }),
+                setCohort: (state, { cohort }) => {
+                    const source = state.source as ActorsQuery
+                    const defaultSelect = cohort.is_static
+                        ? ['person_display_name -- Person', 'id', 'created_at', 'person.$delete']
+                        : ['person_display_name -- Person', 'id', 'created_at']
+                    return {
+                        ...state,
+                        source: {
+                            ...source,
+                            select: source.select ?? defaultSelect,
+                        },
+                    }
+                },
             },
         ],
         creationPersonQuery: [
             {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.ActorsQuery,
-                    fixedProperties: [],
-                    select: ['id', 'person_display_name -- Person'],
-                },
-                showPropertyFilter: false,
-                showEventFilter: false,
-                showExport: false,
-                showSearch: true,
-                showActions: false,
-                showElapsedTime: false,
-                showTimings: false,
-            } as DataTableNode,
+                kind: NodeKind.ActorsQuery,
+                fixedProperties: [],
+                select: ['id', 'person_display_name -- Person'],
+            } as ActorsQuery,
             {
-                setCreationPersonQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
+                setCreationPersonQuery: (_state, { query }) => query,
             },
         ],
         personsToCreateStaticCohort: [
@@ -259,6 +276,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 resetPersonsToCreateStaticCohort: () => ({}),
             },
         ],
+        staticCohortMode: [
+            'people' as StaticCohortMode,
+            {
+                setCohort: (_, { cohort }) => inferStaticCohortMode(cohort),
+                setStaticCohortMode: (_, { mode }) => mode,
+            },
+        ],
     })),
 
     selectors({
@@ -266,6 +290,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             (s) => [s.cohort],
             (cohort: CohortType) => {
                 return cohort.is_static && typeof cohort.id === 'number'
+            },
+        ],
+        isPendingCalculation: [(s) => [s.cohort], (cohort: CohortType) => checkIsPendingCalculation(cohort)],
+        isCalculatingOrPending: [
+            (s) => [s.cohort, s.isPendingCalculation],
+            (cohort: CohortType, isPendingCalculation: boolean) => {
+                return cohort.is_calculating || isPendingCalculation
             },
         ],
     }),
@@ -278,17 +309,38 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 csv: undefined,
                 filters: {
                     properties: {
-                        values: is_static ? undefined : filters.properties.values.map(validateGroup),
+                        values:
+                            is_static && values.staticCohortMode !== 'criteria'
+                                ? undefined
+                                : filters.properties.values.map(validateGroup),
                     },
                 },
             }),
             submit: (cohort) => {
+                // Prevent multiple concurrent saves
+                if (values.cohortLoading) {
+                    return
+                }
+
                 if (cohort.id !== 'new') {
                     actions.saveCohort(cohort)
                 } else {
                     const personIds = Object.keys(values.personsToCreateStaticCohort)
-                    if (cohort.is_static && cohort.csv == null && personIds.length === 0) {
+                    if (
+                        cohort.is_static &&
+                        values.staticCohortMode === 'people' &&
+                        cohort.csv == null &&
+                        personIds.length === 0
+                    ) {
                         lemonToast.error('You need to upload a csv file or add a person manually.')
+                        return
+                    }
+                    if (
+                        cohort.is_static &&
+                        values.staticCohortMode === 'criteria' &&
+                        !((cohort.filters?.properties as Record<string, any>)?.values?.length > 0)
+                    ) {
+                        lemonToast.error('You need to add at least one filter criterion.')
                         return
                     }
                     actions.saveCohort({
@@ -337,7 +389,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 saveCohort: async ({ cohortParams }, breakpoint) => {
                     const existingCohort = values.cohort
                     let cohort = { ...existingCohort, ...cohortParams }
-                    const cohortFormData = createCohortFormData(cohort)
+                    const cohortFormData = createCohortFormData(cohort, {
+                        preserveStaticFilters: cohort.is_static && values.staticCohortMode === 'criteria',
+                    })
 
                     try {
                         if (cohort.id !== 'new') {
@@ -351,6 +405,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         } else {
                             cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.cohortCreated(cohort)
+                            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpCohorts)
                         }
                     } catch (error: any) {
                         breakpoint()
@@ -451,7 +506,16 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         await breakpoint(200)
                         if (asStatic) {
-                            cohort = await api.cohorts.duplicate(values.cohort.id)
+                            const sourceTable = values.cohort.is_static ? 'static_cohort_people' : 'cohort_people'
+                            const query: HogQLQuery = {
+                                kind: NodeKind.HogQLQuery,
+                                query: `SELECT person_id FROM ${sourceTable} WHERE cohort_id = ${values.cohort.id}`,
+                            }
+                            cohort = await api.create('api/cohort', {
+                                is_static: true,
+                                name: `${values.cohort.name} (static copy)`,
+                                query,
+                            })
                         } else {
                             const data = { ...values.cohort }
                             data.name += ' (dynamic copy)'
@@ -501,6 +565,41 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
+            // When the person property key changes, auto-reset the operator to match the
+            // property type (DateTime → "on the date", non-DateTime → "equals").
+            if (!('key' in newCriteria)) {
+                return
+            }
+
+            const groups = values.cohort.filters.properties.values
+            const group = groups[groupIndex]
+            if (!isCohortCriteriaGroup(group)) {
+                return
+            }
+            const criteria = group.values[criteriaIndex]
+            if (!criteria || isCohortCriteriaGroup(criteria)) {
+                return
+            }
+
+            if (criteria.type !== BehavioralFilterKey.Person) {
+                return
+            }
+
+            const propDef = newCriteria.key
+                ? propertyDefinitionsModel
+                      .findMounted()
+                      ?.values.getPropertyDefinition(newCriteria.key, PropertyDefinitionType.Person)
+                : null
+            const isDateTime = propDef?.property_type === PropertyType.DateTime
+            const currentOperator = criteria.operator as PropertyOperator | undefined
+
+            if (isDateTime && (!currentOperator || !isOperatorDate(currentOperator))) {
+                actions.setCriteria({ operator: PropertyOperator.IsDateExact }, groupIndex, criteriaIndex)
+            } else if (!isDateTime && currentOperator && isOperatorDate(currentOperator)) {
+                actions.setCriteria({ operator: PropertyOperator.Exact }, groupIndex, criteriaIndex)
+            }
+        },
         deleteCohort: () => {
             cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
         },
@@ -512,7 +611,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
-            if (cohort.is_calculating) {
+            const isPendingCalculation = checkIsPendingCalculation(cohort)
+            const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
+
+            if (isCalculatingOrPending) {
                 actions.setPollTimeout(
                     window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
@@ -527,6 +629,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     errors_calculating: cohort.errors_calculating,
                     last_calculation: cohort.last_calculation,
                     count: cohort.count,
+                    version: cohort.version,
+                    pending_version: cohort.pending_version,
                 }
                 actions.setCohort({ ...values.cohort, ...calculationFields })
                 cohortsModel.actions.updateCohort(cohort)

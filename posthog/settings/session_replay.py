@@ -1,6 +1,4 @@
-from django.conf import settings
-
-from posthog.settings import get_from_env, get_list
+from posthog.settings import get_from_env
 from posthog.utils import str_to_bool
 
 # TRICKY: we saw unusual memory usage behavior in EU clickhouse cluster
@@ -23,26 +21,8 @@ REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET = get_from_env(
 # TODO we can clean this up once we've tested the new gzip-in-capture compression and don't need a setting
 SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMPRESSION", "gzip")
 
-# can be used to provide an alternative script _name_ from the decide endpoint
-# posthog.js will use this script name to load the rrweb script from its configured asset location
-# intended to allow testing of new releases of rrweb or our lazy loaded recording script
-SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, optional=True)
-
-# a list of teams that are allowed to use the SESSION_REPLAY_RRWEB_SCRIPT
-# can be a comma separated list of team ids or '*' to allow all teams
-SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", ""))
-
-if settings.DEBUG:
-    # in debug mode we allow all teams to use custom rrweb scripts
-    SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = ["*"]
-    SESSION_REPLAY_RRWEB_SCRIPT = "posthog-recorder"
-
 # an AI model to use for session recording filters
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4.1-mini")
-
-PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS = get_from_env(
-    "PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS", default=60 if settings.DEBUG else 3600, type_cast=int
-)
 
 PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS = get_from_env(
     "PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS", 3600, type_cast=int
@@ -52,4 +32,17 @@ PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT = get_from_env(
     "PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT", 2500, type_cast=int
 )
 
-APP_STATE_LOGGING_SAMPLE_RATE = get_from_env("APP_STATE_LOGGING_SAMPLE_RATE", "0.1")
+
+SNAPSHOT_RATE_FREE_BURST = get_from_env("SNAPSHOT_RATE_FREE_BURST", "12/minute")
+SNAPSHOT_RATE_FREE_SUSTAINED = get_from_env("SNAPSHOT_RATE_FREE_SUSTAINED", "60/hour")
+SNAPSHOT_RATE_PAID_BURST = get_from_env("SNAPSHOT_RATE_PAID_BURST", "60/minute")
+SNAPSHOT_RATE_PAID_SUSTAINED = get_from_env("SNAPSHOT_RATE_PAID_SUSTAINED", "300/hour")
+SNAPSHOT_RATE_ENTERPRISE_BURST = get_from_env("SNAPSHOT_RATE_ENTERPRISE_BURST", "100/minute")
+SNAPSHOT_RATE_ENTERPRISE_SUSTAINED = get_from_env("SNAPSHOT_RATE_ENTERPRISE_SUSTAINED", "400/hour")
+
+LISTING_RATE_FREE_BURST = get_from_env("LISTING_RATE_FREE_BURST", "12/minute")
+LISTING_RATE_FREE_SUSTAINED = get_from_env("LISTING_RATE_FREE_SUSTAINED", "60/hour")
+LISTING_RATE_PAID_BURST = get_from_env("LISTING_RATE_PAID_BURST", "60/minute")
+LISTING_RATE_PAID_SUSTAINED = get_from_env("LISTING_RATE_PAID_SUSTAINED", "300/hour")
+LISTING_RATE_ENTERPRISE_BURST = get_from_env("LISTING_RATE_ENTERPRISE_BURST", "100/minute")
+LISTING_RATE_ENTERPRISE_SUSTAINED = get_from_env("LISTING_RATE_ENTERPRISE_SUSTAINED", "400/hour")

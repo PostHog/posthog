@@ -17,13 +17,6 @@ export const BLOB_SOURCE_V2: SessionRecordingSnapshotSource = {
     blob_key: '0',
 }
 
-export const BLOB_SOURCE: SessionRecordingSnapshotSource = {
-    source: 'blob',
-    start_timestamp: '2023-08-11T12:03:36.097000Z',
-    end_timestamp: '2023-08-11T12:04:52.268000Z',
-    blob_key: '1691755416097-1691755492268',
-}
-
 export const EMPTY_PAGINATED_RESPONSE = {
     results: [],
 }
@@ -72,7 +65,7 @@ function getDefaultMocks(
             '/api/projects/:team/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
         },
         post: {
-            '/api/environments/:team_id/query': customQueryHandler ?? recordingEventsJson,
+            '/api/environments/:team_id/query/:kind': customQueryHandler ?? recordingEventsJson,
         },
         patch: {
             '/api/environments/:team_id/session_recordings/:id': { success: true },

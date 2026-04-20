@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -24,6 +25,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.webAnalytics(),
+        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
@@ -40,7 +42,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/event_definitions': () => [200, { count: 5 }],
             },
             post: {
-                '/api/environments/:team_id/query': (req) => {
+                '/api/environments/:team_id/query/:kind': (req) => {
                     const query = (req.body as any).query
                     const queryKind = query.kind
 

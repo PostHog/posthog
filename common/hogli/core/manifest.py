@@ -16,6 +16,7 @@ class Manifest:
 
     def __init__(self) -> None:
         """Load manifest from YAML file."""
+        self._children_map: dict[str, list[str]] = {}
         self._data = self._load()
 
     def _load(self) -> dict[str, Any]:
@@ -23,7 +24,55 @@ class Manifest:
         if not MANIFEST_FILE.exists():
             return {}
         with open(MANIFEST_FILE) as f:
-            return yaml.safe_load(f) or {}
+            data = yaml.safe_load(f) or {}
+
+        # Resolve extends references after loading
+        self._resolve_extends(data)
+        return data
+
+    def _resolve_extends(self, data: dict[str, Any]) -> None:
+        """Resolve extends references in-place, merging base config with overrides.
+
+        Preserves the 'extends' key in config so cli.py can build parent-child tree.
+        Also builds children_map for quick lookup.
+        """
+        # Build flat command lookup: name -> config
+        all_commands: dict[str, dict[str, Any]] = {}
+        for category_key, category_commands in data.items():
+            if category_key == "metadata" or not isinstance(category_commands, dict):
+                continue
+            for cmd_name, config in category_commands.items():
+                if isinstance(config, dict):
+                    all_commands[cmd_name] = config
+
+        # Resolve extends for each command and build children map
+        for cmd_name, config in all_commands.items():
+            extends = config.get("extends")
+            if not extends:
+                continue
+
+            if extends not in all_commands:
+                raise ValueError(f"Command '{cmd_name}' extends unknown command '{extends}'")
+            if all_commands[extends].get("extends"):
+                raise ValueError(
+                    f"Command '{cmd_name}' extends '{extends}' which itself extends another command. "
+                    "Chained inheritance not supported."
+                )
+
+            # Build children map
+            if extends not in self._children_map:
+                self._children_map[extends] = []
+            self._children_map[extends].append(cmd_name)
+
+            base_config = all_commands[extends]
+            # Merge: base first, then overrides (keep 'extends' key for tree display)
+            merged = {**base_config, **config}
+            config.clear()
+            config.update(merged)
+
+        # Sort children for consistent ordering
+        for children in self._children_map.values():
+            children.sort()
 
     @property
     def data(self) -> dict[str, Any]:
@@ -119,6 +168,10 @@ class Manifest:
                 if command_name in category:
                     return category[command_name]
         return None
+
+    def get_children_for_command(self, command_name: str) -> list[str]:
+        """Get child commands that extend this command."""
+        return self._children_map.get(command_name, [])
 
 
 # Singleton instance for convenience

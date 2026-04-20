@@ -97,7 +97,7 @@ describe('verifiedDomainsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             const { verifiedDomains } = logic.values
             expect(verifiedDomains.length).toEqual(3)
-            expect(verifiedDomains[0].domain).toEqual('new.posthog.com') // added at the top
+            expect(verifiedDomains[2].domain).toEqual('new.posthog.com') // added at the end
         })
 
         it('deletes domain correctly', async () => {

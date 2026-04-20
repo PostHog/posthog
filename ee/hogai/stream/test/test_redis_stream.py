@@ -16,6 +16,7 @@ from posthog.schema import (
 )
 
 from ee.hogai.stream.redis_stream import (
+    CONVERSATION_STREAM_PREFIX,
     CONVERSATION_STREAM_TIMEOUT,
     ConversationRedisStream,
     ConversationStreamSerializer,
@@ -24,6 +25,7 @@ from ee.hogai.stream.redis_stream import (
     StreamError,
     StreamEvent,
     StreamStatusEvent,
+    get_subagent_stream_key,
 )
 from ee.hogai.utils.types.base import AssistantOutput
 from ee.models.assistant import Conversation
@@ -574,3 +576,26 @@ class TestRedisStream(BaseTest):
             serializer.dumps(unknown_event)  # type: ignore
 
         self.assertIn("Unknown event type", str(context.exception))
+
+
+class TestGetSubagentStreamKey(BaseTest):
+    def test_get_subagent_stream_key_format(self):
+        conversation_id = uuid4()
+        tool_call_id = "tool_123"
+        result = get_subagent_stream_key(conversation_id, tool_call_id)
+        expected = f"{CONVERSATION_STREAM_PREFIX}{conversation_id}:{tool_call_id}"
+        self.assertEqual(result, expected)
+
+    def test_get_subagent_stream_key_uniqueness(self):
+        conversation_id = uuid4()
+        key1 = get_subagent_stream_key(conversation_id, "tool_1")
+        key2 = get_subagent_stream_key(conversation_id, "tool_2")
+        self.assertNotEqual(key1, key2)
+
+    def test_get_subagent_stream_key_different_conversations(self):
+        conv_id_1 = uuid4()
+        conv_id_2 = uuid4()
+        tool_call_id = "same_tool"
+        key1 = get_subagent_stream_key(conv_id_1, tool_call_id)
+        key2 = get_subagent_stream_key(conv_id_2, tool_call_id)
+        self.assertNotEqual(key1, key2)

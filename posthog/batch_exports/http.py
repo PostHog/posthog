@@ -1,16 +1,22 @@
+import uuid
+import socket
 import typing
 import builtins
 import datetime as dt
+import ipaddress
 import dataclasses
 import collections.abc
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.db import transaction
 from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -18,15 +24,33 @@ from rest_framework.pagination import CursorPagination
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast, errors
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
-from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
-from posthog.batch_exports.service import (
+from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
+from posthog.event_usage import groups
+from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.integration import (
+    AzureBlobIntegration,
+    AzureBlobIntegrationError,
+    DatabricksIntegration,
+    DatabricksIntegrationError,
+    Integration,
+)
+from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.temporal.common.client import sync_connect
+from posthog.utils import relative_date_parse, str_to_bool
+
+from products.batch_exports.backend.api.destination_tests import get_destination_test
+from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
     BatchExportIdError,
@@ -36,28 +60,29 @@ from posthog.batch_exports.service import (
     BatchExportWithNoEndNotAllowedError,
     backfill_export,
     cancel_running_batch_export_run,
-    disable_and_delete_export,
-    fetch_earliest_backfill_start_at,
+    delete_batch_export,
     pause_batch_export,
     sync_batch_export,
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
-from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
-from posthog.models.signals import model_activity_signal, mutable_receiver
-from posthog.temporal.common.client import sync_connect
-from posthog.utils import relative_date_parse, str_to_bool
-
-from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
+from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+    SUPPORTED_COMPRESSIONS as AZURE_BLOB_SUPPORTED_COMPRESSIONS,
+)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+    SUPPORTED_COMPRESSIONS as S3_SUPPORTED_COMPRESSIONS,
+)
 
 logger = structlog.get_logger(__name__)
 
 
-def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetime:
-    """Parse any datetime input as a proper dt.datetime.
+def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.datetime:
+    """Validate and parse a date/datetime input as a proper dt.datetime.
+
+    If the interval is daily or weekly, we expect the input to be an ISO formatted date string.
+    We then need to convert it to a datetime using the batch export's timezone and offset.
+
+    For all other intervals, we expect the input to be an ISO formatted datetime string.
 
     Args:
         date_input: The datetime input to parse.
@@ -68,21 +93,49 @@ def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetim
     Returns:
         The parsed dt.datetime.
     """
-    try:
-        # The Right Way (TM) to check this would be by calling isinstance, but that doesn't feel very Pythonic.
-        # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
-        # Read more here: https://github.com/python/mypy/issues/2420.
-        # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
-        parsed = dt.datetime.fromisoformat(date_input)
-    except (TypeError, ValueError):
-        raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+    if batch_export.interval == "day" or batch_export.interval == "week":
+        try:
+            parsed_date = dt.date.fromisoformat(date_input)
+        except (TypeError, ValueError):
+            # Try to parse as a datetime string so we can give a more helpful error message
+            try:
+                parsed = dt.datetime.fromisoformat(date_input)
+                raise ValidationError(
+                    f"Input '{date_input}' is not a valid ISO formatted date. "
+                    "Daily or weekly batch export backfills expect only the date component, but a time was included."
+                )
+            except (TypeError, ValueError):
+                pass
+            raise ValidationError(f"Input '{date_input}' is not a valid ISO formatted date.")
 
-    if parsed.tzinfo is None:
-        raise ValidationError(f"Input {date_input} is naive.")
+        if batch_export.interval == "week":
+            # Validate that the provided date is on the correct day of the week, according to the batch export's day offset
+            # Python's date.isoweekday() returns 1-7 for Monday-Sunday, so we need to convert it to 0-6 for Sunday-Saturday
+            normalized_day = parsed_date.isoweekday() % 7
+            if normalized_day != batch_export.offset_day:
+                # get day of week as string
+                day_of_week = parsed_date.strftime("%A")
+                expected_day_of_week = batch_export.offset_day_name
+                assert expected_day_of_week is not None
+                raise ValidationError(
+                    f"Input {date_input} is not on the correct day of the week for this batch export. "
+                    f"{date_input} is a {day_of_week} but this batch export is configured to run "
+                    f"weekly on {expected_day_of_week}."
+                )
+
+        # If we have an offset hour, add it to the parsed datetime
+        # Also, apply the timezone to the parsed datetime
+        time_of_day = dt.time.min if batch_export.offset_hour is None else dt.time(hour=batch_export.offset_hour)
+        parsed = dt.datetime.combine(parsed_date, time_of_day).replace(tzinfo=batch_export.timezone_info)
 
     else:
-        if team is not None:
-            parsed = parsed.astimezone(team.timezone_info)
+        try:
+            parsed = dt.datetime.fromisoformat(date_input)
+        except (TypeError, ValueError):
+            raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+
+        if parsed.tzinfo is None:
+            raise ValidationError(f"Input {date_input} is naive.")
 
     return parsed
 
@@ -101,6 +154,7 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
+@extend_schema(tags=["batch_exports"])
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExportRun.objects.all()
@@ -113,7 +167,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
     log_source = "batch_exports"
 
     def get_log_entry_instance_id(self) -> str:
-        return self.parents_query_dict.get("run_id", None)
+        return cast(str, self.parents_query_dict["run_id"])
 
     def safely_get_queryset(self, queryset):
         after = self.request.GET.get("after", None)
@@ -146,7 +200,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         batch_export_run = self.get_object()
 
         temporal = sync_connect()
-        backfill_workflow_id = backfill_export(
+        backfill_id = backfill_export(
             temporal,
             str(batch_export_run.batch_export.id),
             self.team_id,
@@ -154,7 +208,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             batch_export_run.data_interval_end,
         )
 
-        return response.Response({"backfill_id": backfill_workflow_id})
+        return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:
@@ -182,13 +236,22 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
-    integration_id = serializers.PrimaryKeyRelatedField(
+    integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
     )
 
     class Meta:
         model = BatchExportDestination
         fields = ["type", "config", "integration", "integration_id"]
+
+    def get_fields(self):
+        fields = super().get_fields()
+        team_id = self.context.get("team_id")
+        if team_id:
+            fields["integration_id"].queryset = Integration.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
+        else:
+            fields["integration_id"].queryset = Integration.objects.none()  # type: ignore[attr-defined]
+        return fields
 
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
@@ -318,6 +381,7 @@ class HogQLSelectQueryField(serializers.Field):
                     parsed_query,
                     context=HogQLContext(
                         team_id=self.context["team_id"],
+                        user=self.context["request"].user,
                         enable_select_queries=True,
                         modifiers=HogQLQueryModifiers(
                             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
@@ -343,6 +407,87 @@ class BatchExportsSchema(TypedDict):
     hogql_query: str
 
 
+class _SubqueryFinder(TraversingVisitor):
+    """Walk an AST subtree and flag if any SelectQuery or SelectSetQuery is found."""
+
+    def __init__(self):
+        super().__init__()
+        self.found = False
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        self.found = True
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        self.found = True
+
+
+INTERNAL_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+)
+
+
+def is_ip_internal(ip: str) -> bool:
+    """Check if IP belongs to an internal network."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        raise ValueError("Could not parse IP")
+
+    if any(addr in network for network in INTERNAL_NETWORKS):
+        return True
+    return False
+
+
+def resolve_and_validate_url(url: str) -> None:
+    """Ensure provided url point to a non-internal IP."""
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        raise ValueError(f"Invalid URL'{url}': {e}") from e
+
+    host = parsed.hostname
+    if not host:
+        raise ValueError("URL has no hostname")
+
+    resolve_and_validate_host(host)
+
+
+def resolve_and_validate_host(host: str) -> None:
+    """Ensure provided host resolves to a non-internal IP."""
+    if host == "localhost" and (settings.TEST or settings.DEBUG):
+        return
+
+    # Host may already be an IP literal
+    try:
+        if is_ip_internal(host):
+            raise ValueError("Host resolved to internal IP")
+        return
+    except ValueError:
+        # Not an IP literal, requires DNS
+        pass
+
+    try:
+        # getaddrinfo supports both ipv4 and ipv6
+        results = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        raise ValueError(f"Could not resolve '{host}': {e}") from e
+
+    # Keeps only unique ips from the result tuple
+    resolved_ips = {str(r[4][0]) for r in results}
+
+    for ip in resolved_ips:
+        if is_ip_internal(ip):
+            raise ValueError("Host resolved to internal IP")
+
+
 class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
@@ -350,6 +495,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
     latest_runs = BatchExportRunSerializer(many=True, read_only=True)
     interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
     hogql_query = HogQLSelectQueryField(required=False)
+    timezone = serializers.ChoiceField(choices=TIMEZONES, required=False, allow_null=True)
+    offset_day = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=6)
+    offset_hour = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=23)
 
     class Meta:
         model = BatchExport
@@ -370,6 +518,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "hogql_query",
             "schema",
             "filters",
+            "timezone",
+            "offset_day",
+            "offset_hour",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
@@ -382,7 +533,103 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if model is not None and model != "events":
                 raise serializers.ValidationError("HTTP batch exports only support the events model")
 
+        # Convert offset_day and offset_hour to interval_offset
+        interval = attrs.get("interval")
+        if interval is not None:
+            # Check if offset fields are in the request (for PATCH, distinguish between absent and None)
+            offset_day_provided = "offset_day" in attrs
+            offset_hour_provided = "offset_hour" in attrs
+            offset_day = attrs.pop("offset_day", None)
+            offset_hour = attrs.pop("offset_hour", None)
+
+            if interval == "day":
+                # For daily exports, only offset_hour is used
+                if offset_day_provided and offset_day is not None:
+                    raise serializers.ValidationError("offset_day should not be specified for daily intervals")
+
+                if offset_hour_provided:
+                    # User explicitly provided offset_hour (even if None)
+                    attrs["interval_offset"] = offset_hour * 3600 if offset_hour is not None else None
+                elif not self.partial:
+                    # PUT or new instance: default to None if not provided
+                    attrs["interval_offset"] = None
+                # otherwise if a PATCH and offset_hour is not provided, don't set interval_offset in attrs
+                # to preserve existing value
+            elif interval == "week":
+                # For weekly exports, both offset_day and offset_hour are used
+                if offset_day_provided or offset_hour_provided:
+                    day = offset_day or 0
+                    hour = offset_hour or 0
+                    attrs["interval_offset"] = day * 86400 + hour * 3600
+                elif not self.partial:
+                    # PUT or new instance: default to None if not provided
+                    attrs["interval_offset"] = None
+                # otherwise if a PATCH and offset fields not provided, don't set interval_offset in attrs
+                # to preserve existing value
+            else:
+                # For other intervals, reset interval_offset to None
+                # Also validate that offset fields are not provided
+                if offset_day_provided and offset_day is not None:
+                    raise serializers.ValidationError("offset_day is not applicable for non-daily/weekly intervals")
+                if offset_hour_provided and offset_hour is not None:
+                    raise serializers.ValidationError("offset_hour is not applicable for non-daily/weekly intervals")
+                attrs["interval_offset"] = None
+
         return attrs
+
+    def validate_timezone(self, timezone: str | None) -> str | None:
+        """Validate timezone.
+
+        We set the timezone to the default value of 'UTC' if it is None.
+
+        NOTE: This only gets called if 'timezone' is provided in the request data.
+        (i.e. if we're not patching the timezone this function is not called and the timezone remains unchanged)
+        """
+
+        if timezone is None:
+            return "UTC"
+        return timezone
+
+    def validate_offset_day(self, offset_day: int | None) -> int | None:
+        """Validate offset_day based on the interval.
+
+        It should be between 0-6 (Sunday-Saturday) for weekly intervals (this is included in the IntegerField
+        validation, so we don't need to validate it here).
+        Sunday is 0 since this is what is used by Temporal and Sunday is also the default week start day in PostHog.
+
+        It should be None for all other intervals.
+        """
+        interval = self.initial_data.get("interval")
+        if interval is None and self.instance:
+            interval = self.instance.interval
+
+        if offset_day is None:
+            return None
+
+        if interval != "week":
+            raise serializers.ValidationError("offset_day is not applicable for non-weekly intervals")
+
+        return offset_day
+
+    def validate_offset_hour(self, offset_hour: int | None) -> int | None:
+        """Validate offset_hour based on the interval.
+
+        Rules:
+        1. offset_hour must be between 0-23 for daily and weekly intervals (this is included in the IntegerField
+            validation, so we don't need to validate it here).
+        2. offset_hour is not applicable for other intervals
+        """
+        interval = self.initial_data.get("interval")
+        if interval is None and self.instance:
+            interval = self.instance.interval
+
+        if offset_hour is None:
+            return None
+
+        if interval not in ("day", "week"):
+            raise serializers.ValidationError("offset_hour is not applicable for non-daily/weekly intervals")
+
+        return offset_hour
 
     def validate_filters(self, filters):
         if filters is None:
@@ -402,57 +649,74 @@ class BatchExportSerializer(serializers.ModelSerializer):
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
+        config = destination_attrs["config"]
+        view = self.context.get("view")
+
+        if self.instance is not None:
+            existing_config = self.instance.destination.config
+        elif view is not None and "pk" in view.kwargs:
+            # Running validation for a `detail=True` action.
+            instance = view.get_object()
+            existing_config = instance.destination.config
+        else:
+            existing_config = {}
+        merged_config = recursive_dict_merge(existing_config, config)
+
+        # SSRF protection for HTTP batch exports
+        if destination_type == BatchExportDestination.Destination.HTTP:
+            url = merged_config.get("url")
+            if url and url not in ("https://us.i.posthog.com/batch/", "https://eu.i.posthog.com/batch/"):
+                raise serializers.ValidationError(f"Invalid destination URL: {url}")
+
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
-            config = destination_attrs["config"]
-            # for updates, get the existing config
-            self.instance: BatchExport | None
-            view = self.context.get("view")
-
-            if self.instance is not None:
-                existing_config = self.instance.destination.config
-            elif view is not None and "pk" in view.kwargs:
-                # Running validation for a `detail=True` action.
-                instance = view.get_object()
-                existing_config = instance.destination.config
-            else:
-                existing_config = {}
-            merged_config = {**existing_config, **config}
-
             if config.get("authentication_type") == "password" and merged_config.get("password") is None:
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
+
         if destination_type == BatchExportDestination.Destination.S3:
-            config = destination_attrs["config"]
+            # we already validate the required inputs in BatchExportDestinationSerializer::validate
+            # so here we just ensure that the inputs are not empty
+            required_non_empty_inputs = (
+                "bucket_name",
+                "region",
+                "prefix",
+                "aws_access_key_id",
+                "aws_secret_access_key",
+            )
+            empty_inputs = []
+            for required_input in required_non_empty_inputs:
+                value = config.get(required_input)
+                if value is not None and isinstance(value, str) and value.strip() == "":
+                    empty_inputs.append(required_input)
+            if empty_inputs:
+                raise serializers.ValidationError(f"The following inputs are empty: {empty_inputs}")
+
             # JSONLines is the default file format for S3 exports for legacy reasons
-            file_format = config.get("file_format", "JSONLines")
-            supported_file_formats = SUPPORTED_COMPRESSIONS.keys()
+            file_format = merged_config.get("file_format", "JSONLines")
+            supported_file_formats = S3_SUPPORTED_COMPRESSIONS.keys()
             if file_format not in supported_file_formats:
                 raise serializers.ValidationError(
                     f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
                 )
-            compression = config.get("compression", None)
-            if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+            compression = merged_config.get("compression", None)
+            if compression and compression not in S3_SUPPORTED_COMPRESSIONS[file_format]:
                 raise serializers.ValidationError(
-                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
+                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {S3_SUPPORTED_COMPRESSIONS[file_format]}"
                 )
+
+            # if someone is trying to reset the endpoint url, then we need to convert empty string to None
+            if merged_config.get("endpoint_url") == "":
+                destination_attrs["config"]["endpoint_url"] = None
+
+            if merged_config.get("endpoint_url") is not None:
+                try:
+                    resolve_and_validate_url(merged_config["endpoint_url"])
+                except ValueError:
+                    raise serializers.ValidationError(f"Invalid endpoint_url: '{merged_config['endpoint_url']}'")
+
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
             team_id = self.context["team_id"]
-            team = Team.objects.get(id=team_id)
-
-            if not posthoganalytics.feature_enabled(
-                "databricks-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("The Databricks destination is not enabled for this team.")
 
             # validate the Integration is valid (this is mandatory for Databricks batch exports)
             integration: Integration | None = destination_attrs.get("integration")
@@ -468,20 +732,45 @@ class BatchExportSerializer(serializers.ModelSerializer):
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
 
+        if destination_type == BatchExportDestination.Destination.BIGQUERY:
+            team_id = self.context["team_id"]
+            integration = destination_attrs.get("integration")
+            if integration is not None:
+                if integration.team_id != team_id:
+                    raise serializers.ValidationError("Integration does not belong to this team.")
+                if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
+                    raise serializers.ValidationError("Integration is not a Google Cloud service account integration.")
+
+        if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
+            team_id = self.context["team_id"]
+
+            # validate the Integration is valid (this is mandatory for Azure Blob batch exports)
+            integration = destination_attrs.get("integration")
+            if integration is None:
+                raise serializers.ValidationError("Integration is required for Azure Blob batch exports")
+            if integration.team_id != team_id:
+                raise serializers.ValidationError("Integration does not belong to this team.")
+            if integration.kind != Integration.IntegrationKind.AZURE_BLOB:
+                raise serializers.ValidationError("Integration is not an Azure Blob integration.")
+            # try instantiate the integration to check if it's valid
+            try:
+                AzureBlobIntegration(integration)
+            except AzureBlobIntegrationError as e:
+                raise serializers.ValidationError(str(e))
+
+            file_format = merged_config.get("file_format", "JSONLines")
+            supported_file_formats = AZURE_BLOB_SUPPORTED_COMPRESSIONS.keys()
+            if file_format not in supported_file_formats:
+                raise serializers.ValidationError(
+                    f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
+                )
+            compression = merged_config.get("compression", None)
+            if compression and compression not in AZURE_BLOB_SUPPORTED_COMPRESSIONS[file_format]:
+                raise serializers.ValidationError(
+                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {AZURE_BLOB_SUPPORTED_COMPRESSIONS[file_format]}"
+                )
+
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
-            config = destination_attrs["config"]
-            view = self.context.get("view")
-
-            if self.instance is not None:
-                existing_config = self.instance.destination.config
-            elif view is not None and "pk" in view.kwargs:
-                # Running validation for a `detail=True` action.
-                instance = view.get_object()
-                existing_config = instance.destination.config
-            else:
-                existing_config = {}
-            merged_config = recursive_dict_merge(existing_config, config)
-
             mode = merged_config.get("mode")
 
             if mode == "COPY":
@@ -503,6 +792,33 @@ class BatchExportSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError("Missing required credentials for 'COPY'")
                 elif isinstance(authorization, str) and not authorization.strip():
                     raise serializers.ValidationError("Missing required IAM role for 'COPY'")
+
+        if destination_type == BatchExportDestination.Destination.WORKFLOWS:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "backfill-workflows-destination",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
+
+        if destination_type in (
+            BatchExportDestination.Destination.POSTGRES,
+            BatchExportDestination.Destination.REDSHIFT,
+        ):
+            try:
+                resolve_and_validate_host(merged_config["host"])
+            except ValueError:
+                raise serializers.ValidationError(f"Invalid host: '{merged_config['host']}'")
 
         return destination_attrs
 
@@ -572,16 +888,25 @@ class BatchExportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Unsupported HogQL query")
 
         for field in hogql_query.select:
-            expression = print_prepared_ast(
-                field.expr,  # type: ignore
-                context=context,
-                dialect="clickhouse",
-            )
-
             if isinstance(field, ast.Alias):
-                alias = field.alias
+                expression = print_prepared_ast(
+                    field.expr,
+                    context=context,
+                    dialect="clickhouse",
+                )
+                alias = escape_clickhouse_identifier(field.alias)
             else:
-                alias = expression
+                expression = print_prepared_ast(
+                    field,
+                    context=context,
+                    dialect="clickhouse",
+                )
+                # String constants get parameterized by the ClickHouse printer (e.g., 'hello' becomes
+                # %(hogql_val_0)s), which escape_clickhouse_identifier rejects. Use the raw value instead.
+                if isinstance(field, ast.Constant) and isinstance(field.value, str):
+                    alias = escape_clickhouse_identifier(field.value)
+                else:
+                    alias = escape_clickhouse_identifier(expression)
 
             batch_export_field: BatchExportsField = {
                 "expression": expression,
@@ -600,6 +925,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         1. UNION ALL is not supported.
         2. Any JOINs are not supported.
         3. Query must SELECT FROM events, and only from events.
+        4. Subqueries in SELECT expressions are not supported.
         """
 
         if isinstance(hogql_query, ast.SelectSetQuery):
@@ -610,8 +936,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if parsed.select_from is None:
             raise serializers.ValidationError("Query must SELECT FROM events")
 
-        if isinstance(parsed.select_from.table, ast.SelectQuery):
-            raise serializers.ValidationError("Subqueries or CTEs are not supported")
+        if parsed.ctes:
+            raise serializers.ValidationError("CTEs are not supported")
+
+        if isinstance(parsed.select_from.table, (ast.SelectQuery, ast.SelectSetQuery)):
+            raise serializers.ValidationError("Subqueries are not supported")
 
         # Not sure how to make mypy understand this works, hence the ignore comment.
         # And if it doesn't, it's still okay as it could mean an unsupported query.
@@ -621,6 +950,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         if parsed.select_from.next_join is not None:
             raise serializers.ValidationError("JOINs are not supported")
+
+        subquery_finder = _SubqueryFinder()
+        for field in parsed.select:
+            subquery_finder.visit(field)
+            if subquery_finder.found:
+                raise serializers.ValidationError("Subqueries in SELECT expressions are not supported")
 
         return hogql_query
 
@@ -666,11 +1001,18 @@ def recursive_dict_merge(
     return merged
 
 
+@extend_schema(tags=["batch_exports"])
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer
     log_source = "batch_exports"
+
+    def safely_get_queryset(self, queryset):
+        """Filter out batch exports with Workflows destination type if action is list."""
+        if self.action == "list":
+            return queryset.exclude(destination__type="Workflows")
+        return queryset
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -721,21 +1063,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response({"paused": False})
 
-    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
-    def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Trigger a backfill for a BatchExport.
-
-        Note: This endpoint is deprecated. Please use POST /batch_exports/<id>/backfills/ instead.
-        """
-        batch_export = self.get_object()
-        backfill_workflow_id = create_backfill(
-            self.team,
-            batch_export,
-            request.data.get("start_at"),
-            request.data.get("end_at"),
-        )
-        return response.Response({"backfill_id": backfill_workflow_id})
-
     def perform_destroy(self, instance: BatchExport):
         """Perform a BatchExport destroy by clearing Temporal and Django state.
 
@@ -744,9 +1071,9 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         since we are deleting, we assume that we can recover from this state by finishing the delete operation by calling
         instance.save().
         """
-        disable_and_delete_export(instance)
+        delete_batch_export(instance)
 
-    @action(methods=["GET"], detail=False, required_scopes=["INTERNAL"])
+    @action(methods=["GET"], detail=False, required_scopes=["batch_export:read"])
     def test(self, request: request.Request, *args, **kwargs) -> response.Response:
         destination = request.query_params.get("destination", None)
         if not destination:
@@ -759,7 +1086,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response(destination_test.as_dict())
 
-    @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
+    @action(methods=["POST"], detail=False, required_scopes=["batch_export:write"])
     def run_test_step_new(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = request.data.pop("step", 0)
 
@@ -774,14 +1101,19 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         # if we have an integration, add its config and sensitive_config to test_configuration
         integration: Integration | None = serializer.validated_data["destination"].get("integration")
         if integration:
-            test_configuration = {**test_configuration, **integration.config, **integration.sensitive_config}
+            test_configuration = {
+                **test_configuration,
+                **integration.config,
+                **integration.sensitive_config,
+                "integration": integration,
+            }
 
         destination_test.configure(**test_configuration)
 
         result = destination_test.run_step(test_step)
         return response.Response(result.as_dict())
 
-    @action(methods=["POST"], detail=True, required_scopes=["INTERNAL"])
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = request.data.pop("step", 0)
 
@@ -808,7 +1140,12 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         # if we have an integration, add its config and sensitive_config to test_configuration
         integration: Integration | None = serializer.validated_data["destination"].get("integration")
         if integration:
-            test_configuration = {**test_configuration, **integration.config, **integration.sensitive_config}
+            test_configuration = {
+                **test_configuration,
+                **integration.config,
+                **integration.sensitive_config,
+                "integration": integration,
+            }
 
         destination_test.configure(**test_configuration)
 
@@ -836,6 +1173,17 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
         model = BatchExportBackfill
         fields = "__all__"
 
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "total_runs": {"type": "integer", "nullable": True},
+                "finished_runs": {"type": "integer", "nullable": True},
+                "progress": {"type": "number", "nullable": True},
+            },
+        }
+    )
     def get_progress(self, obj: BatchExportBackfill) -> BatchExportBackfillProgress | None:
         """Return progress information containing total runs, finished runs, and progress percentage.
 
@@ -854,7 +1202,7 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
         if not total_runs:
             return None
 
-        if obj.start_at is None:
+        if obj.start_at is None and obj.adjusted_start_at is None:
             # if it's just a single run, backfilling from the beginning of time, we can't calculate progress based on
             # the number of completed runs so better to return None
             return None
@@ -886,62 +1234,69 @@ def create_backfill(
         end_at_input: ISO formatted datetime string for backfill end
 
     Returns:
-        The backfill workflow ID
+        The pre-generated backfill ID.
     """
+    # Currently, backfills from the beginning of time usually fail due to us hitting ClickHouse memory limits.
+    # Therefore, this feature is behind a feature flag while we improve backfilling behavior.
+    if start_at_input is None:
+        if not posthoganalytics.feature_enabled(
+            "batch-export-earliest-backfill",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        ):
+            raise ValidationError("Backfilling from the beginning of time is not enabled for this team.")
+
     temporal = sync_connect()
 
     if start_at_input is not None:
-        start_at = validate_date_input(start_at_input, team)
+        start_at = validate_date_input(start_at_input, batch_export)
     else:
         start_at = None
 
     if end_at_input is not None:
-        end_at = validate_date_input(end_at_input, team)
+        end_at = validate_date_input(end_at_input, batch_export)
     else:
         end_at = None
 
-    if (start_at is not None or end_at is not None) and batch_export.model is not None:
-        try:
-            earliest_backfill_start_at = fetch_earliest_backfill_start_at(
-                team_id=team.pk,
-                model=batch_export.model,
-                interval_time_delta=batch_export.interval_time_delta,
-                exclude_events=batch_export.destination.config.get("exclude_events", []),
-                include_events=batch_export.destination.config.get("include_events", []),
-            )
-            if earliest_backfill_start_at is None:
-                raise ValidationError("There is no data to backfill for this model.")
+    # Note: earliest backfill date validation and adjustment is now done in the Temporal workflow
+    # via the get_backfill_info activity. This allows the potentially slow ClickHouse query to run
+    # asynchronously rather than blocking the HTTP request.
 
-            earliest_backfill_start_at = earliest_backfill_start_at.astimezone(team.timezone_info)
-
-            if end_at is not None and end_at < earliest_backfill_start_at:
-                raise ValidationError(
-                    "The provided backfill date range contains no data. The earliest possible backfill start date is "
-                    f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
-                )
-
-            if start_at is not None and start_at < earliest_backfill_start_at:
-                logger.info(
-                    "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
-                    "to earliest_backfill_start_at",
-                    start_at,
-                    earliest_backfill_start_at,
-                )
-                start_at = earliest_backfill_start_at
-        except NotImplementedError:
-            logger.warning("No backfill check implemented for model: '%s'; skipping", batch_export.model)
+    backfill_id = str(uuid.uuid4())
 
     if start_at is None or end_at is None:
-        return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
+        backfill_export(
+            temporal=temporal,
+            batch_export_id=str(batch_export.pk),
+            team_id=team.pk,
+            start_at=start_at,
+            end_at=end_at,
+            backfill_id=backfill_id,
+        )
+        return backfill_id
 
     if start_at >= end_at:
-        raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
-
+        raise ValidationError("The initial backfill datetime 'start_at' must be before 'end_at'")
     if end_at > dt.datetime.now(dt.UTC):
         raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
 
     try:
-        return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
+        backfill_export(
+            temporal=temporal,
+            batch_export_id=str(batch_export.pk),
+            team_id=team.pk,
+            start_at=start_at,
+            end_at=end_at,
+            backfill_id=backfill_id,
+        )
+        return backfill_id
     except BatchExportWithNoEndNotAllowedError:
         raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
 
@@ -973,19 +1328,41 @@ class BatchExportBackfillViewSet(
     def create(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Create a new backfill for a BatchExport."""
         try:
-            batch_export = BatchExport.objects.get(
+            batch_export = BatchExport.objects.select_related("destination").get(
                 id=self.kwargs["parent_lookup_batch_export_id"], team_id=self.team_id
             )
         except BatchExport.DoesNotExist:
             raise NotFound("BatchExport not found.")
 
-        backfill_workflow_id = create_backfill(
+        start_at = request.data.get("start_at")
+        end_at = request.data.get("end_at")
+
+        backfill_id = create_backfill(
             self.team,
             batch_export,
-            request.data.get("start_at"),
-            request.data.get("end_at"),
+            start_at,
+            end_at,
         )
-        return response.Response({"backfill_id": backfill_workflow_id})
+
+        if isinstance(request.user, User):
+            try:
+                posthoganalytics.capture(
+                    distinct_id=str(request.user.distinct_id),
+                    event="batch export backfill created",
+                    properties={
+                        "backfill_id": backfill_id,
+                        "batch_export_id": str(batch_export.pk),
+                        "destination_type": batch_export.destination.type,
+                        "has_start_at": start_at is not None,
+                        "has_end_at": end_at is not None,
+                        "team_id": self.team_id,
+                    },
+                    groups=groups(self.team.organization, self.team),
+                )
+            except Exception:
+                logger.exception("Failed to capture batch export backfill created event")
+
+        return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:

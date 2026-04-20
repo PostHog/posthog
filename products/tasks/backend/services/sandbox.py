@@ -1,33 +1,40 @@
+"""
+Sandbox module - provides the Sandbox class for task execution.
+
+This module exports:
+- Sandbox: The sandbox class (ModalSandbox in production, DockerSandbox for local dev)
+- SandboxConfig: Configuration for creating sandboxes
+- SandboxStatus: Enum for sandbox states
+- SandboxTemplate: Enum for sandbox templates
+- ExecutionResult: Result of command execution
+"""
+
+from __future__ import annotations
+
 import os
-import uuid
-import logging
+import shlex
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, cast
+from types import TracebackType
+from typing import TYPE_CHECKING, Protocol, Self
 
 from django.conf import settings
 
-import modal
+import structlog
 from pydantic import BaseModel
 
-from posthog.exceptions_capture import capture_exception
+if TYPE_CHECKING:
+    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
-from products.tasks.backend.constants import SETUP_REPOSITORY_PROMPT
-from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.temporal.exceptions import (
-    SandboxCleanupError,
-    SandboxExecutionError,
-    SandboxNotFoundError,
-    SandboxProvisionError,
-    SandboxTimeoutError,
-    SnapshotCreationError,
-)
 
-logger = logging.getLogger(__name__)
+@dataclass
+class AgentServerResult:
+    """Result from starting an agent server in a sandbox."""
 
-WORKING_DIR = "/tmp/workspace"
-REPOSITORY_TARGET_DIR = "repo"
-DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
-DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
+    url: str
+    token: str | None = None
 
 
 class SandboxStatus(str, Enum):
@@ -37,188 +44,107 @@ class SandboxStatus(str, Enum):
 
 class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
+    NOTEBOOK_BASE = "notebook_base"
 
 
 class ExecutionResult(BaseModel):
     stdout: str
     stderr: str
     exit_code: int
-    error: Optional[str] = None
+    error: str | None = None
+
+
+class ExecutionStream(Protocol):
+    def iter_stdout(self) -> Iterable[str]: ...
+
+    def wait(self) -> ExecutionResult: ...
+
+
+SANDBOX_TTL_SECONDS = 60 * 120  # 2 hours (safety net; workflow inactivity timeout handles cleanup)
 
 
 class SandboxConfig(BaseModel):
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
-    environment_variables: Optional[dict[str, str]] = None
-    snapshot_id: Optional[str] = None
-    ttl_seconds: int = 60 * 30  # 30 minutes
-    metadata: Optional[dict[str, str]] = None
-    memory_gb: int = 16
-    cpu_cores: int = 4
-    disk_size_gb: int = 64
+    environment_variables: dict[str, str] | None = None
+    snapshot_id: str | None = None
+    snapshot_external_id: str | None = None
+    ttl_seconds: int = SANDBOX_TTL_SECONDS
+    metadata: dict[str, str] | None = None
+    memory_gb: float = 16
+    cpu_cores: float = 4
+    disk_size_gb: float = 64
 
 
-def _get_template_image(template: SandboxTemplate) -> modal.Image:
-    if template == SandboxTemplate.DEFAULT_BASE:
-        if settings.DEBUG:
-            dockerfile_path = os.path.join(
-                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
-            )
+WORKING_DIR = "/tmp/workspace"
 
-            if not os.path.exists(dockerfile_path):
-                raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
-
-            return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
-        else:
-            return modal.Image.from_registry("ghcr.io/posthog/posthog-sandbox-base:master")
-
-    raise ValueError(f"Unknown template: {template}")
+PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox"})
+"""Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration."""
 
 
-class Sandbox:
-    """
-    A box in the cloud. Sand optional.
-    """
+def is_public_sandbox_repo(repository: str | None) -> bool:
+    return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
 
+
+def build_agent_runtime_env_prefix(
+    *,
+    interaction_origin: str | None = None,
+    runtime_adapter: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+) -> str:
+    env_vars = {
+        "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
+        "POSTHOG_CODE_RUNTIME_ADAPTER": runtime_adapter,
+        "POSTHOG_CODE_PROVIDER": provider,
+        "POSTHOG_CODE_MODEL": model,
+        "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+    }
+    assignments = " ".join(
+        f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
+    )
+    return f"env {assignments} " if assignments else ""
+
+
+class SandboxBase(ABC):
     id: str
     config: SandboxConfig
-    _sandbox: modal.Sandbox
-    _app: modal.App
 
-    def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig):
-        self.id = sandbox.object_id
-        self.config = config
-        self._sandbox = sandbox
-        self._app = Sandbox._get_default_app()
+    @property
+    @abstractmethod
+    def sandbox_url(self) -> str | None:
+        """Return the URL for connecting to the agent server, or None if not available."""
+        ...
 
     @staticmethod
-    def _get_default_app() -> modal.App:
-        return modal.App.lookup(DEFAULT_MODAL_APP_NAME, create_if_missing=True)
+    @abstractmethod
+    def create(config: SandboxConfig) -> SandboxBase: ...
 
     @staticmethod
-    def create(config: SandboxConfig) -> "Sandbox":
-        try:
-            app = Sandbox._get_default_app()
-
-            image = _get_template_image(config.template)
-
-            if config.snapshot_id:
-                snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
-                if snapshot.status == SandboxSnapshot.Status.COMPLETE:
-                    try:
-                        image = modal.Image.from_id(snapshot.external_id)
-                    except Exception as e:
-                        logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
-                        capture_exception(e)
-
-            secrets = []
-            if config.environment_variables:
-                env_dict = cast(dict[str, str | None], config.environment_variables)
-                secret = modal.Secret.from_dict(env_dict)
-                secrets.append(secret)
-
-            sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
-
-            create_kwargs: dict[str, object] = {
-                "app": app,
-                "name": sandbox_name,
-                "image": image,
-                "timeout": config.ttl_seconds,
-                "cpu": float(config.cpu_cores),
-                "memory": config.memory_gb * 1024,
-                "verbose": True,
-            }
-
-            if secrets:
-                create_kwargs["secrets"] = secrets
-
-            sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
-
-            if config.metadata:
-                sb.set_tags(config.metadata)
-
-            sandbox = Sandbox(sandbox=sb, config=config)
-
-            logger.info(f"Created sandbox {sandbox.id} for {config.name}")
-
-            return sandbox
-
-        except Exception as e:
-            logger.exception(f"Failed to create sandbox: {e}")
-            raise SandboxProvisionError(
-                f"Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
-            )
+    @abstractmethod
+    def get_by_id(sandbox_id: str) -> SandboxBase: ...
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> "Sandbox":
-        try:
-            sb = modal.Sandbox.from_id(sandbox_id)
+    @abstractmethod
+    def delete_snapshot(external_id: str) -> None: ...
 
-            config = SandboxConfig(name=getattr(sb, "name", f"sandbox-{sandbox_id}"))
+    @abstractmethod
+    def get_status(self) -> SandboxStatus: ...
 
-            return Sandbox(sandbox=sb, config=config)
+    @abstractmethod
+    def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
-        except Exception as e:
-            logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
-            raise SandboxNotFoundError(
-                f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)}, cause=e
-            )
+    @abstractmethod
+    def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
 
-    def get_status(self) -> SandboxStatus:
-        return SandboxStatus.RUNNING if self._sandbox.poll() is None else SandboxStatus.SHUTDOWN
+    @abstractmethod
+    def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
 
-    def execute(
-        self,
-        command: str,
-        timeout_seconds: Optional[int] = None,
-    ) -> ExecutionResult:
+    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
         if not self.is_running():
-            raise SandboxExecutionError(
-                f"Sandbox not in running state.",
-                {"sandbox_id": self.id},
-                cause=RuntimeError(f"Sandbox {self.id} is not running"),
-            )
-
-        if timeout_seconds is None:
-            timeout_seconds = self.config.default_execution_timeout_seconds
-
-        try:
-            process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
-
-            process.wait()
-
-            stdout = process.stdout.read()
-            stderr = process.stderr.read()
-
-            result = ExecutionResult(
-                stdout=stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout,  # type: ignore[unreachable]
-                stderr=stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr,  # type: ignore[unreachable]
-                exit_code=process.returncode,
-                error=None,
-            )
-
-            return result
-
-        except TimeoutError as e:
-            capture_exception(e)
-            raise SandboxTimeoutError(
-                f"Execution timed out after {timeout_seconds} seconds",
-                {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
-                cause=e,
-            )
-        except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
-            raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
-            )
-
-    def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
+            raise RuntimeError("Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
         repo_url = (
@@ -227,129 +153,225 @@ class Sandbox:
             else f"https://github.com/{org}/{repo}.git"
         )
 
-        target_path = f"/tmp/workspace/repos/{org}/{repo}"
+        target_path = f"{WORKING_DIR}/repos/{org}/{repo}"
+        org_path = f"{WORKING_DIR}/repos/{org}"
 
+        depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
+        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
+        # files get fetched on demand. Shallow clones are already small enough.
+        blob_filter = "" if shallow else " --filter=blob:limit=128k"
         clone_command = (
-            f"rm -rf {target_path} && "
-            f"mkdir -p /tmp/workspace/repos/{org} && "
-            f"cd /tmp/workspace/repos/{org} && "
-            f"git clone {repo_url} {repo}"
+            f"rm -rf {shlex.quote(target_path)} && "
+            f"mkdir -p {shlex.quote(org_path)} && "
+            f"cd {shlex.quote(org_path)} && "
+            f"git clone --single-branch{blob_filter}{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
-
-        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
+        _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)
 
-    def setup_repository(self, repository: str) -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
+    @abstractmethod
+    def setup_repository(self, repository: str) -> ExecutionResult: ...
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+    @abstractmethod
+    def is_git_clean(self, repository: str) -> tuple[bool, str]: ...
 
-        check_result = self.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
-        if "missing" in check_result.stdout:
-            raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
+    @abstractmethod
+    def execute_task(
+        self,
+        task_id: str,
+        run_id: str,
+        repository: str | None = None,
+        create_pr: bool = True,
+    ) -> ExecutionResult: ...
 
-        agent_setup_command = self._get_setup_command(repo_path)
-        setup_command = f"cd {repo_path} && {agent_setup_command}"
+    @abstractmethod
+    def get_connect_credentials(self) -> AgentServerResult:
+        """Get connect credentials (URL and token) for this sandbox.
 
-        result = self.execute(setup_command, timeout_seconds=15 * 60)
+        Should be called after sandbox creation to get the URL and authentication
+        token needed to connect to the sandbox.
+        """
+        ...
 
-        return result
+    @abstractmethod
+    def start_agent_server(
+        self,
+        repository: str | None,
+        task_id: str,
+        run_id: str,
+        mode: str = "background",
+        create_pr: bool = True,
+        interaction_origin: str | None = None,
+        branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
+        allowed_domains: list[str] | None = None,
+    ) -> None:
+        """Start the agent-server HTTP server in the sandbox.
 
-    def is_git_clean(self, repository: str) -> tuple[bool, str]:
-        if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
+        The sandbox URL and token should be obtained via get_connect_credentials()
+        before calling this method.
+        """
+        ...
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+    @abstractmethod
+    def create_snapshot(self) -> str: ...
 
-        result = self.execute(f"cd {repo_path} && git status --porcelain")
-        is_clean = not result.stdout.strip()
+    @abstractmethod
+    def destroy(self) -> None: ...
 
-        return is_clean, result.stdout
+    @abstractmethod
+    def is_running(self) -> bool: ...
 
-    def execute_task(self, task_id: str, repository: str) -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
-
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-
-        task_command = self._get_task_command(task_id, repo_path)
-        command = f"cd {repo_path} && {task_command}"
-
-        logger.info(f"Executing task {task_id} in {repo_path} in sandbox {self.id}")
-        logger.info(f"Task command: {task_command}")
-        logger.info(f"Full command: {command}")
-
-        result = self.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
-
-        logger.info(f"Task execution completed: exit_code={result.exit_code}")
-        logger.info(f"Task stdout length: {len(result.stdout)} chars")
-        logger.info(f"Task stderr length: {len(result.stderr)} chars")
-        if result.exit_code != 0:
-            logger.warning(f"Task stdout preview: {result.stdout[:500]}")
-            logger.warning(f"Task stderr preview: {result.stderr[:500]}")
-
-        return result
-
-    def _get_task_command(self, task_id: str, repo_path: str) -> str:
-        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --repositoryPath {repo_path}"
-
-    def _get_setup_command(self, repo_path: str) -> str:
-        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
-
-    def create_snapshot(self) -> str:
-        if not self.is_running():
-            raise SandboxExecutionError(
-                f"Sandbox not in running state.",
-                {"sandbox_id": self.id},
-                cause=RuntimeError(f"Sandbox {self.id} is not running"),
-            )
-
-        try:
-            image = self._sandbox.snapshot_filesystem()
-
-            snapshot_id = image.object_id
-
-            logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
-
-            return snapshot_id
-
-        except Exception as e:
-            logger.exception(f"Failed to create snapshot: {e}")
-            raise SnapshotCreationError(
-                f"Failed to create snapshot: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
-            )
-
-    @staticmethod
-    def delete_snapshot(external_id: str) -> None:
-        logger.info(f"Deleting snapshot {external_id}")
-        try:
-            logger.info(f"Snapshot {external_id} marked for cleanup")
-        except Exception as e:
-            logger.warning(f"Failed to delete snapshot {external_id}: {e}")
-
-    def destroy(self) -> None:
-        try:
-            self._sandbox.terminate()
-            logger.info(f"Destroyed sandbox {self.id}")
-        except Exception as e:
-            logger.exception(f"Failed to destroy sandbox: {e}")
-            raise SandboxCleanupError(
-                f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
-            )
-
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         self.destroy()
 
-    def is_running(self) -> bool:
-        return self.get_status() == SandboxStatus.RUNNING
 
-    @property
-    def name(self) -> str:
-        return self.config.name
+_ExecuteFn = Callable[..., ExecutionResult]
+
+_logger = structlog.get_logger(__name__)
+
+
+def parse_sandbox_repo_mount_map() -> dict[str, str]:
+    """Parse SANDBOX_REPO_MOUNT_MAP into {lower(org/repo): expanded_local_path}.
+
+    Used by Docker sandbox for bind mounts and by task activities for user-facing logs.
+    Format: ``org/repo:/local/path,org2/repo2:~/other/path``
+    """
+    raw = os.environ.get("SANDBOX_REPO_MOUNT_MAP", "")
+    if not raw:
+        return {}
+
+    result: dict[str, str] = {}
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split(":", 1)
+        if len(parts) != 2 or "/" not in parts[0]:
+            _logger.warning(f"Ignoring malformed SANDBOX_REPO_MOUNT_MAP entry: {entry}")
+            continue
+        repo_key = parts[0].strip().lower()
+        local_path = os.path.expanduser(parts[1].strip())
+        if not os.path.isdir(local_path):
+            _logger.warning(f"SANDBOX_REPO_MOUNT_MAP: path does not exist, skipping: {local_path}")
+            continue
+        result[repo_key] = os.path.abspath(local_path)
+    return result
+
+
+def wait_for_health_check(
+    execute: _ExecuteFn,
+    sandbox_id: str,
+    port: int,
+    max_attempts: int = 60,
+    poll_interval: float = 0.5,
+) -> bool:
+    """Poll health endpoint until server is ready (single remote call).
+
+    Runs a bash polling loop inside the sandbox so only one round-trip is
+    needed regardless of how many attempts are required.
+    """
+    health_script = (
+        f"for i in $(seq 1 {max_attempts}); do "
+        f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{port}/health); "
+        f'  [ "$status" = "200" ] && echo "ok:$i" && exit 0; '
+        f"  sleep {poll_interval}; "
+        f"done; "
+        f"exit 1"
+    )
+    result = execute(health_script, timeout_seconds=max(30, int(max_attempts * poll_interval) + 5))
+    if result.exit_code == 0:
+        _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
+        return True
+    return False
+
+
+SandboxClass = type[SandboxBase]
+
+
+def _get_docker_sandbox_class() -> SandboxClass:
+    if not settings.DEBUG:
+        raise RuntimeError(
+            "DockerSandbox cannot be used in production. "
+            "Set DEBUG=True for local development or remove SANDBOX_PROVIDER=docker."
+        )
+    from .docker_sandbox import DockerSandbox
+
+    return DockerSandbox
+
+
+def _get_modal_docker_sandbox_class() -> SandboxClass:
+    """Modal sandbox with a separate app name for local development.
+
+    Uses a dedicated Modal app (posthog-sandbox-modal-docker-*) so that
+    local image builds with LOCAL_POSTHOG_CODE_MONOREPO_ROOT don't
+    pollute the production app's image cache.
+    """
+    if not settings.DEBUG:
+        raise RuntimeError("MODAL_DOCKER sandbox is for local development only (DEBUG=True).")
+    from .modal_sandbox import ModalSandbox
+
+    class ModalDockerSandbox(ModalSandbox):
+        DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default"
+        NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
+
+    return ModalDockerSandbox
+
+
+def get_sandbox_class() -> SandboxClass:
+    provider = getattr(settings, "SANDBOX_PROVIDER", None)
+
+    if provider == "docker":
+        return _get_docker_sandbox_class()
+
+    if provider and provider.upper() == "MODAL_DOCKER":
+        return _get_modal_docker_sandbox_class()
+
+    # Default to Modal everywhere
+    from .modal_sandbox import ModalSandbox
+
+    return ModalSandbox
+
+
+def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
+    if backend == "modal":
+        from .modal_sandbox import ModalSandbox
+
+        return ModalSandbox
+    if backend in ("modal_docker", "MODAL_DOCKER"):
+        return _get_modal_docker_sandbox_class()
+    if backend == "docker":
+        return _get_docker_sandbox_class()
+    raise RuntimeError(f"Unsupported sandbox backend: {backend}")
+
+
+Sandbox: SandboxClass = get_sandbox_class()
+
+__all__ = [
+    "AgentServerResult",
+    "Sandbox",
+    "SandboxConfig",
+    "SandboxStatus",
+    "SandboxTemplate",
+    "ExecutionResult",
+    "ExecutionStream",
+    "SANDBOX_TTL_SECONDS",
+    "SandboxBase",
+    "WORKING_DIR",
+    "parse_sandbox_repo_mount_map",
+    "get_sandbox_class",
+    "get_sandbox_class_for_backend",
+    "wait_for_health_check",
+]

@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
@@ -11,6 +12,7 @@ from products.data_warehouse.backend.models import (
     DataModelingJob,
     DataWarehouseModelPath,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryFolder,
     DataWarehouseTable,
 )
 from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
@@ -18,6 +20,65 @@ from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKin
 
 
 class TestSavedQuery(APIBaseTest):
+    def test_create_with_folder(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Marketing", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+                "folder_id": str(folder.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        self.assertEqual(saved_query["folder_id"], str(folder.id))
+        self.assertEqual(saved_query["folder_name"], "Marketing")
+
+    def test_create_with_other_team_folder_id_matches_nonexistent_folder_error(self):
+        other_team = self.create_team_with_organization(organization=self.organization)
+        other_team_folder = DataWarehouseSavedQueryFolder.objects.create(
+            team=other_team, name="Other team folder", created_by=self.user
+        )
+        missing_folder_id = uuid.uuid4()
+
+        other_team_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+                "folder_id": str(other_team_folder.id),
+            },
+        )
+        missing_folder_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+                "folder_id": str(missing_folder_id),
+            },
+        )
+
+        self.assertEqual(other_team_response.status_code, 400, other_team_response.content)
+        self.assertEqual(missing_folder_response.status_code, 400, missing_folder_response.content)
+        self.assertEqual(other_team_response.json()["attr"], "folder_id")
+        self.assertEqual(missing_folder_response.json()["attr"], "folder_id")
+        self.assertEqual(other_team_response.json()["code"], "does_not_exist")
+        self.assertEqual(missing_folder_response.json()["code"], "does_not_exist")
+        self.assertTrue(other_team_response.json()["detail"].endswith("- object does not exist."))
+        self.assertTrue(missing_folder_response.json()["detail"].endswith("- object does not exist."))
+
     def test_create(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -97,23 +158,19 @@ class TestSavedQuery(APIBaseTest):
                 return_value=False,
             ),
         ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
-                {
-                    "id": saved_query_id,
-                    "lifecycle": "update",
-                    "sync_frequency": "24hour",
-                },
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
             )
 
             assert response.status_code == 200
-            assert response.data["is_materialized"] is True
 
             saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
 
             assert saved_query.is_materialized is True
+            assert saved_query.sync_frequency_interval == timedelta(hours=24)
 
-    def test_materialize_view_no_sync_frequency(self):
+    def test_materialize_action_idempotent(self):
+        """Test that the materialize action is idempotent and can be called multiple times"""
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
@@ -130,57 +187,72 @@ class TestSavedQuery(APIBaseTest):
         assert saved_query_id is not None
 
         with (
+            patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"),
             patch(
-                "products.data_warehouse.backend.api.saved_query.pause_saved_query_schedule"
-            ) as mock_pause_saved_query_schedule,
+                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=False,
+            ),
         ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
-                {
-                    "id": saved_query_id,
-                    "lifecycle": "update",
-                    "sync_frequency": "never",
-                },
+            # First call to materialize
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
             )
 
             assert response.status_code == 200
-            assert response.data["is_materialized"] is True
 
             saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-
             assert saved_query.is_materialized is True
-            assert saved_query.sync_frequency_interval is None
-
-            mock_pause_saved_query_schedule.assert_called()
+            assert saved_query.sync_frequency_interval == timedelta(hours=24)
 
         with (
-            patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"),
+            patch(
+                "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
+            ) as mock_sync,
             patch(
                 "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
                 return_value=True,
             ),
             patch(
                 "products.data_warehouse.backend.data_load.saved_query_service.unpause_saved_query_schedule"
-            ) as mock_unpause_saved_query_schedule,
+            ) as mock_unpause,
         ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
-                {
-                    "id": saved_query_id,
-                    "lifecycle": "update",
-                    "sync_frequency": "24hour",
-                },
+            # Second call to materialize - should be idempotent
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
             )
 
             assert response.status_code == 200
-            assert response.data["is_materialized"] is True
 
-            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-
+            saved_query.refresh_from_db()
             assert saved_query.is_materialized is True
             assert saved_query.sync_frequency_interval == timedelta(hours=24)
+            # Schedule already exists, so should not unpause (unpause=False on second call)
+            mock_unpause.assert_not_called()
+            # But should still update the schedule
+            mock_sync.assert_called_once()
 
-            mock_unpause_saved_query_schedule.assert_called()
+    def test_materialize_action_with_managed_viewset_fails(self):
+        """Test that materializing a managed viewset query fails"""
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="managed_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            managed_viewset=managed_viewset,
+            created_by=self.user,
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/materialize",
+            )
+
+            assert response.status_code == 400
+            assert response.json()["detail"] == "Cannot materialize a query from a managed viewset."
 
     def test_create_with_types(self):
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
@@ -295,6 +367,114 @@ class TestSavedQuery(APIBaseTest):
         assert saved_query.deleted_name == query_name
         assert saved_query.name.startswith("POSTHOG_DELETED_")
 
+    def test_update_folder_assignment(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(
+            team=self.team, name="Warehouse ops", created_by=self.user
+        )
+        saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="test_query", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/",
+            {"folder_id": str(folder.id), "soft_update": True},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        saved_query.refresh_from_db()
+        self.assertEqual(saved_query.folder_id, folder.id)
+
+    def test_create_folder_and_list_view_count(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_query_folders/",
+            {"name": "Finance"},
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        folder_id = response.json()["id"]
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="finance_view",
+            folder_id=folder_id,
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()[0]["name"], "Finance")
+        self.assertEqual(response.json()[0]["view_count"], 1)
+
+    def test_delete_folder_deletes_views(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Deprecated", created_by=self.user)
+        first_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_a", folder=folder)
+        second_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_b", folder=folder)
+
+        with patch(
+            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+        ) as mock_delete_saved_query_schedule:
+            response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/"
+            )
+
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertEqual(mock_delete_saved_query_schedule.call_count, 2)
+        self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+
+        first_view.refresh_from_db()
+        second_view.refresh_from_db()
+        self.assertTrue(first_view.deleted)
+        self.assertTrue(second_view.deleted)
+
+    def test_delete_folder_deletes_endpoint_views(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Endpoints", created_by=self.user)
+        endpoint_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="endpoint_view",
+            folder=folder,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+
+        with patch(
+            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+        ) as mock_delete_saved_query_schedule:
+            response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/"
+            )
+
+        self.assertEqual(response.status_code, 204, response.content)
+        mock_delete_saved_query_schedule.assert_called_once()
+        self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+
+        endpoint_view.refresh_from_db()
+        self.assertTrue(endpoint_view.deleted)
+
+    def test_rename_folder(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Finance", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/",
+            {"name": "Revenue"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        folder.refresh_from_db()
+        self.assertEqual(folder.name, "Revenue")
+
+    def test_rename_folder_rejects_duplicate_name(self):
+        DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Finance", created_by=self.user)
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Revenue", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/",
+            {"name": "Finance"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("A folder with this name already exists.", str(response.json()))
+
     def test_listing_deleted_queries(self):
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -362,6 +542,7 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 404
 
     def test_update_sync_frequency_with_existing_schedule(self):
+        """Test that updating sync_frequency via PATCH only sets the interval"""
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
@@ -375,28 +556,16 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         saved_query = response.json()
 
-        with (
-            patch(
-                "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
-            ) as mock_sync_saved_query_workflow,
-            patch(
-                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists"
-            ) as mock_saved_query_workflow_exists,
-            patch(
-                "products.data_warehouse.backend.data_load.saved_query_service.unpause_saved_query_schedule"
-            ) as mock_unpause_saved_query_schedule,
-        ):
-            mock_saved_query_workflow_exists.return_value = True
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+            {"sync_frequency": "24hour"},
+        )
 
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-                {"sync_frequency": "24hour"},
-            )
+        self.assertEqual(response.status_code, 200)
 
-            self.assertEqual(response.status_code, 200)
-            mock_saved_query_workflow_exists.assert_called_once()
-            mock_sync_saved_query_workflow.assert_called_once()
-            mock_unpause_saved_query_schedule.assert_called_once()
+        # Verify the interval was set
+        updated_query = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertEqual(updated_query.sync_frequency_interval, timedelta(hours=24))
 
     def test_update_sync_frequency_to_never(self):
         response = self.client.post(
@@ -412,16 +581,24 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         saved_query = response.json()
 
-        with patch(
-            "products.data_warehouse.backend.api.saved_query.pause_saved_query_schedule"
-        ) as mock_pause_saved_query_schedule:
+        with (
+            patch(
+                "products.data_warehouse.backend.api.saved_query.saved_query_workflow_exists",
+                return_value=True,
+            ) as mock_workflow_exists,
+            patch(
+                "products.data_warehouse.backend.api.saved_query.pause_saved_query_schedule"
+            ) as mock_pause_saved_query_schedule,
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
                 {"sync_frequency": "never"},
             )
-
             self.assertEqual(response.status_code, 200)
-            mock_pause_saved_query_schedule.assert_called_once_with(saved_query["id"])
+            saved_query_id = response.json()["id"]
+            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+            mock_workflow_exists.assert_called_once_with(saved_query)
+            mock_pause_saved_query_schedule.assert_called_once_with(saved_query)
 
     def test_update_with_types(self):
         response = self.client.post(
@@ -464,17 +641,18 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 201)
-        saved_query = response.json()
+        saved_query_id = response.json()["id"]
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
 
         with patch(
             "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
         ) as mock_delete_saved_query_schedule:
             response = self.client.delete(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
             )
 
             self.assertEqual(response.status_code, 204)
-            mock_delete_saved_query_schedule.assert_called_once_with(saved_query["id"])
+            mock_delete_saved_query_schedule.assert_called_once_with(saved_query)
 
     def test_saved_query_doesnt_exist(self):
         saved_query_1_response = self.client.post(
@@ -889,7 +1067,8 @@ class TestSavedQuery(APIBaseTest):
             ).order_by("-created_at")
             self.assertEqual(activity_logs.count(), 2)
             self.assertEqual(activity_logs[0].activity, "updated")
-            query_change = next(change for change in activity_logs[0].detail["changes"] if change["field"] == "query")
+            latest_detail = cast(dict[str, Any], activity_logs[0].detail)
+            query_change = next(change for change in latest_detail["changes"] if change["field"] == "query")
             self.assertEqual(
                 query_change["after"],
                 {
@@ -905,7 +1084,8 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
             self.assertEqual(activity_logs[1].activity, "created")
-            query_change = next(change for change in activity_logs[1].detail["changes"] if change["field"] == "query")
+            created_detail = cast(dict[str, Any], activity_logs[1].detail)
+            query_change = next(change for change in created_detail["changes"] if change["field"] == "query")
             self.assertEqual(
                 query_change["after"],
                 {
@@ -1347,3 +1527,41 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn("Failed", returned_statuses)
         self.assertIn("Running", returned_statuses)
         self.assertIn("Cancelled", returned_statuses)
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_materialize_and_revert_are_rate_limited(self, _rate_limit_enabled_mock):
+        api_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="rate_limit_test_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+
+        with (
+            patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"),
+            patch(
+                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            for action in ("materialize", "revert_materialization"):
+                # First 5 requests should succeed (rate is 5/hour)
+                for i in range(5):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/{action}",
+                    )
+                    assert response.status_code == 200, f"{action} request {i + 1} returned {response.status_code}"
+
+                # 6th request should be throttled
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/{action}",
+                )
+                assert response.status_code == 429, f"{action} should be throttled but got {response.status_code}"
+
+                # Clear the throttle cache so the next action starts fresh
+                from django.core.cache import cache
+
+                cache.clear()

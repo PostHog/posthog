@@ -22,19 +22,26 @@ from posthog.schema import (
     EventsNode,
     FilterLogicalOperator,
     HogQLQueryModifiers,
+    InCohortVia,
     InsightActorsQuery,
+    PersonsArgMaxVersion,
     PersonsOnEventsMode,
     TrendsQuery,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.persons import _is_virtual_field_requiring_join
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.models import Cohort
+from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.person.util import create_person
+from posthog.models.utils import UUIDT
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))  # for persons-inner-where-optimization
@@ -154,6 +161,87 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse
         self.assertIn("where_optimization", response.clickhouse)
         self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
+
+
+class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
+    """Tests for the V2 argmax ORDER BY / LIMIT push-down into the inner subquery.
+
+    The optimization pushes ORDER BY + LIMIT into the inner deduplication
+    subquery so ClickHouse doesn't have to deduplicate every person.
+    It is only safe when there's no outer WHERE that would filter rows
+    after the inner query -- otherwise the LIMIT excludes valid rows
+    before the filter runs.
+    """
+
+    def _v2_modifiers(self) -> HogQLQueryModifiers:
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V2
+        modifiers.personsOnEventsMode = PersonsOnEventsMode.DISABLED
+        return modifiers
+
+    @snapshot_clickhouse_queries
+    def test_v2_order_by_and_limit_pushed_down(self):
+        """ORDER BY + LIMIT are pushed into the inner subquery when there's no WHERE."""
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$some_prop": "a"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"$some_prop": "b"})
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            parse_select("SELECT id, properties.$some_prop FROM persons ORDER BY created_at DESC LIMIT 2"),
+            self.team,
+            modifiers=self._v2_modifiers(),
+        )
+        assert response.clickhouse is not None
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
+        # LIMIT is pushed into the inner subquery
+        assert "LIMIT 3" in response.clickhouse
+        assert len(response.results) == 2
+
+    @snapshot_clickhouse_queries
+    def test_v2_cohort_where_does_not_push_limit_down(self):
+        """When there's an outer WHERE (e.g. a cohort filter), ORDER BY and LIMIT
+        must not be pushed into the inner subquery. Otherwise the inner LIMIT
+        restricts the person set before the cohort filter runs, and valid
+        cohort members get excluded."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        cohort_prop_value = f"cohort_match_{random_uuid}"
+        _create_person(
+            properties={"email": "cohort_member@example.com", "cohort_marker": cohort_prop_value},
+            team=self.team,
+            distinct_ids=[f"cohort_member_{random_uuid}"],
+            is_identified=True,
+        )
+        for i in range(10):
+            _create_person(
+                properties={"email": f"user{i}@example.com", "cohort_marker": "no_match"},
+                team=self.team,
+                distinct_ids=[f"non_cohort_{i}_{random_uuid}"],
+                is_identified=True,
+            )
+        sync_execute("OPTIMIZE TABLE person FINAL")
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "cohort_marker", "value": cohort_prop_value, "type": "person"}]}],
+        )
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
+
+        modifiers = self._v2_modifiers()
+        modifiers.inCohortVia = InCohortVia.LEFTJOIN_CONJOINED
+
+        response = execute_hogql_query(
+            f"SELECT id, properties.email FROM persons WHERE id IN COHORT {cohort.pk} ORDER BY created_at DESC LIMIT 3",
+            self.team,
+            modifiers=modifiers,
+            pretty=False,
+        )
+        assert response.clickhouse is not None
+        # V2 path is used but LIMIT is NOT pushed into the inner subquery
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
+        # The inner GROUP BY subquery should have no LIMIT
+        assert "LIMIT 4" not in response.clickhouse
+        # The cohort member is correctly returned
+        assert len(response.results) == 1
+        assert response.results[0][1] == "cohort_member@example.com"
 
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):
@@ -291,3 +379,111 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
         # test that it doesn't throw
         results = tqr.calculate().results
         assert results[0]["breakdown_value"] == [expected]
+
+
+class TestVirtualFieldDetection(APIBaseTest):
+    @parameterized.expand(
+        [
+            # Cases that should return True (require joins - revenue analytics fields)
+            ("virt_mrr_simple", ast.Field(chain=["$virt_mrr"]), True),
+            ("virt_revenue_simple", ast.Field(chain=["$virt_revenue"]), True),
+            ("virt_mrr_in_function_sum", ast.Call(name="sum", args=[ast.Field(chain=["$virt_mrr"])]), True),
+            ("virt_revenue_in_function_count", ast.Call(name="count", args=[ast.Field(chain=["$virt_revenue"])]), True),
+            (
+                "virt_mrr_in_comparison",
+                ast.CompareOperation(
+                    left=ast.Field(chain=["$virt_mrr"]), op=ast.CompareOperationOp.Gt, right=ast.Constant(value=100)
+                ),
+                True,
+            ),
+            ("virt_revenue_in_alias", ast.Alias(alias="revenue", expr=ast.Field(chain=["$virt_revenue"])), True),
+            (
+                "virt_mrr_in_arithmetic",
+                ast.ArithmeticOperation(
+                    left=ast.Field(chain=["$virt_mrr"]), op=ast.ArithmeticOperationOp.Add, right=ast.Constant(value=10)
+                ),
+                True,
+            ),
+            # Cases that should return False (no join required)
+            ("regular_field_created_at", ast.Field(chain=["created_at"]), False),
+            ("regular_field_id", ast.Field(chain=["id"]), False),
+            ("regular_field_properties", ast.Field(chain=["properties"]), False),
+            ("inline_virtual_channel_type", ast.Field(chain=["$virt_initial_channel_type"]), False),
+            ("inline_virtual_domain_type", ast.Field(chain=["$virt_initial_referring_domain_type"]), False),
+            ("unknown_virtual_field", ast.Field(chain=["$virt_unknown"]), False),
+            ("non_virtual_field_with_dollar", ast.Field(chain=["$session_id"]), False),
+            ("empty_chain", ast.Field(chain=[]), False),
+            ("regular_function_without_virtual", ast.Call(name="sum", args=[ast.Field(chain=["id"])]), False),
+            (
+                "comparison_without_virtual",
+                ast.CompareOperation(
+                    left=ast.Field(chain=["created_at"]),
+                    op=ast.CompareOperationOp.Gt,
+                    right=ast.Constant(value="2024-01-01"),
+                ),
+                False,
+            ),
+            # Edge cases
+            ("constant_value", ast.Constant(value=42), False),
+            (
+                "mixed_expression_with_virtual",
+                ast.CompareOperation(
+                    left=ast.Field(chain=["$virt_mrr"]),
+                    op=ast.CompareOperationOp.GtEq,
+                    right=ast.Constant(value=1000),
+                ),
+                True,
+            ),
+            (
+                "nested_function_with_virtual",
+                ast.Call(name="round", args=[ast.Call(name="sum", args=[ast.Field(chain=["$virt_revenue"])])]),
+                True,
+            ),
+            (
+                "complex_nested_no_virtual",
+                ast.Call(name="round", args=[ast.Call(name="sum", args=[ast.Field(chain=["id"])])]),
+                False,
+            ),
+        ]
+    )
+    def test_is_virtual_field_requiring_join(self, name: str, expr: ast.Expr, expected: bool):
+        result = _is_virtual_field_requiring_join(expr)
+        self.assertEqual(result, expected, f"Failed for test case: {name}")
+
+    def test_complex_nested_expression(self):
+        complex_expr = ast.CompareOperation(
+            left=ast.ArithmeticOperation(
+                left=ast.Field(chain=["$virt_mrr"]), op=ast.ArithmeticOperationOp.Add, right=ast.Constant(value=100)
+            ),
+            op=ast.CompareOperationOp.Gt,
+            right=ast.ArithmeticOperation(
+                left=ast.Field(chain=["created_at"]),
+                op=ast.ArithmeticOperationOp.Sub,
+                right=ast.Constant(value=1000),
+            ),
+        )
+
+        result = _is_virtual_field_requiring_join(complex_expr)
+
+        self.assertTrue(result, "Complex expression with virtual field should return True")
+
+    def test_multiple_virtual_fields(self):
+        expr = ast.ArithmeticOperation(
+            left=ast.Field(chain=["$virt_mrr"]),
+            op=ast.ArithmeticOperationOp.Add,
+            right=ast.Field(chain=["$virt_revenue"]),
+        )
+
+        result = _is_virtual_field_requiring_join(expr)
+
+        self.assertTrue(result, "Expression with multiple virtual fields should return True")
+
+    def test_no_exception_on_malformed_ast(self):
+        class MockASTNode:
+            def __init__(self):
+                self.unexpected_attr = "test"
+
+        mock_node = MockASTNode()
+
+        result = _is_virtual_field_requiring_join(mock_node)  # type: ignore
+        self.assertFalse(result, "Malformed AST should return False without exception")

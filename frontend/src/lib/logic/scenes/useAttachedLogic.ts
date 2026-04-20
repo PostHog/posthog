@@ -1,5 +1,5 @@
 import { BuiltLogic, Logic, LogicWrapper, beforeUnmount, useMountedLogic } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /**
  * Attach a logic to another logic. The logics stay connected even if the React component unmounts.
@@ -8,6 +8,8 @@ import { useEffect, useState } from 'react'
  * */
 export function useAttachedLogic(logic: BuiltLogic<Logic>, attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>): void {
     const [hasAttachTo] = useState(() => !!attachTo)
+    const previousLogicPathRef = useRef<string | null>(null)
+
     if (hasAttachTo && !attachTo) {
         throw new Error("Can't reset the 'attachTo' prop after it was set during initialization.")
     } else if (!hasAttachTo && attachTo) {
@@ -23,13 +25,41 @@ export function useAttachedLogic(logic: BuiltLogic<Logic>, attachTo?: BuiltLogic
             if (!('attachments' in attachTo)) {
                 ;(attachTo as any).attachments = {} as Record<string, () => void>
             }
-            if (!(attachTo as any).attachments[logic.pathString]) {
+            const attachments = (attachTo as any).attachments as Record<string, () => void>
+
+            const currentLogicPath = logic.pathString
+            const previousLogicPath = previousLogicPathRef.current
+
+            // If the logic changed (different pathString), clean up the old attachment
+            if (previousLogicPath && previousLogicPath !== currentLogicPath) {
+                attachments[previousLogicPath]?.()
+            }
+
+            // Create new attachment if it doesn't exist
+            if (!attachments[currentLogicPath]) {
                 const unmount = logic.mount()
-                ;(attachTo as any).attachments[logic.pathString] = unmount
-                beforeUnmount(() => {
+                let mounted = true
+                const detach = (): void => {
+                    if (!mounted) {
+                        return
+                    }
+
+                    mounted = false
+                    if (attachments[currentLogicPath] === detach) {
+                        delete attachments[currentLogicPath]
+                    }
                     unmount()
+                }
+
+                attachments[currentLogicPath] = detach
+                beforeUnmount(() => {
+                    if (attachments[currentLogicPath] === detach) {
+                        detach()
+                    }
                 })(builtAttachTo)
             }
+
+            previousLogicPathRef.current = currentLogicPath
         }
     }, [attachTo, builtAttachTo, logic.pathString, logic]) // eslint-disable-line react-hooks/rules-of-hooks
 }

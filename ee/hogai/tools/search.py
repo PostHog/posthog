@@ -2,21 +2,19 @@ from typing import Literal
 
 from django.conf import settings
 
-import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from ee.hogai.chat_agent.insights.nodes import InsightSearchNode, NoInsightsException
+from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
-from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
+from ee.hogai.tools.full_text_search.tool import EntitySearchTool
 
 SEARCH_TOOL_PROMPT = """
-Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog.
+Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog.
+
 If the user's question mentions multiple topics, search for each topic separately and combine the results.
 
 # Documentation search
@@ -63,17 +61,16 @@ Important:
 Use this tool to find PostHog entities using full-text search.
 Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
 So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
-If you want to search for all entities, you should use `all`.
-
+If you want to search for all entities, you should use kind="all".
 """.strip()
 
 INVALID_ENTITY_KIND_PROMPT = """
 Invalid entity kind: {{{kind}}}. Please provide a valid entity kind for the tool.
 """.strip()
 
-ENTITIES = [f"{entity}" for entity in FTSKind if entity != FTSKind.INSIGHTS]
+ENTITIES = [f"{entity}" for entity in EntityKind]
 
-SearchKind = Literal["insights", "docs", *ENTITIES]  # type: ignore
+SearchKind = Literal["docs", *ENTITIES]  # type: ignore
 
 
 class SearchToolArgs(BaseModel):
@@ -108,7 +105,7 @@ class InkeepResponse(BaseModel):
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
     description: str = SEARCH_TOOL_PROMPT
-    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
+    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
 
     async def _arun_impl(self, kind: str, query: str) -> tuple[str, ToolMessagesArtifact | None]:
@@ -126,16 +123,6 @@ class SearchTool(MaxTool):
             )
             return await docs_tool.execute(query, self.tool_call_id)
 
-        if kind == "insights" and not self._has_insights_fts_search_feature_flag():
-            insights_tool = InsightSearchTool(
-                team=self._team,
-                user=self._user,
-                state=self._state,
-                config=self._config,
-                context_manager=self._context_manager,
-            )
-            return await insights_tool.execute(query, self.tool_call_id)
-
         if kind not in self._fts_entities:
             raise MaxToolRetryableError(INVALID_ENTITY_KIND_PROMPT.format(kind=kind))
 
@@ -146,22 +133,13 @@ class SearchTool(MaxTool):
             config=self._config,
             context_manager=self._context_manager,
         )
-        response = await entity_search_toolkit.execute(query, FTSKind(kind))
+        response = await entity_search_toolkit.execute(query, EntityKind(kind))
         return response, None
 
     @property
     def _fts_entities(self) -> list[str]:
-        entities = list(FTSKind)
-        return [*entities, FTSKind.ALL]
-
-    def _has_insights_fts_search_feature_flag(self) -> bool:
-        return posthoganalytics.feature_enabled(
-            "hogai-insights-fts-search",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
+        entities = list(EntityKind)
+        return [*entities, EntityKind.ALL]
 
 
 DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
@@ -224,25 +202,3 @@ class InkeepDocsSearchTool(MaxSubtool):
 
         formatted_docs = "\n\n---\n\n".join(docs)
         return DOCS_SEARCH_RESULTS_TEMPLATE.format(count=len(docs), docs=formatted_docs), None
-
-
-EMPTY_DATABASE_ERROR_MESSAGE = """
-The user doesn't have any insights created yet.
-""".strip()
-
-
-class InsightSearchTool(MaxSubtool):
-    async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        try:
-            node = InsightSearchNode(self._team, self._user)
-            copied_state = self._state.model_copy(
-                deep=True, update={"search_insights_query": query, "root_tool_call_id": tool_call_id}
-            )
-            chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
-            result = await chain.ainvoke(copied_state)
-            return "", ToolMessagesArtifact(messages=result.messages) if result else None
-        except NoInsightsException:
-            raise MaxToolFatalError(
-                "No insights available: The team has not created any insights yet. "
-                "Insights must be created before they can be searched. You can create insights using the query generation tools."
-            )

@@ -1,44 +1,69 @@
 from collections.abc import Callable
 from functools import cached_property
-from typing import Any, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Optional, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
-from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
 from .utils import UUIDTClassicModel, generate_random_token, sane_repr
+
+if TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import RelatedManager
+
+    from social_django.models import UserSocialAuth
 
 
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
     error_tracking_issue_assigned: bool
+    error_tracking_weekly_digest: bool
+    error_tracking_weekly_digest_project_enabled: dict[
+        str, Any
+    ]  # Maps team_id (str) to enabled status (True = included). None/missing = not configured (auto-select on first digest).
     discussions_mentioned: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
+    data_pipeline_error_threshold: (
+        float  # Failure rate threshold (0.0 to 1.0) - only notify if failure rate exceeds this
+    )
+    project_api_key_exposed: bool
+    materialized_view_sync_failed: bool
+    web_analytics_weekly_digest: bool
+    web_analytics_weekly_digest_project_enabled: dict[str, bool]
+    organization_member_join_email_disabled: dict[
+        str, bool
+    ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
     "plugin_disabled": True,  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
     "error_tracking_issue_assigned": True,  # Error tracking issue assignment
+    "error_tracking_weekly_digest": True,  # Error tracking weekly digest enabled by default
     "discussions_mentioned": True,  # Mentions in comments enabled by default
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
+    "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
+    "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
+    "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
+    "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
+    "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
 }
 
-# We don't ned the following attributes in most cases, so we defer them by default
+# We don't need the following attributes in most cases, so we defer them by default
 DEFERED_ATTRS = ["requested_password_reset_at"]
 
 ROLE_CHOICES = (
@@ -71,6 +96,7 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
+            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
             user.set_password(password)
         user.save()
         return user
@@ -122,20 +148,6 @@ class UserManager(BaseUserManager):
             user.join(organization=organization, level=level)
             return user
 
-    def get_from_personal_api_key(self, key_value: str) -> Optional["User"]:
-        try:
-            personal_api_key: PersonalAPIKey = (
-                PersonalAPIKey.objects.select_related("user")
-                .filter(user__is_active=True)
-                .get(secure_value=hash_key_value(key_value))
-            )
-        except PersonalAPIKey.DoesNotExist:
-            return None
-        else:
-            personal_api_key.last_used_at = timezone.now()
-            personal_api_key.save()
-            return personal_api_key.user
-
 
 def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
@@ -147,7 +159,13 @@ class ThemeMode(models.TextChoices):
     SYSTEM = "system", "System"
 
 
-class User(AbstractUser, UUIDTClassicModel):
+class ShortcutPosition(models.TextChoices):
+    ABOVE = "above", "Above"
+    BELOW = "below", "Below"
+    HIDDEN = "hidden", "Hidden"
+
+
+class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: list[str] = []
 
@@ -164,10 +182,10 @@ class User(AbstractUser, UUIDTClassicModel):
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
-    temporary_token = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
+    requested_2fa_reset_at = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for = models.JSONField(null=True, blank=True)
     strapi_id = models.PositiveSmallIntegerField(null=True, blank=True)
     is_active = models.BooleanField(
@@ -182,19 +200,46 @@ class User(AbstractUser, UUIDTClassicModel):
     # These override the notification settings
     partial_notification_settings = models.JSONField(null=True, blank=True)
     anonymize_data = models.BooleanField(default=False, null=True, blank=True)
+    allow_impersonation = models.BooleanField(default=True, null=True, blank=True)
     toolbar_mode = models.CharField(max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR)
     hedgehog_config = models.JSONField(null=True, blank=True)
     allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
+    shortcut_position = models.CharField(
+        max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
+    )
+    passkeys_enabled_for_2fa = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+    )
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)
     # DEPRECATED - Most emails are done via 3rd parties and we use their opt/in out tooling
     email_opt_in = models.BooleanField(default=False, null=True, blank=True)
+    # DEPRECATED - Replaced by toolbar OAuth flow. Kept for schema compatibility only;
+    # we never drop columns to avoid failures during rolling deploys.
+    temporary_token = deprecate_field(models.CharField(max_length=200, null=True, blank=True, unique=True))
 
     # Remove unused attributes from `AbstractUser`
     username = None
 
     objects: UserManager = UserManager()
+
+    # Reverse relation from social_django.UserSocialAuth.user (related_name="social_auth"); not a DB column.
+    if TYPE_CHECKING:
+        social_auth: RelatedManager[UserSocialAuth]
+
+    # Snapshot of is_active at load time, used by signal handlers to detect changes.
+    # Set in from_db(); not a model field.
+    _original_is_active: bool
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        instance._original_is_active = instance.is_active
+        return instance
 
     @property
     def is_superuser(self) -> bool:
@@ -307,6 +352,47 @@ class User(AbstractUser, UUIDTClassicModel):
                 self.save(update_fields=["current_team"])
         return self.current_team
 
+    def get_github_login(self) -> str | None:
+        """Resolve this user's GitHub login.
+
+        Checks GitHub App integrations created by this user first (populated during
+        GitHub App installation with user authorization), then falls back to social auth.
+
+        When called from a context with prefetched data (e.g. ``_prefetched_github_integrations``
+        or ``social_auth``), the prefetch cache is used. Otherwise, queries are issued.
+        """
+        from posthog.models.integration import Integration
+
+        # Check GitHub integrations created by this user
+        prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
+        if prefetched_integrations is not None:
+            for integration in prefetched_integrations:
+                login = (integration.config or {}).get("connecting_user_github_login")
+                if login:
+                    return str(login)
+        else:
+            login = (
+                Integration.objects.filter(kind="github", created_by=self)
+                .values_list("config__connecting_user_github_login", flat=True)
+                .exclude(config__connecting_user_github_login=None)
+                .first()
+            )
+            if login:
+                return str(login)
+
+        # Fall back to social auth
+        for sa in self.social_auth.all():
+            if sa.provider != "github":
+                continue
+            login_val = getattr(sa, "_prefetched_github_login", None)
+            if login_val:
+                return str(login_val)
+            if isinstance(sa.extra_data, dict):
+                login = sa.extra_data.get("login")
+                if login:
+                    return str(login)
+        return None
+
     def join(
         self,
         *,
@@ -360,6 +446,11 @@ class User(AbstractUser, UUIDTClassicModel):
             **(self.partial_notification_settings if self.partial_notification_settings else {}),
         }
 
+    def should_send_organization_member_join_email(self, organization_id: str) -> bool:
+        """Whether to email this user when someone joins the given organization (default: True)."""
+        disabled = self.notification_settings.get("organization_member_join_email_disabled") or {}
+        return not bool(disabled.get(str(organization_id), False))
+
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
         if membership.level == OrganizationMembership.Level.OWNER:
@@ -379,7 +470,7 @@ class User(AbstractUser, UUIDTClassicModel):
         from ee.billing.billing_manager import BillingManager  # avoid circular import
 
         if is_cloud() and get_cached_instance_license() is not None:
-            BillingManager(get_cached_instance_license()).update_billing_organization_users(organization)
+            BillingManager(get_cached_instance_license(), self).update_billing_organization_users(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (

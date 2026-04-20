@@ -1,26 +1,46 @@
 from datetime import datetime, timedelta
+from typing import cast
 from zoneinfo import ZoneInfo
 
+from django.conf import settings as django_settings
 from django.db import connection
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate, TruncHour
 
+import requests as http_requests
 import structlog
+import posthoganalytics
 from dateutil import parser
-from rest_framework import status, viewsets
+from drf_spectacular.utils import extend_schema, inline_serializer
+from opentelemetry import trace
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.cloud_utils import get_cached_instance_license
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.batch_exports.models import BatchExportRun
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.cloud_utils import get_cached_instance_license
+from posthog.helpers.dashboard_templates import create_data_ops_dashboard
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.utils import convert_property_value, flatten
+
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
+from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 
 from ee.billing.billing_manager import BillingManager
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -29,6 +49,81 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
 
     scope_object = "INTERNAL"
+
+    @action(methods=["GET"], detail=False, required_scopes=["query:read"])
+    def property_values(self, request: Request, **kwargs) -> Response:
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="data_warehouse").time(),
+            tracer.start_as_current_span("data_warehouse_api_property_values") as span,
+        ):
+            key = request.GET.get("key")
+            table_name = request.GET.get("table_name")
+            value = request.GET.get("value")
+
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", key or "")
+            span.set_attribute("table_name", table_name or "")
+            span.set_attribute("has_value_filter", value is not None)
+
+            if not key:
+                raise serializers.ValidationError("You must provide a key")
+            if not table_name:
+                raise serializers.ValidationError("You must provide a table name")
+
+            table = get_view_or_table_by_name(self.team, table_name)
+            if table is None:
+                return Response(status=status.HTTP_404_NOT_FOUND, data={"error": "Data warehouse table not found"})
+
+            columns = table.columns or table.get_columns()
+            if key not in columns:
+                raise serializers.ValidationError("The provided key does not exist on this table")
+
+            chain: list[str | int] = cast(list[str | int], key.split("."))
+            conditions: list[ast.Expr] = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=chain),
+                    right=ast.Constant(value=None),
+                )
+            ]
+
+            if value:
+                conditions.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.ILike,
+                        left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
+                        right=ast.Constant(value=f"%{value}%"),
+                    )
+                )
+
+            order_by = []
+            if value:
+                order_by = [
+                    ast.OrderExpr(
+                        expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
+                        order="ASC",
+                    )
+                ]
+
+            query = ast.SelectQuery(
+                select=[ast.Field(chain=chain)],
+                distinct=True,
+                select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table.name_chain))),
+                where=ast.And(exprs=conditions),
+                order_by=order_by,
+                limit=ast.Constant(value=10),
+            )
+
+            tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
+            result = execute_hogql_query(query, team=self.team)
+
+            values = [row[0] for row in result.results]
+            span.set_attribute("result_count", len(values))
+            resp = Response(
+                {"results": [{"name": convert_property_value(value)} for value in flatten(values)], "refreshing": False}
+            )
+            resp["Cache-Control"] = "max-age=10"
+            return resp
 
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:
@@ -145,7 +240,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     WITH external_jobs AS (
                         SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
-                               edj.finished_at, edj.latest_error, edj.workflow_run_id
+                               edj.finished_at, edj.latest_error, edj.workflow_run_id,
+                               null as origin
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
@@ -154,7 +250,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     modeling_jobs AS (
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
                                COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
-                               dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id
+                               dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id,
+                               dwsq.origin as origin
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
                         WHERE dmj.team_id = %s AND dmj.status = 'Running' AND dmj.created_at >= %s
@@ -221,7 +318,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     WITH external_jobs AS (
                         SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
-                               edj.finished_at, edj.latest_error, edj.workflow_run_id
+                               edj.finished_at, edj.latest_error, edj.workflow_run_id,
+                               null as origin
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
@@ -230,7 +328,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     modeling_jobs AS (
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
                                COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
-                               dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id
+                               dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id,
+                               dwsq.origin
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
                         WHERE dmj.team_id = %s AND dmj.status = 'Completed' AND dmj.created_at >= %s
@@ -444,3 +543,454 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"error": "An error occurred retrieving job statistics"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(methods=["GET"], detail=False)
+    def data_health_issues(self, request: Request, **kwargs) -> Response:
+        """
+        Returns failed/disabled data pipeline items for the Pipeline status side panel.
+        Includes: materializations, syncs, sources, destinations, and transformations.
+        """
+        try:
+            results = []
+
+            # Get failed materializations from DataWarehouseSavedQuery
+            # Only show views that are actively materialized but failing
+            failed_materializations = DataWarehouseSavedQuery.objects.filter(
+                team_id=self.team_id,
+                deleted=False,
+                is_materialized=True,
+                status=DataWarehouseSavedQuery.Status.FAILED,
+            )
+
+            for query in failed_materializations:
+                results.append(
+                    {
+                        "id": str(query.id),
+                        "name": query.name,
+                        "type": "materialized_view",
+                        "status": "failed",
+                        "error": query.latest_error,
+                        "failed_at": query.last_run_at.isoformat() if query.last_run_at else None,
+                        "url": f"/data-warehouse/view/{query.id}",
+                    }
+                )
+
+            # Get failed syncs from ExternalDataSchema
+            # Only show syncs that are actively enabled but failing
+            problem_syncs = (
+                ExternalDataSchema.objects.filter(
+                    team_id=self.team_id,
+                    deleted=False,
+                    should_sync=True,
+                )
+                .filter(
+                    Q(status=ExternalDataSchema.Status.FAILED)
+                    | Q(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
+                )
+                .select_related("source")
+            )
+
+            for schema in problem_syncs:
+                sync_status = "failed"
+                if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
+                    sync_status = "billing_limit"
+
+                results.append(
+                    {
+                        "id": str(schema.id),
+                        "name": schema.name,
+                        "type": "external_data_sync",
+                        "source_type": schema.source.source_type if schema.source else None,
+                        "status": sync_status,
+                        "error": schema.latest_error,
+                        "failed_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
+                        "url": f"/data-warehouse/sources/{schema.source_id}" if schema.source_id else None,
+                    }
+                )
+
+            # Get sources with Error status
+            error_sources = ExternalDataSource.objects.filter(
+                team_id=self.team_id,
+                deleted=False,
+                status=ExternalDataSource.Status.ERROR,
+            )
+
+            for source in error_sources:
+                results.append(
+                    {
+                        "id": str(source.id),
+                        "name": source.source_type,
+                        "type": "source",
+                        "source_type": source.source_type,
+                        "status": "failed",
+                        "error": None,
+                        "failed_at": source.updated_at.isoformat() if source.updated_at else None,
+                        "url": f"/data-warehouse/sources/{source.id}",
+                    }
+                )
+
+            # Get failed batch exports
+            # get latest run per export, then filter for failures
+            # Exclude paused exports since their last failure is no longer actionable
+            latest_run_ids = (
+                BatchExportRun.objects.filter(
+                    batch_export__team_id=self.team_id,
+                    batch_export__deleted=False,
+                    batch_export__paused=False,
+                )
+                .order_by("batch_export_id", "-created_at")
+                .distinct("batch_export_id")
+                .values_list("id", flat=True)
+            )
+
+            # nosemgrep: idor-lookup-without-team (IDs from team-scoped queryset)
+            failed_runs = BatchExportRun.objects.filter(
+                id__in=latest_run_ids,
+                status__in=[
+                    BatchExportRun.Status.FAILED,
+                    BatchExportRun.Status.FAILED_RETRYABLE,
+                    BatchExportRun.Status.TIMEDOUT,
+                    BatchExportRun.Status.TERMINATED,
+                ],
+            ).select_related("batch_export")
+
+            for run in failed_runs:
+                results.append(
+                    {
+                        "id": str(run.batch_export.id),
+                        "name": run.batch_export.name,
+                        "type": "destination",
+                        "status": "failed",
+                        "error": run.latest_error,
+                        "failed_at": run.finished_at.isoformat() if run.finished_at else None,
+                        "url": f"/pipeline/batch-exports/{run.batch_export.id}",
+                    }
+                )
+
+            # Get transformations with issues
+            transformations = HogFunction.objects.filter(
+                team_id=self.team_id,
+                deleted=False,
+                type=HogFunctionType.TRANSFORMATION,
+                enabled=True,
+            )
+
+            for transformation in transformations:
+                try:
+                    status_data = transformation.status
+                    state = status_data.get("state", 0)
+                    if state in [
+                        HogFunctionState.DISABLED.value,
+                        HogFunctionState.DEGRADED.value,
+                        HogFunctionState.FORCEFULLY_DISABLED.value,
+                        HogFunctionState.FORCEFULLY_DEGRADED.value,
+                    ]:
+                        status_label = (
+                            "disabled"
+                            if state
+                            in [
+                                HogFunctionState.DISABLED.value,
+                                HogFunctionState.FORCEFULLY_DISABLED.value,
+                            ]
+                            else "degraded"
+                        )
+                        error_msg = status_data.get("error") or "Transformation experiencing issues"
+                        results.append(
+                            {
+                                "id": str(transformation.id),
+                                "name": transformation.name or "Untitled",
+                                "type": "transformation",
+                                "status": status_label,
+                                "error": error_msg,
+                                "failed_at": transformation.updated_at.isoformat()
+                                if transformation.updated_at
+                                else None,
+                                "url": f"/pipeline/transformations/hog-{transformation.id}/configuration",
+                            }
+                        )
+                except Exception as e:
+                    logger.warning(f"Error processing transformation {transformation.id}", exc_info=e)
+
+            # Get destinations with issues
+            hog_destinations = HogFunction.objects.filter(
+                team_id=self.team_id,
+                deleted=False,
+                type__in=[HogFunctionType.DESTINATION, HogFunctionType.SITE_DESTINATION],
+                enabled=True,
+            )
+
+            for destination in hog_destinations:
+                try:
+                    status_data = destination.status
+                    state = status_data.get("state", 0)
+                    if state in [
+                        HogFunctionState.DISABLED.value,
+                        HogFunctionState.DEGRADED.value,
+                        HogFunctionState.FORCEFULLY_DISABLED.value,
+                        HogFunctionState.FORCEFULLY_DEGRADED.value,
+                    ]:
+                        status_label = (
+                            "disabled"
+                            if state
+                            in [
+                                HogFunctionState.DISABLED.value,
+                                HogFunctionState.FORCEFULLY_DISABLED.value,
+                            ]
+                            else "degraded"
+                        )
+                        error_msg = status_data.get("error") or "Destination experiencing issues"
+                        results.append(
+                            {
+                                "id": str(destination.id),
+                                "name": destination.name or "Untitled",
+                                "type": "destination",
+                                "status": status_label,
+                                "error": error_msg,
+                                "failed_at": destination.updated_at.isoformat() if destination.updated_at else None,
+                                "url": f"/pipeline/destinations/hog-{destination.id}/configuration",
+                            }
+                        )
+                except Exception as e:
+                    logger.warning("Error processing destination", destination_id=destination.id, exc_info=e)
+
+            # Sort by failed_at descending with None values last
+            results.sort(key=lambda x: (x["failed_at"] is not None, x["failed_at"] or ""), reverse=True)
+
+            return Response(
+                {
+                    "results": results,
+                    "count": len(results),
+                }
+            )
+
+        except Exception as e:
+            logger.exception("Error retrieving data health issues", exc_info=e)
+            return Response(
+                {"error": "An error occurred retrieving data health issues"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(methods=["GET"], detail=False)
+    def data_ops_dashboard(self, request: Request, **kwargs) -> Response:
+        """
+        Returns the data ops overview dashboard ID for this team, creating it if it doesn't exist yet.
+        """
+        from django.db import transaction
+
+        config = get_or_create_team_extension(self.team, TeamDataWarehouseConfig)
+
+        if not config.overview_dashboards.exists():
+            with transaction.atomic():
+                config = TeamDataWarehouseConfig.objects.select_for_update().get(team=self.team)
+                if not config.overview_dashboards.exists():
+                    dashboard = create_data_ops_dashboard(self.team, request.user)
+                    config.overview_dashboards.add(dashboard)
+
+        # TODO: In the future this endpoint will return multiple dashboards (one per use-case).
+        # For now we only expose the first one (by creation order) to keep the UI simple.
+        first_dashboard = config.overview_dashboards.order_by("id").first()
+        return Response({"dashboard_id": first_dashboard.id if first_dashboard else None})
+
+    # --- Managed warehouse provisioning (proxied to duckgres) ---
+
+    def _is_managed_warehouse_enabled(self) -> bool:
+        try:
+            return posthoganalytics.feature_enabled(
+                "provision-managed-warehouse-beta",
+                str(self.team.uuid),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.id),
+                },
+                group_properties={
+                    "organization": {
+                        "id": str(self.team.organization_id),
+                    },
+                    "project": {
+                        "id": str(self.team.id),
+                    },
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            logger.warning("Failed to evaluate managed warehouse feature flag", team_id=self.team_id)
+            return False
+
+    def _provisioning_request(
+        self, method: str, path: str, json_body: dict | None = None, params: dict | None = None, timeout: int = 30
+    ) -> Response:
+        """Proxy a request to the duckgres provisioning API."""
+        if not self._is_managed_warehouse_enabled():
+            return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
+
+        base_url = getattr(django_settings, "DUCKGRES_API_URL", None)
+        token = getattr(django_settings, "DUCKGRES_INTERNAL_SECRET", None)
+
+        if not base_url:
+            logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", team_id=self.team_id)
+            return Response(
+                {"error": "Managed warehouse provisioning is not configured"},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
+        # Use the PostHog team_id as the duckgres org identifier.
+        # Paths starting with / are org-scoped, otherwise treated as absolute API paths.
+        team_id = str(self.team_id)
+        if path.startswith("/"):
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{team_id}{path}"
+        else:
+            url = f"{base_url.rstrip('/')}/api/v1/{path}"
+        headers = {}
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
+
+        try:
+            resp = http_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
+        except http_requests.Timeout:
+            logger.warning("Provisioning API timeout", method=method, path=path, team_id=team_id)
+            return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except http_requests.ConnectionError:
+            logger.warning("Provisioning API connection refused", method=method, path=path, team_id=team_id)
+            return Response({"error": "Provisioning service is unreachable"}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception:
+            logger.exception("Provisioning API unexpected error", method=method, path=path, team_id=team_id)
+            return Response(
+                {"error": "An error occurred contacting the provisioning service"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if resp.status_code >= 400:
+            logger.warning(
+                "Provisioning API returned error",
+                method=method,
+                path=path,
+                team_id=team_id,
+                status_code=resp.status_code,
+                response_body=resp.text[:500],
+            )
+        else:
+            logger.info("Provisioning API request succeeded", method=method, path=path, team_id=team_id)
+
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {"error": resp.text[:500]}
+        return Response(body, status=resp.status_code)
+
+    @extend_schema(
+        request=inline_serializer(
+            "ProvisionWarehouseRequest",
+            fields={"database_name": serializers.CharField(help_text="Name for the new database")},
+        ),
+        responses={
+            200: inline_serializer(
+                "ProvisionWarehouseResponse",
+                fields={
+                    "status": serializers.CharField(),
+                    "team": serializers.CharField(),
+                },
+            )
+        },
+    )
+    @action(methods=["POST"], detail=False)
+    def provision(self, request: Request, **kwargs) -> Response:
+        """Start provisioning a managed warehouse for this team."""
+        database_name = request.data.get("database_name")
+        if not database_name:
+            return Response({"error": "database_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        return self._provisioning_request(
+            "POST",
+            "/provision",
+            json_body={
+                "database_name": database_name,
+                "metadata_store": {"type": "aurora", "aurora": {"min_acu": 0.5, "max_acu": 2}},
+            },
+        )
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                "DeprovisionWarehouseResponse",
+                fields={
+                    "status": serializers.CharField(),
+                    "team": serializers.CharField(),
+                },
+            )
+        },
+    )
+    @action(methods=["POST"], detail=False)
+    def deprovision(self, request: Request, **kwargs) -> Response:
+        """Start deprovisioning the managed warehouse for this team."""
+        return self._provisioning_request("POST", "/deprovision")
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                "WarehouseStatusResponse",
+                fields={
+                    "team_name": serializers.CharField(),
+                    "state": serializers.ChoiceField(
+                        choices=["pending", "provisioning", "ready", "failed", "deleting", "deleted"]
+                    ),
+                    "status_message": serializers.CharField(),
+                    "ready_at": serializers.DateTimeField(allow_null=True),
+                    "failed_at": serializers.DateTimeField(allow_null=True),
+                },
+            )
+        },
+    )
+    @action(methods=["GET"], detail=False)
+    def warehouse_status(self, request: Request, **kwargs) -> Response:
+        """Get the current provisioning status of the managed warehouse."""
+        resp = self._provisioning_request("GET", "/warehouse/status")
+        # Override connection host/port with the public-facing duckgres PG endpoint
+        if resp.status_code == 200 and isinstance(resp.data, dict) and resp.data.get("connection"):
+            pg_url = getattr(django_settings, "DUCKGRES_PG_URL", None)
+            pg_port = getattr(django_settings, "DUCKGRES_PG_PORT", 5432)
+            if pg_url:
+                resp.data["connection"]["host"] = pg_url
+                resp.data["connection"]["port"] = pg_port
+        return resp
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                "ResetPasswordResponse",
+                fields={
+                    "username": serializers.CharField(),
+                    "password": serializers.CharField(),
+                },
+            )
+        },
+    )
+    @action(methods=["POST"], detail=False, url_path="reset-password")
+    def reset_password(self, request: Request, **kwargs) -> Response:
+        """Reset the root password for the managed warehouse."""
+        return self._provisioning_request("POST", "/reset-password")
+
+    @extend_schema(
+        parameters=[
+            inline_serializer(
+                "CheckDatabaseNameRequest",
+                fields={"name": serializers.CharField(help_text="Database name to check")},
+            )
+        ],
+        responses={
+            200: inline_serializer(
+                "CheckDatabaseNameResponse",
+                fields={
+                    "name": serializers.CharField(),
+                    "available": serializers.BooleanField(),
+                },
+            )
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="check-database-name")
+    def check_database_name(self, request: Request, **kwargs) -> Response:
+        """Check if a database name is available."""
+        name = request.query_params.get("name")
+        if not name:
+            return Response({"error": "name query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return self._provisioning_request("GET", "database-name/check", params={"name": name}, timeout=10)

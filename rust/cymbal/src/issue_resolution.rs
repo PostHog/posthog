@@ -1,22 +1,20 @@
 use std::fmt::Display;
-use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
 
 use rdkafka::types::RDKafkaErrorCode;
-use sqlx::{Acquire, PgConnection};
+use serde::{Deserialize, Serialize};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
 use crate::teams::TeamManager;
 use crate::types::{FingerprintedErrProps, OutputErrProps};
 use crate::{
-    app_context::AppContext,
-    error::UnhandledError,
-    metric_consts::{ISSUE_CREATED, ISSUE_REOPENED},
-    posthog_utils::{capture_issue_created, capture_issue_reopened},
+    app_context::AppContext, error::UnhandledError, metric_consts::ISSUE_REOPENED,
+    posthog_utils::capture_issue_reopened,
 };
 
 #[derive(Debug, Clone)]
@@ -38,7 +36,34 @@ pub struct Issue {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Copy)]
+pub struct IssueWithFirstSeen {
+    pub id: Uuid,
+    pub team_id: i32,
+    pub status: IssueStatus,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub fingerprint_first_seen: Option<DateTime<Utc>>,
+}
+
+impl IssueWithFirstSeen {
+    pub fn into_issue(self) -> (Issue, Option<DateTime<Utc>>) {
+        (
+            Issue {
+                id: self.id,
+                team_id: self.team_id,
+                status: self.status,
+                name: self.name,
+                description: self.description,
+                created_at: self.created_at,
+            },
+            self.fingerprint_first_seen,
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IssueStatus {
     Archived,
     Active,
@@ -64,16 +89,14 @@ impl Issue {
         executor: E,
         team_id: i32,
         fingerprint: &str,
-    ) -> Result<Option<Self>, UnhandledError>
+    ) -> Result<Option<IssueWithFirstSeen>, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         let res = sqlx::query_as!(
-            Issue,
+            IssueWithFirstSeen,
             r#"
-            -- the "eligible_for_assignment!" forces sqlx to assume not null, which is correct in this case, but
-            -- generally a risky override of sqlx's normal type checking
-            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at
+            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
@@ -171,6 +194,9 @@ impl Issue {
 
         let reopened = !res.is_empty();
         if reopened {
+            // DB row is now active; keep in-memory state in sync so downstream Kafka payloads
+            // (fingerprint_issue_state, internal events) are not stale.
+            self.status = IssueStatus::Active;
             metrics::counter!(ISSUE_REOPENED).increment(1);
             capture_issue_reopened(self.team_id, self.id);
         }
@@ -198,6 +224,81 @@ impl Issue {
 
         Ok(assignments)
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FingerprintIssueState {
+    pub team_id: i32,
+    pub fingerprint: String,
+    pub issue_id: Uuid,
+    pub issue_name: Option<String>,
+    pub issue_description: Option<String>,
+    pub issue_status: String,
+    pub assigned_user_id: Option<i64>,
+    pub assigned_role_id: Option<String>,
+    pub first_seen: String,
+    pub is_deleted: i8,
+    pub version: i64,
+}
+
+fn assignment_user_role_from_assignment(
+    assignment: Option<&Assignment>,
+) -> (Option<i64>, Option<String>) {
+    let Some(a) = assignment else {
+        return (None, None);
+    };
+    if let Some(uid) = a.user_id {
+        return (Some(i64::from(uid)), None);
+    }
+    if let Some(rid) = a.role_id {
+        return (None, Some(rid.to_string()));
+    }
+    (None, None)
+}
+
+impl FingerprintIssueState {
+    pub fn new(
+        issue: &Issue,
+        fingerprint: &str,
+        assignment: Option<&Assignment>,
+        first_seen: DateTime<Utc>,
+    ) -> Self {
+        let now = Utc::now().timestamp_millis();
+        let (assigned_user_id, assigned_role_id) = assignment_user_role_from_assignment(assignment);
+        Self {
+            team_id: issue.team_id,
+            fingerprint: fingerprint.to_string(),
+            issue_id: issue.id,
+            issue_name: issue.name.clone(),
+            issue_description: issue.description.clone(),
+            issue_status: issue.status.to_string(),
+            assigned_user_id,
+            assigned_role_id,
+            first_seen: first_seen.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            is_deleted: 0,
+            version: now,
+        }
+    }
+}
+
+pub async fn send_fingerprint_issue_state(
+    context: &AppContext,
+    issue: &Issue,
+    fingerprint: &str,
+    assignment: Option<&Assignment>,
+    first_seen: DateTime<Utc>,
+) -> Result<(), UnhandledError> {
+    let msg = FingerprintIssueState::new(issue, fingerprint, assignment, first_seen);
+    send_iter_to_kafka(
+        &context.immediate_producer,
+        &context.config.fingerprint_issue_state_topic,
+        &[msg],
+    )
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, KafkaProduceError>>()
+    .map_err(UnhandledError::KafkaProduceError)?;
+    Ok(())
 }
 
 impl IssueFingerprintOverride {
@@ -253,110 +354,6 @@ impl IssueFingerprintOverride {
     }
 }
 
-pub async fn resolve_issue(
-    context: Arc<AppContext>,
-    team_id: i32,
-    name: String,
-    description: String,
-    event_timestamp: DateTime<Utc>,
-    event_properties: FingerprintedErrProps,
-) -> Result<Issue, UnhandledError> {
-    let mut conn = context.posthog_pool.acquire().await?;
-    // Fast path - just fetch the issue directly, and then reopen it if needed
-    let existing_issue =
-        Issue::load_by_fingerprint(&mut *conn, team_id, &event_properties.fingerprint.value)
-            .await?;
-    if let Some(mut issue) = existing_issue {
-        if issue.maybe_reopen(&mut *conn).await? {
-            let assignment = process_assignment(
-                &mut conn,
-                &context.team_manager,
-                &issue,
-                event_properties.clone(),
-            )
-            .await?;
-            let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
-            send_issue_reopened_alert(&context, &issue, assignment, output_props, &event_timestamp)
-                .await?;
-        }
-        return Ok(issue);
-    }
-
-    // Slow path - insert a new issue, and then insert the fingerprint override, rolling
-    // back the transaction if the override insert fails (since that indicates someone else
-    // beat us to creating this new issue). Then, possibly reopen the issue.
-
-    // Start a transaction, so we can roll it back on override insert failure
-    let mut txn = conn.begin().await?;
-    // Insert a new issue
-    let issue = Issue::insert_new(
-        team_id,
-        name.to_string(),
-        description.to_string(),
-        &mut *txn,
-    )
-    .await?;
-
-    // Insert the fingerprint override
-    let issue_override = IssueFingerprintOverride::create_or_load(
-        &mut *txn,
-        team_id,
-        &event_properties.fingerprint.value,
-        &issue,
-        event_timestamp,
-    )
-    .await?;
-
-    // If we actually inserted a new row for the issue override, commit the transaction,
-    // saving both the issue and the override. Otherwise, rollback the transaction, and
-    // use the retrieved issue override.
-    let was_created = issue_override.issue_id == issue.id;
-    let mut issue = issue;
-    if !was_created {
-        txn.rollback().await?;
-        // Replace the attempt issue with the existing one
-        issue = Issue::load(&mut *conn, team_id, issue_override.id)
-            .await?
-            .unwrap_or(issue);
-
-        // Since we just loaded an issue, check if it needs to be reopened
-        if issue.maybe_reopen(&mut *conn).await? {
-            let assignment = process_assignment(
-                &mut conn,
-                &context.team_manager,
-                &issue,
-                event_properties.clone(),
-            )
-            .await?;
-            let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
-            send_issue_reopened_alert(&context, &issue, assignment, output_props, &event_timestamp)
-                .await?;
-        }
-    } else {
-        metrics::counter!(ISSUE_CREATED).increment(1);
-        let assignment = process_assignment(
-            &mut txn,
-            &context.team_manager,
-            &issue,
-            event_properties.clone(),
-        )
-        .await?;
-
-        let output_props = event_properties.clone().to_output(issue.id);
-        send_new_fingerprint_event(&context, &issue, &output_props).await?;
-        send_issue_created_alert(&context, &issue, assignment, output_props, &event_timestamp)
-            .await?;
-        txn.commit().await?;
-        capture_issue_created(
-            team_id,
-            issue_override.issue_id,
-            event_properties.other.contains_key("$sentry_event_id"),
-        );
-    };
-
-    Ok(issue)
-}
-
 pub async fn process_assignment(
     conn: &mut PgConnection,
     team_manager: &TeamManager,
@@ -366,7 +363,13 @@ pub async fn process_assignment(
     let new_assignment = if let Some(new) = props.fingerprint.assignment.clone() {
         Some(new)
     } else {
-        try_assignment_rules(conn, team_manager, issue.clone(), props.to_output(issue.id)).await?
+        try_assignment_rules(
+            conn,
+            team_manager,
+            issue.clone(),
+            &props.to_output(issue.id),
+        )
+        .await?
     };
 
     let assignment = if let Some(new_assignment) = new_assignment {
@@ -378,7 +381,7 @@ pub async fn process_assignment(
     Ok(assignment)
 }
 
-async fn send_issue_created_alert(
+pub async fn send_issue_created_alert(
     context: &AppContext,
     issue: &Issue,
     assignment: Option<Assignment>,
@@ -396,7 +399,7 @@ async fn send_issue_created_alert(
     .await
 }
 
-async fn send_new_fingerprint_event(
+pub async fn send_new_fingerprint_event(
     context: &AppContext,
     issue: &Issue,
     output_props: &OutputErrProps,
@@ -417,7 +420,7 @@ async fn send_new_fingerprint_event(
     Ok(())
 }
 
-async fn send_issue_reopened_alert(
+pub async fn send_issue_reopened_alert(
     context: &AppContext,
     issue: &Issue,
     assignment: Option<Assignment>,

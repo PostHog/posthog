@@ -8,10 +8,19 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.schema import ProductKey
+
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
 from posthog.utils import relative_date_parse_with_delta_mapping
+
+APP_SOURCE_TO_PRODUCT_KEY: dict[str, ProductKey] = {
+    "hog_function": ProductKey.PIPELINE_DESTINATIONS,
+    "hog_flow": ProductKey.WORKFLOWS,
+    "batch_export": ProductKey.PIPELINE_BATCH_EXPORTS,
+}
 
 
 @dataclass
@@ -81,9 +90,9 @@ def fetch_app_metrics_trends(
         AND app_source_id = %(app_source_id)s
         AND timestamp >= toDateTime64(%(after)s, 6)
         AND timestamp <= toDateTime64(%(before)s, 6)
-        {'AND instance_id = %(instance_id)s' if instance_id else ''}
-        {'AND metric_name IN %(name)s' if name else ''}
-        {'AND metric_kind IN %(kind)s' if kind else ''}
+        {"AND instance_id = %(instance_id)s" if instance_id else ""}
+        {"AND metric_name IN %(name)s" if name else ""}
+        {"AND metric_kind IN %(kind)s" if kind else ""}
         GROUP BY timestamp, breakdown
         ORDER BY timestamp ASC
     """
@@ -185,11 +194,11 @@ def fetch_app_metric_totals(
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
         AND app_source_id = %(app_source_id)s
-        {'AND timestamp >= toDateTime64(%(after)s, 6)' if after else ''}
-        {'AND timestamp <= toDateTime64(%(before)s, 6)' if before else ''}
-        {'AND instance_id = %(instance_id)s' if instance_id else ''}
-        {'AND metric_name IN %(name)s' if name else ''}
-        {'AND metric_kind IN %(kind)s' if kind else ''}
+        {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
+        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        {"AND instance_id = %(instance_id)s" if instance_id else ""}
+        {"AND metric_name IN %(name)s" if name else ""}
+        {"AND metric_kind IN %(kind)s" if kind else ""}
         GROUP BY breakdown
     """
 
@@ -219,6 +228,9 @@ class AppMetricsMixin(viewsets.GenericViewSet):
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
+
+        product_key = APP_SOURCE_TO_PRODUCT_KEY.get(self.app_source, ProductKey.PIPELINE_DESTINATIONS)
+        tag_queries(product=product_key, feature=Feature.QUERY)
 
         if not param_serializer.is_valid():
             raise ValidationError(param_serializer.errors)
@@ -259,6 +271,9 @@ class AppMetricsMixin(viewsets.GenericViewSet):
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
+
+        product_key = APP_SOURCE_TO_PRODUCT_KEY.get(self.app_source, ProductKey.PIPELINE_DESTINATIONS)
+        tag_queries(product=product_key, feature=Feature.QUERY)
 
         if not param_serializer.is_valid():
             raise ValidationError(param_serializer.errors)

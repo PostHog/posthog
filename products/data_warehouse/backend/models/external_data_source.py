@@ -22,6 +22,10 @@ class ExternalDataSourceManager(models.Manager):
 
 
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
+    class AccessMethod(models.TextChoices):
+        WAREHOUSE = "warehouse", "warehouse"
+        DIRECT = "direct", "direct"
+
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -50,8 +54,11 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400)
     source_type = models.CharField(max_length=128, choices=ExternalDataSourceType.choices)
     job_inputs = EncryptedJSONField(null=True, blank=True)
+    connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
+    description = models.CharField(max_length=400, null=True, blank=True)
+    access_method = models.CharField(max_length=32, choices=AccessMethod.choices, default=AccessMethod.WAREHOUSE)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
@@ -62,6 +69,18 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     class Meta:
         db_table = "posthog_externaldatasource"
+
+    @property
+    def is_direct_query(self) -> bool:
+        return self.access_method == self.AccessMethod.DIRECT
+
+    @property
+    def is_direct_postgres(self) -> bool:
+        return self.is_direct_query and self.source_type == ExternalDataSourceType.POSTGRES
+
+    @property
+    def supports_scheduled_sync(self) -> bool:
+        return not self.is_direct_query
 
     @property
     def revenue_analytics_config_safe(self):
@@ -87,12 +106,58 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.deleted_at = datetime.now()
         self.save()
 
+        self._cleanup_cdc_resources()
+
+    def _cleanup_cdc_resources(self) -> None:
+        """Best-effort cleanup of CDC replication slot and publication on source deletion.
+
+        Only drops resources for PostHog-managed mode. Self-managed slots are
+        never dropped by PostHog.
+        """
+        # Lazy import: top-level would create a circular import via
+        # posthog.temporal.data_imports.sources.__init__ → SourceRegistry → helpers.py
+        # → ExternalDataSource (this module).
+        from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
+
+        cdc_config = PostgresCDCConfig.from_source(self)
+        if not cdc_config.enabled or cdc_config.management_mode != "posthog":
+            return
+        if not cdc_config.slot_name or not cdc_config.publication_name:
+            return
+
+        # Delete the CDC extraction schedule
+        try:
+            from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+
+            delete_cdc_extraction_schedule(str(self.id))
+        except Exception:
+            logger.exception("Failed to delete CDC extraction schedule", source_id=str(self.id))
+
+        # Drop slot and publication on the source database
+        try:
+            from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
+                cdc_pg_connection,
+                drop_slot_and_publication,
+            )
+
+            with cdc_pg_connection(self, connect_timeout=10) as conn:
+                drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
+        except Exception:
+            logger.exception(
+                "Failed to drop CDC slot/publication on source DB (best-effort)",
+                source_id=str(self.id),
+                slot_name=cdc_config.slot_name,
+            )
+
     def reload_schemas(self):
         from products.data_warehouse.backend.data_load.service import (
             sync_external_data_job_workflow,
             trigger_external_data_workflow,
         )
         from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+        if not self.supports_scheduled_sync:
+            return
 
         for schema in (
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=self.id, should_sync=True)
@@ -112,3 +177,25 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 @database_sync_to_async
 def get_external_data_source(source_id: UUID) -> ExternalDataSource:
     return ExternalDataSource.objects.get(pk=source_id)
+
+
+def get_direct_external_data_source_for_connection(
+    team_id: int, connection_id: str | None
+) -> ExternalDataSource | None:
+    if not connection_id:
+        return None
+
+    try:
+        source_uuid = UUID(connection_id)
+    except ValueError:
+        return None
+
+    return (
+        ExternalDataSource.objects.filter(
+            team_id=team_id,
+            id=source_uuid,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        .exclude(deleted=True)
+        .first()
+    )

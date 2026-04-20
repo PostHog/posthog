@@ -20,7 +20,7 @@ describe('breadcrumbsLogic', () => {
         sceneLogic({ scenes }).mount()
     })
 
-    it('sets document.title', async () => {
+    it('sets document.title when page is visible', async () => {
         expect(global.document.title).toEqual('')
 
         logic = breadcrumbsLogic()
@@ -33,6 +33,26 @@ describe('breadcrumbsLogic', () => {
 
         router.actions.push(urls.dashboards())
         await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Dashboards • PostHog' })
+        expect(global.document.title).toEqual('Dashboards • PostHog')
+    })
+
+    it('defers document.title update when page is hidden', async () => {
+        logic = breadcrumbsLogic()
+        logic.mount()
+
+        router.actions.push(urls.savedInsights())
+        await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Product analytics • PostHog' })
+        expect(global.document.title).toEqual('Product analytics • PostHog')
+
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', writable: true })
+
+        router.actions.push(urls.dashboards())
+        await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Dashboards • PostHog' })
+        expect(global.document.title).toEqual('Product analytics • PostHog')
+
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true })
+        document.dispatchEvent(new Event('visibilitychange'))
+
         expect(global.document.title).toEqual('Dashboards • PostHog')
     })
 })

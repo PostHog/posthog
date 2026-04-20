@@ -6,7 +6,9 @@ export enum DateFilterView {
     QuickList = 'QuickList',
     DateToNow = 'DateToNow',
     FixedRange = 'FixedRange',
+    FixedRangeWithTime = 'FixedRangeWithTime',
     FixedDate = 'FixedDate',
+    JumpToTimestamp = 'JumpToTimestamp',
 }
 
 export type DateFilterLogicProps = {
@@ -19,6 +21,7 @@ export type DateFilterLogicProps = {
     isFixedDateMode?: boolean
     placeholder?: string
     allowTimePrecision?: boolean
+    allowFixedRangeWithTime?: boolean
     explicitDate?: boolean
 }
 

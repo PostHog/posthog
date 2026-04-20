@@ -2,7 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -14,8 +14,10 @@ import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/Cyclot
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { projectLogic } from 'scenes/projectLogic'
+import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -24,7 +26,15 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
-import { DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -49,7 +59,9 @@ import {
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
-    TeamType,
+    Survey,
+    SurveyEventName,
+    SurveyEventProperties,
 } from '~/types'
 
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
@@ -92,6 +104,13 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
 export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
+
+const TYPE_TO_PRODUCT_KEY: Partial<Record<HogFunctionTypeType, ProductKey>> = {
+    destination: ProductKey.PIPELINE_DESTINATIONS,
+    site_destination: ProductKey.PIPELINE_DESTINATIONS,
+    transformation: ProductKey.PIPELINE_TRANSFORMATIONS,
+    site_app: ProductKey.SITE_APPS,
+}
 
 export function sanitizeInputs(
     data: Pick<HogFunctionMappingType, 'inputs_schema' | 'inputs'>
@@ -428,11 +447,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
     })),
-    loaders(({ actions, props, values }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
                 loadTemplate: async () => {
+                    cache.configFromUrl = router.values.hashParams.configuration
                     if (!props.templateId) {
                         return null
                     }
@@ -465,10 +485,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
 
                 upsertHogFunction: async ({ configuration }) => {
-                    const res =
-                        props.id && props.id !== 'new'
-                            ? await api.hogFunctions.update(props.id, configuration)
-                            : await api.hogFunctions.create(configuration)
+                    const isNew = !props.id || props.id === 'new'
+                    const res = isNew
+                        ? await api.hogFunctions.create(configuration)
+                        : await api.hogFunctions.update(props.id!, configuration)
 
                     posthog.capture('hog function saved', {
                         id: res.id,
@@ -478,19 +498,31 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         enabled: res.enabled,
                     })
 
-                    // Capture error tracking specific alert event
-                    if (
-                        res.template?.id === 'error-tracking-issue-created' ||
-                        res.template?.id === 'error-tracking-issue-reopened'
-                    ) {
-                        const triggerEvent =
-                            res.template.id === 'error-tracking-issue-created'
-                                ? '$error_tracking_issue_created'
-                                : '$error_tracking_issue_reopened'
+                    // Track product intent when creating a new hog function
+                    if (isNew) {
+                        const productKey = TYPE_TO_PRODUCT_KEY[res.type]
+                        if (productKey) {
+                            void addProductIntent({
+                                product_type: productKey,
+                                intent_context: ProductIntentContext.DATA_PIPELINE_CREATED,
+                            })
+                        }
+                    }
 
+                    const errorTrackingTriggerEvent = res.filters?.events
+                        ?.map((event) => event.id)
+                        ?.find((id) =>
+                            [
+                                '$error_tracking_issue_created',
+                                '$error_tracking_issue_reopened',
+                                '$error_tracking_issue_spiking',
+                            ].includes(id)
+                        )
+                    if (isNew && errorTrackingTriggerEvent) {
                         posthog.capture('error_tracking_alert_created', {
-                            trigger_event: triggerEvent,
-                            subtemplate_id: res.template.id,
+                            source: 'traditional',
+                            trigger_event: errorTrackingTriggerEvent,
+                            subtemplate_id: res.template?.id,
                             has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
                             enabled: res.enabled,
                         })
@@ -640,6 +672,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
             },
         ],
+
+        survey: [
+            null as Survey | null,
+            {
+                loadSurvey: async () => {
+                    const surveyId = values.surveyIdFromFilters
+                    if (!surveyId) {
+                        return null
+                    }
+                    try {
+                        return await api.surveys.get(surveyId)
+                    } catch {
+                        return null
+                    }
+                },
+            },
+        ],
     })),
     forms(({ values, props, asyncActions }) => ({
         configuration: {
@@ -684,7 +733,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const type = values.type
                     const typeFolder =
                         type === 'site_app'
-                            ? 'Site apps'
+                            ? 'Web scripts'
                             : type === 'transformation'
                               ? 'Transformations'
                               : type === 'source_webhook'
@@ -698,6 +747,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
     selectors(() => ({
         logicProps: [() => [(_, props) => props], (props: HogFunctionConfigurationLogicProps) => props],
+        surveyIdFromFilters: [
+            (s) => [s.configuration],
+            (configuration): string | null => {
+                for (const event of configuration?.filters?.events ?? []) {
+                    const prop = (event.properties as AnyPropertyFilter[] | undefined)?.find(
+                        (p) => p.key === SurveyEventProperties.SURVEY_ID && 'value' in p && p.value
+                    )
+                    if (prop) {
+                        return String(prop.value)
+                    }
+                }
+                return null
+            },
+        ],
         type: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
@@ -706,19 +769,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
                 return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
-            },
-        ],
-        teamHasCohortFilters: [
-            (s) => [s.currentTeam, s.configuration],
-            (currentTeam: TeamType | null, configuration: HogFunctionConfigurationType | null) => {
-                // Only show warning if filter_test_accounts is enabled AND team has cohort filters
-                const hasFilterTestAccountsEnabled = configuration?.filters?.filter_test_accounts === true
-                const teamHasCohorts =
-                    currentTeam?.test_account_filters?.some(
-                        (filter: AnyPropertyFilter) => filter.type === PropertyFilterType.Cohort
-                    ) || false
-
-                return hasFilterTestAccountsEnabled && teamHasCohorts
             },
         ],
         useMapping: [
@@ -780,68 +830,85 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId],
-            (configuration, currentProject, groupTypes, contextId): CyclotronJobInvocationGlobals => {
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey],
+            (configuration, currentProject, groupTypes, contextId, survey): CyclotronJobInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
-                const event = {
-                    uuid: eventId,
-                    distinct_id: uuid(),
-                    timestamp: dayjs().toISOString(),
-                    elements_chain: '',
-                    url: `${window.location.origin}/project/${currentProject?.id}/events/`,
-                    ...(contextId === 'error-tracking'
-                        ? {
-                              event: configuration?.filters?.events?.[0].id || '$error_tracking_issue_created',
-                              properties: {
-                                  name: 'Test issue',
-                                  description: 'This is the issue description',
+                const source = {
+                    name: configuration?.name ?? 'Unnamed',
+                    url: currentUrl,
+                }
+                const globals: CyclotronJobInvocationGlobals =
+                    configuration?.filters?.events?.[0]?.id === SurveyEventName.SENT
+                        ? buildSurveyExampleInvocationGlobals({
+                              survey,
+                              projectId: currentProject?.id || 0,
+                              projectName: currentProject?.name || '',
+                              projectUrl: `${window.location.origin}/project/${currentProject?.id}`,
+                              source,
+                              eventUuid: eventId,
+                              distinctId: uuid(),
+                              timestamp: dayjs().toISOString(),
+                              personId,
+                              personName: 'Example person',
+                              personEmail: 'example@posthog.com',
+                          })
+                        : {
+                              event: {
+                                  uuid: eventId,
+                                  distinct_id: uuid(),
+                                  timestamp: dayjs().toISOString(),
+                                  elements_chain: '',
+                                  url: `${window.location.origin}/project/${currentProject?.id}/events/`,
+                                  ...(contextId === 'error-tracking'
+                                      ? {
+                                            event:
+                                                configuration?.filters?.events?.[0].id ||
+                                                '$error_tracking_issue_created',
+                                            properties: {
+                                                name: 'Test issue',
+                                                description: 'This is the issue description',
+                                            },
+                                        }
+                                      : contextId === 'activity-log'
+                                        ? {
+                                              event: '$activity_log_entry_created',
+                                              properties: {
+                                                  activity: 'created',
+                                                  scope: 'Insight',
+                                                  item_id: 'abcdef',
+                                              },
+                                          }
+                                        : {
+                                              event: '$pageview',
+                                              properties: {
+                                                  $current_url: currentUrl,
+                                                  $browser: 'Chrome',
+                                                  $ip: '89.160.20.129',
+                                                  this_is_an_example_event: true,
+                                              },
+                                          }),
                               },
+                              person:
+                                  contextId !== 'error-tracking'
+                                      ? {
+                                            id: personId,
+                                            properties: {
+                                                email: 'example@posthog.com',
+                                            },
+                                            name: 'Example person',
+                                            url: `${window.location.origin}/person/${personId}`,
+                                        }
+                                      : undefined,
+                              groups: {},
+                              project: {
+                                  id: currentProject?.id || 0,
+                                  name: currentProject?.name || '',
+                                  url: `${window.location.origin}/project/${currentProject?.id}`,
+                              },
+                              source,
                           }
-                        : contextId === 'activity-log'
-                          ? {
-                                event: '$activity_log_entry_created',
-                                properties: {
-                                    activity: 'created',
-                                    scope: 'Insight',
-                                    item_id: 'abcdef',
-                                },
-                            }
-                          : {
-                                event: '$pageview',
-                                properties: {
-                                    $current_url: currentUrl,
-                                    $browser: 'Chrome',
-                                    $ip: '89.160.20.129',
-                                    this_is_an_example_event: true,
-                                },
-                            }),
-                }
-                const globals: CyclotronJobInvocationGlobals = {
-                    event,
-                    person:
-                        contextId !== 'error-tracking'
-                            ? {
-                                  id: personId,
-                                  properties: {
-                                      email: 'example@posthog.com',
-                                  },
-                                  name: 'Example person',
-                                  url: `${window.location.origin}/person/${personId}`,
-                              }
-                            : undefined,
-                    groups: {},
-                    project: {
-                        id: currentProject?.id || 0,
-                        name: currentProject?.name || '',
-                        url: `${window.location.origin}/project/${currentProject?.id}`,
-                    },
-                    source: {
-                        name: configuration?.name ?? 'Unnamed',
-                        url: currentUrl,
-                    },
-                }
 
                 if (contextId !== 'error-tracking') {
                     groupTypes.forEach((groupType) => {
@@ -1423,12 +1490,44 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(urls.hogFunction(hogFunction.id))
+                // Preserve existing search params (integration params, returnTo, etc.) on redirect
+                router.actions.replace(urls.hogFunction(hogFunction.id), router.values.searchParams)
             }
         },
         sparklineQuery: async (sparklineQuery) => {
             if (sparklineQuery) {
                 actions.sparklineQueryChanged(sparklineQuery)
+            }
+        },
+        configuration: (configuration, oldConfiguration) => {
+            if (
+                typeof configuration?.filters?.source === 'string' &&
+                typeof oldConfiguration?.filters?.source === 'string' &&
+                configuration?.filters?.source !== oldConfiguration?.filters?.source
+            ) {
+                actions.setConfigurationValue('filters', {
+                    ...configuration.filters,
+                    events: [],
+                    actions: [],
+                    data_warehouse: [],
+                })
+            }
+        },
+        surveyIdFromFilters: (surveyId) => {
+            if (surveyId) {
+                actions.loadSurvey()
+            } else {
+                actions.loadSurveySuccess(null)
+            }
+        },
+    })),
+
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.hogFunctionNew(':templateId')]: (_, __, hashParams) => {
+            const newConfig = hashParams?.configuration
+            if (values.template && !equal(newConfig, cache.configFromUrl)) {
+                cache.configFromUrl = newConfig
+                actions.resetForm()
             }
         },
     })),

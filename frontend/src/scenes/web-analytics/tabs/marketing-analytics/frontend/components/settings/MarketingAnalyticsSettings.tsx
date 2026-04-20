@@ -2,18 +2,17 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AttributionSettings } from './AttributionSettings'
-import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
-import { CustomSourceMappingsConfiguration } from './CustomSourceMappingsConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
+import { MarketingIntegrationAdvancedSettings } from './MarketingIntegrationAdvancedSettings'
 
 export function MarketingAnalyticsSettings({
     hideTitle = false,
@@ -53,13 +52,7 @@ export function MarketingAnalyticsSettings({
                             {
                                 key: 'advanced-marketing-settings',
                                 header: 'Advanced marketing settings',
-                                content: (
-                                    <div className="space-y-8">
-                                        <CampaignNameMappingsConfiguration />
-                                        <SceneDivider />
-                                        <CustomSourceMappingsConfiguration />
-                                    </div>
-                                ),
+                                content: <MarketingIntegrationAdvancedSettings />,
                             },
                         ]}
                     />

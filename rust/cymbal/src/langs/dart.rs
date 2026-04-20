@@ -48,13 +48,13 @@ impl From<&RawDartFrame> for Frame {
             lang: "dart".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,
             module: None,
-            exception_type: None,
             code_variables: None,
         };
 

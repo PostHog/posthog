@@ -1,0 +1,14 @@
+defaults:
+    queries:
+        - name: row_count_delta_vs_ducklake
+          description: Compare row counts between the source Delta table and the DuckLake copy.
+          sql: |
+              SELECT ABS(
+                  (SELECT COUNT(*) FROM delta_scan(?))
+                  -
+                  (SELECT COUNT(*) FROM {ducklake_table})
+              ) AS row_difference
+          parameters:
+              - source_table_uri
+          tolerance: 0
+models: {}

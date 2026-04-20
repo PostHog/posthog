@@ -7,7 +7,7 @@ import { CSSTransition } from 'react-transition-group'
 import { compactNumber, humanFriendlyNumber } from 'lib/utils'
 
 interface LemonBadgePropsBase {
-    size?: 'small' | 'medium' | 'large'
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
     position?: 'none' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
     className?: string
     status?: 'primary' | 'success' | 'warning' | 'danger' | 'muted' | 'data'

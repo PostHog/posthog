@@ -1,0 +1,17 @@
+DASHBOARD_RESULT_TEMPLATE = """
+Dashboard name: {{{dashboard_name}}}
+{{#dashboard_id}}
+Dashboard ID: {{{dashboard_id}}}
+{{/dashboard_id}}
+{{#dashboard_url}}
+Dashboard URL: {{{dashboard_url}}}
+{{/dashboard_url}}
+{{#description}}
+Description: {{{description}}}
+{{/description}}
+{{#insights}}
+
+Dashboard insights:
+{{{insights}}}
+{{/insights}}
+""".strip()

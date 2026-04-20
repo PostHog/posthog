@@ -1,11 +1,12 @@
 import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
-import { BuiltLogic, useMountedLogic, useValues } from 'kea'
-import * as monaco from 'monaco-editor'
+import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
+import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -23,13 +24,15 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
 
 if (loader) {
-    loader.config({ monaco })
+    loader.config({ monaco: monacoModule })
 }
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
     autocompleteContext?: string
     onPressCmdEnter?: (value: string, selectionType: 'selection' | 'full') => void
+    /** Run the innermost subquery at cursor (Cmd+Shift+Enter) */
+    onPressCmdShiftEnter?: () => void
     /** Pressed up in an empty code editor, likely to edit the previous message in a list */
     onPressUpNoValue?: () => void
     autoFocus?: boolean
@@ -38,9 +41,16 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     schema?: Record<string, any> | null
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
+    onFixWithAI?: (prompt: string) => void
     onError?: (error: string | null) => void
+    /** Override the query sent for metadata validation (e.g. active query in multi-query mode) */
+    metadataQuery?: string
+    /** Character offset of metadataQuery within the full editor text, for correct marker positioning */
+    metadataQueryOffset?: number
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
+    /** Enable vim keybindings */
+    enableVimMode?: boolean
 }
 let codeEditorIndex = 0
 
@@ -76,48 +86,46 @@ function initEditor(
     if (editorProps?.language === 'liquid') {
         initLiquidLanguage(monaco)
     }
-    if (options.tabFocusMode || editorProps.onPressUpNoValue) {
-        editor.onKeyDown((evt) => {
-            if (options.tabFocusMode) {
-                if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
-                    const selection = editor.getSelection()
-                    if (
-                        selection &&
-                        (selection.startColumn !== selection.endColumn ||
-                            selection.startLineNumber !== selection.endLineNumber)
-                    ) {
-                        return
-                    }
-                    evt.preventDefault()
-                    evt.stopPropagation()
 
-                    const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
-                    if (!element) {
-                        return
-                    }
-                    const nextElement = evt.shiftKey
-                        ? findPreviousFocusableElement(element)
-                        : findNextFocusableElement(element)
+    editor.onKeyDown((evt) => {
+        if (evt.keyCode === monaco.KeyCode.Space) {
+            evt.stopPropagation()
+        }
 
-                    if (nextElement && 'focus' in nextElement) {
-                        nextElement.focus()
-                    }
-                }
-            }
-            if (editorProps.onPressUpNoValue) {
+        if (options.tabFocusMode) {
+            if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
+                const selection = editor.getSelection()
                 if (
-                    evt.keyCode === monaco.KeyCode.UpArrow &&
-                    !evt.metaKey &&
-                    !evt.ctrlKey &&
-                    editor.getValue() === ''
+                    selection &&
+                    (selection.startColumn !== selection.endColumn ||
+                        selection.startLineNumber !== selection.endLineNumber)
                 ) {
-                    evt.preventDefault()
-                    evt.stopPropagation()
-                    editorProps.onPressUpNoValue()
+                    return
+                }
+                evt.preventDefault()
+                evt.stopPropagation()
+
+                const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
+                if (!element) {
+                    return
+                }
+                const nextElement = evt.shiftKey
+                    ? findPreviousFocusableElement(element)
+                    : findNextFocusableElement(element)
+
+                if (nextElement && 'focus' in nextElement) {
+                    nextElement.focus()
                 }
             }
-        })
-    }
+        }
+        if (editorProps.onPressUpNoValue) {
+            if (evt.keyCode === monaco.KeyCode.UpArrow && !evt.metaKey && !evt.ctrlKey && editor.getValue() === '') {
+                evt.preventDefault()
+                evt.stopPropagation()
+                editorProps.onPressUpNoValue()
+            }
+        }
+    })
 }
 
 export function CodeEditor({
@@ -126,6 +134,7 @@ export function CodeEditor({
     onMount,
     value,
     onPressCmdEnter,
+    onPressCmdShiftEnter,
     autoFocus,
     globals,
     sourceQuery,
@@ -133,7 +142,11 @@ export function CodeEditor({
     onError,
     onMetadata,
     onMetadataLoading,
+    onFixWithAI,
+    metadataQuery,
+    metadataQueryOffset,
     originalValue,
+    enableVimMode,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -143,10 +156,18 @@ export function CodeEditor({
     )
     const [monaco, editor] = monacoAndEditor ?? []
 
+    // Keep a ref to the editor for cleanup - ensures we can dispose it even if state is stale
+    const editorRef = useRef<importedEditor.IStandaloneCodeEditor | null>(null)
+
+    const vimModeRef = useRef<{ dispose: () => void } | null>(null)
+    const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
+
     const [realKey] = useState(() => codeEditorIndex++)
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
         query: value ?? '',
+        metadataQuery: metadataQuery,
+        metadataQueryOffset: metadataQueryOffset,
         language: editorProps.language ?? 'text',
         globals,
         sourceQuery,
@@ -155,9 +176,13 @@ export function CodeEditor({
         onError,
         onMetadata,
         onMetadataLoading,
+        onFixWithAI,
         metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)
+
+    const { vimCommandHistory } = useValues(builtCodeEditorLogic)
+    const { appendVimCommand } = useActions(builtCodeEditorLogic)
 
     const { isVisible } = usePageVisibility()
 
@@ -172,18 +197,46 @@ export function CodeEditor({
         return monacoRoot
     }, [])
 
+    // Using useRef, not useState, as we don't want to reload the component when this changes.
+    const monacoDisposables = useRef([] as IDisposable[])
+    const mutationObserver = useRef<MutationObserver | null>(null)
+
+    // Consolidated cleanup: dispose editor and its resources BEFORE removing monacoRoot from DOM.
+    // This prevents Monaco's internal services (hoverService, contextViewService) from holding
+    // references to detached DOM nodes.
     useOnMountEffect(() => {
-        return () => monacoRoot?.remove()
+        return () => {
+            // 1. Dispose all custom disposables (actions, observers, etc.)
+            monacoDisposables.current.forEach((d) => d?.dispose())
+            monacoDisposables.current = []
+
+            // 2. Disconnect and clear mutation observer to fully release DOM references
+            mutationObserver.current?.disconnect()
+            mutationObserver.current = null
+
+            // 3. Clear codeEditorLogic reference from model to break kea reference chain
+            const model = editorRef.current?.getModel()
+            if (model) {
+                ;(model as any).codeEditorLogic = undefined
+            }
+
+            // 4. Clear state to release React's reference to the editor
+            setMonacoAndEditor(null)
+
+            // 5. Now safe to remove monacoRoot - editor disposal happens via @monaco-editor/react
+            // but our cleanup ran first, breaking the reference chains
+            monacoRoot?.remove()
+        }
     })
 
     useEffect(() => {
         if (!monaco) {
             return
         }
-        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+        monacoModule.typescript.typescriptDefaults.setCompilerOptions({
             jsx: editorProps?.path?.endsWith('.tsx')
-                ? monaco.languages.typescript.JsxEmit.React
-                : monaco.languages.typescript.JsxEmit.Preserve,
+                ? monacoModule.typescript.JsxEmit.React
+                : monacoModule.typescript.JsxEmit.Preserve,
             esModuleInterop: true,
         })
     }, [monaco, editorProps.path])
@@ -192,7 +245,7 @@ export function CodeEditor({
         if (!monaco) {
             return
         }
-        monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+        monacoModule.json.jsonDefaults.setDiagnosticsOptions({
             validate: true,
             schemas: schema
                 ? [
@@ -206,14 +259,37 @@ export function CodeEditor({
         })
     }, [monaco, schema])
 
-    // Using useRef, not useState, as we don't want to reload the component when this changes.
-    const monacoDisposables = useRef([] as IDisposable[])
-    const mutationObserver = useRef<MutationObserver | null>(null)
-    useOnMountEffect(() => {
-        return () => {
-            monacoDisposables.current.forEach((d) => d?.dispose())
+    useEffect(() => {
+        if (!editor) {
+            return
         }
-    })
+
+        let cancelled = false
+
+        if (enableVimMode && vimStatusBarRef.current) {
+            const statusBar = vimStatusBarRef.current
+            void import('lib/monaco/vimMode').then(({ setupVimMode }) => {
+                if (cancelled) {
+                    return
+                }
+                vimModeRef.current = setupVimMode(editor, statusBar, {
+                    initialHistory: vimCommandHistory,
+                    onCommandExecuted: appendVimCommand,
+                })
+            })
+        } else if (vimModeRef.current) {
+            vimModeRef.current.dispose()
+            vimModeRef.current = null
+        }
+
+        return () => {
+            cancelled = true
+            if (vimModeRef.current) {
+                vimModeRef.current.dispose()
+                vimModeRef.current = null
+            }
+        }
+    }, [editor, enableVimMode, vimCommandHistory, appendVimCommand])
 
     const editorOptions: editor.IStandaloneEditorConstructionOptions = {
         minimap: {
@@ -232,15 +308,17 @@ export function CodeEditor({
         overviewRulerLanes: 3,
         overflowWidgetsDomNode: monacoRoot,
         ...options,
-        padding: { bottom: 8, top: 8 },
+        padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
         scrollbar: {
             vertical: scrollbarRendering,
             horizontal: scrollbarRendering,
+            alwaysConsumeMouseWheel: false,
             ...options?.scrollbar,
         },
     }
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
+        editorRef.current = editor
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
 
@@ -279,6 +357,14 @@ export function CodeEditor({
             dispose: () => observer.disconnect(),
         })
 
+        monacoDisposables.current.push(
+            monaco.editor.registerCommand('posthog.hogql.fixWithAI', (_, prompt) => {
+                if (typeof prompt === 'string' && prompt.length > 0) {
+                    onFixWithAI?.(prompt)
+                }
+            })
+        )
+
         if (onPressCmdEnter) {
             monacoDisposables.current.push(
                 editor.addAction({
@@ -295,6 +381,18 @@ export function CodeEditor({
                         }
 
                         onPressCmdEnter(editor.getValue(), 'full')
+                    },
+                })
+            )
+        }
+        if (onPressCmdShiftEnter) {
+            monacoDisposables.current.push(
+                editor.addAction({
+                    id: 'runSubqueryPostHog',
+                    label: 'Run subquery at cursor',
+                    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter],
+                    run: () => {
+                        onPressCmdShiftEnter()
                     },
                 })
             )
@@ -329,6 +427,7 @@ export function CodeEditor({
         // If originalValue is provided, we render a diff editor instead
         const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
             const modifiedEditor = diff.getModifiedEditor()
+            editorRef.current = modifiedEditor
             setMonacoAndEditor([monaco, modifiedEditor])
 
             if (editorProps.onChange) {
@@ -360,14 +459,22 @@ export function CodeEditor({
     }
 
     return (
-        <MonacoEditor // eslint-disable-line react/forbid-elements
-            key={queryKey}
-            theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
-            loading={<Spinner />}
-            value={value}
-            options={editorOptions}
-            onMount={editorOnMount}
-            {...editorProps}
-        />
+        <div className="CodeEditor relative h-full w-full">
+            <MonacoEditor // eslint-disable-line react/forbid-elements
+                key={queryKey}
+                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+                loading={<Spinner />}
+                value={value}
+                options={editorOptions}
+                onMount={editorOnMount}
+                {...editorProps}
+            />
+            {enableVimMode && (
+                <div
+                    ref={vimStatusBarRef}
+                    className="CodeEditor__vim-status-bar absolute bottom-0 left-0 right-0 font-mono text-xs px-2 py-0.5 bg-bg-light border-t z-10"
+                />
+            )}
+        </div>
     )
 }

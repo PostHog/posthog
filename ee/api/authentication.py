@@ -1,5 +1,5 @@
 import re
-from typing import Any, Literal, Union, cast
+from typing import Any, Literal, TypedDict, Union, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
@@ -27,13 +27,43 @@ from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.models import UserSocialAuth
 from social_django.utils import load_backend, load_strategy
 
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee import settings
+from ee.api.scim.utils import mask_email
 from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
 from ee.api.vercel.utils import get_vercel_jwks
+
+saml_logger = structlog.get_logger("posthog.auth.saml")
+
+
+def _saml_log_context(email: str, organization_domain: OrganizationDomain | None = None) -> dict[str, Any]:
+    from posthog.models.user import User
+
+    ctx: dict[str, Any] = {
+        "masked_email": mask_email(email),
+        "email_domain": email.split("@")[-1].lower(),
+    }
+
+    try:
+        user = User.objects.filter(email__iexact=email).first()
+        if user:
+            ctx["user_id"] = str(user.id)
+            if organization_domain:
+                membership = user.organization_memberships.filter(
+                    organization_id=organization_domain.organization_id,
+                ).first()
+                ctx["membership_level"] = membership.get_level_display() if membership else "none"
+        else:
+            ctx["user_id"] = "unknown"
+    except Exception:
+        pass
+
+    return ctx
 
 
 @api_view(["GET"])
@@ -60,30 +90,45 @@ class MultitenantSAMLAuth(SAMLAuth):
 
     def auth_complete(self, *args, **kwargs):
         try:
-            return super().auth_complete(*args, **kwargs)
-        except Exception:
+            result = super().auth_complete(*args, **kwargs)
+            saml_logger.info("saml_auth_complete")
+            return result
+        except Exception as e:
             import json
 
             posthoganalytics.tag("request_data", json.dumps(self.strategy.request_data()))
+            saml_logger.warning("saml_auth_complete_failed", error=str(e))
             raise
 
-    def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):
+    def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str, None]) -> SAMLIdentityProvider:
+        if organization_domain_or_id is None:
+            saml_logger.warning("saml_idp_lookup_failed", idp_id="None")
+            raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
+
         try:
             organization_domain = (
                 organization_domain_or_id
                 if isinstance(organization_domain_or_id, OrganizationDomain)
+                # nosemgrep: idor-lookup-without-org (pre-auth SAML flow, lookup by UUID on verified domains)
                 else OrganizationDomain.objects.verified_domains().get(id=organization_domain_or_id)
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
+            saml_logger.warning("saml_idp_lookup_failed", idp_id=str(organization_domain_or_id))
             raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
         if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
+            saml_logger.warning(
+                "saml_license_missing",
+                domain=organization_domain.domain,
+                organization_id=str(organization_domain.organization_id),
+            )
             raise AuthFailed(
                 self,
                 "Your organization does not have the required license to use SAML.",
             )
 
         return SAMLIdentityProvider(
+            self,
             str(organization_domain.id),
             entity_id=organization_domain.saml_entity_id,
             url=organization_domain.saml_acs_url,
@@ -104,8 +149,15 @@ class MultitenantSAMLAuth(SAMLAuth):
         instance = OrganizationDomain.objects.get_verified_for_email_address(email=email)
 
         if not instance or not instance.has_saml:
+            saml_logger.warning("saml_not_configured", **_saml_log_context(email))
             raise AuthFailed(self, "SAML not configured for this user.")
 
+        saml_logger.info(
+            "saml_auth_redirect",
+            domain=instance.domain,
+            organization_id=str(instance.organization_id),
+            **_saml_log_context(email, instance),
+        )
         auth = self._create_saml_auth(idp=self.get_idp(instance))
         # Below, return_to sets the RelayState, which contains the ID of
         # the `OrganizationDomain`.  We use it to store the specific SAML IdP
@@ -122,7 +174,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         Fetches a specific attribute from the SAML response, attempting with multiple different attribute names.
         We attempt multiple attribute names to make it easier for admins to configure SAML (less configuration to set).
         """
-        output = None
+        output: str | list[str] | None = None
         for _attr in attribute_names:
             if _attr in response_attributes:
                 output = response_attributes[_attr]
@@ -134,13 +186,25 @@ class MultitenantSAMLAuth(SAMLAuth):
         if isinstance(output, list):
             output = output[0]
 
-        return output
+        return output or ""
 
     def get_user_details(self, response):
         """
         Overridden to find attributes across multiple possible names.
         """
         attributes = response["attributes"]
+        email = self._get_attr(
+            attributes,
+            [
+                "email",
+                "EMAIL",
+                "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+                OID_MAIL,
+            ],
+        )
+
+        self._validate_email_domain(response, email)
+
         return {
             "fullname": self._get_attr(
                 attributes,
@@ -169,16 +233,46 @@ class MultitenantSAMLAuth(SAMLAuth):
                 ],
                 optional=True,
             ),
-            "email": self._get_attr(
-                attributes,
-                [
-                    "email",
-                    "EMAIL",
-                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
-                    OID_MAIL,
-                ],
-            ),
+            "email": email,
         }
+
+    def _validate_email_domain(self, response: dict, email: str) -> None:
+        """
+        Ensures the email domain from the SAML assertion is consistent with
+        the OrganizationDomain that owns this IdP configuration.
+        """
+        idp_name = response.get("idp_name")
+        if not idp_name:
+            saml_logger.warning(
+                "saml_email_domain_validation_failed",
+                reason="missing_idp_name",
+                **_saml_log_context(email),
+            )
+            raise AuthFailed(self, "Authentication request is invalid. Missing IdP identifier.")
+
+        try:
+            # nosemgrep: idor-lookup-without-org (pre-auth SAML validation, UUID from IdP round-trip)
+            organization_domain = OrganizationDomain.objects.verified_domains().get(id=idp_name)
+        except (OrganizationDomain.DoesNotExist, DjangoValidationError):
+            saml_logger.warning(
+                "saml_email_domain_validation_failed",
+                reason="invalid_idp",
+                idp_id=str(idp_name),
+                **_saml_log_context(email),
+            )
+            raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")
+
+        if email.split("@")[-1].lower() != organization_domain.domain.lower():
+            saml_logger.warning(
+                "saml_email_domain_mismatch",
+                configured_domain=organization_domain.domain,
+                organization_id=str(organization_domain.organization_id),
+                **_saml_log_context(email, organization_domain),
+            )
+            raise AuthFailed(
+                self,
+                "Authentication failed. The email domain from your identity provider does not match the configured domain.",
+            )
 
     def get_user_id(self, details, response):
         """
@@ -193,6 +287,13 @@ class MultitenantSAMLAuth(SAMLAuth):
 class CustomGoogleOAuth2(GoogleOAuth2):
     def auth_extra_arguments(self):
         extra_args = super().auth_extra_arguments()
+        is_reauth = self.strategy.request.GET.get("reauth") == "true"
+        if not is_reauth:
+            prompt_tokens = [token for token in str(extra_args.get("prompt", "")).split() if token]
+            if "select_account" not in prompt_tokens:
+                prompt_tokens.append("select_account")
+            extra_args["prompt"] = " ".join(prompt_tokens)
+
         email = self.strategy.request.GET.get("email")
 
         if email:
@@ -258,6 +359,15 @@ class CustomGoogleOAuth2(GoogleOAuth2):
 logger = structlog.get_logger(__name__)
 
 
+def _get_bearer_token(request: Request) -> str | None:
+    """Extract bearer token from Authorization header."""
+    if auth_header := request.headers.get("authorization"):
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            return parts[1]
+    return None
+
+
 class VercelAuthentication(authentication.BaseAuthentication):
     """
     Implements Vercel Marketplace API authentication.
@@ -277,7 +387,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
     VERCEL_ISSUER = "https://marketplace.vercel.com"
 
     def authenticate(self, request: Request) -> tuple[VercelUser, None] | None:
-        token = self._get_bearer_token(request)
+        token = _get_bearer_token(request)
         if not token:
             raise AuthenticationFailed("Missing Token for Vercel request")
 
@@ -292,14 +402,6 @@ class VercelAuthentication(authentication.BaseAuthentication):
         except Exception as e:
             logger.exception("Vercel auth error", auth_type=auth_type, error=str(e), integration="vercel")
             raise AuthenticationFailed(f"{auth_type.title()} authentication failed")
-
-    def _get_bearer_token(self, request: Request) -> str | None:
-        if auth_header := request.headers.get("authorization"):
-            parts = auth_header.split()
-            if len(parts) == 2 and parts[0].lower() == "bearer":
-                return parts[1]
-
-        return None
 
     def _get_vercel_auth_type(self, request: Request) -> "VercelAuthentication.VercelAuthType":
         auth_type = request.headers.get("X-Vercel-Auth", "").lower()
@@ -400,12 +502,100 @@ class VercelAuthentication(authentication.BaseAuthentication):
         )
 
 
+class BillingServiceJWTPayload(TypedDict):
+    organization_id: str
+    aud: str
+    exp: int
+
+
+class BillingServiceUser:
+    """
+    Represents an authenticated billing service request.
+    Contains the organization_id from the validated JWT.
+    """
+
+    def __init__(self, organization_id: str):
+        self.organization_id = organization_id
+
+    @property
+    def is_authenticated(self) -> bool:
+        return True
+
+
+class BillingServiceAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticates requests from the billing service to PostHog.
+
+    The billing service signs JWTs using the shared license secret (same secret PostHog
+    uses when calling the billing service, but in reverse direction).
+    """
+
+    EXPECTED_AUDIENCE = "billing:posthog-proxy"
+
+    def authenticate(self, request: Request) -> tuple[BillingServiceUser, None] | None:
+        token = _get_bearer_token(request)
+        if not token:
+            raise AuthenticationFailed("Missing authorization token")
+
+        try:
+            payload = self._validate_jwt_token(token)
+        except jwt.ExpiredSignatureError as e:
+            capture_exception(e)
+            logger.warning("Billing service token expired")
+            raise AuthenticationFailed("Token has expired")
+        except jwt.InvalidAudienceError as e:
+            capture_exception(e)
+            logger.warning("Billing service token has invalid audience")
+            raise AuthenticationFailed("Invalid token audience")
+        except jwt.InvalidTokenError as e:
+            capture_exception(e)
+            logger.exception("Billing service auth failed", error=str(e))
+            raise AuthenticationFailed("Invalid authentication token")
+
+        organization_id = payload.get("organization_id")
+        if not organization_id:
+            capture_exception(ValueError("Billing service token missing organization_id"))
+            logger.warning("Billing service token missing organization_id")
+            raise AuthenticationFailed("Missing organization_id in token")
+
+        return BillingServiceUser(organization_id=organization_id), None
+
+    def _validate_jwt_token(self, token: str) -> BillingServiceJWTPayload:
+        license = get_cached_instance_license()
+        if not license or not license.key:
+            capture_exception(ValueError("Billing service auth failed: no license configured"))
+            logger.error("Billing service auth failed: no license configured")
+            raise AuthenticationFailed("No license configured")
+
+        # Extract the secret from the license key (format: "id::secret")
+        try:
+            license_secret = license.key.split("::")[1]
+        except IndexError:
+            capture_exception(ValueError("Billing service auth failed: invalid license key format"))
+            logger.exception("Billing service auth failed: invalid license key format")
+            raise AuthenticationFailed("Invalid license key format")
+
+        return jwt.decode(
+            token,
+            license_secret,
+            algorithms=["HS256"],
+            audience=self.EXPECTED_AUDIENCE,
+        )
+
+
 def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
     email = details.get("email")
     # Check if SSO enforcement is enabled for this email address
     sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)
     if sso_enforcement is None or sso_enforcement == backend.name:
         return
+
+    saml_logger.warning(
+        "sso_enforcement_blocked_login",
+        attempted_backend=backend.name,
+        enforced_backend=sso_enforcement,
+        **(_saml_log_context(email) if email else {"masked_email": "unknown"}),
+    )
 
     if sso_enforcement == "saml":
         raise AuthFailed(backend, "saml_sso_enforced")

@@ -3,17 +3,18 @@ import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
-import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isLaunched } from 'scenes/experiments/experimentsLogic'
 import { urls } from 'scenes/urls'
 
 import { percentageDistribution } from '~/scenes/experiments/utils'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { WebExperiment, WebExperimentDraftType, WebExperimentForm } from '~/toolbar/types'
-import { elementToQuery } from '~/toolbar/utils'
+import { elementToQuery, joinWithUiHost } from '~/toolbar/utils'
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'
@@ -101,15 +102,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     connect(() => ({
         values: [
             toolbarConfigLogic,
-            [
-                'dataAttributes',
-                'apiURL',
-                'temporaryToken',
-                'buttonVisible',
-                'userIntent',
-                'dataAttributes',
-                'experimentId',
-            ],
+            ['dataAttributes', 'uiHost', 'buttonVisible', 'userIntent', 'dataAttributes', 'experimentId'],
             experimentsLogic,
             ['allExperiments'],
         ],
@@ -191,22 +184,28 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 // This property is only used in the editor to undo transforms
                 delete experimentToSave.original_html_state
 
-                const { apiURL, temporaryToken } = values
+                const { uiHost } = values
                 const { selectedExperimentId } = values
 
                 let response: WebExperiment
                 try {
+                    let res: Response
                     if (selectedExperimentId && selectedExperimentId !== 'new') {
-                        response = await api.update(
-                            `${apiURL}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`,
+                        res = await toolbarFetch(
+                            `/api/projects/@current/web_experiments/${selectedExperimentId}/`,
+                            'PATCH',
                             experimentToSave
                         )
                     } else {
-                        response = await api.create(
-                            `${apiURL}/api/projects/@current/web_experiments/?temporary_token=${temporaryToken}`,
-                            experimentToSave
-                        )
+                        res = await toolbarFetch(`/api/projects/@current/web_experiments/`, 'POST', experimentToSave)
                     }
+
+                    if (!res.ok) {
+                        const errorData = await res.json().catch(() => ({}))
+                        throw new Error(errorData.detail || `Request failed: ${res.status}`)
+                    }
+
+                    response = await res.json()
 
                     experimentsLogic.actions.updateExperiment({ experiment: response })
                     actions.selectExperiment(null)
@@ -214,14 +213,17 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     lemonToast.success('Experiment saved', {
                         button: {
                             label: 'Open in PostHog',
-                            action: () => window.open(`${apiURL}${urls.experiment(response.id)}`, '_blank'),
+                            action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
                         },
                     })
                     breakpoint()
                 } catch (e) {
-                    const apiError = e as ApiError
-                    if (apiError) {
-                        lemonToast.error(`Experiment save failed: ${apiError.data.detail}`)
+                    toolbarLogger.error('experiments', 'Failed to save experiment', {
+                        experimentId: selectedExperimentId,
+                    })
+                    captureToolbarException(e, 'experiment_save')
+                    if (e instanceof Error) {
+                        lemonToast.error(`Experiment save failed: ${e.message}`)
                     }
                 }
             },
@@ -241,7 +243,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 1. The experiment is still in draft form
                 2. there's more than one test variant, and the variant is not control*/
                 return (
-                    experimentForm.start_date == null &&
+                    !isLaunched(experimentForm) &&
                     experimentForm.variants &&
                     Object.keys(experimentForm.variants).length > 2
                 )
@@ -252,7 +254,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             (experimentForm: WebExperimentForm): boolean | undefined => {
                 /*Only show the add button if all of these conditions are met:
                 1. The experiment is still in draft form*/
-                return experimentForm.start_date == null
+                return !isLaunched(experimentForm)
             },
         ],
         selectedExperiment: [
@@ -438,7 +440,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         },
         addNewVariant: () => {
             if (values.experimentForm) {
-                const nextVariantName = `variant #${Object.keys(values.experimentForm.variants || {}).length}`
+                const nextVariantName = `test-${Object.keys(values.experimentForm.variants || {}).length - 1}`
 
                 if (values.experimentForm.variants == undefined) {
                     values.experimentForm.variants = {}

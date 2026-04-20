@@ -7,12 +7,12 @@ import {
     authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     DEFAULT_HEATMAP_FILTERS,
     PostHogAppToolbarEvent,
     calculateViewportRange,
 } from 'lib/components/IframedToolbarBrowser/utils'
-import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -40,6 +40,9 @@ export const UserIntentVerb: {
     'edit-action': 'edit the action',
     'add-experiment': 'add web experiment',
     'edit-experiment': 'edit the experiment',
+    'add-product-tour': 'add product tour',
+    'edit-product-tour': 'edit the product tour',
+    'preview-product-tour': 'preview the product tour',
 }
 
 export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
@@ -95,7 +98,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         heatmapColorPalette: [
             'default' as string | null,
             {
-                setHeatmapColorPalette: (_, { Palette }) => Palette,
+                setHeatmapColorPalette: (_, { palette }) => palette,
             },
         ],
         heatmapFilters: [
@@ -286,7 +289,10 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 }
             }
 
-            window.addEventListener('message', onIframeMessage, false)
+            cache.disposables.add(() => {
+                window.addEventListener('message', onIframeMessage, false)
+                return () => window.removeEventListener('message', onIframeMessage, false)
+            }, 'iframeMessageListener')
             // We call init in case the toolbar got there first (unlikely)
             init()
         },

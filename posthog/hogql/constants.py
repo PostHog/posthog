@@ -29,6 +29,12 @@ MAX_SELECT_RETENTION_LIMIT = 100000  # 100k
 MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
+# Max limit for LLM traces
+MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
+# Max limit for PostHog AI queries
+MAX_SELECT_POSTHOG_AI_LIMIT = 500  # 500 rows
+# Default limit for PostHog AI queries
+DEFAULT_POSTHOG_AI_RETURNED_ROWS = 100
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
@@ -38,6 +44,11 @@ CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
 
 BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
+BREAKDOWN_VALUE_MAX_LENGTH = 400
+
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
+
+type HogQLParserBackend = Literal["python", "cpp-json"]
 
 
 class LimitContext(StrEnum):
@@ -48,6 +59,7 @@ class LimitContext(StrEnum):
     HEATMAPS = "heatmaps"
     SAVED_QUERY = "saved_query"
     RETENTION = "retention"
+    POSTHOG_AI = "posthog_ai"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
@@ -66,6 +78,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_RETENTION_LIMIT  # 100k
     elif limit_context == LimitContext.SAVED_QUERY:
         return sys.maxsize  # Max python int
+    elif limit_context == LimitContext.POSTHOG_AI:
+        return MAX_SELECT_POSTHOG_AI_LIMIT  # 500
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
@@ -76,6 +90,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return CSV_EXPORT_LIMIT
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return DEFAULT_RETURNED_ROWS  # 100
+    elif limit_context == LimitContext.POSTHOG_AI:
+        return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
@@ -101,6 +117,12 @@ class HogQLQuerySettings(BaseModel):
     date_time_output_format: Optional[str] = None
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
+    force_data_skipping_indices: Optional[list[str]] = None
+    load_balancing: Optional[str] = None
+    format_csv_allow_double_quotes: Optional[bool] = None
+    optimize_skip_unused_shards: Optional[bool] = None
+    read_overflow_mode: Optional[str] = None
+    max_bytes_to_read: Optional[int] = None
 
 
 # Settings applied on top of all HogQL queries.
@@ -111,11 +133,10 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_memory_usage: Optional[int] = None  # default value coming from cloud config
     max_threads: Optional[int] = None
     allow_experimental_object_type: Optional[bool] = True
-    format_csv_allow_double_quotes: Optional[bool] = False
     max_ast_elements: Optional[int] = 4_000_000  # default value 50000
     max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
-    allow_experimental_analyzer: Optional[bool] = None
+    enable_analyzer: Optional[bool] = None
     transform_null_in: Optional[bool] = True
     # A bugfix workaround that stops clauses that look like
     # `or(event = '1', event = '2', event = '3')` from being optimized into `event IN ('1', '2', '3')`
@@ -126,3 +147,18 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
+    use_hive_partitioning: Optional[int] = 0
+
+
+def get_default_hogql_global_settings(
+    team_id: int | None = None,
+    base: HogQLGlobalSettings | None = None,
+) -> HogQLGlobalSettings:
+    settings = base.model_copy(deep=True) if base is not None else HogQLGlobalSettings()
+    # Only enable if not explicitly disabled (None = not set, False = explicitly disabled)
+    if settings.enable_analyzer is None and team_id is not None:
+        from posthog.settings.data_stores import is_enable_analyzer_team
+
+        if is_enable_analyzer_team(team_id):
+            settings.enable_analyzer = True
+    return settings

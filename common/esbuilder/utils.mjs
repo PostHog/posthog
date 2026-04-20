@@ -82,6 +82,7 @@ export function copyIndexHtml(
     const cssFile =
         relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
 
+    const jsFileFallback = `${entry}.js?t=${buildId}`
     const scriptCode = `
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
             try {
@@ -89,6 +90,9 @@ export function copyIndexHtml(
             } catch (error) {
                 console.error('Error loading chunk: "' + file + '"')
                 console.error(error)
+                if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {
+                    await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})
+                }
             }
         }
         window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)})
@@ -102,25 +106,41 @@ export function copyIndexHtml(
     // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
     const chunksToServe = isDev ? {} : chunks
     const chunkCode = `
-        window.ESBUILD_LOADED_CHUNKS = new Set(); 
-        window.ESBUILD_LOAD_CHUNKS = function(name) { 
+        window.ESBUILD_LOADED_CHUNKS = new Set();
+        window.ESBUILD_LOAD_CHUNKS = function(name) {
             const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
-            for (const chunk of chunks) { 
-                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
-                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
+            for (const chunk of chunks) {
+                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
+                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
                     window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                } 
-            } 
+                }
+            }
         }
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
-    // Modified CSS loader to handle both files
+    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
+    // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
+    const cssFileFallback = `${entry}.css?t=${buildId}`
+    const needsCssFallback = cssFile !== cssFileFallback
     const cssLoader = `
         const link = document.createElement("link");
         link.rel = "stylesheet";
         link.crossOrigin = "anonymous";
         link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
+        ${
+            needsCssFallback
+                ? `link.onerror = function() {
+            link.onerror = null;
+            console.warn('Failed to load stylesheet "' + ${JSON.stringify(cssFile)} + '", trying fallback');
+            var fallbackLink = document.createElement("link");
+            fallbackLink.rel = "stylesheet";
+            fallbackLink.crossOrigin = "anonymous";
+            fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
+            document.head.appendChild(fallbackLink);
+        };`
+                : ''
+        }
         document.head.appendChild(link)
     `
 
@@ -176,6 +196,22 @@ export const commonConfig = {
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
     plugins: [
+        // monaco-vim imports monaco-editor internals without .js extensions (e.g. monaco-editor/esm/vs/editor/editor.api)
+        // which esbuild can't resolve through monaco-editor's package.json exports map
+        {
+            name: 'resolve-monaco-esm',
+            setup(build) {
+                build.onResolve({ filter: /^monaco-editor\/esm\// }, (args) => {
+                    if (args.path.endsWith('.js')) {
+                        return
+                    }
+                    return build.resolve(args.path + '.js', {
+                        kind: args.kind,
+                        resolveDir: args.resolveDir,
+                    })
+                })
+            },
+        },
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 const plugins = [autoprefixer, postcssPresetEnv({ stage: 0 })]
@@ -188,11 +224,23 @@ export const commonConfig = {
         }),
         lessLoader({ javascriptEnabled: true }),
         polyfillNode({
+            globals: {
+                buffer: false,
+                process: true,
+            },
             polyfills: {
-                crypto: true,
+                buffer: false,
+                crypto: false,
+                process: true,
+                stream: false,
             },
         }),
     ],
+    alias: {
+        buffer: 'buffer',
+        crypto: 'crypto-browserify',
+        stream: 'stream-browserify',
+    },
     tsconfig: tsconfigPath,
     define: {
         global: 'globalThis',
@@ -201,11 +249,11 @@ export const commonConfig = {
     loader: {
         '.ttf': 'file',
         '.png': 'file',
+        '.gif': 'file',
         '.svg': 'file',
         '.woff': 'file',
         '.woff2': 'file',
         '.mp3': 'file',
-        '.lottie': 'file',
         '.sql': 'text',
     },
     metafile: true,
@@ -404,7 +452,6 @@ export async function buildOrWatch(config) {
             .watch(
                 [
                     path.resolve(absWorkingDir, 'src'),
-                    path.resolve(absWorkingDir, '../ee/frontend'),
                     path.resolve(absWorkingDir, '../common'),
                     path.resolve(absWorkingDir, '../products/*/manifest.tsx'),
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),

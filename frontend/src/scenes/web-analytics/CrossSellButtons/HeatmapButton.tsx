@@ -68,6 +68,7 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
             tooltip="View heatmap for this page"
             className="no-underline"
             targetBlank
+            hideExternalLinkIcon={true}
             onClick={(e: React.MouseEvent) => {
                 e.stopPropagation()
                 void addProductIntentForCrossSell({

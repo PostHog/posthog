@@ -3,10 +3,11 @@ from typing import Literal, Self
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantTool, AssistantToolCallMessage, VisualizationMessage
+from posthog.schema import AssistantTool, AssistantToolCallMessage, VisualizationArtifactContent
 
 from posthog.models import Team, User
 
+from ee.hogai.artifacts.utils import is_visualization_artifact_message
 from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
@@ -15,9 +16,11 @@ from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, NodePath
 
 INSIGHT_TOOL_PROMPT = """
-Use this tool to generate an insight from a structured plan. It will return a visualization that the user will be able to analyze and textual representation for your analysis.
+Use this tool to generate an insight from a structured plan. It will return a visualization that the user can analyze and a textual representation for your analysis. These visualizations are transient and only exist within the current conversation—they are not saved to the project. To save an insight permanently, users should click the open insight icon below the chart in the conversation.
 
-The tool only generates a single insight per a call. If the user asks for multiple insights, you need to decompose a query into multiple subqueries and call the tool for each subquery.
+This tool can also be used to edit the visualization the user is currently viewing on the insight page. In that case, you need to generate a new plan based on the schema of the existing insight.
+
+The tool only generates a single visualization per call. If the user asks for multiple visualizations, you need to decompose a query into multiple subqueries and call the tool for each subquery.
 
 Follow these guidelines when retrieving data:
 
@@ -316,17 +319,17 @@ Funnel insights help stakeholders understand user behavior as users navigate thr
 </general_knowledge>
 
 <exclusion_steps>
-Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is 1 (after first step) and the maximum index is the number of steps in the funnel. Exclusion events cannot be actions, only events.
+Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes (0-based) for each exclusion where the minimum start index is 0 (first step) and the maximum end index is the number of steps minus one. Exclusion events cannot be actions, only events.
 
 IMPORTANT: Exclusion steps filter out conversions where the exclusion event occurred BETWEEN the specified steps. This does NOT exclude users who completed the event before the funnel started or after it ended.
 
-For example, there is a sequence with three steps: sign up (step 1), finish onboarding (step 2), purchase (step 3). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be:
+For example, there is a sequence with three steps: sign up (step 0), finish onboarding (step 1), purchase (step 2). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be:
 
 ```
 Exclusions:
 - $pageleave
-    - start index: 1 (after sign up)
-    - end index: 2 (before finish onboarding)
+    - start index: 0 (sign up)
+    - end index: 1 (finish onboarding)
 ```
 
 </exclusion_steps>
@@ -468,7 +471,7 @@ Time period: from and/or to dates or durations. For example: `last 1 week`, `las
 """.strip()
 
 INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE = """
-The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
+The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_insight` tool:
 
 ```json
 {current_query}
@@ -514,12 +517,22 @@ InsightType = Literal["trends", "funnel", "retention"]
 class CreateInsightToolArgs(BaseModel):
     query_description: str = Field(description="A plan of the query to generate based on the template.")
     insight_type: InsightType = Field(description="The type of insight to generate.")
+    viz_title: str = Field(
+        description="Short, concise name of the insight (2-7 words) that will be displayed as a header in the insight visualization."
+    )
+    viz_description: str = Field(
+        description="Short, concise summary of the insight (1 sentence) that will be displayed as a description in the insight visualization."
+    )
 
 
 class CreateInsightTool(MaxTool):
     name: Literal["create_insight"] = "create_insight"
     args_schema: type[BaseModel] = CreateInsightToolArgs
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
+
+    def get_required_resource_access(self):
+        """Creating an insight requires editor-level access to insights."""
+        return [("insight", "editor")]
 
     @classmethod
     async def create_tool_class(
@@ -540,7 +553,7 @@ class CreateInsightTool(MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, query_description: str, insight_type: InsightType
+        self, viz_title: str, viz_description: str, query_description: str, insight_type: InsightType
     ) -> tuple[str, ToolMessagesArtifact | None]:
         graph_builder = InsightsGraph(self._team, self._user)
         match insight_type:
@@ -562,6 +575,8 @@ class CreateInsightTool(MaxTool):
             update={
                 "root_tool_call_id": self.tool_call_id,
                 "plan": query_description,
+                "visualization_title": viz_title,
+                "visualization_description": viz_description,
             },
             deep=True,
         )
@@ -584,16 +599,19 @@ class CreateInsightTool(MaxTool):
                 INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT, system_reminder=INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT
             ), None
 
-        # If the previous message is not a visualization message, the agent has requested human feedback.
-        if not isinstance(maybe_viz_message, VisualizationMessage):
+        # If the previous message is not a visualization or artifact message, the agent has requested human feedback.
+        if not is_visualization_artifact_message(maybe_viz_message):
             return "", ToolMessagesArtifact(messages=[tool_call_message])
 
+        visualization_content = await self._context_manager.artifacts.aget(
+            maybe_viz_message.artifact_id, VisualizationArtifactContent
+        )
         # If the contextual tool is available, we're editing an insight.
         # Add the UI payload to the tool call message.
         if self.is_editing_mode(self._context_manager):
             tool_call_message = AssistantToolCallMessage(
                 content=tool_call_message.content,
-                ui_payload={self.get_name(): maybe_viz_message.answer.model_dump(exclude_none=True)},
+                ui_payload={self.get_name(): visualization_content.query.model_dump(mode="json", exclude_none=True)},
                 id=tool_call_message.id,
                 tool_call_id=tool_call_message.tool_call_id,
             )

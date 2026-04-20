@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -8,14 +8,12 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from dateutil.rrule import FR, MO, SA, SU, TH, TU, WE, rrule
+from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
-
-# Copied from rrule as it is not exported
-FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
@@ -28,6 +26,8 @@ RRULE_WEEKDAY_MAP = {
     "saturday": SA,
     "sunday": SU,
 }
+
+WEEKDAY_SET = {"monday", "tuesday", "wednesday", "thursday", "friday"}
 
 
 @dataclass
@@ -65,10 +65,24 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
+    RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
+
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    dashboard_export_insights = models.ManyToManyField(
+        "posthog.Insight",
+        blank=True,
+        related_name="subscriptions_dashboard_export",
+    )
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+    )
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
@@ -97,22 +111,41 @@ class Subscription(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
 
+    summary_enabled = models.BooleanField(default=False)
+    summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Only cache rrule if all required fields are loaded (not deferred).
+        # The rrule property accesses multiple fields (frequency, count, interval, etc).
+        # If ANY field is deferred, accessing it triggers refresh_from_db which creates
+        # a new instance with OTHER fields deferred, causing infinite recursion.
+        if not (self.get_deferred_fields() & self.RRULE_FIELDS):
+            self._rrule = self.rrule
+
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
-        if not self.id or str(self._rrule) != str(self.rrule):
+        # _rrule may not be set if object was loaded with deferred fields
+        if not self.id or str(getattr(self, "_rrule", None)) != str(self.rrule):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
         super().save(*args, **kwargs)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._rrule = self.rrule
-
     @property
     def rrule(self):
-        freq = FREQNAMES.index(self.frequency.upper())
-
+        freq_map: dict[str, int] = {
+            self.SubscriptionFrequency.DAILY: DAILY,
+            self.SubscriptionFrequency.WEEKLY: WEEKLY,
+            self.SubscriptionFrequency.MONTHLY: MONTHLY,
+            self.SubscriptionFrequency.YEARLY: YEARLY,
+        }
+        freq = cast(Literal[0, 1, 2, 3, 4, 5, 6], freq_map[self.frequency])
         return rrule(
             freq=freq,
             count=self.count,
@@ -124,6 +157,8 @@ class Subscription(models.Model):
         )
 
     def set_next_delivery_date(self, from_dt=None):
+        # Authoritative schedule — a client-side preview mirror lives in
+        # frontend/src/lib/components/Subscriptions/utils.tsx (getNextDeliveryDate)
         # We never want next_delivery_date to be in the past
         now = timezone.now() + timedelta(minutes=15)  # Buffer of 15 minutes since we might run a bit early
         self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
@@ -145,7 +180,7 @@ class Subscription(models.Model):
                 self.insight.url,
             )
         elif self.dashboard:
-            return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url)
+            return SubscriptionResourceInfo("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
 
         return None
 
@@ -171,9 +206,13 @@ class Subscription(models.Model):
                     4: "fourth",
                     -1: "last",
                 }[self.bysetpos]
-                summary += (
-                    f" on the {human_bysetpos} {self.byweekday[0].capitalize() if len(self.byweekday) == 1 else 'day'}"
-                )
+                if len(self.byweekday) == 1:
+                    day_label = self.byweekday[0].capitalize()
+                elif set(self.byweekday) == WEEKDAY_SET:
+                    day_label = "weekday"
+                else:
+                    day_label = "day"
+                summary += f" on the {human_bysetpos} {day_label}"
             return summary
         except KeyError as e:
             capture_exception(e)
@@ -213,6 +252,56 @@ def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
         expiry_delta=timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS),
         audience=PosthogJwtAudience.UNSUBSCRIBE,
     )
+
+
+class SubscriptionDelivery(UUIDModel):
+    class Status(models.TextChoices):
+        STARTING = "starting"
+        COMPLETED = "completed"
+        FAILED = "failed"
+        SKIPPED = "skipped"
+
+    subscription = models.ForeignKey("Subscription", on_delete=models.CASCADE, related_name="deliveries")
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    # Temporal correlation — workflow_id for debugging, idempotency_key for dedup.
+    # idempotency_key is generated via temporalio.workflow.uuid4() which is deterministic
+    # across activity retries (replay) but different across workflow retries.
+    temporal_workflow_id = models.CharField(max_length=255)
+    idempotency_key = models.CharField(max_length=255, unique=True)
+
+    # Trigger context
+    trigger_type = models.CharField(max_length=20)
+    scheduled_at = models.DateTimeField(null=True)
+
+    # Target snapshot (frozen at delivery time)
+    target_type = models.CharField(max_length=10)
+    target_value = models.TextField()
+
+    # Content snapshot
+    exported_asset_ids: ArrayField = ArrayField(models.IntegerField(), default=list)
+    content_snapshot = models.JSONField(default=dict)
+
+    # Per-recipient delivery results
+    recipient_results = models.JSONField(default=list)
+
+    # Overall status and error (null when no error)
+    # Shape: {"message": str, "type": str, ...} — extensible for stack traces, codes, etc.
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.STARTING)
+    error = models.JSONField(null=True, blank=True)
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_subscription_delivery"
+        indexes = [
+            models.Index(fields=["subscription", "-created_at"], name="posthog_subdel_sub_crtd"),
+            models.Index(fields=["team", "-created_at"], name="posthog_subdel_team_crtd"),
+        ]
+        ordering = ["-created_at"]
 
 
 def unsubscribe_using_token(token: str) -> Subscription:

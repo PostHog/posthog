@@ -27,20 +27,13 @@ impl<T, E: std::error::Error + Send + Sync + 'static> ToUserError<T> for Result<
 
 const DEFAULT_USER_ERROR_MESSAGE: &str = "An unknown error occurred";
 
-pub fn get_user_message(error: &anyhow::Error) -> &str {
-    if let Some(user_error) = error.downcast_ref::<UserError>() {
-        return &user_error.msg;
+pub fn get_user_message(error: &anyhow::Error) -> String {
+    // Get the shallowest UserError in the chain
+    // To provide the user with all the error context they need, we concatenate the user errors together at call site
+    match error.downcast_ref::<UserError>() {
+        Some(user_error) => user_error.msg.clone(),
+        None => DEFAULT_USER_ERROR_MESSAGE.to_string(),
     }
-
-    let mut source = error.source();
-    while let Some(err) = source {
-        if let Some(user_error) = err.downcast_ref::<UserError>() {
-            return &user_error.msg;
-        }
-        source = err.source();
-    }
-
-    DEFAULT_USER_ERROR_MESSAGE
 }
 
 #[derive(Error, Debug)]
@@ -92,6 +85,27 @@ pub fn is_rate_limited_error(error: &anyhow::Error) -> bool {
     false
 }
 
+/// Returns true if the error chain contains a reqwest timeout error.
+/// Timeouts are transient and should be retried with backoff.
+pub fn is_timeout_error(error: &anyhow::Error) -> bool {
+    if let Some(reqwest_err) = error.downcast_ref::<reqwest::Error>() {
+        if reqwest_err.is_timeout() {
+            return true;
+        }
+    }
+
+    let mut source = error.source();
+    while let Some(err) = source {
+        if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
+            if reqwest_err.is_timeout() {
+                return true;
+            }
+        }
+        source = err.source();
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,30 +147,31 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_user_errors_in_chain() {
+    fn test_multiple_user_errors_returns_shallowest() {
         let deep_user_error = UserError::new("Deep user error");
-        let middle_user_error = UserError::new("Middle user error");
+        let shallowest_user_error = UserError::new("Shallowest user error");
 
         let error = anyhow::Error::from(deep_user_error)
             .context("Some system error")
-            .context(middle_user_error)
+            .context(shallowest_user_error)
             .context("Top level error");
 
         let result = get_user_message(&error);
-        assert_eq!(result, "Middle user error");
+        assert_eq!(result, "Shallowest user error");
     }
 
     #[test]
-    fn test_multiple_user_errors_with_root_user_error() {
-        let deep_user_error = UserError::new("Deep user error");
-        let root_user_error = UserError::new("Root user error");
+    fn test_concatenated_user_error() {
+        // Test the pattern we use: concatenate inner message when creating outer error
+        let inner_error = anyhow::Error::from(UserError::new("specific parse error"));
+        let inner_msg = get_user_message(&inner_error);
 
-        let error = anyhow::Error::from(deep_user_error)
-            .context("Some system error")
-            .context(root_user_error);
+        let outer_error = inner_error.context(UserError::new(format!(
+            "File 'test.json' failed: {inner_msg}"
+        )));
 
-        let result = get_user_message(&error);
-        assert_eq!(result, "Root user error");
+        let result = get_user_message(&outer_error);
+        assert_eq!(result, "File 'test.json' failed: specific parse error");
     }
 
     #[test]
@@ -217,5 +232,42 @@ mod tests {
         let http_err = resp.error_for_status().unwrap_err();
         let err = anyhow::Error::from(http_err);
         assert!(!is_rate_limited_error(&err));
+    }
+
+    #[tokio::test]
+    async fn test_is_timeout_error_true_for_timeout() {
+        // Use a server that accepts the connection but never responds,
+        // combined with a very short client timeout
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_millis(50))
+            .build()
+            .unwrap();
+
+        let err = client
+            .get(format!("http://{addr}/slow"))
+            .send()
+            .await
+            .unwrap_err();
+        let err = anyhow::Error::from(err);
+        assert!(is_timeout_error(&err));
+        assert!(!is_rate_limited_error(&err));
+    }
+
+    #[tokio::test]
+    async fn test_is_timeout_error_false_for_non_timeout() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/ok");
+            then.status(500);
+        });
+
+        let client = Client::new();
+        let resp = client.get(server.url("/ok")).send().await.unwrap();
+        let http_err = resp.error_for_status().unwrap_err();
+        let err = anyhow::Error::from(http_err);
+        assert!(!is_timeout_error(&err));
     }
 }

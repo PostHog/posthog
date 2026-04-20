@@ -6,21 +6,20 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityTab } from '~/types'
 
 import { SessionDetailsCard } from './components/SessionDetailsCard'
 import { SessionEventsList } from './components/SessionEventsList'
 import { SessionMetricsCard } from './components/SessionMetricsCard'
+import { SessionRecordingSection } from './components/SessionRecordingSection'
 import { SessionProfileLogicProps, sessionProfileLogic } from './sessionProfileLogic'
 
 export const scene: SceneExport<SessionProfileLogicProps> = {
@@ -30,15 +29,8 @@ export const scene: SceneExport<SessionProfileLogicProps> = {
 }
 
 export function SessionProfileScene(): JSX.Element {
-    const {
-        sessionId,
-        sessionData,
-        isInitialLoading,
-        sessionDataLoading,
-        sessionEventsLoading,
-        hasRecording,
-        hasRecordingLoading,
-    } = useValues(sessionProfileLogic)
+    const { sessionId, sessionData, isInitialLoading, sessionDataLoading, sessionEventsLoading } =
+        useValues(sessionProfileLogic)
     const { loadSessionData } = useActions(sessionProfileLogic)
 
     if (!sessionData && !isInitialLoading) {
@@ -62,27 +54,17 @@ export function SessionProfileScene(): JSX.Element {
                     key: 'sessions',
                 }}
                 actions={
-                    <>
-                        <ViewRecordingButton
-                            sessionId={sessionData?.session_id}
-                            recordingStatus={hasRecording ? 'active' : 'none'}
-                            inModal={true}
-                            size="small"
-                            type="secondary"
-                            loading={hasRecordingLoading}
-                        />
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconRefresh />}
-                            onClick={() => loadSessionData()}
-                            loading={sessionDataLoading || sessionEventsLoading}
-                        >
-                            Refresh
-                        </LemonButton>
-                    </>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        onClick={() => loadSessionData()}
+                        loading={sessionDataLoading || sessionEventsLoading}
+                    >
+                        Refresh
+                    </LemonButton>
                 }
             />
-            <SceneDivider />
 
             <BindLogic logic={sessionProfileLogic} props={{ sessionId }}>
                 <div className="space-y-4">
@@ -122,6 +104,7 @@ export function SessionProfileScene(): JSX.Element {
                     )}
                     <SessionMetricsCard />
                     <SessionDetailsCard />
+                    <SessionRecordingSection />
                     <SessionEventsList />
                 </div>
             </BindLogic>

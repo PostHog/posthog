@@ -24,64 +24,6 @@ impl Person {
         team_id: i32,
         distinct_id: &str,
     ) -> Result<Option<Person>, sqlx::Error> {
-        if let Some(res) = sqlx::query_as!(
-            Person,
-            r#"
-                SELECT ppn.id, ppn.created_at, ppn.team_id, ppn.uuid, ppn.properties, ppn.is_identified, ppn.is_user_id, ppn.version
-                FROM posthog_person_new ppn
-                INNER JOIN posthog_persondistinctid
-                    ON ppn.id = posthog_persondistinctid.person_id
-                WHERE
-                    posthog_persondistinctid.distinct_id = $1
-                    AND posthog_persondistinctid.team_id = $2
-                    AND ppn.team_id = $2
-                LIMIT 1
-            "#,
-            distinct_id,
-            team_id
-        )
-        .fetch_optional(&mut *e)
-        .await? {
-            return Ok(Some(res));
-        }
-
-        Self::from_distinct_id_legacy(e, team_id, distinct_id).await
-    }
-
-    pub async fn from_distinct_id_no_props(
-        e: &mut PgConnection,
-        team_id: i32,
-        distinct_id: &str,
-    ) -> Result<Option<Person>, sqlx::Error> {
-        if let Some(res) = sqlx::query_as!(
-            Person,
-            r#"
-                SELECT ppn.id, ppn.created_at, ppn.team_id, ppn.uuid, '{}'::jsonb as properties, ppn.is_identified, ppn.is_user_id, ppn.version
-                FROM posthog_person_new ppn
-                INNER JOIN posthog_persondistinctid
-                    ON ppn.id = posthog_persondistinctid.person_id
-                WHERE
-                    posthog_persondistinctid.distinct_id = $1
-                    AND posthog_persondistinctid.team_id = $2
-                    AND ppn.team_id = $2
-                LIMIT 1
-            "#,
-            distinct_id,
-            team_id
-        )
-        .fetch_optional(&mut *e)
-        .await? {
-            return Ok(Some(res));
-        }
-
-        Self::from_distinct_id_no_props_legacy(e, team_id, distinct_id).await
-    }
-
-    async fn from_distinct_id_legacy(
-        e: &mut PgConnection,
-        team_id: i32,
-        distinct_id: &str,
-    ) -> Result<Option<Person>, sqlx::Error> {
         sqlx::query_as!(
             Person,
             r#"
@@ -102,7 +44,7 @@ impl Person {
         .await
     }
 
-    async fn from_distinct_id_no_props_legacy(
+    pub async fn from_distinct_id_no_props(
         e: &mut PgConnection,
         team_id: i32,
         distinct_id: &str,

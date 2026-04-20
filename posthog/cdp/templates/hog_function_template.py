@@ -12,8 +12,10 @@ else:
 
 SubTemplateId = Literal[
     "activity-log",
+    "discussion-mention",
     "error-tracking-issue-created",
     "error-tracking-issue-reopened",
+    "error-tracking-issue-spiking",
     "insight-alert-firing",
 ]
 
@@ -24,6 +26,7 @@ HogFunctionTemplateType = Literal[
     "site_destination",
     "internal_destination",
     "source_webhook",
+    "warehouse_source_webhook",
     "site_app",
     "transformation",
 ]
@@ -41,6 +44,7 @@ class HogFunctionMapping:
 class HogFunctionMappingTemplate:
     name: str
     include_by_default: Optional[bool] = None
+    use_all_events_by_default: Optional[bool] = None
     filters: Optional[dict] = None
     inputs: Optional[dict] = None
     inputs_schema: Optional[list[dict]] = None

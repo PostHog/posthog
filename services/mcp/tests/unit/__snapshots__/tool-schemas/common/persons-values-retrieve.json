@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "key": {
+            "description": "The person property key to get values for (e.g., 'email', 'plan', 'role').",
+            "type": "string"
+        },
+        "value": {
+            "description": "Optional search string to filter values (case-insensitive substring match).",
+            "type": "string"
+        }
+    },
+    "required": ["key"],
+    "type": "object"
+}

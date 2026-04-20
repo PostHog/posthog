@@ -36,13 +36,13 @@ impl From<&RawGoFrame> for Frame {
             lang: "go".to_string(),
             resolved: true,
             resolve_failure: None,
+
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
             context: None,
             release: None,
             suspicious: false,
             module: None,
-            exception_type: None,
             code_variables: None,
         }
     }

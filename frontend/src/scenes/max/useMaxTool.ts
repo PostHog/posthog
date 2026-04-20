@@ -3,8 +3,6 @@ import React, { useEffect } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
@@ -48,15 +46,10 @@ export function useMaxTool({
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-    const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
+    const { setActiveGroup, startNewConversation } = useActions(maxLogic({ tabId: 'sidepanel' }))
 
     const definition = getToolDefinition(identifier)
-    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')
-    const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
-
-    if (!isMaxAvailable) {
-        active = false
-    }
+    const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
         // Register/deregister tool
@@ -92,6 +85,8 @@ export function useMaxTool({
         openMax: !active
             ? null
             : (): void => {
+                  // Start a new conversation so the prompt doesn't get added to an existing session
+                  startNewConversation()
                   // Show the suggestions from this specific tool
                   if (definition && suggestions && suggestions.length > 0) {
                       setActiveGroup(

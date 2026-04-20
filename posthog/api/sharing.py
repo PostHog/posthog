@@ -9,6 +9,8 @@ from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+import structlog
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -18,7 +20,6 @@ from rest_framework.request import Request
 
 from posthog.schema import SharingConfigurationSettings
 
-from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
@@ -32,15 +33,20 @@ from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
+
+from products.dashboards.backend.api.dashboard import DashboardSerializer
+from products.dashboards.backend.models.dashboard import Dashboard
+
+logger = structlog.get_logger(__name__)
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -204,6 +210,7 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
 class SharePasswordSerializer(serializers.ModelSerializer):
     created_by_email = serializers.SerializerMethodField()
 
+    @extend_schema_field(serializers.CharField())
     def get_created_by_email(self, obj):
         return obj.created_by.email if obj.created_by else "deleted user"
 
@@ -249,6 +256,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
             capture_exception(e)
             raise serializers.ValidationError("Invalid settings format")
 
+    @extend_schema_field(SharePasswordSerializer(many=True))
     def get_share_passwords(self, obj):
         # Return empty list for unsaved instances to avoid database relationship access
         if not obj.pk:
@@ -256,6 +264,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         return SharePasswordSerializer(obj.share_passwords.filter(is_active=True), many=True).data
 
 
+@extend_schema(tags=["core"])
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "sharing_configuration"
     scope_object_write_actions = [
@@ -599,6 +608,20 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             return custom_404_response(self.request)
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path
+
+        # Parse cache_keys parameter if present (used by image exporter to guarantee cache hits)
+        export_cache_keys: Optional[dict[int, str]] = None
+        if cache_keys_param := request.GET.get("cache_keys"):
+            try:
+                raw_cache_keys = json.loads(cache_keys_param)
+                export_cache_keys = {int(k): v for k, v in raw_cache_keys.items()}
+            except (json.JSONDecodeError, ValueError, TypeError):
+                logger.warning(
+                    "export_cache_keys_parse_error",
+                    cache_keys_param=cache_keys_param,
+                    message="Failed to parse cache_keys parameter - continuing without it",
+                )
+
         context = {
             "view": self,
             "request": request,
@@ -606,6 +629,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "is_shared": True,
             "get_team": lambda: resource.team,
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
+            "export_cache_keys": export_cache_keys,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
@@ -619,6 +643,15 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             if request.method == "GET" and not is_jwt_authenticated:
                 exported_data["type"] = "unlock"
+
+                settings_data = getattr(resource, "settings", {}) or {}
+                if settings_data.get("whitelabel") and resource.team.organization.is_feature_available(
+                    AvailableFeature.WHITE_LABELLING
+                ):
+                    exported_data["whitelabel"] = True
+                if settings_data.get("theme") in {"light", "dark", "system"}:
+                    exported_data["theme"] = settings_data["theme"]
+
                 # Don't include app_context in the initial unlock page for security
                 # It will be provided after authentication
                 return render_template(
@@ -742,13 +775,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     session_id=session_recording_id, team=resource.team
                 )
 
-                # Create a JWT for the recording
+                # Create a scoped JWT for the recording
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
                     export_access_token = encode_jwt(
                         {"id": resource.created_by.id},
                         timedelta(minutes=5),  # 5 mins should be enough for the export to complete
-                        PosthogJwtAudience.IMPERSONATED_USER,
+                        PosthogJwtAudience.EXPORT_RENDERER,
                     )
 
                 asset_title = "Session Recording"
@@ -786,6 +819,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             if not heatmap_url:
                 raise NotFound("Invalid heatmap export - missing heatmap_url")
 
+            ok, err = is_url_allowed(heatmap_url)
+            if not ok:
+                raise ValidationError(f"heatmap_url not allowed: {err}")
+
             heatmap_data_url = resource.export_context.get("heatmap_data_url")
             if not heatmap_data_url:
                 raise NotFound("Invalid heatmap export - missing heatmap_data_url")
@@ -795,13 +832,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound("Invalid heatmap export - missing heatmap_type")
 
             try:
-                # Create a JWT to access the heatmap data
+                # Create a scoped JWT to access the heatmap data
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
                     export_access_token = encode_jwt(
                         {"id": resource.created_by.id},
                         timedelta(minutes=5),
-                        PosthogJwtAudience.IMPERSONATED_USER,
+                        PosthogJwtAudience.EXPORT_RENDERER,
                     )
 
                 asset_title = "Heatmap"
@@ -821,7 +858,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No heatmap found")
-        elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
+        elif isinstance(resource, SharingConfiguration) and resource.recording:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
             exported_data.update({"recording": recording_data})
@@ -847,7 +884,25 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             merged_data = base_settings.model_dump()
             for field_name in base_settings.model_fields.keys():
                 if field_name in request.GET:
-                    merged_data[field_name] = bool(request.GET[field_name])
+                    raw_value = request.GET.get(field_name)
+                    if field_name == "theme":
+                        if raw_value in {"light", "dark", "system"}:
+                            merged_data[field_name] = raw_value
+                        continue
+
+                    # For legacy boolean settings we support either presence-only params
+                    # (`?legend`) or explicit values (`?legend=false`).
+                    if raw_value in (None, ""):
+                        merged_data[field_name] = True
+                        continue
+
+                    lowered = str(raw_value).strip().lower()
+                    if lowered in {"1", "true", "yes", "on"}:
+                        merged_data[field_name] = True
+                    elif lowered in {"0", "false", "no", "off"}:
+                        merged_data[field_name] = False
+                    else:
+                        merged_data[field_name] = True
             final_settings = SharingConfigurationSettings.model_validate(merged_data, strict=False)
         else:
             final_settings = base_settings
@@ -868,6 +923,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"detailed": True})
         if final_settings.hideExtraDetails:
             exported_data.update({"hideExtraDetails": True})
+        if final_settings.theme in {"light", "dark", "system"}:
+            exported_data.update({"theme": final_settings.theme})
 
         if request.path.endswith(f".json"):
             # For password-protected POST requests, only return basic metadata and JWT token
@@ -881,6 +938,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "showInspector": exported_data.get("showInspector", False),
                     "legend": exported_data.get("legend", False),
                     "detailed": exported_data.get("detailed", False),
+                    "theme": exported_data.get("theme"),
                 }
                 return response.Response(minimal_data)
             return response.Response(exported_data)
@@ -888,7 +946,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if request.GET.get("force_type"):
             exported_data["type"] = request.GET.get("force_type")
 
-        exported_data["rootClassName"] = f"export-type-'{exported_data.get('type', 'unknown')}"
+        exported_data["rootClassName"] = f"export-type-{exported_data.get('type', 'unknown')}"
         # Check if this is a JWT authenticated request with JSON Accept header
         if (
             isinstance(resource, SharingConfiguration)

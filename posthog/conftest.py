@@ -6,6 +6,8 @@ import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
 from django.conf import settings
+from django.core.management.commands.flush import Command as FlushCommand
+from django.db import connections
 
 from infi.clickhouse_orm import Database
 
@@ -24,46 +26,46 @@ def create_clickhouse_tables():
         CREATE_MV_TABLE_QUERIES,
         CREATE_VIEW_QUERIES,
         build_query,
+        get_table_name,
     )
 
-    num_expected_tables = (
-        len(CREATE_MERGETREE_TABLE_QUERIES)
-        + len(CREATE_DISTRIBUTED_TABLE_QUERIES)
-        + len(CREATE_MV_TABLE_QUERIES)
-        + len(CREATE_VIEW_QUERIES)
-        + len(CREATE_DICTIONARY_QUERIES)
-    )
+    existing_tables = {
+        row[0]
+        for row in sync_execute(
+            "SELECT name FROM system.tables WHERE database = %(database)s",
+            {"database": settings.CLICKHOUSE_DATABASE},
+        )
+    }
 
-    # Evaluation tests use Kafka for faster data ingestion.
-    if settings.IN_EVAL_TESTING:
-        num_expected_tables += len(CREATE_KAFKA_TABLE_QUERIES)
+    def missing(queries):
+        return [q for q in queries if get_table_name(q) not in existing_tables]
 
-    [[num_tables]] = sync_execute(
-        "SELECT count() FROM system.tables WHERE database = %(database)s",
-        {"database": settings.CLICKHOUSE_DATABASE},
-    )
+    mergetree_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES)))
+    if mergetree_queries:
+        run_clickhouse_statement_in_parallel(mergetree_queries)
 
-    # Check if all the tables have already been created. Views, materialized views, and dictionaries also count
-    if num_tables == num_expected_tables:
-        return
-
-    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(table_queries)
+    distributed_queries = list(map(build_query, missing(CREATE_DISTRIBUTED_TABLE_QUERIES)))
+    if distributed_queries:
+        run_clickhouse_statement_in_parallel(distributed_queries)
 
     if settings.IN_EVAL_TESTING:
-        kafka_table_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
-        run_clickhouse_statement_in_parallel(kafka_table_queries)
+        kafka_table_queries = list(map(build_query, missing(CREATE_KAFKA_TABLE_QUERIES)))
+        if kafka_table_queries:
+            run_clickhouse_statement_in_parallel(kafka_table_queries)
 
-    mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(mv_queries)
+    mv_queries = list(map(build_query, missing(CREATE_MV_TABLE_QUERIES)))
+    if mv_queries:
+        run_clickhouse_statement_in_parallel(mv_queries)
 
-    view_queries = list(map(build_query, CREATE_VIEW_QUERIES))
-    run_clickhouse_statement_in_parallel(view_queries)
+    view_queries = list(map(build_query, missing(CREATE_VIEW_QUERIES)))
+    if view_queries:
+        run_clickhouse_statement_in_parallel(view_queries)
 
-    dictionary_queries = list(map(build_query, CREATE_DICTIONARY_QUERIES))
-    run_clickhouse_statement_in_parallel(dictionary_queries)
+    dictionary_queries = list(map(build_query, missing(CREATE_DICTIONARY_QUERIES)))
+    if dictionary_queries:
+        run_clickhouse_statement_in_parallel(dictionary_queries)
 
-    data_queries = list(map(build_query, CREATE_DATA_QUERIES))
+    data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
     run_clickhouse_statement_in_parallel(data_queries)
 
 
@@ -74,6 +76,7 @@ def reset_clickhouse_tables():
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
     from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
+    from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
@@ -91,11 +94,10 @@ def reset_clickhouse_tables():
     from posthog.models.raw_sessions.sessions_v2 import TRUNCATE_RAW_SESSIONS_TABLE_SQL
     from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
-    from posthog.session_recordings.sql.session_recording_event_sql import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
 
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
     from products.error_tracking.backend.sql import (
-        TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL,
+        TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
     )
 
@@ -109,9 +111,8 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
-        TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(),
+        TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL(),
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
-        TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
@@ -125,6 +126,7 @@ def reset_clickhouse_tables():
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
+        TRUNCATE_AI_EVENTS_TABLE_SQL(),
     ]
 
     # Drop created Kafka tables because some tests don't expect it.
@@ -143,18 +145,23 @@ def reset_clickhouse_tables():
 
     from posthog.clickhouse.schema import CREATE_DATA_QUERIES
 
-    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
+    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
 
 
-def run_persons_sqlx_migrations():
-    """Run sqlx migrations for persons tables in test database.
+def run_persons_sqlx_migrations(keepdb: bool = False):
+    """Run sqlx migrations for persons tables in separate test_posthog_persons database.
 
     This creates posthog_person_new and related tables needed for dual-table
     person model migration. Mirrors production migrations in rust/persons_migrations/.
+    Uses a separate database to mirror production setup where persons live in their own DB.
+
+    Args:
+        keepdb: If True, reuse existing database (only create if missing). If False, drop and recreate.
     """
-    # Build database URL from Django test database settings
+    # Build database URL for test_posthog_persons (separate from main test_posthog)
     db_config = settings.DATABASES["default"]
-    db_name = db_config["NAME"]
+    # Use separate persons database name to mirror production
+    persons_db_name = db_config["NAME"] + "_persons"
     db_user = db_config["USER"]
     db_password = db_config["PASSWORD"]
     db_host = db_config["HOST"]
@@ -162,7 +169,7 @@ def run_persons_sqlx_migrations():
 
     # URL encode password to handle special characters
     password_part = f":{quote_plus(db_password)}" if db_password else ""
-    database_url = f"postgres://{db_user}{password_part}@{db_host}:{db_port}/{db_name}"
+    database_url = f"postgres://{db_user}{password_part}@{db_host}:{db_port}/{persons_db_name}"
 
     # Get path to migrations (relative to this file)
     # conftest.py is at posthog/conftest.py, go up one level to repo root
@@ -171,7 +178,20 @@ def run_persons_sqlx_migrations():
 
     env = {**os.environ, "DATABASE_URL": database_url}
 
-    # Create database if it doesn't exist (idempotent)
+    if not keepdb:
+        # Drop and recreate database to ensure clean state
+        try:
+            subprocess.run(
+                ["sqlx", "database", "drop", "-y"],
+                env=env,
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError:
+            # Database might not exist, which is fine
+            pass
+
+    # Create database (idempotent - will succeed if already exists)
     try:
         subprocess.run(
             ["sqlx", "database", "create"],
@@ -180,12 +200,14 @@ def run_persons_sqlx_migrations():
             capture_output=True,
         )
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(
-            f"Failed to create test database with sqlx. "
-            f"Ensure sqlx-cli is installed. Error: {e.stderr.decode() if e.stderr else str(e)}"
-        ) from e
+        # If keepdb=True and database exists, this is expected to fail - that's fine
+        if not keepdb:
+            raise RuntimeError(
+                f"Failed to create test database with sqlx. "
+                f"Ensure sqlx-cli is installed. Error: {e.stderr.decode() if e.stderr else str(e)}"
+            ) from e
 
-    # Run migrations
+    # Run migrations (idempotent - sqlx tracks which migrations have run)
     try:
         subprocess.run(
             ["sqlx", "migrate", "run", "--source", migrations_path],
@@ -195,17 +217,36 @@ def run_persons_sqlx_migrations():
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(
-            f"Failed to run sqlx migrations from {migrations_path}. "
-            f"Error: {e.stderr.decode() if e.stderr else str(e)}"
+            f"Failed to run sqlx migrations from {migrations_path}. Error: {e.stderr.decode() if e.stderr else str(e)}"
         ) from e
 
 
-@pytest.fixture(scope="package")
-def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
+def _django_db_setup(django_db_keepdb, django_db_blocker):
     # Django migrations have run (via django_db_setup parameter)
-    # Drop FK constraints that reference posthog_person to allow dual-table migration
+    # Configure persons database now that we know the actual test database name
     from django.db import connection
 
+    # Get the actual test database name (with test_ prefix added by pytest-django)
+    test_db_name = connection.settings_dict["NAME"]
+    test_persons_db_name = test_db_name + "_persons"
+
+    # Update the persons database NAME to use the correct test database name
+    # The database configuration already exists from settings, we just need to update the NAME
+    settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
+    settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
+
+    # Update product database NAMEs to use test-prefixed names
+    from posthog.product_db_config import load_product_db_routes
+
+    for route in load_product_db_routes(settings.BASE_DIR):
+        test_product_db_name = test_db_name + f"_{route.database}"
+        for suffix in ("_db_writer", "_db_reader", "_db_direct"):
+            alias = f"{route.database}{suffix}"
+            if alias in settings.DATABASES:
+                settings.DATABASES[alias]["NAME"] = test_product_db_name
+
+    # Drop Person-related tables from default database and all FK constraints
+    # These tables will exist in the persons_db_writer database via sqlx migrations
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
             # Drop all FK constraints pointing to posthog_person, regardless of naming convention
@@ -231,8 +272,25 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
                 END $$;
             """)
 
+            # Drop all persons-related tables from default database
+            # These will exist in the persons_db_writer database via sqlx migrations
+            # Drop in correct order: dependent tables first, then referenced tables
+            cursor.execute("""
+                DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
+                DROP TABLE IF EXISTS posthog_featureflaghashkeyoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_group CASCADE;
+                DROP TABLE IF EXISTS posthog_grouptypemapping CASCADE;
+                DROP TABLE IF EXISTS posthog_persondistinctid CASCADE;
+                DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
+                DROP TABLE IF EXISTS posthog_personoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_pendingpersonoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_flatpersonoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
+                DROP TABLE IF EXISTS posthog_person CASCADE;
+            """)
+
     # Run sqlx migrations to create posthog_person_new and related tables
-    run_persons_sqlx_migrations()
+    run_persons_sqlx_migrations(keepdb=django_db_keepdb)
 
     database = Database(
         settings.CLICKHOUSE_DATABASE,
@@ -242,6 +300,8 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
         cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
         randomize_replica_paths=True,
+        # don't use the egress proxy, clickhouse is internal
+        trust_env=False,
     )
 
     if not django_db_keepdb:
@@ -262,6 +322,47 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
             reset_clickhouse_tables()
     else:
         database.drop_database()
+
+
+@pytest.fixture(scope="package")
+def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
+    yield from _django_db_setup(django_db_keepdb, django_db_blocker)
+
+
+@pytest.fixture(autouse=True)
+def patch_flush_command_for_persons_db(monkeypatch):
+    """
+    Patch Django's flush command to handle persons database properly.
+
+    Persons database doesn't have Django's built-in tables (contenttypes, permissions, etc.),
+    so we need to skip emitting post_migrate signals that would try to create them.
+
+    This is needed for non-Django test classes (pytest, temporal, async tests).
+    Django test classes handle this in _fixture_teardown in test/base.py.
+    """
+    original_handle = FlushCommand.handle
+
+    def patched_handle(self, **options):
+        database = options.get("database")
+
+        if database in ("persons_db_writer", "persons_db_reader"):
+            # Manually truncate persons database tables without emitting signals
+            conn = connections[database]
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public'
+                    AND tablename NOT LIKE 'pg_%'
+                    AND tablename NOT LIKE '_sqlx_%'
+                    AND tablename NOT LIKE '_persons_migrations'
+                """)
+                tables = [row[0] for row in cursor.fetchall()]
+                if tables:
+                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+        else:
+            return original_handle(self, **options)
+
+    monkeypatch.setattr(FlushCommand, "handle", patched_handle)
 
 
 @pytest.fixture
@@ -319,21 +420,43 @@ def mock_email_mfa_verifier(request, mocker):
     Mock the EmailMFAVerifier.should_send_email_mfa_verification method to return False for all tests.
     Can be disabled by using @pytest.mark.disable_mock_email_mfa_verifier decorator.
     """
+    from posthog.helpers.two_factor_session import EmailMFACheckResult
+
     if "disable_mock_email_mfa_verifier" in request.keywords:
         return
 
     mocker.patch(
-        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification", return_value=False
+        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification",
+        return_value=EmailMFACheckResult(should_send=False),
     )
 
 
-def pytest_sessionstart():
+def pytest_configure(config):
     """
-    A bit of a hack to get django/py-test to do table truncation between test runs for the Persons tables that are
-    no longer managed by django
+    Configure pytest-django to allow access to persons databases by default.
+    This is needed for tests that don't inherit from PostHogTestCase.
+    Most tests inherit from PostHogTestCase which already sets databases correctly,
+    but this ensures any remaining TestCase/TransactionTestCase also have access.
     """
-    from django.apps import apps
+    from django.test import TestCase, TransactionTestCase
 
-    unmanaged_models = [m for m in apps.get_models() if not m._meta.managed]
-    for m in unmanaged_models:
-        m._meta.managed = True
+    # Set default databases for Django test classes
+    TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+    TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+
+
+def _runs_on_internal_pr() -> bool:
+    """
+    Returns True when tests are running for an internal PR or on master,
+    and False for fork PRs.
+    Defaults to True, so local runs are unaffected.
+    """
+    value = os.getenv("RUNS_ON_INTERNAL_PR")
+    if value is None:
+        return True
+    return value.lower() in {"1", "true"}
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
+        pytest.skip("Skipping test that requires internal secrets on external PRs")

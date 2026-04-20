@@ -13,8 +13,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { capitalizeFirstLetter, isEmail, pluralize } from 'lib/utils'
 import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AvailableFeature } from '~/types'
@@ -189,7 +189,15 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
     )
 }
 
-export function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
+export function InviteRow({
+    index,
+    isDeletable,
+    hideProjectAccessSelector = false,
+}: {
+    index: number
+    isDeletable: boolean
+    hideProjectAccessSelector?: boolean
+}): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
 
     const { hasAvailableFeature } = useValues(userLogic)
@@ -290,12 +298,16 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                 )}
             </div>
 
-            {hasAdvancedPermissions && <ProjectAccessSelector inviteIndex={index} />}
+            {hasAdvancedPermissions && !hideProjectAccessSelector && <ProjectAccessSelector inviteIndex={index} />}
         </div>
     )
 }
 
-export function InviteTeamMatesComponent(): JSX.Element {
+export function InviteTeamMatesComponent({
+    hideProjectAccessSelector = false,
+}: {
+    hideProjectAccessSelector?: boolean
+}): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { invitesToSend, inviteContainsOwnerLevel } = useValues(inviteLogic)
     const { appendInviteRow, updateMessage, setIsInviteConfirmed } = useActions(inviteLogic)
@@ -334,7 +346,12 @@ export function InviteTeamMatesComponent(): JSX.Element {
                 </div>
 
                 {invitesToSend.map((_, index) => (
-                    <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
+                    <InviteRow
+                        hideProjectAccessSelector={hideProjectAccessSelector}
+                        index={index}
+                        key={index.toString()}
+                        isDeletable={areInvitesDeletable}
+                    />
                 ))}
 
                 <div className="mt-2 flex justify-end">

@@ -1,18 +1,20 @@
+import os
+
 import structlog
 import posthoganalytics
 from celery import shared_task
-
-from posthog.exceptions_capture import capture_exception
-from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS, is_url_allowed, should_block_url
-from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
-from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
-from posthog.tasks.utils import CeleryQueue
-
 from playwright.sync_api import (
     Page,
+    ProxySettings,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
+
+from posthog.exceptions_capture import capture_exception
+from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
+from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
+from posthog.security.url_validation import is_url_allowed, should_block_url
+from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -50,15 +52,33 @@ def _dismiss_cookie_banners(page: Page) -> None:
             pass
 
     # CSS-hide common cookie/consent containers and overlays
+    # Important: Only target specific container elements (div, section, aside, etc.) to avoid hiding html/body
+    # which may have cookie-related classes (e.g., <html class="supports-no-cookies">)
     css_hide = """
-    [id*="cookie" i], [class*="cookie" i],
-    [id*="consent" i], [class*="consent" i],
-    [id*="gdpr" i], [class*="gdpr" i],
-    [id*="onetrust" i], [class*="onetrust" i],
-    [id*="ot-sdk" i], [class*="ot-sdk" i],
-    [id*="sp_message" i], [class*="sp_message" i],
-    [id*="sp-consent" i], [class*="sp-consent" i],
-    [id*="quantcast" i], [class*="quantcast" i],
+    div[id*="cookie" i], div[class*="cookie" i],
+    div[id*="consent" i], div[class*="consent" i],
+    div[id*="gdpr" i], div[class*="gdpr" i],
+    div[id*="onetrust" i], div[class*="onetrust" i],
+    div[id*="ot-sdk" i], div[class*="ot-sdk" i],
+    div[id*="sp_message" i], div[class*="sp_message" i],
+    div[id*="sp-consent" i], div[class*="sp-consent" i],
+    div[id*="quantcast" i], div[class*="quantcast" i],
+    section[id*="cookie" i], section[class*="cookie" i],
+    section[id*="consent" i], section[class*="consent" i],
+    section[id*="gdpr" i], section[class*="gdpr" i],
+    section[id*="onetrust" i], section[class*="onetrust" i],
+    section[id*="ot-sdk" i], section[class*="ot-sdk" i],
+    section[id*="sp_message" i], section[class*="sp_message" i],
+    section[id*="sp-consent" i], section[class*="sp-consent" i],
+    section[id*="quantcast" i], section[class*="quantcast" i],
+    aside[id*="cookie" i], aside[class*="cookie" i],
+    aside[id*="consent" i], aside[class*="consent" i],
+    aside[id*="gdpr" i], aside[class*="gdpr" i],
+    aside[id*="onetrust" i], aside[class*="onetrust" i],
+    aside[id*="ot-sdk" i], aside[class*="ot-sdk" i],
+    aside[id*="sp_message" i], aside[class*="sp_message" i],
+    aside[id*="sp-consent" i], aside[class*="sp-consent" i],
+    aside[id*="quantcast" i], aside[class*="quantcast" i],
     iframe[src*="consent" i], iframe[src*="cookie" i], iframe[src*="onetrust" i],
     /* generic fixed overlays */
     div[style*="position:fixed" i][style*="z-index" i] {
@@ -88,6 +108,59 @@ def _dismiss_cookie_banners(page: Page) -> None:
 
 def _block_internal_requests(page: Page) -> None:
     page.route("**/*", lambda route: route.abort() if should_block_url(route.request.url) else route.continue_())
+
+
+def _scroll_page(page: Page) -> None:
+    """
+    Scroll to bottom and back to top to trigger lazy-loaded content and CSS.
+
+    Some sites lazy-load CSS, images, or other content as you scroll.
+    Scrolling through the page ensures everything is loaded before screenshot.
+    Uses smooth, human-like scrolling to avoid triggering scroll-based hiding.
+    """
+    try:
+        page.evaluate(
+            """
+            async () => {
+                // Smooth scroll function (more human-like)
+                const smoothScroll = (target) => {
+                    return new Promise(resolve => {
+                        window.scrollTo({
+                            top: target,
+                            behavior: 'smooth'
+                        });
+                        // Wait for smooth scroll to finish
+                        setTimeout(resolve, 500);
+                    });
+                };
+
+                const step = window.innerHeight * 0.7;
+                let maxScroll = document.body.scrollHeight;
+                const maxIterations = 5; // ~3 viewport heights max
+                let iterations = 0;
+
+                // Scroll down slowly (just enough to trigger lazy loading)
+                for (let y = 0; y < maxScroll && iterations < maxIterations; y += step) {
+                    await smoothScroll(y);
+                    await new Promise(r => setTimeout(r, 300));
+                    // Re-measure as images load and page expands
+                    maxScroll = Math.max(maxScroll, document.body.scrollHeight);
+                    iterations++;
+                }
+
+                // Scroll to absolute bottom
+                await smoothScroll(maxScroll);
+                await new Promise(r => setTimeout(r, 500));
+
+                // Scroll back to top slowly
+                await smoothScroll(0);
+                await new Promise(r => setTimeout(r, 500));
+            }
+            """
+        )
+        page.wait_for_timeout(500)
+    except Exception:
+        pass
 
 
 @shared_task(
@@ -139,7 +212,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
         except Exception as e:
             screenshot.status = SavedHeatmap.Status.FAILED
             screenshot.exception = str(e)
-            screenshot.save()
+            screenshot.save(update_fields=["status", "exception"])
 
             logger.exception(
                 "heatmap_screenshot.failed",
@@ -178,14 +251,19 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
     # Collect screenshots in-memory first to avoid Django ORM calls inside Playwright's async context
     snapshot_bytes: list[tuple[int, bytes]] = []
     with sync_playwright() as p:
+        launch_args = [
+            "--force-device-scale-factor=1",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-gpu",
+        ]
+        proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        proxy_config = ProxySettings(server=proxy_url) if proxy_url else None
+
         browser = p.chromium.launch(
             headless=True,  # TIP: for debugging, set to False
-            args=[
-                "--force-device-scale-factor=1",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-                "--disable-gpu",
-            ],
+            args=launch_args,
+            proxy=proxy_config,
         )
         try:
             for w in widths:
@@ -220,18 +298,19 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
                 _dismiss_cookie_banners(page)
                 page.wait_for_timeout(500)
 
-                # Measure final height and resize to capture everything
-                total_height = page.evaluate("""() => Math.max(
-                    document.body.scrollHeight,
-                    document.body.offsetHeight,
-                    document.documentElement.clientHeight,
-                    document.documentElement.scrollHeight,
-                    document.documentElement.offsetHeight
-                )""")
+                # Scroll to bottom and back to top to trigger lazy-loaded content
+                _scroll_page(page)
 
-                page.set_viewport_size({"width": int(w), "height": int(total_height + HEIGHT_OFFSET)})
-                page.wait_for_timeout(500)
+                # Hide scrollbars so they don't appear in the exported image
+                try:
+                    page.add_style_tag(
+                        content="*::-webkit-scrollbar { display: none !important; } html, body { scrollbar-width: none !important; }"
+                    )
+                except Exception:
+                    pass
 
+                # Take full-page screenshot without resizing viewport
+                # (resizing viewport causes elements with vh units to expand)
                 image_data: bytes = page.screenshot(full_page=True, type="jpeg", quality=70)
                 snapshot_bytes.append((w, image_data))
 

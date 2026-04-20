@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::sourcemaps::content::SourceMapContent;
 
+#[derive(Debug)]
 pub struct SourceFile<T: SourceContent> {
     pub path: PathBuf,
     pub content: T,

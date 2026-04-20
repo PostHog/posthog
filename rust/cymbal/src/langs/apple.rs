@@ -1,0 +1,981 @@
+use std::sync::Arc;
+
+use common_types::error_tracking::FrameId;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha512};
+use symbolic::common::Name;
+use symbolic::demangle::{Demangle, DemangleOptions};
+
+use std::sync::atomic::Ordering;
+
+use crate::{
+    config::FRAME_CONTEXT_LINES,
+    error::{AppleError, FrameError, ResolveError, UnhandledError},
+    frames::Frame,
+    langs::utils::{add_raw_to_junk, get_context_lines},
+    langs::CommonFrameMetadata,
+    symbol_store::{
+        apple::{AppleRef, ParsedAppleSymbols},
+        chunk_id::OrChunkId,
+        SymbolCatalog,
+    },
+};
+
+/// Known Apple system framework prefixes - frames from these modules are marked as not in_app
+const APPLE_SYSTEM_MODULES: &[&str] = &[
+    "Foundation",
+    "UIKit",
+    "CoreFoundation",
+    "SwiftUI",
+    "Combine",
+    "CoreGraphics",
+    "QuartzCore",
+    "Security",
+    "CFNetwork",
+    "CoreData",
+    "CoreLocation",
+    "AVFoundation",
+    "Metal",
+    "MetalKit",
+    "AppKit",
+    "WebKit",
+    "IOKit",
+    "GraphicsServices",
+    // Private/internal Apple frameworks
+    "UpdateCycle",
+    "UIKitCore",
+    "UIKitServices",
+    "UIFoundation",
+    "FrontBoardServices",
+    "BackBoardServices",
+    "SpringBoardServices",
+    "BaseBoard",
+    "AttributeGraph",
+    "SwiftUICore",
+    // System libraries
+    "libsystem_",
+    "libdispatch",
+    "libswift",
+    "libobjc",
+    "libxpc",
+    "libdyld",
+];
+
+fn is_system_module(module: &Option<String>) -> bool {
+    module.as_ref().is_some_and(|m| {
+        APPLE_SYSTEM_MODULES
+            .iter()
+            .any(|prefix| m.starts_with(prefix))
+    })
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AppleDebugImage {
+    pub debug_id: String,
+    pub image_addr: String,
+    #[serde(default)]
+    pub image_vmaddr: Option<String>,
+    #[serde(default)]
+    pub image_size: Option<u64>,
+    #[serde(default)]
+    pub code_file: Option<String>,
+    #[serde(default, rename = "type")]
+    pub image_type: Option<String>,
+    #[serde(default)]
+    pub arch: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RawAppleFrame {
+    pub instruction_addr: Option<String>,
+    pub symbol_addr: Option<String>,
+    pub image_addr: Option<String>,
+    pub image_uuid: Option<String>,
+    pub module: Option<String>,
+    pub function: Option<String>,
+    pub filename: Option<String>,
+    pub lineno: Option<u32>,
+    pub colno: Option<u32>,
+    #[serde(flatten)]
+    pub meta: CommonFrameMetadata,
+}
+
+impl RawAppleFrame {
+    pub async fn resolve<C>(
+        &self,
+        team_id: i32,
+        catalog: &C,
+        debug_images: &[AppleDebugImage],
+    ) -> Result<Vec<Frame>, UnhandledError>
+    where
+        C: SymbolCatalog<OrChunkId<AppleRef>, ParsedAppleSymbols>,
+    {
+        tracing::debug!(
+            "[apple-debug] resolve() called: instruction_addr={:?}, module={:?}, function={:?}, debug_images_count={}",
+            self.instruction_addr, self.module, self.function, debug_images.len()
+        );
+
+        match self.resolve_impl(team_id, catalog, debug_images).await {
+            Ok(frames) => {
+                tracing::debug!(
+                    "[apple-debug] resolve() SUCCESS: {} frame(s), first resolved_name={:?}",
+                    frames.len(),
+                    frames.first().and_then(|f| f.resolved_name.as_deref())
+                );
+                Ok(frames)
+            }
+            Err(ResolveError::ResolutionError(FrameError::Apple(e))) => {
+                tracing::debug!("[apple-debug] resolve() Apple error: {:?}", e);
+                Ok(vec![self.handle_resolution_error(e)])
+            }
+            Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
+                tracing::debug!("[apple-debug] resolve() MissingChunkIdData: {}", chunk_id);
+                Ok(vec![self.handle_resolution_error(AppleError::MissingDsym(
+                    chunk_id,
+                ))])
+            }
+            Err(ResolveError::ResolutionError(e)) => {
+                unreachable!("Should not have received error {:?}", e)
+            }
+            Err(ResolveError::UnhandledError(e)) => {
+                tracing::error!("[apple-debug] resolve() unhandled error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    async fn resolve_impl<C>(
+        &self,
+        team_id: i32,
+        catalog: &C,
+        debug_images: &[AppleDebugImage],
+    ) -> Result<Vec<Frame>, ResolveError>
+    where
+        C: SymbolCatalog<OrChunkId<AppleRef>, ParsedAppleSymbols>,
+    {
+        let instruction_addr = self
+            .instruction_addr
+            .as_ref()
+            .ok_or(AppleError::InvalidAddress(
+                "missing instruction_addr".into(),
+            ))?;
+
+        let instruction_addr = parse_hex_address(instruction_addr)?;
+        tracing::debug!(
+            "[apple-debug] resolve_impl: parsed instruction_addr=0x{:x}",
+            instruction_addr
+        );
+
+        let debug_image = self.find_debug_image(instruction_addr, debug_images)?;
+        tracing::debug!(
+            "[apple-debug] resolve_impl: matched debug_image debug_id={}, image_addr={}",
+            debug_image.debug_id,
+            debug_image.image_addr
+        );
+
+        let relative_addr = self.calculate_relative_addr(instruction_addr, debug_image)?;
+
+        // Subtract 1 from return-address frames so the lookup targets the call instruction
+        // rather than the instruction after it, giving the correct source line.
+        // This is safe for top (crash-site) frames too: addr-1 still falls within the
+        // same function body, so the function and line resolve correctly.
+        let lookup_addr = relative_addr.saturating_sub(1);
+        tracing::debug!(
+            "[apple-debug] resolve_impl: relative_addr=0x{:x}, lookup_addr=0x{:x}",
+            relative_addr,
+            lookup_addr
+        );
+
+        tracing::debug!(
+            "[apple-debug] resolve_impl: looking up symbols for chunk_id={}",
+            debug_image.debug_id
+        );
+        let symbols: Arc<ParsedAppleSymbols> = catalog
+            .lookup(team_id, OrChunkId::chunk_id(debug_image.debug_id.clone()))
+            .await?;
+        tracing::debug!("[apple-debug] resolve_impl: symbols loaded successfully");
+
+        let symbol_infos = symbols.lookup(lookup_addr)?;
+        if symbol_infos.is_empty() {
+            return Err(AppleError::SymbolNotFound(lookup_addr).into());
+        }
+        tracing::debug!(
+            "[apple-debug] resolve_impl: found {} logical frame(s) (including inlined)",
+            symbol_infos.len()
+        );
+
+        // Build one resolved Frame per logical layer.
+        //
+        // The symcache returns layers innermost-first:
+        //   [inlined_leaf, mid_inline, physical_function]
+        //
+        // We reverse to outermost-first so that when the caller flattens all
+        // per-raw-frame Vecs, the overall stack stays in bottom-up order
+        // (main first, crash site last).
+        let frames: Vec<Frame> = symbol_infos
+            .iter()
+            .rev()
+            .map(|info| {
+                let mut frame = self.build_resolved_frame(info, debug_image);
+
+                // Attach source context to every inlined layer independently.
+                // Each layer has its own line number, and each gets a unique
+                // FrameId via the /part suffix, so there is no risk of
+                // clobbering another layer's context.
+                if let Some(full_path) = &info.full_path {
+                    if let Some(source_text) = symbols.get_source(full_path) {
+                        // symcache line numbers are 1-based (0 = unknown)
+                        let target_line = if info.line > 0 {
+                            (info.line - 1) as usize
+                        } else {
+                            0
+                        };
+                        frame.context = get_context_lines(
+                            source_text.lines(),
+                            target_line,
+                            FRAME_CONTEXT_LINES.load(Ordering::Relaxed),
+                        );
+                    }
+                }
+
+                frame
+            })
+            .collect();
+
+        Ok(frames)
+    }
+
+    fn find_debug_image<'a>(
+        &self,
+        instruction_addr: u64,
+        debug_images: &'a [AppleDebugImage],
+    ) -> Result<&'a AppleDebugImage, AppleError> {
+        let frame_image_addr = self
+            .image_addr
+            .as_ref()
+            .and_then(|addr| parse_hex_address(addr).ok());
+
+        for image in debug_images {
+            let image_base = parse_hex_address(&image.image_addr).ok();
+
+            if let (Some(frame_addr), Some(base)) = (frame_image_addr, image_base) {
+                if frame_addr == base {
+                    return Ok(image);
+                }
+            }
+
+            if let (Some(base), Some(size)) = (image_base, image.image_size) {
+                if instruction_addr >= base && instruction_addr < base.saturating_add(size) {
+                    return Ok(image);
+                }
+            }
+        }
+
+        Err(AppleError::NoMatchingDebugImage)
+    }
+
+    fn calculate_relative_addr(
+        &self,
+        instruction_addr: u64,
+        debug_image: &AppleDebugImage,
+    ) -> Result<u64, AppleError> {
+        let image_addr = parse_hex_address(&debug_image.image_addr)?;
+
+        if instruction_addr < image_addr {
+            return Err(AppleError::InvalidAddress(format!(
+                "instruction_addr 0x{:x} < image_addr 0x{:x}",
+                instruction_addr, image_addr
+            )));
+        }
+
+        // Calculate the offset from the runtime load address
+        // The symcache already contains addresses relative to the binary's VM base,
+        // so we just need the offset from where it was loaded
+        Ok(instruction_addr - image_addr)
+    }
+
+    fn build_resolved_frame(
+        &self,
+        symbol_info: &crate::symbol_store::apple::SymbolInfo,
+        _debug_image: &AppleDebugImage,
+    ) -> Frame {
+        // Override in_app to false for system frameworks or compiler-generated code
+        let is_compiler_generated = symbol_info
+            .filename
+            .as_ref()
+            .is_some_and(|f| f == "<compiler-generated>");
+        let in_app = if is_system_module(&self.module) || is_compiler_generated {
+            false
+        } else {
+            self.meta.in_app
+        };
+
+        let mut f = Frame {
+            frame_id: FrameId::placeholder(),
+            mangled_name: symbol_info.full_name.clone(),
+            line: if symbol_info.line > 0 {
+                Some(symbol_info.line)
+            } else {
+                None
+            },
+            column: None,
+            source: symbol_info.filename.clone(),
+            in_app,
+            resolved_name: Some(symbol_info.display_name.clone()),
+            lang: lang_from_filename(symbol_info.filename.as_deref()).to_string(),
+            resolved: true,
+            resolve_failure: None,
+
+            junk_drawer: None,
+            release: None,
+            synthetic: self.meta.synthetic,
+            context: None,
+            suspicious: false,
+            module: self.module.clone(),
+            code_variables: None,
+        };
+
+        add_raw_to_junk(&mut f, self);
+        f
+    }
+
+    fn handle_resolution_error(&self, err: AppleError) -> Frame {
+        // Demangle the raw function name if present
+        let mangled = self.function.clone().unwrap_or_default();
+        let resolved_name = if !mangled.is_empty() {
+            let name = Name::from(mangled.as_str());
+            Some(
+                name.demangle(DemangleOptions::complete())
+                    .unwrap_or_else(|| mangled.clone()),
+            )
+        } else {
+            None
+        };
+
+        // Override in_app to false for system frameworks or compiler-generated code
+        let is_compiler_generated = self
+            .filename
+            .as_ref()
+            .is_some_and(|f| f == "<compiler-generated>");
+        let in_app = if is_system_module(&self.module) || is_compiler_generated {
+            false
+        } else {
+            self.meta.in_app
+        };
+
+        // For unresolved frames without a filename, show "Module +image_addr" as source.
+        // This is typically for Apple system frameworks (CoreFoundation, UIKitCore, etc.)
+        // where we don't have dSYMs. Apple doesn't publicly distribute system symbols.
+        //
+        // Future work: To fully symbolicate system frames, we'd need to extract and host
+        // Apple system symbols similar to Sentry's approach:
+        // - Extract symbols from Xcode's iOS DeviceSupport or IPSW archives
+        // - Host them in our symbol store
+        // - See: https://github.com/getsentry/apple-system-symbols-upload
+        let source = self
+            .filename
+            .clone()
+            .or_else(|| match (&self.module, &self.image_addr) {
+                (Some(module), Some(addr)) => Some(format!("{} +{}", module, addr)),
+                (Some(module), None) => Some(module.clone()),
+                _ => None,
+            });
+
+        let mut frame = Frame {
+            frame_id: FrameId::placeholder(),
+            mangled_name: mangled,
+            line: self.lineno,
+            column: self.colno,
+            source,
+            in_app,
+            resolved_name,
+            lang: lang_from_filename(self.filename.as_deref()).to_string(),
+            resolved: false,
+            resolve_failure: Some(FrameError::from(err)),
+            junk_drawer: None,
+            release: None,
+            synthetic: self.meta.synthetic,
+            context: None,
+            suspicious: false,
+            module: self.module.clone(),
+            code_variables: None,
+        };
+
+        add_raw_to_junk(&mut frame, self);
+        frame
+    }
+
+    pub fn frame_id(&self) -> String {
+        let mut hasher = Sha512::new();
+
+        if let Some(instruction_addr) = &self.instruction_addr {
+            hasher.update(instruction_addr.as_bytes());
+        }
+
+        if let Some(module) = &self.module {
+            hasher.update(module.as_bytes());
+        }
+
+        if let Some(function) = &self.function {
+            hasher.update(function.as_bytes());
+        }
+
+        if let Some(image_uuid) = &self.image_uuid {
+            hasher.update(image_uuid.as_bytes());
+        }
+
+        format!("{:x}", hasher.finalize())
+    }
+}
+
+/// Infer the programming language from a source filename for syntax highlighting.
+/// Returns a markdown-compatible language identifier.
+fn lang_from_filename(filename: Option<&str>) -> &'static str {
+    match filename.and_then(|f| f.rsplit('.').next()) {
+        Some("swift") => "swift",
+        Some("m") => "objectivec",
+        Some("mm") => "objectivecpp",
+        Some("c") => "c",
+        Some("cpp" | "cc" | "cxx") => "cpp",
+        Some("h") => "c", // headers default to C
+        _ => "swift",     // default for Apple platforms
+    }
+}
+
+fn parse_hex_address(s: &str) -> Result<u64, AppleError> {
+    let s = s.trim().trim_start_matches("0x").trim_start_matches("0X");
+    u64::from_str_radix(s, 16).map_err(|_| AppleError::InvalidAddress(s.to_string()))
+}
+
+impl From<&RawAppleFrame> for Frame {
+    fn from(raw: &RawAppleFrame) -> Self {
+        let mut f = Frame {
+            frame_id: FrameId::placeholder(),
+            mangled_name: raw.function.clone().unwrap_or_default(),
+            line: raw.lineno,
+            column: raw.colno,
+            source: raw.filename.clone(),
+            in_app: raw.meta.in_app,
+            resolved_name: raw.function.clone(),
+            lang: lang_from_filename(raw.filename.as_deref()).to_string(),
+            resolved: raw.function.is_some(),
+            resolve_failure: None,
+
+            junk_drawer: None,
+            release: None,
+            synthetic: raw.meta.synthetic,
+            context: None,
+            suspicious: false,
+            module: raw.module.clone(),
+            code_variables: None,
+        };
+
+        // Store raw frame data in junk drawer for debugging/analysis
+        add_raw_to_junk(&mut f, raw);
+        f
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_parse_hex_address_with_0x_prefix() {
+        assert_eq!(parse_hex_address("0x100000000").unwrap(), 0x100000000);
+        assert_eq!(parse_hex_address("0X100000000").unwrap(), 0x100000000);
+    }
+
+    #[test]
+    fn test_parse_hex_address_without_prefix() {
+        assert_eq!(parse_hex_address("100000000").unwrap(), 0x100000000);
+        assert_eq!(parse_hex_address("deadbeef").unwrap(), 0xdeadbeef);
+    }
+
+    #[test]
+    fn test_parse_hex_address_with_whitespace() {
+        assert_eq!(parse_hex_address("  0x100000000  ").unwrap(), 0x100000000);
+    }
+
+    #[test]
+    fn test_parse_hex_address_invalid() {
+        assert!(parse_hex_address("not_hex").is_err());
+        assert!(parse_hex_address("0xGGGG").is_err());
+    }
+
+    #[test]
+    fn test_calculate_relative_addr_with_vmaddr() {
+        let frame = RawAppleFrame {
+            instruction_addr: Some("0x100004000".to_string()),
+            symbol_addr: None,
+            image_addr: Some("0x100000000".to_string()),
+            image_uuid: None,
+            module: None,
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_image = AppleDebugImage {
+            debug_id: "test-uuid".to_string(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: Some("0x100000000".to_string()),
+            image_size: Some(0x10000),
+            code_file: None,
+            image_type: None,
+            arch: None,
+        };
+
+        let result = frame
+            .calculate_relative_addr(0x100004000, &debug_image)
+            .unwrap();
+        assert_eq!(result, 0x4000);
+    }
+
+    #[test]
+    fn test_calculate_relative_addr_default_vmaddr() {
+        let frame = RawAppleFrame {
+            instruction_addr: Some("0x100004000".to_string()),
+            symbol_addr: None,
+            image_addr: Some("0x100000000".to_string()),
+            image_uuid: None,
+            module: None,
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_image = AppleDebugImage {
+            debug_id: "test-uuid".to_string(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: None,
+            image_size: Some(0x10000),
+            code_file: None,
+            image_type: None,
+            arch: None,
+        };
+
+        let result = frame
+            .calculate_relative_addr(0x100004000, &debug_image)
+            .unwrap();
+        assert_eq!(result, 0x4000);
+    }
+
+    #[test]
+    fn test_find_debug_image_by_image_addr() {
+        let frame = RawAppleFrame {
+            instruction_addr: Some("0x100004000".to_string()),
+            symbol_addr: None,
+            image_addr: Some("0x100000000".to_string()),
+            image_uuid: None,
+            module: None,
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_images = vec![
+            AppleDebugImage {
+                debug_id: "other-uuid".to_string(),
+                image_addr: "0x200000000".to_string(),
+                image_vmaddr: None,
+                image_size: Some(0x10000),
+                code_file: None,
+                image_type: None,
+                arch: None,
+            },
+            AppleDebugImage {
+                debug_id: "matching-uuid".to_string(),
+                image_addr: "0x100000000".to_string(),
+                image_vmaddr: None,
+                image_size: Some(0x10000),
+                code_file: None,
+                image_type: None,
+                arch: None,
+            },
+        ];
+
+        let result = frame.find_debug_image(0x100004000, &debug_images).unwrap();
+        assert_eq!(result.debug_id, "matching-uuid");
+    }
+
+    #[test]
+    fn test_find_debug_image_by_address_range() {
+        let frame = RawAppleFrame {
+            instruction_addr: Some("0x100004000".to_string()),
+            symbol_addr: None,
+            image_addr: None, // No image_addr on frame
+            image_uuid: None,
+            module: None,
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_images = vec![AppleDebugImage {
+            debug_id: "range-match".to_string(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: None,
+            image_size: Some(0x10000),
+            code_file: None,
+            image_type: None,
+            arch: None,
+        }];
+
+        let result = frame.find_debug_image(0x100004000, &debug_images).unwrap();
+        assert_eq!(result.debug_id, "range-match");
+    }
+
+    #[test]
+    fn test_find_debug_image_no_match() {
+        let frame = RawAppleFrame {
+            instruction_addr: Some("0x300000000".to_string()),
+            symbol_addr: None,
+            image_addr: None,
+            image_uuid: None,
+            module: None,
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_images = vec![AppleDebugImage {
+            debug_id: "some-uuid".to_string(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: None,
+            image_size: Some(0x10000),
+            code_file: None,
+            image_type: None,
+            arch: None,
+        }];
+
+        let result = frame.find_debug_image(0x300000000, &debug_images);
+        assert!(matches!(result, Err(AppleError::NoMatchingDebugImage)));
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_apple_symbolication(db: sqlx::PgPool) {
+        use chrono::Utc;
+        use mockall::predicate;
+        use std::sync::Arc;
+        use uuid::Uuid;
+
+        use crate::{
+            config::Config,
+            frames::RawFrame,
+            symbol_store::{
+                apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
+                proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
+                Catalog, MockS3Client,
+            },
+        };
+
+        let team_id = 1;
+        let mut config = Config::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+
+        let chunk_id = Uuid::now_v7().to_string();
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id,
+            set_ref: chunk_id.clone(),
+            storage_ptr: Some(chunk_id.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+
+        record.save(&db).await.unwrap();
+
+        let mut client = MockS3Client::default();
+
+        client
+            .expect_get()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::eq(chunk_id.clone()),
+            )
+            .returning(|_, _| Ok(Some(get_dsym_bytes())));
+
+        let client = Arc::new(client);
+
+        let smp = SourcemapProvider::new(&config);
+        let smp = ChunkIdFetcher::new(
+            smp,
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let hmp = HermesMapProvider {};
+        let hmp = ChunkIdFetcher::new(
+            hmp,
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let pgp = ChunkIdFetcher::new(
+            ProguardProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let apple = ChunkIdFetcher::new(
+            AppleProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(smp, hmp, pgp, apple);
+
+        // Use 0x100000334 (line 7 of inner_function, "(void)x").
+        // After the -1 call-site adjustment (0x334 - 1 = 0x333), the symcache
+        // lookup still falls inside inner_function and resolves correctly.
+        // Avoid using 0x100000328 (the very first instruction) because addr-1
+        // would land before the function start.
+        let raw_frame = RawAppleFrame {
+            instruction_addr: Some("0x100000334".to_string()),
+            symbol_addr: None,
+            image_addr: Some("0x100000000".to_string()),
+            image_uuid: Some(chunk_id.clone()),
+            module: Some("test_binary".to_string()),
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_images = vec![AppleDebugImage {
+            debug_id: chunk_id.clone(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: Some("0x100000000".to_string()),
+            image_size: Some(0x10000),
+            code_file: Some("test_binary".to_string()),
+            image_type: Some("macho".to_string()),
+            arch: Some("arm64".to_string()),
+        }];
+
+        let frame = RawFrame::Apple(raw_frame);
+        let resolved = frame
+            .resolve(team_id, &catalog, &debug_images)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert!(resolved.resolved);
+        assert_eq!(resolved.resolved_name, Some("inner_function".to_string()));
+        assert!(resolved.source.is_some());
+        assert!(resolved.source.as_ref().unwrap().contains("test_binary.c"));
+        assert!(resolved.line.is_some());
+    }
+
+    fn get_dsym_bytes() -> Vec<u8> {
+        use posthog_symbol_data::write_symbol_data;
+
+        const DSYM_ZIP: &[u8] = include_bytes!("../../tests/static/apple/test_binary.dSYM.zip");
+        write_symbol_data(posthog_symbol_data::AppleDsym {
+            data: DSYM_ZIP.to_vec(),
+        })
+        .unwrap()
+    }
+
+    fn get_inline_dsym_bytes() -> Vec<u8> {
+        use posthog_symbol_data::write_symbol_data;
+
+        // This ZIP was built from test_binary_inline.c compiled with:
+        //   -fdebug-prefix-map=$(srcdir)=/cymbal_tests/apple
+        // so DWARF paths are stable across machines (always /cymbal_tests/apple/...).
+        // The ZIP includes __source/manifest.json and the source file content,
+        // enabling source-context tests without requiring the file to exist on disk.
+        const DSYM_ZIP: &[u8] =
+            include_bytes!("../../tests/static/apple/test_binary_inline.dSYM.zip");
+        write_symbol_data(posthog_symbol_data::AppleDsym {
+            data: DSYM_ZIP.to_vec(),
+        })
+        .unwrap()
+    }
+
+    /// Verify that a single raw frame at an address inside an inlined function expands
+    /// into multiple resolved frames: one per logical layer (inlined + physical).
+    ///
+    /// Source layout of `test_binary_inline.c`:
+    ///   inlined_leaf()    — always_inline, lines 4-8 (`volatile int x = 99` at line 6)
+    ///   inner_function()  — calls inlined_leaf (line 12); inlined_leaf is inlined here
+    ///   outer_function()  — calls inner_function (line 17); both get inlined here
+    ///
+    /// Address 0x10000034c is inside the body of inlined_leaf as inlined into
+    /// outer_function (via inner_function). Lookup of 0x34c-1=0x34b resolves to
+    /// three logical frames: inlined_leaf → inner_function → outer_function.
+    ///
+    /// The test ZIP includes source files with DWARF paths remapped to the stable
+    /// prefix `/cymbal_tests/apple/`, so source context is verified end-to-end.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_apple_inlined_frame_expansion(db: sqlx::PgPool) {
+        use chrono::Utc;
+        use mockall::predicate;
+        use std::sync::Arc;
+        use uuid::Uuid;
+
+        use crate::{
+            config::Config,
+            frames::RawFrame,
+            symbol_store::{
+                apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
+                proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
+                Catalog, MockS3Client,
+            },
+        };
+
+        let team_id = 1;
+        let mut config = Config::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+
+        let chunk_id = Uuid::now_v7().to_string();
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id,
+            set_ref: chunk_id.clone(),
+            storage_ptr: Some(chunk_id.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+        record.save(&db).await.unwrap();
+
+        let mut client = MockS3Client::default();
+        client
+            .expect_get()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::eq(chunk_id.clone()),
+            )
+            .returning(|_, _| Ok(Some(get_inline_dsym_bytes())));
+        let client = Arc::new(client);
+
+        let catalog = Catalog::new(
+            ChunkIdFetcher::new(
+                SourcemapProvider::new(&config),
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                HermesMapProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                ProguardProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                AppleProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+        );
+
+        // 0x10000034c is inside inlined_leaf as inlined into outer_function.
+        // After the -1 call-site adjustment (0x34c - 1 = 0x34b), the symcache
+        // should expand this into three logical frames:
+        //   outermost (returned first from our Vec): outer_function
+        //   middle:                                  inner_function
+        //   innermost (returned last):               inlined_leaf
+        let raw_frame = RawAppleFrame {
+            instruction_addr: Some("0x10000034c".to_string()),
+            symbol_addr: None,
+            image_addr: Some("0x100000000".to_string()),
+            image_uuid: Some(chunk_id.clone()),
+            module: Some("test_binary_inline".to_string()),
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_images = vec![AppleDebugImage {
+            debug_id: chunk_id.clone(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: Some("0x100000000".to_string()),
+            image_size: Some(0x10000),
+            code_file: Some("test_binary_inline".to_string()),
+            image_type: Some("macho".to_string()),
+            arch: Some("arm64".to_string()),
+        }];
+
+        let frames = RawFrame::Apple(raw_frame)
+            .resolve(team_id, &catalog, &debug_images)
+            .await
+            .unwrap();
+
+        // Three logical frames from one physical address
+        assert_eq!(
+            frames.len(),
+            3,
+            "expected 3 frames (inlined expansion), got: {:#?}",
+            frames
+        );
+
+        // All must be resolved
+        assert!(frames.iter().all(|f| f.resolved));
+
+        // Bottom-up order: outermost first, innermost last
+        assert_eq!(frames[0].resolved_name, Some("outer_function".to_string()));
+        assert_eq!(frames[1].resolved_name, Some("inner_function".to_string()));
+        assert_eq!(frames[2].resolved_name, Some("inlined_leaf".to_string()));
+
+        // Source file populated
+        assert!(frames.iter().all(|f| f
+            .source
+            .as_ref()
+            .is_some_and(|s| s.contains("test_binary_inline.c"))));
+
+        // Source context populated for every frame — the ZIP includes source
+        // files, so all three layers should have context lines.
+        for (i, frame) in frames.iter().enumerate() {
+            assert!(
+                frame.context.is_some(),
+                "frame[{i}] ({:?}) has no source context",
+                frame.resolved_name
+            );
+        }
+
+        // The innermost frame (inlined_leaf) should have the `volatile int x = 99` line.
+        let leaf_ctx = frames[2].context.as_ref().unwrap();
+        let all_lines: Vec<&str> = leaf_ctx
+            .before
+            .iter()
+            .chain(std::iter::once(&leaf_ctx.line))
+            .chain(leaf_ctx.after.iter())
+            .map(|l| l.line.as_str())
+            .collect();
+        assert!(
+            all_lines.iter().any(|l| l.contains("volatile int x = 99")),
+            "expected 'volatile int x = 99' in inlined_leaf context, got: {all_lines:?}"
+        );
+    }
+}

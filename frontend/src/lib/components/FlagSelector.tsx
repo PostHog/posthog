@@ -14,9 +14,16 @@ interface FlagSelectorProps {
     onChange: (id: number, key: string, flag: FeatureFlagBasicType) => void
     readOnly?: boolean
     disabledReason?: string
+    initialButtonLabel?: string
 }
 
-export function FlagSelector({ value, onChange, readOnly, disabledReason }: FlagSelectorProps): JSX.Element {
+export function FlagSelector({
+    value,
+    onChange,
+    readOnly,
+    disabledReason,
+    initialButtonLabel,
+}: FlagSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
     const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))
@@ -48,7 +55,7 @@ export function FlagSelector({ value, onChange, readOnly, disabledReason }: Flag
                 onClick={() => setVisible(!visible)}
                 disabledReason={readOnly && (disabledReason || "I'm read-only")}
             >
-                {featureFlag.key ? featureFlag.key : 'Select flag'}
+                {featureFlag.key ? featureFlag.key : (initialButtonLabel ?? 'Select flag')}
             </LemonButton>
         </Popover>
     )

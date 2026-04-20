@@ -1,6 +1,9 @@
 import time
 import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
 from uuid import UUID
 
 from django.conf import settings
@@ -16,14 +19,15 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
-from posthog.tasks.utils import CeleryQueue
+from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 logger = get_logger(__name__)
 
@@ -58,6 +62,20 @@ def delete_expired_exported_assets() -> None:
 
 
 @shared_task(ignore_result=True)
+def clear_expired_sessions() -> None:
+    from django.contrib.sessions.models import Session
+
+    deleted_count, _ = Session.objects.filter(expire_date__lt=timezone.now()).delete()
+
+    with pushed_metrics_registry("celery_clear_expired_sessions") as registry:
+        Gauge(
+            "posthog_celery_clear_expired_sessions_deleted_count",
+            "Number of expired Django sessions deleted",
+            registry=registry,
+        ).set(deleted_count)
+
+
+@shared_task(ignore_result=True)
 def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
@@ -80,7 +98,7 @@ def redis_heartbeat() -> None:
 )
 @limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
-    50,
+    10,
     key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
     limit_name="per_team",
 )  # Do not run too many queries at once for the same team
@@ -92,6 +110,7 @@ def process_query_task(
     query_tags: dict,
     is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
+    analytics_props: Optional["AnalyticsProps"] = None,
 ) -> None:
     """
     Kick off query
@@ -113,6 +132,7 @@ def process_query_task(
         query_json=query_json,
         limit_context=limit_context,
         is_query_service=is_query_service,
+        analytics_props=analytics_props,
     )
 
 
@@ -243,6 +263,7 @@ def ingestion_lag() -> None:
     team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
 
     try:
+        tag_queries(name="ingestion_lag")
         results = sync_execute(
             query,
             {
@@ -274,60 +295,6 @@ def ingestion_lag() -> None:
                 "properties": {"$timestamp": timezone.now().isoformat()},
             },
         )
-
-
-@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
-def replay_count_metrics() -> None:
-    try:
-        logger.info("[replay_count_metrics] running task")
-
-        from posthog.clickhouse.client import sync_execute
-
-        # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
-        query = """
-        select
-            --team_id,
-            count() as all_recordings,
-            countIf(snapshot_source == 'mobile') as mobile_recordings,
-            countIf(snapshot_source == 'web') as web_recordings,
-            countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
-        from (
-            select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
-            from session_replay_events
-            where min_first_timestamp >= now() - interval 65 minute
-            and min_first_timestamp <= now() - interval 5 minute
-            group by session_id
-        )
-        --group by team_id
-        """
-
-        results = sync_execute(
-            query,
-        )
-
-        metrics = [
-            "all_recordings",
-            "mobile_recordings",
-            "web_recordings",
-            "invalid_web_recordings",
-        ]
-        descriptions = [
-            "All recordings that started in the last hour",
-            "Recordings started in the last hour that are from mobile",
-            "Recordings started in the last hour that are from web",
-            "Acts as a proxy for replay sessions which haven't received a full snapshot",
-        ]
-        with pushed_metrics_registry("celery_replay_tracking") as registry:
-            for i in range(0, 4):
-                gauge = Gauge(
-                    f"replay_tracking_{metrics[i]}",
-                    descriptions[i],
-                    registry=registry,
-                )
-                count = results[0][i]
-                gauge.set(count)
-    except Exception as e:
-        logger.exception("Failed to run invalid web replays task", error=e, inc_exc_info=True)
 
 
 KNOWN_CELERY_TASK_IDENTIFIERS = {
@@ -634,13 +601,6 @@ def sync_insight_cache_states_task() -> None:
     sync_insight_cache_states()
 
 
-@shared_task(ignore_result=True)
-def schedule_cache_updates_task() -> None:
-    from posthog.caching.insight_cache import schedule_cache_updates
-
-    schedule_cache_updates()
-
-
 @shared_task(
     ignore_result=True,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
@@ -775,16 +735,6 @@ def send_org_usage_reports() -> None:
     send_all_org_usage_reports.delay()
 
 
-@shared_task(ignore_result=True)
-def schedule_all_subscriptions() -> None:
-    try:
-        from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
-    except ImportError:
-        pass
-    else:
-        _schedule_all_subscriptions()
-
-
 @shared_task(ignore_result=True, retries=3)
 def clickhouse_send_license_usage() -> None:
     try:
@@ -796,7 +746,7 @@ def clickhouse_send_license_usage() -> None:
         pass
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def check_flags_to_rollback() -> None:
     try:
         from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
@@ -804,39 +754,6 @@ def check_flags_to_rollback() -> None:
         check_flags_to_rollback()
     except ImportError:
         pass
-
-
-@shared_task(ignore_result=True)
-def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
-    from posthog.session_recordings.persist_to_lts.persistence_tasks import persist_single_recording_v2
-
-    persist_single_recording_v2(id, team_id)
-
-
-@shared_task(ignore_result=True)
-def ee_persist_finished_recordings_v2() -> None:
-    from posthog.session_recordings.persist_to_lts.persistence_tasks import persist_finished_recordings_v2
-
-    persist_finished_recordings_v2()
-
-
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
-)
-def count_items_in_playlists() -> None:
-    from posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-        enqueue_recordings_that_match_playlist_filters,
-    )
-
-    enqueue_recordings_that_match_playlist_filters()
-
-
-@shared_task(ignore_result=True)
-def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
-    from posthog.tasks.environments_rollback import environments_rollback_migration
-
-    environments_rollback_migration(organization_id, environment_mappings, user_id)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
@@ -932,24 +849,232 @@ def background_delete_model_task(
 
             time.sleep(0.2)  # Sleep to avoid overwhelming the database
 
-        logger.info(
-            f"Completed background deletion for {model_name}, " f"team_id={team_id}, total_deleted={deleted_count}"
-        )
+        logger.info(f"Completed background deletion for {model_name}, team_id={team_id}, total_deleted={deleted_count}")
 
     except Exception as e:
         logger.error(f"Error in background deletion for {model_name}, team_id={team_id}: {str(e)}", exc_info=True)
         raise
 
 
+def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
+    import asyncio
+    from datetime import timedelta
+    from uuid import uuid4
+
+    from temporalio import common
+
+    from posthog.temporal.common.client import async_connect
+    from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithTeamInput
+
+    config = DeletionConfig(deleted_by=deleted_by, reason="team deletion")
+
+    async def start_all() -> None:
+        temporal = await async_connect()
+        await asyncio.gather(
+            *[
+                temporal.start_workflow(
+                    "delete-recordings-with-team",
+                    RecordingsWithTeamInput(team_id=team_id, config=config),
+                    id=f"delete-recordings-{team_id}-team-{uuid4()}",
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                    retry_policy=common.RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(minutes=1),
+                    ),
+                )
+                for team_id in team_ids
+            ]
+        )
+
+    asyncio.run(start_all())
+
+
+def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | None = None) -> None:
+    """
+    Shared logic for deleting teams and all associated data (Postgres, batch exports, ClickHouse).
+    """
+    from posthog.models.async_deletion import AsyncDeletion, DeletionType
+    from posthog.models.project import Project
+    from posthog.models.team import Team
+    from posthog.models.team.util import (
+        delete_batch_exports,
+        delete_bulky_postgres_data,
+        delete_data_modeling_schedules,
+    )
+    from posthog.models.user import User
+
+    # User may have already deleted their account after requesting org deletion,
+    # so we must not block the cleanup on user existence.
+    user = User.objects.filter(id=user_id).first()
+
+    try:
+        deleted_by = user.email if user else f"deleted_user_id:{user_id}"
+        _queue_delete_team_recordings(team_ids, deleted_by=deleted_by)
+    except Exception:
+        logger.exception("Failed to queue recording deletion workflows", team_ids=team_ids)
+        capture_exception()
+
+    logger.info("Deleting bulky postgres data", team_ids=team_ids)
+    delete_bulky_postgres_data(team_ids=team_ids)
+
+    logger.info("Deleting batch exports", team_ids=team_ids)
+    delete_batch_exports(team_ids=team_ids)
+
+    logger.info("Deleting data modeling schedules", team_ids=team_ids)
+    delete_data_modeling_schedules(team_ids=team_ids)
+
+    logger.info("Deleting team records", team_ids=team_ids)
+    if project_id:
+        Project.objects.filter(id=project_id).delete()
+    else:
+        Team.objects.filter(id__in=team_ids).delete()
+
+    logger.info("Queueing ClickHouse deletion", team_ids=team_ids)
+    AsyncDeletion.objects.bulk_create(
+        [
+            AsyncDeletion(
+                deletion_type=DeletionType.Team,
+                team_id=team_id,
+                key=str(team_id),
+                created_by=user,
+            )
+            for team_id in team_ids
+        ],
+        ignore_conflicts=True,
+    )
+
+
 @shared_task(
     ignore_result=True,
-    queue=CeleryQueue.DEFAULT.value,
+    queue=CeleryQueue.LONG_RUNNING.value,
     autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=60,
+    retry_backoff_max=300,
+)
+def delete_project_data_and_notify_task(
+    team_ids: list[int],
+    project_id: int | None,
+    user_id: int,
+    project_name: str,
+) -> None:
+    """
+    Task to delete project/team and all associated data, then notify user.
+
+    Args:
+        team_ids: List of team IDs whose data should be deleted
+        project_id: Project ID to delete (None if deleting just a team/environment)
+        user_id: User who initiated the deletion (for email notification)
+        project_name: Name of the deleted project/team (for email notification)
+    """
+    from posthog.email import is_email_available
+    from posthog.tasks.email import send_project_deleted_email
+
+    logger.info("Starting project data deletion", team_ids=team_ids, project_name=project_name, project_id=project_id)
+
+    try:
+        _delete_teams_and_data(team_ids, user_id, project_id)
+        logger.info("Project data deletion completed", team_ids=team_ids, project_name=project_name)
+        if is_email_available():
+            send_project_deleted_email.delay(user_id=user_id, project_name=project_name)
+    except Exception as e:
+        logger.error(
+            "Project data deletion failed", team_ids=team_ids, project_name=project_name, error=str(e), exc_info=True
+        )
+        capture_exception(
+            e,
+            additional_properties={
+                "task": "delete_project_data_and_notify",
+                "team_ids": team_ids,
+                "project_name": project_name,
+            },
+        )
+        raise
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=60,
+    retry_backoff_max=300,
+)
+def delete_organization_data_and_notify_task(
+    team_ids: list[int],
+    organization_id: str,
+    user_id: int,
+    organization_name: str,
+    project_names: list[str],
+) -> None:
+    """
+    Task to delete organization and all associated data, then notify user.
+
+    Args:
+        team_ids: List of team IDs whose data should be deleted
+        organization_id: UUID of the organization to delete
+        user_id: User who initiated the deletion (for email notification)
+        organization_name: Name of the deleted organization (for email notification)
+        project_names: Names of all projects in the organization (for email notification)
+    """
+    from posthog.email import is_email_available
+    from posthog.event_usage import report_organization_deletion_completed
+    from posthog.models.organization import Organization
+    from posthog.tasks.email import send_organization_deleted_email
+
+    logger.info(
+        "Starting organization data deletion",
+        team_ids=team_ids,
+        organization_name=organization_name,
+        organization_id=organization_id,
+    )
+
+    try:
+        # Delete teams and their data first
+        if team_ids:
+            _delete_teams_and_data(team_ids, user_id)
+
+        # Delete the organization record
+        if organization_id:
+            logger.info("Deleting organization record", organization_id=organization_id)
+            Organization.objects.filter(id=organization_id).delete()
+
+        logger.info("Organization data deletion completed", team_ids=team_ids, organization_name=organization_name)
+        report_organization_deletion_completed(user_id=user_id, organization_id=organization_id)
+        if is_email_available():
+            send_organization_deleted_email.delay(
+                user_id=user_id, organization_name=organization_name, project_names=project_names
+            )
+    except Exception as e:
+        logger.error(
+            "Organization data deletion failed",
+            team_ids=team_ids,
+            organization_name=organization_name,
+            error=str(e),
+            exc_info=True,
+        )
+        capture_exception(
+            e,
+            additional_properties={
+                "task": "delete_organization_data_and_notify",
+                "team_ids": team_ids,
+                "organization_name": organization_name,
+            },
+        )
+        raise
+
+
+@shared_task(
+    bind=True,
+    base=PushGatewayTask,
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
 )
-def sync_feature_flag_last_called() -> None:
+def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     """
     Sync last_called_at timestamps from ClickHouse $feature_flag_called events to PostgreSQL.
 
@@ -968,15 +1093,16 @@ def sync_feature_flag_last_called() -> None:
 
     Configuration (via settings.feature_flags):
     - FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE: Bulk update batch size (default: 1000)
-    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: Max ClickHouse results (default: 100000)
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: Max ClickHouse results per chunk (default: 100000)
     - FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: Fallback lookback period (default: 1)
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES: Time window per ClickHouse query chunk (default: 5)
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: Cap on how far back a stale/missing checkpoint can reach (default: 6)
     """
     from datetime import datetime, timedelta
 
     from django.core.cache import cache
 
     from posthog.clickhouse.client import sync_execute
-    from posthog.exceptions_capture import capture_exception
     from posthog.models.feature_flag.feature_flag import FeatureFlag
 
     FEATURE_FLAG_LAST_CALLED_SYNC_KEY = "posthog:feature_flag_last_called_sync:last_timestamp"
@@ -990,6 +1116,30 @@ def sync_feature_flag_last_called() -> None:
         return
 
     start_time = timezone.now()
+
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="sync_feature_flag_last_called")
+
+    # Create metrics gauges for this task run
+    updated_count_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_updated_count",
+        "Number of feature flags updated in last sync",
+        registry=self.metrics_registry,
+    )
+    events_processed_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_events_processed",
+        "Number of events processed in last sync",
+        registry=self.metrics_registry,
+    )
+    clickhouse_results_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_clickhouse_results",
+        "Number of results returned from ClickHouse query",
+        registry=self.metrics_registry,
+    )
+    checkpoint_lag_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
+        "Seconds between checkpoint timestamp and current time",
+        registry=self.metrics_registry,
+    )
 
     try:
         redis_client = get_client()
@@ -1013,92 +1163,138 @@ def sync_feature_flag_last_called() -> None:
                 days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
             )
 
-        current_sync_timestamp = timezone.now()
+        # Cap lookback to prevent excessive scanning when checkpoint is stale/missing.
+        # Capture now once to avoid drift between max_lookback and current_sync_timestamp.
+        now = timezone.now()
+        max_lookback = now - timedelta(hours=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS)
+        if last_sync_timestamp < max_lookback:
+            logger.warning(
+                "Feature flag sync checkpoint too old, capping lookback",
+                original_checkpoint=last_sync_timestamp.isoformat(),
+                capped_to=max_lookback.isoformat(),
+            )
+            last_sync_timestamp = max_lookback
+
+        current_sync_timestamp = now
+        window_seconds = (current_sync_timestamp - last_sync_timestamp).total_seconds()
 
         logger.info(
             "Starting feature flag sync",
             last_sync_timestamp=last_sync_timestamp.isoformat(),
             current_sync_timestamp=current_sync_timestamp.isoformat(),
+            window_seconds=window_seconds,
         )
 
-        # Query ClickHouse for flag usage since last sync
-        # Limit for insurance against large datasets and memory issues during a surge
-        result = sync_execute(
-            """
+        # Build time chunks to keep each ClickHouse query under the max_bytes_to_read limit
+        chunk_size = timedelta(minutes=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES)
+        chunk_start = last_sync_timestamp
+        chunks: list[tuple[datetime, datetime]] = []
+        while chunk_start < current_sync_timestamp:
+            chunk_end = min(chunk_start + chunk_size, current_sync_timestamp)
+            chunks.append((chunk_start, chunk_end))
+            chunk_start = chunk_end
+
+        # Query ClickHouse in chunks to avoid exceeding max_bytes_to_read.
+        # Merge results across chunks: keep max timestamp per (team_id, flag_key) and sum counts.
+        merged_results: dict[tuple[int, str], tuple[datetime | None, int]] = {}
+        total_clickhouse_results = 0
+
+        # ORDER BY ensures the most recent rows survive if LIMIT truncates results
+        chunk_query = """
             SELECT
                 team_id,
                 JSONExtractString(properties, '$feature_flag') as flag_key,
                 max(timestamp) as last_called_at,
                 count() as call_count
-            FROM events
+            FROM events_recent
             PREWHERE event = '$feature_flag_called'
-            WHERE timestamp > %(last_sync_timestamp)s
+              AND inserted_at > %(last_sync_timestamp)s
+              AND inserted_at <= %(current_sync_timestamp)s
+            WHERE JSONExtractString(properties, '$feature_flag') != ''
               AND timestamp <= %(current_sync_timestamp)s
-              AND JSONExtractString(properties, '$feature_flag') != ''
             GROUP BY team_id, flag_key
             ORDER BY last_called_at DESC
             LIMIT %(limit)s
-            """,
-            {
-                "last_sync_timestamp": last_sync_timestamp,
-                "current_sync_timestamp": current_sync_timestamp,
-                "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
-            },
-        )
+        """
 
-        if not result:
-            # Update checkpoint even if no results
+        limit_hit = False
+
+        for chunk_start_ts, chunk_end_ts in chunks:
+            chunk_result = sync_execute(
+                chunk_query,
+                {
+                    "last_sync_timestamp": chunk_start_ts,
+                    "current_sync_timestamp": chunk_end_ts,
+                    "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
+                },
+            )
+
+            if chunk_result:
+                total_clickhouse_results += len(chunk_result)
+                if len(chunk_result) >= settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT:
+                    limit_hit = True
+
+                for row in chunk_result:
+                    team_id, flag_key, ts, count = row
+                    key = (team_id, flag_key)
+                    existing = merged_results.get(key)
+                    if existing is None:
+                        merged_results[key] = (ts, count)
+                    else:
+                        existing_ts, existing_count = existing
+                        if ts is not None and existing_ts is not None:
+                            best_ts = max(ts, existing_ts)
+                        else:
+                            best_ts = ts if ts is not None else existing_ts
+                        merged_results[key] = (best_ts, existing_count + count)
+
+        if limit_hit:
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER.inc()
+
+        if not merged_results:
+            # Update checkpoint even when no results so next run starts from current time
             redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
 
             # Emit metrics for no-results case
-            checkpoint_lag_seconds = 0.0  # No lag when checkpoint is set to current time
-            with pushed_metrics_registry("feature_flag_last_called_at_sync_completion") as registry:
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_updated_count",
-                    "Number of feature flags updated in last sync",
-                    registry=registry,
-                ).set(0)
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_events_processed",
-                    "Number of events processed in last sync",
-                    registry=registry,
-                ).set(0)
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_clickhouse_results",
-                    "Number of results returned from ClickHouse query",
-                    registry=registry,
-                ).set(0)
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
-                    "Seconds between checkpoint timestamp and current time",
-                    registry=registry,
-                ).set(checkpoint_lag_seconds)
+            updated_count_gauge.set(0)
+            events_processed_gauge.set(0)
+            clickhouse_results_gauge.set(0)
+            checkpoint_lag_gauge.set(0.0)
 
             logger.info(
                 "Feature flag sync completed with no events",
                 duration_seconds=(timezone.now() - start_time).total_seconds(),
+                chunks_processed=len(chunks),
             )
             return
 
-        # Collect flags for bulk update
-        flags_to_update = []
+        # Build lookup map from merged results
+        flag_updates: dict[tuple[int, str], datetime] = {}
+        for key, (ts, _count) in merged_results.items():
+            if ts is not None:
+                flag_updates[key] = ts
 
-        # Get latest timestamp for checkpoint, fallback to current if all None
-        checkpoint_timestamp = max((row[2] for row in result if row[2]), default=current_sync_timestamp)
-        # Ensure timestamp is timezone-aware (ClickHouse returns naive datetimes)
-        checkpoint_timestamp = (
-            checkpoint_timestamp if checkpoint_timestamp.tzinfo else timezone.make_aware(checkpoint_timestamp)
-        )
+        if not flag_updates:
+            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
+            logger.info(
+                "Feature flag sync: no valid timestamps to update",
+                chunks_processed=len(chunks),
+            )
+            clickhouse_results_gauge.set(total_clickhouse_results)
+            updated_count_gauge.set(0)
+            events_processed_gauge.set(0)
+            checkpoint_lag_gauge.set(0.0)
+            return
 
-        # Build lookup map of (team_id, key) -> timestamp from ClickHouse results
-        flag_updates = {(row[0], row[1]): row[2] for row in result}
-
-        # Batch fetch all relevant flags in a single query
-        team_ids = list({row[0] for row in result})
-        flag_keys = list({row[1] for row in result})
-
+        # Fetch flags matching any (team_id, key) combination from updates.
+        # This may over-fetch cross-product matches (e.g. team A's flag
+        # that shares a key with team B), but the in-memory flag_updates.get()
+        # check below filters those out.
+        team_ids = {team_id for team_id, _ in flag_updates}
+        flag_keys = {flag_key for _, flag_key in flag_updates}
         flags = FeatureFlag.objects.filter(team_id__in=team_ids, key__in=flag_keys)
 
+        flags_to_update = []
         for flag in flags:
             new_timestamp = flag_updates.get((flag.team_id, flag.key))
             if new_timestamp:
@@ -1129,47 +1325,26 @@ def sync_feature_flag_last_called() -> None:
                 )
                 raise
 
-        # Store checkpoint for next sync using the latest timestamp from results
-        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+        # Set final checkpoint to current time
+        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
 
         duration = (timezone.now() - start_time).total_seconds()
-        processed_events = sum(row[3] for row in result)
-        clickhouse_results = len(result)
+        processed_events = sum(count for _ts, count in merged_results.values())
 
         # Emit metrics for successful completion
-        checkpoint_lag_seconds = (timezone.now() - checkpoint_timestamp).total_seconds()
-        with pushed_metrics_registry("feature_flag_last_called_at_sync_completion") as registry:
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_updated_count",
-                "Number of feature flags updated in last sync",
-                registry=registry,
-            ).set(updated_count)
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_events_processed",
-                "Number of events processed in last sync",
-                registry=registry,
-            ).set(processed_events)
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_clickhouse_results",
-                "Number of results returned from ClickHouse query",
-                registry=registry,
-            ).set(clickhouse_results)
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
-                "Seconds between checkpoint timestamp and current time",
-                registry=registry,
-            ).set(checkpoint_lag_seconds)
-
-        # Track if we hit the ClickHouse result limit
-        if clickhouse_results >= settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT:
-            FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER.inc()
+        checkpoint_lag_seconds = (timezone.now() - current_sync_timestamp).total_seconds()
+        updated_count_gauge.set(updated_count)
+        events_processed_gauge.set(processed_events)
+        clickhouse_results_gauge.set(total_clickhouse_results)
+        checkpoint_lag_gauge.set(checkpoint_lag_seconds)
 
         logger.info(
             "Feature flag sync completed",
             updated_count=updated_count,
             processed_events=processed_events,
-            clickhouse_results=clickhouse_results,
+            clickhouse_results=total_clickhouse_results,
             duration_seconds=duration,
+            chunks_processed=len(chunks),
         )
 
         # Alert if approaching schedule interval (25 min warning threshold)
@@ -1178,8 +1353,9 @@ def sync_feature_flag_last_called() -> None:
                 "Feature flag sync taking longer than expected",
                 duration_seconds=duration,
                 updated_count=updated_count,
-                processed_events=sum(row[3] for row in result),
-                recommendation="Consider reducing FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT or optimizing query",
+                processed_events=processed_events,
+                chunks_processed=len(chunks),
+                recommendation="Consider reducing FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES",
             )
 
     except Exception as e:
@@ -1211,7 +1387,6 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
     from posthog.api.advanced_activity_logs.constants import BATCH_SIZE, SAMPLING_PERCENTAGE, SMALL_ORG_THRESHOLD
     from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery
     from posthog.api.advanced_activity_logs.fields_cache import delete_cached_fields
-    from posthog.exceptions_capture import capture_exception
     from posthog.models import Organization
     from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -1301,3 +1476,31 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
             f"[refresh_activity_log_fields_cache] completed flush and rebuild for "
             f"{processed_orgs}/{org_count} organizations"
         )
+
+
+@shared_task(ignore_result=True)
+def sync_user_product_lists_for_new_team(team_id: int) -> None:
+    """
+    Sync UserProductList for all users who have access to a new team.
+    Called during project creation to avoid request timeouts for large organizations.
+    """
+    from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
+    from posthog.models.team import Team
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.info("sync_user_product_lists_for_new_team: Team not found, skipping", team_id=team_id)
+        return
+
+    users = list(team.all_users_with_access())
+    logger.info(
+        "sync_user_product_lists_for_new_team: Starting sync",
+        team_id=team_id,
+        user_count=len(users),
+    )
+
+    for user in users:
+        backfill_user_product_list_for_new_user(user, team)
+
+    logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)

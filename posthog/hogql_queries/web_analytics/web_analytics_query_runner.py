@@ -2,14 +2,18 @@ import typing
 from abc import ABC
 from datetime import datetime, timedelta
 from math import ceil
+from time import perf_counter
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
 
+import structlog
+
 from posthog.schema import (
     ActionConversionGoal,
+    CohortPropertyFilter,
     CustomEventConversionGoal,
     EventPropertyFilter,
     PersonPropertyFilter,
@@ -17,6 +21,7 @@ from posthog.schema import (
     SessionPropertyFilter,
     WebExternalClicksTableQuery,
     WebGoalsQuery,
+    WebNotableChangesQuery,
     WebOverviewQuery,
     WebPageURLSearchQuery,
     WebStatsTableQuery,
@@ -25,20 +30,28 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.schema.exchange_rate import revenue_where_expr_for_events
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql_queries.web_analytics.metrics import (
+    WEB_ANALYTICS_QUERY_COUNTER,
+    WEB_ANALYTICS_QUERY_DURATION,
+    WEB_ANALYTICS_QUERY_ERRORS,
+)
+from posthog.hogql_queries.web_analytics.traffic_type import get_traffic_category_expr, get_traffic_type_expr
 from posthog.models import Action, User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import generate_cache_key, get_safe_cache
+
+logger = structlog.get_logger(__name__)
 
 WebQueryNode = Union[
     WebOverviewQuery,
@@ -48,6 +61,7 @@ WebQueryNode = Union[
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
     WebTrendsQuery,
+    WebNotableChangesQuery,
 ]
 
 WAR = typing.TypeVar("WAR", bound=AnalyticsQueryResponseProtocol)
@@ -61,21 +75,82 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         user_access_control = UserAccessControl(user=user, team=self.team)
         return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
 
+    def calculate(self) -> WAR:
+        query_kind = getattr(self.query, "kind", "Unknown")
+        breakdown_value = getattr(self.query, "breakdownBy", None)
+        breakdown_label = breakdown_value.value if breakdown_value is not None else "none"
+        has_conversion_goal = "true" if getattr(self.query, "conversionGoal", None) else "false"
+
+        start = perf_counter()
+        response: Optional[WAR] = None
+        error_type = ""
+
+        try:
+            response = super().calculate()
+            return response
+        except Exception as e:
+            error_type = type(e).__name__
+            raise
+        finally:
+            duration_s = perf_counter() - start
+
+            used_preaggregated_label = "unknown"
+            if response is not None:
+                val = getattr(response, "usedPreAggregatedTables", None)
+                if val is not None:
+                    used_preaggregated_label = str(val).lower()
+
+            metric_labels = {
+                "query_kind": query_kind,
+                "used_preaggregated": used_preaggregated_label,
+                "breakdown": breakdown_label,
+                "has_conversion_goal": has_conversion_goal,
+            }
+            WEB_ANALYTICS_QUERY_DURATION.labels(**metric_labels).observe(duration_s)
+            WEB_ANALYTICS_QUERY_COUNTER.labels(**metric_labels).inc()
+
+            if error_type:
+                WEB_ANALYTICS_QUERY_ERRORS.labels(
+                    query_kind=query_kind,
+                    breakdown=breakdown_label,
+                    error_type=error_type,
+                ).inc()
+
+            sampling = getattr(self.query, "sampling", None)
+            logger.info(
+                "web_analytics_query",
+                team_id=self.team.pk,
+                organization_id=str(self.team.organization_id),
+                user_id=get_query_tag_value("user_id"),
+                query_kind=query_kind,
+                breakdown=breakdown_label,
+                has_conversion_goal=has_conversion_goal,
+                used_preaggregated=used_preaggregated_label,
+                duration_s=round(duration_s, 4),
+                error=bool(error_type),
+                error_type=error_type or None,
+                filter_count=len(self.query.properties),
+                date_from=self.query_date_range.date_from_str,
+                date_to=self.query_date_range.date_to_str,
+                sampling_enabled=sampling.enabled if sampling else False,
+            )
+
     @cached_property
-    def query_date_range(self):
+    def _timezone_info(self) -> ZoneInfo:
         # Respect the convertToProjectTimezone modifier for date range calculation
         # When convertToProjectTimezone=False, use UTC for both date boundaries AND column conversion
-        timezone_info = (
-            ZoneInfo("UTC")
-            if self.modifiers and not self.modifiers.convertToProjectTimezone
-            else self.team.timezone_info
-        )
+        if self.modifiers and not self.modifiers.convertToProjectTimezone:
+            return ZoneInfo("UTC")
+        return self.team.timezone_info
+
+    @cached_property
+    def query_date_range(self):
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
-            timezone_info=timezone_info,
-            interval=None,
-            now=datetime.now(timezone_info),
+            timezone_info=self._timezone_info,
+            interval=self.query.interval,
+            now=datetime.now(self._timezone_info),
         )
 
     @cached_property
@@ -85,16 +160,18 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 return QueryCompareToDateRange(
                     date_range=self.query.dateRange,
                     team=self.team,
-                    interval=None,
-                    now=datetime.now(),
+                    interval=self.query.interval,
+                    now=datetime.now(self._timezone_info),
+                    timezone_info=self._timezone_info,
                     compare_to=self.query.compareFilter.compare_to,
                 )
             elif self.query.compareFilter.compare:
                 return QueryPreviousPeriodDateRange(
                     date_range=self.query.dateRange,
                     team=self.team,
-                    interval=None,
-                    now=datetime.now(),
+                    interval=self.query.interval,
+                    now=datetime.now(self._timezone_info),
+                    timezone_info=self._timezone_info,
                 )
 
         return None
@@ -156,7 +233,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     @cached_property
     def property_filters_without_pathname(
         self,
-    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
+    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, CohortPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
     @cached_property
@@ -200,48 +277,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             return None
 
     @cached_property
-    def conversion_revenue_expr(self) -> ast.Expr:
-        if not self.team.revenue_analytics_config.events:
-            return ast.Constant(value=None)
-
-        if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
-            event_name = self.query.conversionGoal.customEventName
-            revenue_property = next(
-                (
-                    event_item.revenueProperty
-                    for event_item in self.team.revenue_analytics_config.events
-                    if event_item.eventName == event_name
-                ),
-                None,
-            )
-
-            if not revenue_property:
-                return ast.Constant(value=None)
-
-            return ast.Call(
-                name="sumIf",
-                args=[
-                    ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Call(
-                                name="toFloat", args=[ast.Field(chain=["events", "properties", revenue_property])]
-                            ),
-                            ast.Constant(value=0),
-                        ],
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=event_name),
-                    ),
-                ],
-            )
-        else:
-            # for now, don't support conversion revenue for actions
-            return ast.Constant(value=None)
-
-    @cached_property
     def event_type_expr(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -254,10 +289,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
         if self.conversion_goal_expr:
             exprs.append(self.conversion_goal_expr)
-        elif self.query.includeRevenue:
-            # Use elif here, we don't need to include revenue events if we already included conversion events, because
-            # if there is a conversion goal set then we only show revenue from conversion events.
-            exprs.append(revenue_where_expr_for_events(self.team))
 
         return ast.Or(exprs=exprs)
 
@@ -488,6 +519,14 @@ WHERE
 
         return apply_path_cleaning(path_expr, self.team)
 
+    def _get_traffic_type_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+        return get_traffic_type_expr(user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]))
+
+    def _get_traffic_category_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+        return get_traffic_category_expr(
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"])
+        )
+
     def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
         if n is None:
             return None
@@ -501,6 +540,20 @@ WHERE
     def get_cache_key(self) -> str:
         original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
+
+    def _events_prefilter_date_bounds(self) -> tuple[str, str]:
+        lower = self.query_date_range.date_from()
+        upper = self.query_date_range.date_to()
+
+        if self.query_compare_to_date_range:
+            lower = min(lower, self.query_compare_to_date_range.date_from())
+            upper = max(upper, self.query_compare_to_date_range.date_to())
+
+        utc = ZoneInfo("UTC")
+        date_from = (lower.astimezone(utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        date_to = (upper.astimezone(utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        return date_from, date_to
 
     @cached_property
     def events_session_property(self):

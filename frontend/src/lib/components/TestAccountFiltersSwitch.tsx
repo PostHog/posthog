@@ -5,7 +5,7 @@ import { LemonButton, LemonSwitch, LemonSwitchProps } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
 
 type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     checked: boolean
@@ -20,8 +20,12 @@ export function TestAccountFilterSwitch({ checked, onChange, ...props }: TestAcc
         <LemonSwitch
             id="test-account-filter"
             bordered
-            disabledReason={!hasFilters ? "You haven't set any internal test filters" : null}
             {...props}
+            disabledReason={
+                !hasFilters
+                    ? "You haven't set any internal test filters. Click the gear icon to configure."
+                    : props.disabledReason
+            }
             checked={checked}
             onChange={onChange}
             label={
@@ -32,7 +36,12 @@ export function TestAccountFilterSwitch({ checked, onChange, ...props }: TestAcc
                         size="small"
                         noPadding
                         className="ml-1"
-                        onClick={() => openSettingsPanel({ settingId: 'internal-user-filtering' })}
+                        onClick={() =>
+                            openSettingsPanel({
+                                sectionId: 'project-product-analytics',
+                                settingId: 'internal-user-filtering',
+                            })
+                        }
                     />
                 </div>
             }

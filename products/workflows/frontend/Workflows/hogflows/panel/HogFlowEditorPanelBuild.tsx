@@ -1,16 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 
 import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
 import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
 
 import { HogFunctionTemplateType } from '~/types'
 
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
+// Side-effect imports: register product-specific trigger and action nodes
+import '../registry'
+
+import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
+import { getDelayDescription } from '../steps/stepDelayLogic'
 import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
@@ -46,8 +52,14 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
     },
 ]
 
+const DEFAULT_DELAY = '10m'
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
-    { type: 'delay', name: 'Delay', description: 'Wait for a specified duration.', config: { delay_duration: '10m' } },
+    {
+        type: 'delay',
+        name: 'Delay',
+        description: getDelayDescription(DEFAULT_DELAY),
+        config: { delay_duration: DEFAULT_DELAY },
+    },
     {
         type: 'wait_until_time_window',
         name: 'Wait until window',
@@ -79,15 +91,7 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
         config: {
             conditions: [
                 {
-                    filters: {
-                        events: [
-                            {
-                                id: '$pageview',
-                                name: '$pageview',
-                                type: 'events',
-                            },
-                        ],
-                    },
+                    filters: {},
                 },
             ],
         },
@@ -139,6 +143,9 @@ const TEMPLATE_IDS_AT_TOP_LEVEL: string[] = [
     ...DELAY_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
     ...LOGIC_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
     ...POSTHOG_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
+    ...getRegisteredActionNodeCategories().flatMap((cat) =>
+        cat.nodes.map((action) => (action.config as any).template_id)
+    ),
 ].filter((t) => !!t)
 
 function HogFlowEditorToolbarNode({
@@ -150,10 +157,10 @@ function HogFlowEditorToolbarNode({
     onDragStart?: (event: React.DragEvent) => void
     children?: React.ReactNode
 }): JSX.Element | null {
-    const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
+    const { setNodeToBeAdded } = useActions(hogFlowEditorLogic)
 
     const onDragStart = (event: React.DragEvent): void => {
-        setNewDraggingNode(action)
+        setNodeToBeAdded(action)
         event.dataTransfer.setData('application/reactflow', action.type)
         event.dataTransfer.effectAllowed = 'move'
         onDragStartProp?.(event)
@@ -230,7 +237,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                             <SpinnerOverlay />
                         ) : (
                             <ul className="overflow-y-auto flex-1">
-                                {filteredTemplates.map((template) => (
+                                {filteredTemplates.map((template: HogFunctionTemplateType) => (
                                     <li key={template.type}>
                                         <HogFlowEditorToolbarNode
                                             action={{
@@ -267,8 +274,14 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 }
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const registeredCategories = getRegisteredActionNodeCategories().filter(
+        (cat) => !cat.featureFlag || featureFlags[cat.featureFlag]
+    )
+
     return (
-        <div className="flex overflow-y-auto flex-col gap-px p-2">
+        <div className="flex overflow-y-auto flex-col gap-px p-2" data-attr="workflow-add-action">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Dispatch <LemonDivider className="flex-1" />
             </span>
@@ -296,6 +309,17 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
             </span>
             {POSTHOG_NODES_TO_SHOW.map((action, index) => (
                 <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+            ))}
+
+            {registeredCategories.map((cat) => (
+                <Fragment key={cat.label}>
+                    <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                        {cat.label} <LemonDivider className="flex-1" />
+                    </span>
+                    {cat.nodes.map((action, index) => (
+                        <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+                    ))}
+                </Fragment>
             ))}
         </div>
     )

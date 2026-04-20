@@ -9,20 +9,21 @@ import unittest.mock
 
 from django.conf import settings
 
+import pytest_asyncio
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.service import (
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
+
+from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
@@ -50,7 +51,7 @@ def table_id(ateam, interval):
     return f"test_workflow_table_{ateam.pk}_{interval}"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def bigquery_batch_export(
     ateam, table_id, bigquery_config, interval, exclude_events, use_json_type, temporal_client, bigquery_dataset
 ):

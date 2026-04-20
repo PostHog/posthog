@@ -31,6 +31,7 @@ class TestPropertyFilterDescriber(BaseTest):
         descriptor = PropertyFilterDescriber(filter=filter)
         self.assertEqual(descriptor.description, "event property `$current_url` contains `url`")
         prop = descriptor.taxonomy
+        assert prop is not None
         self.assertEqual(prop.group, "event_properties")
         self.assertEqual(prop.key, "$current_url")
         self.assertIsNotNone(prop.description)
@@ -64,6 +65,7 @@ class TestPropertyFilterDescriber(BaseTest):
         descriptor = PropertyFilterDescriber(filter=filter)
         self.assertEqual(descriptor.description, "element property `tag_name` matches exactly `button`")
         prop = descriptor.taxonomy
+        assert prop is not None
         self.assertEqual(prop.group, "element_properties")
         self.assertEqual(prop.key, "tag_name")
         self.assertIsNotNone(prop.description)
@@ -73,6 +75,7 @@ class TestPropertyFilterDescriber(BaseTest):
         descriptor = PropertyFilterDescriber(filter=filter)
         self.assertEqual(descriptor.description, "session property `$session_duration` greater than `300`")
         prop = descriptor.taxonomy
+        assert prop is not None
         self.assertEqual(prop.group, "session_properties")
         self.assertEqual(prop.key, "$session_duration")
         self.assertIsNotNone(prop.description)

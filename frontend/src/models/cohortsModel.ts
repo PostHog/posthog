@@ -19,6 +19,7 @@ import {
     BehavioralEventType,
     CohortCriteriaGroupFilter,
     CohortType,
+    FilterLogicalOperator,
 } from '~/types'
 
 import type { cohortsModelType } from './cohortsModelType'
@@ -54,7 +55,13 @@ export function processCohort(cohort: CohortType): CohortType {
                               values: (group.values as AnyCohortCriteriaType[]).map((c) => processCohortCriteria(c)),
                               sort_key: uuidv4(),
                           }
-                        : group
+                        : // Wrap flat API criteria (no nested `values` array) into a group
+                          // so CohortCriteriaGroups can render them via isCohortCriteriaGroup()
+                          {
+                              type: FilterLogicalOperator.And,
+                              values: [processCohortCriteria(group as AnyCohortCriteriaType)],
+                              sort_key: uuidv4(),
+                          }
                 ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
             },
         },

@@ -314,6 +314,120 @@ class TestOrgConcurrencyLimit(BaseTest):
             self.assertIsNone(result)
 
 
+class TestMaterializedEndpointsRateLimiter(BaseTest):
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_applies_for_materialized_endpoints(self):
+        """Test that rate limiter is applicable when is_materialized_endpoint=True"""
+        from posthog.clickhouse.client.limit import get_materialized_endpoints_rate_limiter
+
+        rate_limiter = get_materialized_endpoints_rate_limiter()
+
+        is_applicable = rate_limiter.applicable(team_id=self.team.id, is_materialized_endpoint=True)
+        self.assertTrue(is_applicable)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_skips_for_non_materialized_endpoints(self):
+        """Test that rate limiter is not applicable when is_materialized_endpoint=False"""
+        from posthog.clickhouse.client.limit import get_materialized_endpoints_rate_limiter
+
+        rate_limiter = get_materialized_endpoints_rate_limiter()
+
+        is_applicable = rate_limiter.applicable(team_id=self.team.id, is_materialized_endpoint=False)
+        self.assertFalse(is_applicable)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_skips_when_is_materialized_endpoint_not_provided(self):
+        """Test that rate limiter is not applicable when is_materialized_endpoint is not provided"""
+        from posthog.clickhouse.client.limit import get_materialized_endpoints_rate_limiter
+
+        rate_limiter = get_materialized_endpoints_rate_limiter()
+
+        is_applicable = rate_limiter.applicable(team_id=self.team.id)
+        self.assertFalse(is_applicable)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_skips_without_team_id(self):
+        """Test that rate limiter is not applicable without team_id"""
+        from posthog.clickhouse.client.limit import get_materialized_endpoints_rate_limiter
+
+        rate_limiter = get_materialized_endpoints_rate_limiter()
+
+        is_applicable = rate_limiter.applicable(is_materialized_endpoint=True)
+        self.assertFalse(is_applicable)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_has_correct_max_concurrency(self):
+        """Test that rate limiter has max_concurrency of 10"""
+        from posthog.clickhouse.client.limit import get_materialized_endpoints_rate_limiter
+
+        rate_limiter = get_materialized_endpoints_rate_limiter()
+
+        self.assertEqual(rate_limiter.max_concurrency, 10)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_uses_team_based_task_key(self):
+        """Test that rate limiter creates team-based task keys"""
+        from posthog.clickhouse.client.limit import get_materialized_endpoints_rate_limiter
+
+        rate_limiter = get_materialized_endpoints_rate_limiter()
+
+        task_name = rate_limiter.get_task_name(team_id=123)
+        self.assertEqual(task_name, "materialized_endpoints:query:per-team:123")
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_enforces_concurrency_limit(self):
+        """Test that exceeding max_concurrency (10) raises ConcurrencyLimitExceeded"""
+        from posthog.clickhouse.client.limit import get_materialized_endpoints_rate_limiter
+
+        rate_limiter = get_materialized_endpoints_rate_limiter()
+        acquired_slots: list[tuple[str | None, str | None]] = []
+
+        try:
+            # Acquire all 10 slots
+            for i in range(10):
+                slot = rate_limiter.use(team_id=self.team.id, task_id=f"test-slot-{i}", is_materialized_endpoint=True)
+                acquired_slots.append(slot)
+
+            # 11th request should fail
+            with self.assertRaises(ConcurrencyLimitExceeded):
+                rate_limiter.use(team_id=self.team.id, task_id="test-slot-overflow", is_materialized_endpoint=True)
+        finally:
+            # Clean up all acquired slots
+            for key, task_id in acquired_slots:
+                if key and task_id:
+                    rate_limiter.release(key, task_id)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_allows_after_release(self):
+        """Test that releasing a slot allows new requests"""
+        from posthog.clickhouse.client.limit import get_materialized_endpoints_rate_limiter
+
+        rate_limiter = get_materialized_endpoints_rate_limiter()
+        acquired_slots: list[tuple[str | None, str | None]] = []
+
+        try:
+            # Fill all 10 slots
+            for i in range(10):
+                slot = rate_limiter.use(
+                    team_id=self.team.id, task_id=f"test-release-{i}", is_materialized_endpoint=True
+                )
+                acquired_slots.append(slot)
+
+            # Release one slot
+            key, task_id = acquired_slots.pop()
+            if key and task_id:
+                rate_limiter.release(key, task_id)
+
+            # Now a new request should succeed
+            new_slot = rate_limiter.use(team_id=self.team.id, task_id="test-release-new", is_materialized_endpoint=True)
+            acquired_slots.append(new_slot)
+        finally:
+            # Clean up
+            for key, task_id in acquired_slots:
+                if key and task_id:
+                    rate_limiter.release(key, task_id)
+
+
 class TestDashboardQueriesRateLimiter(BaseTest):
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_skips_for_celery_tasks(self):

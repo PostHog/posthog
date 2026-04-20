@@ -4,6 +4,11 @@ from contextlib import contextmanager
 from django.conf import settings
 
 import structlog
+
+# Patch prometheus_client to bypass HTTP_PROXY/HTTPS_PROXY for pushgateway calls.
+# The pushgateway is an internal service — the outbound proxy would reject it.
+# ProxyHandler({}) tells urllib to ignore proxy env vars.
+import prometheus_client.exposition as _expo
 from prometheus_client import CollectorRegistry, Counter, push_to_gateway
 
 from posthog.exceptions_capture import capture_exception
@@ -32,13 +37,27 @@ KLUDGES_COUNTER = Counter(
 
 TOMBSTONE_COUNTER = Counter(
     "posthog_tombstone_total",
-    "Rare anomalous events that should almost never occur. Used to track edge cases, cleanup operations finding stale data, and other scenarios that indicate potential bugs or race conditions.",
+    "Rare anomalous events that should almost never occur. Used to track edge cases, cleanup operations finding stale data, and other scenarios that indicate potential bugs or race conditions. Details (team_id, flag_id, etc.) are logged separately to avoid high-cardinality labels.",
     labelnames=["namespace", "operation", "component"],
 )
 
 
-def _push(settings, job, registry):
-    push_to_gateway(settings, job, registry)
+def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
+    from urllib.request import ProxyHandler, Request, build_opener
+
+    def handle():
+        request = Request(url, data=data)
+        request.get_method = lambda: method
+        for k, v in headers:
+            request.add_header(k, v)
+        resp = build_opener(ProxyHandler({}), base_handler).open(request, timeout=timeout)
+        if resp.code >= 400:
+            raise OSError(f"error talking to pushgateway: {resp.code} {resp.msg}")
+
+    return handle
+
+
+_expo._make_handler = _make_handler_no_proxy
 
 
 @contextmanager
@@ -58,7 +77,7 @@ def pushed_metrics_registry(job_name: str):
     yield registry
     try:
         if settings.PROM_PUSHGATEWAY_ADDRESS:
-            _push(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
+            push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
     except Exception as err:
         logger.exception("push_to_gateway", target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
         capture_exception(err)

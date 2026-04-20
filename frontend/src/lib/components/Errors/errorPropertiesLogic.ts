@@ -1,9 +1,11 @@
-import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import {
     ErrorEventId,
     ErrorEventProperties,
     ErrorTrackingException,
+    ErrorTrackingRelease,
     ErrorTrackingStackFrame,
     FingerprintRecordPart,
 } from 'lib/components/Errors/types'
@@ -14,12 +16,13 @@ import {
     getFingerprintRecords,
     getRecordingStatus,
     getSessionId,
-    hasStacktrace,
+    stacktraceHasInAppFrames,
 } from 'lib/components/Errors/utils'
+import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
-import { stackFrameLogic } from './stackFrameLogic'
+import { KeyedStackFrameRecords, stackFrameLogic } from './Frame/stackFrameLogic'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
@@ -32,7 +35,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
     key((props) => props.id),
 
     connect(() => ({
-        values: [preflightLogic, ['isCloudOrDev']],
+        values: [preflightLogic, ['isCloudOrDev'], stackFrameLogic, ['stackFrameRecords', 'stackFrameRecordsLoading']],
         actions: [stackFrameLogic, ['loadFromRawIds']],
     })),
 
@@ -51,6 +54,12 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
                 return properties ? getExceptionList(properties) : []
             },
         ],
+        exceptionType: [
+            (s) => [s.exceptionList],
+            (excList: ErrorTrackingException[]) => {
+                return excList[0]?.type || null
+            },
+        ],
         additionalProperties: [
             (s) => [s.properties, s.isCloudOrDev],
             (properties: ErrorEventProperties, isCloudOrDev: boolean | undefined) =>
@@ -61,6 +70,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             (properties: ErrorEventProperties) => (properties ? getFingerprintRecords(properties) : []),
         ],
         hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
+        hasInAppFrames: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasInAppFrames(excList)],
         sessionId: [
             (s) => [s.properties],
             (properties: ErrorEventProperties) => (properties ? getSessionId(properties) : undefined),
@@ -82,14 +92,53 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         frames: [
             (s) => [s.exceptionList],
             (exceptionList: ErrorTrackingException[]) => {
-                return exceptionList.flatMap((e) => e.stacktrace?.frames ?? []) as ErrorTrackingStackFrame[]
+                return exceptionList.flatMap((e) => {
+                    const frames = e.stacktrace?.frames
+                    return Array.isArray(frames) ? frames : []
+                }) as ErrorTrackingStackFrame[]
             },
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
+        release: [
+            (s) => [s.frames, s.stackFrameRecords],
+            (frames: ErrorTrackingStackFrame[], stackFrameRecords: KeyedStackFrameRecords) => {
+                if (!frames.length || Object.keys(stackFrameRecords).length === 0) {
+                    return undefined
+                }
+                const rawIds = frames.map((f) => f.raw_id)
+                const relatedReleases: ErrorTrackingRelease[] = rawIds
+                    .map((id) => stackFrameRecords[id]?.release)
+                    .filter((r) => !!r) as ErrorTrackingRelease[]
+
+                const uniqueRelatedReleasesIds = [...new Set(relatedReleases.map((r) => r?.id))]
+                if (uniqueRelatedReleasesIds.length === 1) {
+                    return relatedReleases[0]
+                }
+                const kaboomFrame = frames[frames.length - 1]
+                if (stackFrameRecords[kaboomFrame?.raw_id]?.release) {
+                    return stackFrameRecords[kaboomFrame.raw_id].release
+                }
+                // get most recent release
+                const sortedReleases = relatedReleases.sort(
+                    (a, b) => dayjs(b.created_at).unix() - dayjs(a.created_at).unix()
+                )
+                return sortedReleases[0]
+            },
+        ],
     }),
 
-    afterMount(({ values, actions }) => {
-        const rawIds: string[] = values.exceptionList.flatMap((e) => e.stacktrace?.frames).map((frame) => frame.raw_id)
-        actions.loadFromRawIds(rawIds)
-    }),
+    subscriptions(({ actions }) => ({
+        frames: (frames) => {
+            const rawIds: string[] = frames.map((frame: ErrorTrackingStackFrame) => frame.raw_id)
+            actions.loadFromRawIds(rawIds)
+        },
+    })),
 ])
+
+function hasInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
+    return exceptionList.some(({ stacktrace }) => stacktraceHasInAppFrames(stacktrace))
+}
+
+function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
+    return exceptionList.length > 0 && exceptionList.some((e) => !!e.stacktrace)
+}

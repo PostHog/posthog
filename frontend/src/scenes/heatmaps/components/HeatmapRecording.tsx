@@ -3,10 +3,9 @@ import { useRef } from 'react'
 
 import { LemonBanner, LemonDivider, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { HeatmapsWarnings } from 'scenes/heatmaps/components/HeatmapsWarnings'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
@@ -53,17 +52,11 @@ export function HeatmapRecording(): JSX.Element {
 
     if (!hasValidReplayIframeData) {
         return (
-            <LemonBanner
-                type="warning"
-                action={{
-                    type: 'secondary',
-                    icon: <IconOpenInNew />,
-                    to: urls.replay(),
-                    children: 'Open session recording',
-                }}
-                dismissKey="heatmaps-no-replay-iframe-data-warning"
-            >
-                This view is based on session recording data. Please open a session recording to view it.
+            <LemonBanner type="warning" dismissKey="heatmaps-no-replay-iframe-data-warning">
+                <div className="flex items-center justify-between gap-4">
+                    <p>This view is based on session recording data. Please open a session recording to view it.</p>
+                    <ViewRecordingsPlaylistButton filters={{}} type="secondary" size="small" />
+                </div>
             </LemonBanner>
         )
     }

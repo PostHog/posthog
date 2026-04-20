@@ -320,7 +320,8 @@ def zendesk_source(
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:
     basic_token = base64.b64encode(f"{email_address}/token:{api_key}".encode("ascii")).decode("ascii")
     res = requests.get(
-        f"https://{subdomain}.zendesk.com/api/v2/tickets/count", headers={"Authorization": f"Basic {basic_token}"}
+        f"https://{subdomain}.zendesk.com/api/v2/tickets/count",
+        headers={"Authorization": f"Basic {basic_token}"},
     )
 
     return res.status_code == 200

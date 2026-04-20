@@ -13,9 +13,9 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -23,9 +23,12 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -41,6 +44,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -54,6 +59,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -99,10 +105,15 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -111,6 +122,7 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -119,6 +131,9 @@
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
+         "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -147,7 +162,10 @@
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time"
+         "posthog_team"."experiment_recalculation_time",
+         "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
+         "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -179,6 +197,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -192,6 +212,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -268,6 +289,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -281,6 +304,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -331,10 +355,10 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -342,9 +366,12 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
@@ -368,6 +395,30 @@
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.16
   '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_taggeditem"
+  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_taggeditem"."action_id" IN (1,
+                                             2,
+                                             3,
+                                             4,
+                                             5 /* ... */)
+  '''
+# ---
+# name: TestActionApi.test_listing_actions_is_not_nplus1.17
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -380,9 +431,9 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -390,9 +441,12 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -400,7 +454,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.17
+# name: TestActionApi.test_listing_actions_is_not_nplus1.18
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -408,6 +462,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -421,6 +477,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -435,7 +492,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.18
+# name: TestActionApi.test_listing_actions_is_not_nplus1.19
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -466,10 +523,15 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -478,6 +540,7 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -486,6 +549,9 @@
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
+         "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -514,21 +580,12 @@
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time"
+         "posthog_team"."experiment_recalculation_time",
+         "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
+         "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.19
-  '''
-  SELECT "posthog_project"."id",
-         "posthog_project"."organization_id",
-         "posthog_project"."name",
-         "posthog_project"."created_at",
-         "posthog_project"."product_description"
-  FROM "posthog_project"
-  WHERE "posthog_project"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -563,10 +620,15 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -575,6 +637,7 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -583,6 +646,9 @@
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
+         "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -611,13 +677,28 @@
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time"
+         "posthog_team"."experiment_recalculation_time",
+         "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
+         "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.20
+  '''
+  SELECT "posthog_project"."id",
+         "posthog_project"."organization_id",
+         "posthog_project"."name",
+         "posthog_project"."created_at",
+         "posthog_project"."product_description"
+  FROM "posthog_project"
+  WHERE "posthog_project"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestActionApi.test_listing_actions_is_not_nplus1.21
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -631,6 +712,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -644,6 +727,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -660,7 +744,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.21
+# name: TestActionApi.test_listing_actions_is_not_nplus1.22
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -706,7 +790,7 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.22
+# name: TestActionApi.test_listing_actions_is_not_nplus1.23
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -720,6 +804,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -733,6 +819,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -747,7 +834,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.23
+# name: TestActionApi.test_listing_actions_is_not_nplus1.24
   '''
   SELECT "posthog_action"."id",
          "posthog_action"."name",
@@ -783,10 +870,10 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -794,9 +881,12 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
@@ -816,6 +906,30 @@
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
            "posthog_action"."name" ASC
+  '''
+# ---
+# name: TestActionApi.test_listing_actions_is_not_nplus1.25
+  '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_taggeditem"
+  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_taggeditem"."action_id" IN (1,
+                                             2,
+                                             3,
+                                             4,
+                                             5 /* ... */)
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.3
@@ -844,6 +958,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -857,6 +973,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -933,6 +1050,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -946,6 +1065,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -996,10 +1116,10 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -1007,9 +1127,12 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
@@ -1045,9 +1168,9 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -1055,9 +1178,12 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -1073,6 +1199,8 @@
          "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
@@ -1086,6 +1214,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",

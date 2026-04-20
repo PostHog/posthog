@@ -1,18 +1,48 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import * as React from 'react'
 
-import { IconCheck, IconChevronRight } from '@posthog/icons'
+import { IconCheck } from '@posthog/icons'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 
 import { Label } from '../Label/Label'
+import { MenuSeparator } from '../Menus/Menus'
 
 /* -------------------------------------------------------------------------- */
-/*                           Button Context & Hook                            */
+/*                           Open State Context                               */
 /* -------------------------------------------------------------------------- */
 
-const DropdownMenu = DropdownMenuPrimitive.Root
+const DropdownMenuOpenContext = React.createContext(false)
+
+function DropdownMenu({
+    children,
+    open: controlledOpen,
+    defaultOpen,
+    onOpenChange,
+    ...props
+}: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>): JSX.Element {
+    const [internalOpen, setInternalOpen] = React.useState(defaultOpen ?? false)
+    const isOpen = controlledOpen ?? internalOpen
+
+    const handleOpenChange = React.useCallback(
+        (open: boolean) => {
+            if (controlledOpen === undefined) {
+                setInternalOpen(open)
+            }
+            onOpenChange?.(open)
+        },
+        [controlledOpen, onOpenChange]
+    )
+
+    return (
+        <DropdownMenuOpenContext.Provider value={isOpen}>
+            <DropdownMenuPrimitive.Root open={isOpen} onOpenChange={handleOpenChange} {...props}>
+                {children}
+            </DropdownMenuPrimitive.Root>
+        </DropdownMenuOpenContext.Provider>
+    )
+}
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 
@@ -110,7 +140,13 @@ const DropdownMenuContent = React.forwardRef<
             ...props
         },
         ref
-    ): JSX.Element => {
+    ): JSX.Element | null => {
+        const open = React.useContext(DropdownMenuOpenContext)
+
+        if (!open) {
+            return null
+        }
+
         return (
             <DropdownMenuPrimitive.Portal>
                 <DropdownMenuPrimitive.Content
@@ -203,35 +239,12 @@ const DropdownMenuSeparator = React.forwardRef<
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>
 >(
     ({ className, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.Separator
-            ref={ref}
-            className={cn('-mx-1 my-1 h-px bg-border-primary', className)}
-            {...props}
-        />
+        <DropdownMenuPrimitive.Separator ref={ref} {...props} asChild>
+            <MenuSeparator className={className} />
+        </DropdownMenuPrimitive.Separator>
     )
 )
 DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName
-
-interface DropdownMenuOpenIndicatorProps extends React.HTMLAttributes<HTMLOrSVGElement> {
-    intent?: 'default' | 'sub'
-}
-const DropdownMenuOpenIndicator = ({
-    className,
-    intent = 'default',
-    ...props
-}: DropdownMenuOpenIndicatorProps): JSX.Element => {
-    return (
-        <IconChevronRight
-            className={cn(
-                'ml-auto size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none',
-                intent === 'sub' && 'rotate-0 group-data-[state=open]/button-primitive:rotate-0',
-                className
-            )}
-            {...props}
-        />
-    )
-}
-DropdownMenuOpenIndicator.displayName = 'DropdownMenuOpenIndicator'
 
 const DropdownMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>): JSX.Element => {
     return <span className={cn('ml-auto text-xs tracking-widest opacity-60', className)} {...props} />
@@ -255,5 +268,4 @@ export {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
-    DropdownMenuOpenIndicator,
 }

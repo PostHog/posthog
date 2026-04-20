@@ -8,7 +8,6 @@ from django.db.models import Prefetch, Q
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
-    WRITES_IDX_MAP,
     BaseCheckpointSaver,
     ChannelVersions,
     Checkpoint,
@@ -251,6 +250,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         }
 
         with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint)
             updated_checkpoint, _ = ConversationCheckpoint.objects.update_or_create(
                 id=checkpoint["id"],
                 thread_id=thread_id,
@@ -316,6 +316,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             # `put_writes` and `put` are concurrently called without guaranteeing the call order
             # so we need to ensure the checkpoint is created before creating writes.
             # Thread.lock() will prevent race conditions though to the same checkpoints within a single pod.
+            # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint)
             checkpoint, _ = ConversationCheckpoint.objects.get_or_create(
                 id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns
             )
@@ -334,9 +335,13 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     )
                 )
 
+            # Setting update_conflicts=True to handle resume-from-interrupt scenarios.
+            # When a tool calls interrupt() and later resumes, LangGraph may write to the
+            # same (checkpoint_id, task_id, idx) combination. We want to ensure we update
+            # existing writes on duplicate key.
             ConversationCheckpointWrite.objects.bulk_create(
                 writes_to_create,
-                update_conflicts=all(w[0] in WRITES_IDX_MAP for w in writes),
+                update_conflicts=True,
                 unique_fields=["checkpoint", "task_id", "idx"],
                 update_fields=["channel", "type", "blob"],
             )

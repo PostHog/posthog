@@ -124,6 +124,12 @@ def test_meta_ads_config():
     assert config.account_id == "123"
     assert config.meta_ads_integration_id == 1
 
+    # Empty string for optional sync_lookback_days should be handled (not raise ValueError)
+    config_with_empty = MetaAdsSourceConfig.from_dict(
+        {"account_id": "123", "meta_ads_integration_id": 1, "sync_lookback_days": ""}
+    )
+    assert config_with_empty.sync_lookback_days is None
+
 
 def test_mongo_config():
     config = MongoDBSourceConfig.from_dict({"connection_string": "connection_string"})
@@ -252,15 +258,21 @@ def test_snowflake_config():
 
 
 def test_stripe_config():
-    config = StripeSourceConfig.from_dict({"stripe_account_id": "acct_id", "stripe_secret_key": "api_key"})
+    config = StripeSourceConfig.from_dict(
+        {"auth_method": {"selection": "api_key", "stripe_secret_key": "api_key"}, "stripe_account_id": "acct_id"}
+    )
     assert config.stripe_account_id == "acct_id"
-    assert config.stripe_secret_key == "api_key"
+    assert config.auth_method.selection == "api_key"
+    assert config.auth_method.stripe_secret_key == "api_key"
 
 
 def test_shopify_config():
-    config = ShopifySourceConfig.from_dict({"shopify_store_id": "store_id", "shopify_access_token": "access_token"})
+    config = ShopifySourceConfig.from_dict(
+        {"shopify_store_id": "store_id", "shopify_client_id": "client_id", "shopify_client_secret": "client_secret"}
+    )
     assert config.shopify_store_id == "store_id"
-    assert config.shopify_access_token == "access_token"
+    assert config.shopify_client_id == "client_id"
+    assert config.shopify_client_secret == "client_secret"
 
 
 def test_temporal_config():

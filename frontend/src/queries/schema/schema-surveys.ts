@@ -55,6 +55,7 @@ export interface SurveyQuestionSchema {
     scale?: number
     lowerBoundLabel?: string
     upperBoundLabel?: string
+    isNpsQuestion?: boolean
 
     // Link questions
     link?: string
@@ -105,6 +106,7 @@ export interface SurveyAppearanceSchema {
     zIndex?: string
     placeholder?: string
     inputBackground?: string
+    inputTextColor?: string
     buttonColor?: string
     buttonTextColor?: string
     textColor?: string

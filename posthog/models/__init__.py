@@ -21,22 +21,24 @@ from .batch_imports import BatchImport
 from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
-from .dashboard import Dashboard
-from .dashboard_templates import DashboardTemplate
+from .core_event import CoreEvent
+from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
-from .dashboard_tile import DashboardTile, Text
+from ..ducklake.models import DuckgresServer, DuckLakeBackfill, DuckLakeCatalog
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
+from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .event.event import Event
 from .event_buffer import EventBuffer
-from .event_definition import EventDefinition
-from .event_property import EventProperty
-from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
+
+# TODO: remove noqa once the event filters API imports from posthog.models
+from .event_filter_config import EventFilterConfig  # noqa: F401
+from products.event_definitions.backend.models import EventDefinition
+from products.event_definitions.backend.models import EventProperty
 from .exported_asset import ExportedAsset
+from .exported_recording import ExportedRecording
 from .feature_flag import FeatureFlag
-from .surveys.survey import Survey
-from .surveys.survey_response_archive import SurveyResponseArchive
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
@@ -48,31 +50,34 @@ from .host_definition import HostDefinition
 from .hog_flow import HogFlow
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
+from .health_issue import HealthIssue
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
-from .link import Link
-from .message_template import MessageTemplate
-from .message_category import MessageCategory
-from .message_preferences import MessageRecipientPreference
+from .llm_prompt import LLMPrompt
+from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .messaging import MessagingRecord
+from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
+from .project_secret_api_key import ProjectSecretAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, PluginSourceFile
 from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
-from .property_definition import PropertyDefinition
+from products.event_definitions.backend.models import PropertyDefinition
 from .proxy_record import ProxyRecord
+from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
+from .resource_transfer.resource_transfer import ResourceTransfer
 from .scheduled_change import ScheduledChange
-from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+from products.event_definitions.backend.models import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
@@ -83,13 +88,19 @@ from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
+from .repo_routing_rule import RepoRoutingRule
+from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
-from .web_experiment import WebExperiment
-
+from .web_analytics_filter_preset import WebAnalyticsFilterPreset
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
+from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
+
 __all__ = [
+    "Approval",
+    "ApprovalPolicy",
+    "ChangeRequest",
     "AlertConfiguration",
     "Action",
     "ActionStep",
@@ -107,23 +118,28 @@ __all__ = [
     "CohortPeople",
     "CohortCalculationHistory",
     "ColumnConfiguration",
+    "CoreEvent",
     "Dashboard",
+    "DataDeletionRequest",
     "DashboardTile",
     "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
+    "DuckgresServer",
+    "DuckLakeBackfill",
+    "DuckLakeCatalog",
     "Element",
     "ElementGroup",
     "Entity",
+    "EvaluationContext",
+    "FeatureFlagEvaluationContext",
+    "TeamDefaultEvaluationContext",
     "Event",
     "EventBuffer",
     "EventDefinition",
     "EventProperty",
-    "Experiment",
-    "ExperimentHoldout",
-    "ExperimentSavedMetric",
-    "ExperimentToSavedMetric",
     "ExportedAsset",
+    "ExportedRecording",
     "FeatureFlag",
     "FileSystem",
     "FileSystemViewLog",
@@ -132,10 +148,11 @@ __all__ = [
     "GroupUsageMetric",
     "GroupTypeMapping",
     "HeatmapSnapshot",
+    "HealthIssue",
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
-    "Link",
+    "LLMPrompt",
     "HostDefinition",
     "Insight",
     "InsightCachingState",
@@ -144,13 +161,13 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "InviteExpiredException",
-    "MessageCategory",
-    "MessageRecipientPreference",
-    "MessageTemplate",
+    "MaterializedColumnSlot",
+    "MaterializedColumnSlotState",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",
     "NotificationViewed",
+    "ObjectMediaPreview",
     "Organization",
     "OrganizationDomain",
     "OrganizationIntegration",
@@ -164,6 +181,7 @@ __all__ = [
     "Person",
     "PersonDistinctId",
     "PersonalAPIKey",
+    "ProjectSecretAPIKey",
     "PersonOverride",
     "PersonOverrideMapping",
     "Plugin",
@@ -176,8 +194,10 @@ __all__ = [
     "Property",
     "PropertyDefinition",
     "ProxyRecord",
+    "QuickFilter",
     "RetentionFilter",
     "RemoteConfig",
+    "ResourceTransfer",
     "EventSchema",
     "SavedHeatmap",
     "SchemaPropertyGroup",
@@ -188,17 +208,16 @@ __all__ = [
     "SharePassword",
     "SharingConfiguration",
     "Subscription",
-    "Survey",
-    "SurveyResponseArchive",
     "Tag",
     "TaggedItem",
     "Team",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
-    "Text",
     "EventIngestionRestrictionConfig",
     "UploadedMedia",
     "User",
+    "RepoRoutingRule",
+    "UserRepoPreference",
     "UserScenePersonalisation",
     "UserHomeSettings",
     "UserManager",
@@ -206,7 +225,7 @@ __all__ = [
     "UserGroupMembership",
     "DataWarehouseTable",
     "ScheduledChange",
-    "WebExperiment",
+    "WebAnalyticsFilterPreset",
     "Comment",
     # Deprecated models here for backwards compatibility
     "Prompt",

@@ -12,6 +12,7 @@ use crate::{
 
 pub fn inject(args: &InjectArgs) -> Result<()> {
     context().capture_command_invoked("hermes_inject");
+    args.validate()?;
     inject_impl(args, is_metro_bundle)
 }
 

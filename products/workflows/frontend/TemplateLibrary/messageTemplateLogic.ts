@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -6,15 +6,12 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { FileSystemIconType } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
 
 import { NEW_TEMPLATE } from './constants'
 import type { messageTemplateLogicType } from './messageTemplateLogicType'
-import { MessageTemplate } from './messageTemplatesLogic'
+import { MessageTemplate } from './types'
 
 export interface MessageTemplateLogicProps {
     id: string
@@ -23,8 +20,11 @@ export interface MessageTemplateLogicProps {
 
 export const messageTemplateLogic = kea<messageTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
-    key(({ id }) => id ?? 'unknown'),
     props({} as MessageTemplateLogicProps),
+    key(({ id }) => id ?? 'new'),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamIdStrict']],
+    })),
     actions({
         setTemplate: (template: MessageTemplate) => ({ template }),
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
@@ -32,35 +32,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         deleteTemplate: true,
     }),
     selectors({
-        breadcrumbs: [
-            (_, p) => [p.id],
-            (id): Breadcrumb[] => {
-                return [
-                    {
-                        key: [Scene.Workflows, 'library'],
-                        name: 'Library',
-                        path: urls.workflows('library'),
-                        iconType: 'workflows',
-                    },
-                    ...(id === 'new'
-                        ? [
-                              {
-                                  key: 'new-template',
-                                  name: 'New template',
-                                  path: urls.workflowsLibraryTemplateNew(),
-                                  iconType: 'workflows' as FileSystemIconType,
-                              },
-                          ]
-                        : [
-                              {
-                                  key: 'edit-template',
-                                  name: 'Manage template',
-                                  path: urls.workflowsLibraryTemplate(id),
-                                  iconType: 'workflows' as FileSystemIconType,
-                              },
-                          ]),
-                ]
-            },
+        logicProps: [
+            () => [(_, props: MessageTemplateLogicProps) => props],
+            (props: MessageTemplateLogicProps): MessageTemplateLogicProps => props,
         ],
     }),
     forms(({ actions }) => ({
@@ -126,6 +100,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
+        submitTemplateFailure: () => {
+            const errors = values.templateAllErrors
+            if (errors?.content?.email?.subject) {
+                lemonToast.error('Subject is required')
+            }
+        },
         saveTemplateSuccess: async ({ template }) => {
             lemonToast.success('Template saved')
             template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))
@@ -168,7 +148,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 return
             }
             await deleteWithUndo({
-                endpoint: `environments/@current/messaging_templates`,
+                endpoint: `environments/${values.currentTeamIdStrict}/messaging_templates`,
                 object: {
                     id: template.id,
                     name: template.name,

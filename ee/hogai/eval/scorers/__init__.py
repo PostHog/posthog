@@ -1,5 +1,5 @@
 import json
-from typing import Any, TypedDict, cast
+from typing import Any, Generic, TypedDict, cast
 
 from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
@@ -8,7 +8,7 @@ from braintrust import Score
 
 from posthog.schema import AssistantMessage, AssistantToolCall, NodeKind
 
-from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyAssistantSupportedQuery
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
 
 from .sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 
@@ -66,9 +66,9 @@ class ToolRelevance(ScorerWithPartial):
         return Score(name=self._name(), score=best_score)
 
 
-class PlanAndQueryOutput(TypedDict, total=False):
+class PlanAndQueryOutput(TypedDict, Generic[AnyPydanticModelQuery], total=False):
     plan: str | None
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | None
+    query: AnyAssistantGeneratedQuery | AnyPydanticModelQuery | None
     query_generation_retry_count: int | None
 
 

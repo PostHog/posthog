@@ -5,9 +5,12 @@ from urllib.parse import urlparse
 from django.template import Context, Engine
 
 import tiktoken
+import structlog
 from tiktoken.model import MODEL_TO_ENCODING
 
 from ee.hogai.session_summaries.constants import MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH
+
+logger = structlog.get_logger(__name__)
 
 
 def get_column_index(columns: list[str], column_name: str) -> int:
@@ -15,7 +18,9 @@ def get_column_index(columns: list[str], column_name: str) -> int:
         if c.replace("$", "") == column_name.replace("$", ""):
             return i
     else:
-        raise ValueError(f"Column {column_name} not found in the columns: {columns}")
+        msg = f"Column {column_name} not found in the columns: {columns}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
 
 
 def prepare_datetime(raw_time: datetime | str) -> datetime:
@@ -114,7 +119,9 @@ def serialize_to_sse_event(event_label: str, event_data: str) -> str:
 def generate_full_event_id(session_id: str, event_uuid: str) -> str:
     """Generate a full event ID from a session ID and an event UUID to be able to track events across sessions"""
     if not event_uuid:
-        raise ValueError(f"UUID is not present when generating event_id for session_id {session_id}")
+        msg = f"UUID is not present when generating event_id for session_id {session_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     full_event_id = f"{session_id}_{event_uuid}"
     return full_event_id
 
@@ -122,21 +129,23 @@ def generate_full_event_id(session_id: str, event_uuid: str) -> str:
 def unpack_full_event_id(full_event_id: str | None, session_id: str | None = None) -> tuple[str, str]:
     """Unpack a full event ID into a session ID and an event UUID"""
     if not full_event_id:
-        message = f"Full event ID is not present when unpacking"
+        msg = "Full event ID is not present when unpacking"
         if session_id:
-            message = f"{message} for session_id {session_id}"
-        raise ValueError(message)
+            msg = f"{msg} for session_id {session_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     try:
         unpacked_session_id, event_uuid = full_event_id.split("_")
     except ValueError as err:
-        message = f"Invalid full event ID: {full_event_id}"
+        msg = f"Invalid full event ID: {full_event_id}"
         if session_id:
-            message = f"{message} for session_id {session_id}"
-        raise ValueError(message) from err
+            msg = f"{msg} for session_id {session_id}"
+        logger.exception(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg) from err
     if session_id and unpacked_session_id != session_id:
-        raise ValueError(
-            f"Session ID mismatch when unpacking full event ID for session_id {session_id}: {full_event_id}"
-        )
+        msg = f"Session ID mismatch when unpacking full event ID for session_id {session_id}: {full_event_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return unpacked_session_id, event_uuid
 
 
@@ -159,3 +168,23 @@ def logging_session_ids(session_ids: list[str]) -> str:
     """Log a list of session ids in a readable format."""
     # Having 150 chars (4 uuids) is enough to identify the sessions and stay readable
     return f"Session IDs: {str(session_ids)[:MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH]}"
+
+
+def calculate_time_since_start(event_timestamp: str | datetime, session_start_time: datetime) -> int:
+    """
+    Calculate milliseconds between event timestamp and session start time.
+    Returns 0 for events that occurred before or exactly at session start.
+    """
+    if isinstance(event_timestamp, str):
+        event_timestamp = datetime.fromisoformat(event_timestamp)
+    return max(0, int((event_timestamp - session_start_time).total_seconds() * 1000))
+
+
+def calculate_time_till_end(event_timestamp: str | datetime, session_end_time: datetime) -> int:
+    """
+    Calculate milliseconds remaining until session end time.
+    Returns 0 for events that occurred at or after session end.
+    """
+    if isinstance(event_timestamp, str):
+        event_timestamp = datetime.fromisoformat(event_timestamp)
+    return max(0, int((session_end_time - event_timestamp).total_seconds() * 1000))

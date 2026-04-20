@@ -1,6 +1,8 @@
 /* oxlint-disable no-restricted-imports */
+import { BoxAndWiskers, BoxPlotController } from '@sgratzl/chartjs-chart-boxplot'
 import { ChartType, DefaultDataPoint, Chart as RawChart, Tooltip, registerables } from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
+import ZoomPlugin from 'chartjs-plugin-zoom'
 
 import { inStorybookTestRunner } from 'lib/utils'
 
@@ -9,7 +11,9 @@ if (registerables) {
     RawChart.register(...registerables)
 }
 RawChart.register(CrosshairPlugin)
-RawChart.defaults.animation['duration'] = 0
+RawChart.register(ZoomPlugin)
+RawChart.register(BoxPlotController, BoxAndWiskers)
+RawChart.defaults.animation = false
 
 // Create positioner to put tooltip at cursor position
 Tooltip.positioners.cursor = function (_, coordinates) {
@@ -21,7 +25,7 @@ export class Chart<
     TData = DefaultDataPoint<TType>,
     TLabel = unknown,
 > extends RawChart<TType, TData, TLabel> {
-    draw(): void {
+    override draw(): void {
         if (inStorybookTestRunner()) {
             // Disable Chart.js rendering in Storybook snapshots, as they've proven to be very flaky
             return

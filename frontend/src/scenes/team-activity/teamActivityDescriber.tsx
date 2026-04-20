@@ -1,4 +1,3 @@
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -8,6 +7,7 @@ import {
     defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -27,6 +27,7 @@ import {
 } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
+import { coreEventsConfigurationDescriber } from './core_events_config/coreEventsConfigurationDescriber'
 import { customerAnalyticsConfigurationDescriber } from './customer_analytics_config/customerAnalyticsConfigurationDescriber'
 import { marketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/marketingAnalyticsConfigurationDescriber'
 import { revenueAnalyticsConfigurationDescriber } from './revenue_analytics_config/revenueAnalyticsConfigurationDescriber'
@@ -120,7 +121,7 @@ function createSimpleValueHandler(fieldName: string, options: { useEmphasis?: bo
             return null
         }
 
-        const valueElement = useEmphasis ? <em>{change.after}</em> : change.after
+        const valueElement = useEmphasis ? <em>{String(change.after)}</em> : change.after
         return {
             description: [
                 <>
@@ -143,7 +144,7 @@ function createFixedVerbValueHandler(
             return null
         }
 
-        const valueElement = useEmphasis ? <em>{change.after}</em> : change.after
+        const valueElement = useEmphasis ? <em>{String(change.after)}</em> : change.after
         return {
             description: [
                 <>
@@ -156,7 +157,7 @@ function createFixedVerbValueHandler(
 
 const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) => ChangeMapping | null> = {
     // API-related tokens
-    api_token: createApiTokenHandler('project API key', 'set', 'reset'),
+    api_token: createApiTokenHandler('project token', 'set', 'reset'),
     secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
     secret_api_token_backup: (change) => {
         if (change.after === undefined || change.action !== 'deleted') {
@@ -357,6 +358,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         return { description: [<>{recordCanvasAfter ? 'enabled' : 'disabled'} canvas recording in session replay</>] }
     },
     session_recording_retention_period: createSimpleValueHandler('session replay data retention'),
+    session_recording_trigger_groups: createSessionRecordingConfigHandler('session recording trigger groups'),
 
     // Survey config
     surveys_opt_in: createBooleanToggleHandler('surveys'),
@@ -403,10 +405,15 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         return { description: descriptions }
     },
 
+    // Logs
+    logs_settings: () => {
+        return { description: [<>updated logs settings</>] }
+    },
+
     // Feature flag confirmation config
     feature_flag_confirmation_enabled: createBooleanToggleHandler('feature flag confirmation'),
     feature_flag_confirmation_message: createSimpleValueHandler('feature flag confirmation message'),
-    default_evaluation_environments_enabled: createBooleanToggleHandler('default evaluation environments'),
+    default_evaluation_contexts_enabled: createBooleanToggleHandler('default evaluation contexts'),
 
     // Autocapture
     autocapture_exceptions_errors_to_ignore: createArrayChangeHandler('autocapture exceptions errors to ignore'),
@@ -426,8 +433,8 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         '"internal & test account filters" for all insights'
     ),
     anonymize_ips: createBooleanToggleHandler('anonymizing IP addresses'),
-    slack_incoming_webhook: createSimpleValueHandler('Slack incoming webhook'),
     timezone: createSimpleValueHandler('timezone', { useEmphasis: true }),
+    business_model: createSimpleValueHandler('business model'),
     data_attributes: createArrayChangeHandler('data attributes'),
     live_events_columns: createArrayChangeHandler('live events columns'),
     app_urls: createArrayChangeHandler('app URLs'),
@@ -436,6 +443,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     person_on_events_querying_enabled: createBooleanToggleHandler('querying person on events'),
     human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
     receive_org_level_activity_logs: createBooleanToggleHandler('organization-level activity logs'),
+    require_evaluation_contexts: createBooleanToggleHandler('require evaluation context tags'),
     test_account_filters: (change) => {
         // change.after is an array of property filters
         // change.before is an array o property filters
@@ -575,7 +583,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
                 <>
                     {change.action === 'created' ? 'set' : 'changed'} the <em>primary dashboard</em> to{' '}
                     <Link to={urls.dashboard(change.after as number)}>
-                        <em>{change.after}</em>
+                        <em>{String(change.after)}</em>
                     </Link>
                 </>,
             ],
@@ -715,6 +723,13 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     customer_analytics_config: customerAnalyticsConfigurationDescriber,
     marketing_analytics_config: marketingAnalyticsConfigurationDescriber,
     revenue_analytics_config: revenueAnalyticsConfigurationDescriber,
+    core_events_config: coreEventsConfigurationDescriber,
+
+    // Conversations
+    conversations_enabled: createBooleanToggleHandler('conversations'),
+    conversations_settings: () => {
+        return { description: [<>updated conversations settings</>] }
+    },
 
     // should never come from the backend
     created_at: () => null,
@@ -736,7 +751,6 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     has_group_types: () => null,
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
-    experiment_recalculation_time: () => null,
     managed_viewsets: () => null,
 }
 

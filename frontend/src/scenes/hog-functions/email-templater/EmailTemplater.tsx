@@ -1,124 +1,203 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { useRef, useState } from 'react'
-import EmailEditor from 'react-email-editor'
+import { ChildFunctionProps, Form } from 'kea-forms'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import EmailEditor, { EditorRef } from 'react-email-editor'
 
-import { IconExternal, IconEye } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import {
+    IconChevronDown,
+    IconChevronLeft,
+    IconChevronRight,
+    IconCollapse,
+    IconExpand,
+    IconExternal,
+    IconPlus,
+    IconX,
+} from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
 
+import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
+import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
+
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
-import { EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
+import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 
 export type EmailEditorMode = 'full' | 'preview'
 
-/**
- * email: basic email editor with free-text fields, used for configuring email platform realtime destinations
- * native_email: advanced editor with email integration dropdown, and additional email metafields
- * native_email-template: editor for creating reusable templates, with only subject and preheader, and email content fields
- */
-export type EmailTemplaterType = 'email' | 'native_email' | 'native_email_template'
-type EmailMetaFieldKey = 'from' | 'preheader' | 'to' | 'subject'
-type EmailMetaField = {
-    key: EmailMetaFieldKey
-    label: string
-    optional: boolean
-    helpText?: string
-    isAdvancedField?: boolean
+function AddAdvancedFieldButtons(): JSX.Element | null {
+    const { hiddenAdvancedFields } = useValues(emailTemplaterLogic)
+    const { revealAdvancedField } = useActions(emailTemplaterLogic)
+
+    if (hiddenAdvancedFields.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex gap-1 px-2 py-1 border-b shrink-0">
+            {hiddenAdvancedFields.map((field) => (
+                <LemonButton
+                    key={field.key}
+                    size="xsmall"
+                    type="secondary"
+                    icon={<IconPlus />}
+                    onClick={() => revealAdvancedField(field.key)}
+                >
+                    {field.label}
+                </LemonButton>
+            ))}
+        </div>
+    )
 }
 
-const EMAIL_META_FIELDS = {
-    FROM: { key: 'from', label: 'From', optional: false },
-    PREHEADER: {
-        key: 'preheader',
-        label: 'Preheader',
-        optional: true,
-        helpText: 'This is the preview text that appears below the subject line in an inbox.',
-    },
-    TO: { key: 'to', label: 'To', optional: false },
-    SUBJECT: { key: 'subject', label: 'Subject', optional: false },
-} as const
+function PlainTextEditor(): JSX.Element {
+    const { logicProps, templatingEngine } = useValues(emailTemplaterLogic)
+    const { setTemplatingEngine } = useActions(emailTemplaterLogic)
 
-const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaField[]> = {
-    email: [EMAIL_META_FIELDS.FROM, EMAIL_META_FIELDS.TO, EMAIL_META_FIELDS.SUBJECT],
-    native_email: [
-        EMAIL_META_FIELDS.FROM,
-        EMAIL_META_FIELDS.TO,
-        EMAIL_META_FIELDS.SUBJECT,
-        EMAIL_META_FIELDS.PREHEADER,
-    ],
-    native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
+    return (
+        <LemonField name="text" className="flex flex-col flex-1">
+            {({ value, onChange }: ChildFunctionProps) => (
+                <div className="flex flex-col flex-1 relative group">
+                    <span className="absolute top-1 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
+                        <CyclotronJobTemplateSuggestionsButton
+                            templating={templatingEngine}
+                            setTemplatingEngine={setTemplatingEngine}
+                            value={value}
+                            onOptionSelect={(option) => {
+                                onChange(`${value || ''}${option.example}`)
+                            }}
+                        />
+                    </span>
+                    <CodeEditorResizeable
+                        className="flex-1"
+                        language={templatingEngine === 'hog' ? 'hogTemplate' : 'liquid'}
+                        value={value}
+                        onChange={onChange}
+                        globals={logicProps.variables}
+                        options={{
+                            wordWrap: 'on',
+                            lineNumbers: 'off',
+                            minimap: { enabled: false },
+                        }}
+                        minHeight="100%"
+                        maxHeight="100%"
+                        allowManualResize={false}
+                    />
+                </div>
+            )}
+        </LemonField>
+    )
 }
 
-function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
-    const { logicProps, mergeTags } = useValues(emailTemplaterLogic)
-    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen } = useActions(emailTemplaterLogic)
+function DestinationEmailTemplaterForm({
+    mode,
+    fieldsHidden,
+}: {
+    mode: EmailEditorMode
+    fieldsHidden?: boolean
+}): JSX.Element {
+    const { logicProps, mergeTags, activeContentTab } = useValues(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, setActiveContentTab } =
+        useActions(emailTemplaterLogic)
 
     return (
         <>
             <Form
-                className="flex overflow-hidden flex-col flex-1 rounded border"
+                {...{ className: 'flex overflow-hidden flex-col flex-1 rounded border' }}
                 logic={emailTemplaterLogic}
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                {EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type].map((field) => (
-                    <LemonField
-                        key={field.key}
-                        name={field.key}
-                        className="gap-1 pl-2 border-b shrink-0"
-                        // We will handle the error display ourselves
-                        renderError={() => null}
-                    >
-                        {({ value, onChange, error }) => (
-                            <div className="flex gap-2 items-center">
-                                <LemonLabel
-                                    className={error ? 'text-danger' : ''}
-                                    info={field.helpText}
-                                    showOptional={field.optional}
-                                >
-                                    {field.label}
-                                </LemonLabel>
-                                <CodeEditorInline
-                                    embedded
-                                    className="flex-1"
-                                    globals={logicProps.variables}
-                                    value={value}
-                                    onChange={onChange}
-                                />
-                            </div>
-                        )}
-                    </LemonField>
-                ))}
+                <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
+                    {EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type].map((field) => (
+                        <LemonField
+                            key={field.key}
+                            name={field.key}
+                            className="gap-1 pl-2 border-b shrink-0"
+                            // We will handle the error display ourselves
+                            renderError={() => null}
+                        >
+                            {({ value, onChange, error }: ChildFunctionProps) => (
+                                <div className="flex gap-2 items-center">
+                                    <LemonLabel
+                                        className={error ? 'text-danger' : ''}
+                                        info={field.helpText}
+                                        showOptional={field.optional}
+                                    >
+                                        {field.label}
+                                    </LemonLabel>
+                                    <CodeEditorInline
+                                        embedded
+                                        className="flex-1"
+                                        globals={logicProps.variables}
+                                        value={value}
+                                        onChange={onChange}
+                                    />
+                                </div>
+                            )}
+                        </LemonField>
+                    ))}
+                </div>
 
                 {mode === 'full' ? (
-                    <EmailEditor
-                        ref={(r) => setEmailEditorRef(r)}
-                        onReady={() => onEmailEditorReady()}
-                        minHeight={20}
-                        options={{
-                            mergeTags,
-                            displayMode: 'email',
-                            features: {
-                                preview: true,
-                                imageEditor: true,
-                                stockImages: false,
-                            },
-                        }}
-                    />
+                    <>
+                        <LemonTabs
+                            activeKey={activeContentTab}
+                            onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
+                            tabs={[
+                                { key: 'visual', label: 'Visual' },
+                                { key: 'plaintext', label: 'Plain text' },
+                            ]}
+                            className="px-2 shrink-0 border-b"
+                        />
+                        <div className="relative flex flex-col flex-1">
+                            <div
+                                className={clsx(
+                                    activeContentTab === 'visual'
+                                        ? 'flex flex-col flex-1'
+                                        : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                                )}
+                            >
+                                <EmailEditor
+                                    ref={(r: EditorRef | null) => setEmailEditorRef(r)}
+                                    onReady={() => onEmailEditorReady()}
+                                    minHeight={20}
+                                    options={{
+                                        mergeTags,
+                                        displayMode: 'email',
+                                        appearance: {
+                                            actionBar: {
+                                                placement: 'bottom',
+                                            },
+                                            panels: {
+                                                tools: {
+                                                    dock: 'right',
+                                                    collapsible: true,
+                                                },
+                                            },
+                                        },
+                                        features: {
+                                            preview: true,
+                                            imageEditor: true,
+                                            stockImages: false,
+                                        },
+                                    }}
+                                />
+                            </div>
+                            {activeContentTab === 'plaintext' && <PlainTextEditor />}
+                        </div>
+                    </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
-                        {({ value }) => (
+                        {({ value }: ChildFunctionProps) => (
                             <>
                                 <div className="flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100">
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
@@ -127,7 +206,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                                     </LemonButton>
                                 </div>
 
-                                <iframe srcDoc={value} className="flex-1" />
+                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
                             </>
                         )}
                     </LemonField>
@@ -251,151 +330,267 @@ function LiquidSupportedText({
     )
 }
 
+const CARD_WIDTH = 192 // w-48
+const CARD_GAP = 12 // gap-3
+
+function TemplateSlider({
+    templates,
+    onSelect,
+    onSaveAsTemplate,
+}: {
+    templates: any[]
+    onSelect: (template: any) => void
+    onSaveAsTemplate?: () => void
+}): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const [page, setPage] = useState(0)
+    const [pageSize, setPageSize] = useState(5)
+    const containerRef = useRef<HTMLDivElement>(null)
+
+    const updatePageSize = useCallback(() => {
+        if (containerRef.current) {
+            const width = containerRef.current.offsetWidth
+            const count = Math.max(1, Math.floor((width + CARD_GAP) / (CARD_WIDTH + CARD_GAP)))
+            setPageSize(count)
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!expanded) {
+            return
+        }
+        updatePageSize()
+        const observer = new ResizeObserver(updatePageSize)
+        if (containerRef.current) {
+            observer.observe(containerRef.current)
+        }
+        return () => observer.disconnect()
+    }, [expanded, updatePageSize])
+
+    const totalPages = Math.ceil(templates.length / pageSize)
+    const clampedPage = Math.min(page, totalPages - 1)
+    const visibleTemplates = templates.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize)
+
+    return (
+        <div className="border-b">
+            <div
+                className="flex gap-2 items-center px-2 py-1 cursor-pointer select-none"
+                onClick={() => setExpanded(!expanded)}
+            >
+                <IconChevronDown className={clsx('w-4 h-4 transition-transform', !expanded && '-rotate-90')} />
+                <span className="flex-1 text-sm text-secondary">Start from a template (optional)</span>
+                {onSaveAsTemplate && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onSaveAsTemplate()
+                        }}
+                    >
+                        Save as new template
+                    </LemonButton>
+                )}
+            </div>
+            {expanded && (
+                <div ref={containerRef} className="flex items-center gap-1 px-1 pb-2">
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronLeft />}
+                        disabled={clampedPage === 0}
+                        onClick={() => setPage(clampedPage - 1)}
+                    />
+                    <div className="flex gap-3 flex-1 overflow-hidden" key={clampedPage}>
+                        {visibleTemplates.map((template, index) => (
+                            <div
+                                key={template.id}
+                                className="shrink-0 w-48 h-56 MessageTemplateSlider__SlideIn--animate"
+                                style={{ animationDelay: `${index * 50}ms` }}
+                            >
+                                <MessageTemplateCard
+                                    template={template}
+                                    index={clampedPage * pageSize + index}
+                                    onClick={() => onSelect(template)}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronRight />}
+                        disabled={clampedPage >= totalPages - 1}
+                        onClick={() => setPage(clampedPage + 1)}
+                    />
+                </div>
+            )}
+        </div>
+    )
+}
+
 function NativeEmailTemplaterForm({
     mode,
+    fieldsHidden,
     onSaveAsTemplate,
 }: {
     mode: EmailEditorMode
+    fieldsHidden?: boolean
     onSaveAsTemplate?: () => void
 }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
+    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields } =
         useValues(emailTemplaterLogic)
-    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isWorkflowsProductEnabled = featureFlags[FEATURE_FLAGS.WORKFLOWS]
+    const {
+        setEmailEditorRef,
+        onEmailEditorReady,
+        setIsModalOpen,
+        applyTemplate,
+        setActiveContentTab,
+        hideAdvancedField,
+    } = useActions(emailTemplaterLogic)
 
     const [previewTemplate, setPreviewTemplate] = useState<(typeof templates)[0] | null>(null)
-    const isPreviewClick = useRef(false)
 
     return (
         <>
             <Form
-                className="flex overflow-hidden flex-col flex-1 rounded border"
+                {...{ className: 'flex overflow-hidden flex-col flex-1 rounded border' }}
                 logic={emailTemplaterLogic}
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                {EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type].map((field) => (
-                    <LemonField
-                        key={field.key}
-                        name={field.key}
-                        className="gap-1 pl-2 border-b shrink-0"
-                        // We will handle the error display ourselves
-                        renderError={() => null}
-                        showOptional={field.optional}
-                    >
-                        {({ value, onChange, error }) => (
-                            <div className="flex gap-2 items-center">
-                                <LemonLabel
-                                    className={error ? 'text-danger' : ''}
-                                    info={field.helpText}
-                                    showOptional={field.optional}
-                                >
-                                    {field.label}
-                                </LemonLabel>
-                                {field.key === 'from' ? (
-                                    <NativeEmailIntegrationChoice value={value} onChange={onChange} />
-                                ) : field.key === 'to' ? (
-                                    /**
-                                     * In email inputs, "to" maps to { email: string; name: string; },
-                                     * whereas other fields map directly to their string value
-                                     */
-                                    <LiquidSupportedText
-                                        value={value?.email}
-                                        onChange={(email) => onChange({ ...value, email })}
-                                        globals={logicProps.variables}
-                                    />
-                                ) : (
-                                    <LiquidSupportedText
-                                        value={value}
-                                        onChange={onChange}
-                                        globals={logicProps.variables}
-                                    />
-                                )}
-                            </div>
-                        )}
-                    </LemonField>
-                ))}
+                <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
+                    {visibleFields.map((field) => (
+                        <LemonField
+                            key={field.key}
+                            name={field.key}
+                            className="gap-1 pl-2 border-b shrink-0"
+                            // We will handle the error display ourselves
+                            renderError={() => null}
+                            showOptional={field.optional}
+                        >
+                            {({ value, onChange, error }: ChildFunctionProps) => (
+                                <div className="flex gap-2 items-center">
+                                    <LemonLabel
+                                        className={error ? 'text-danger' : ''}
+                                        info={field.helpText}
+                                        showOptional={field.optional}
+                                    >
+                                        {field.label}
+                                    </LemonLabel>
+                                    {field.key === 'from' ? (
+                                        <NativeEmailIntegrationChoice value={value} onChange={onChange} />
+                                    ) : field.key === 'to' ? (
+                                        /**
+                                         * In email inputs, "to" maps to { email: string; name: string; },
+                                         * whereas other fields map directly to their string value
+                                         */
+                                        <LiquidSupportedText
+                                            value={value?.email}
+                                            onChange={(email) => onChange({ ...value, email })}
+                                            globals={logicProps.variables}
+                                        />
+                                    ) : (
+                                        <LiquidSupportedText
+                                            value={value}
+                                            onChange={onChange}
+                                            globals={logicProps.variables}
+                                        />
+                                    )}
+                                    {field.isAdvancedField && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="tertiary"
+                                            icon={<IconX />}
+                                            className="mr-2"
+                                            onClick={() => {
+                                                onChange('')
+                                                hideAdvancedField(field.key)
+                                            }}
+                                            tooltip="Remove field"
+                                        />
+                                    )}
+                                </div>
+                            )}
+                        </LemonField>
+                    ))}
+
+                    <AddAdvancedFieldButtons />
+
+                    {mode === 'full' && templates.length > 0 && (
+                        <TemplateSlider
+                            templates={templates}
+                            onSelect={applyTemplate}
+                            onSaveAsTemplate={onSaveAsTemplate}
+                        />
+                    )}
+                </div>
 
                 {mode === 'full' ? (
                     <>
-                        {isWorkflowsProductEnabled && (
-                            <div className="flex gap-2 items-center px-2 py-1 border-b">
-                                <span className="flex-1">Start from a template (optional)</span>
-                                <LemonSelect
-                                    size="xsmall"
-                                    placeholder="Choose template"
-                                    loading={templatesLoading}
-                                    value={appliedTemplate?.id ?? null}
-                                    options={[
-                                        {
-                                            title: 'Templates',
-                                            options: templates.map((template) => ({
-                                                label: template.name,
-                                                labelInMenu: (
-                                                    <div className="flex items-center justify-between w-full gap-2">
-                                                        <span className="flex-1">{template.name}</span>
-                                                        <span
-                                                            className="cursor-pointer text-muted hover:text-default"
-                                                            onClick={() => {
-                                                                isPreviewClick.current = true
-                                                                setPreviewTemplate(template)
-                                                            }}
-                                                            title="Preview template"
-                                                        >
-                                                            <IconEye className="text-lg" />
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: template.id,
-                                            })),
-                                        },
-                                        {
-                                            options: [
-                                                {
-                                                    label: 'Save as new template',
-                                                    value: 'save-as-template',
+                        <LemonTabs
+                            activeKey={activeContentTab}
+                            onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
+                            tabs={[
+                                { key: 'visual', label: 'Visual' },
+                                { key: 'plaintext', label: 'Plain text' },
+                            ]}
+                            className="px-2 shrink-0 border-b"
+                        />
+                        <div className="relative flex flex-col flex-1">
+                            <div
+                                className={clsx(
+                                    activeContentTab === 'visual'
+                                        ? 'flex flex-col flex-1'
+                                        : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                                )}
+                            >
+                                <EmailEditor
+                                    ref={(r: EditorRef | null) => setEmailEditorRef(r)}
+                                    onReady={() => onEmailEditorReady()}
+                                    minHeight={20}
+                                    options={{
+                                        mergeTags,
+                                        displayMode: 'email',
+                                        appearance: {
+                                            actionBar: {
+                                                placement: 'bottom',
+                                            },
+                                            panels: {
+                                                tools: {
+                                                    dock: 'right',
+                                                    collapsible: true,
                                                 },
-                                            ],
+                                            },
                                         },
-                                    ]}
-                                    onChange={(id) => {
-                                        // Check if this was a preview click
-                                        if (isPreviewClick.current) {
-                                            isPreviewClick.current = false
-                                            return
-                                        }
-
-                                        if (id === 'save-as-template') {
-                                            onSaveAsTemplate?.()
-                                            return
-                                        }
-                                        const template = templates.find((t) => t.id === id)
-                                        if (template) {
-                                            applyTemplate(template)
-                                        }
+                                        features: {
+                                            preview: true,
+                                            imageEditor: true,
+                                            stockImages: false,
+                                        },
+                                        projectId: unlayerEditorProjectId,
+                                        customJS: [unsubscribeLinkToolCustomJs],
+                                        fonts: unlayerEditorProjectId
+                                            ? {
+                                                  showDefaultFonts: true,
+                                                  customFonts: [
+                                                      {
+                                                          label: 'Ubuntu',
+                                                          value: "'Ubuntu',Tahoma,Verdana,Segoe,sans-serif",
+                                                          url: 'https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700',
+                                                          weights: [
+                                                              { label: 'Light', value: 300 },
+                                                              { label: 'Regular', value: 400 },
+                                                              { label: 'Medium', value: 500 },
+                                                              { label: 'Bold', value: 700 },
+                                                          ],
+                                                      },
+                                                  ],
+                                              }
+                                            : undefined,
                                     }}
-                                    data-attr="email-template-selector"
                                 />
                             </div>
-                        )}
-                        <EmailEditor
-                            ref={(r) => setEmailEditorRef(r)}
-                            onReady={() => onEmailEditorReady()}
-                            minHeight={20}
-                            options={{
-                                mergeTags,
-                                displayMode: 'email',
-                                features: {
-                                    preview: true,
-                                    imageEditor: true,
-                                    stockImages: false,
-                                },
-                                projectId: unlayerEditorProjectId,
-                                customJS: isWorkflowsProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
-                            }}
-                        />
+                            {activeContentTab === 'plaintext' && <PlainTextEditor />}
+                        </div>
                         <LemonModal
                             isOpen={!!previewTemplate}
                             onClose={() => setPreviewTemplate(null)}
@@ -405,6 +600,8 @@ function NativeEmailTemplaterForm({
                             <div className="h-[80vh] overflow-auto">
                                 <iframe
                                     srcDoc={previewTemplate?.content.email.html}
+                                    sandbox=""
+                                    title="Email template preview"
                                     className="w-full h-full border-0"
                                 />
                             </div>
@@ -412,7 +609,7 @@ function NativeEmailTemplaterForm({
                     </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
-                        {({ value }) => (
+                        {({ value }: ChildFunctionProps) => (
                             <>
                                 <div
                                     className={clsx(
@@ -426,7 +623,7 @@ function NativeEmailTemplaterForm({
                                     </LemonButton>
                                 </div>
 
-                                <iframe srcDoc={value} className="flex-1" />
+                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
                             </>
                         )}
                     </LemonField>
@@ -438,19 +635,23 @@ function NativeEmailTemplaterForm({
 
 function EmailTemplaterForm({
     mode,
+    fieldsHidden,
     onSaveAsTemplate,
 }: {
     mode: EmailEditorMode
+    fieldsHidden?: boolean
     onSaveAsTemplate?: () => void
 }): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
 
     switch (logicProps.type) {
         case 'email':
-            return <DestinationEmailTemplaterForm mode={mode} />
+            return <DestinationEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
         case 'native_email_template':
         case 'native_email':
-            return <NativeEmailTemplaterForm mode={mode} onSaveAsTemplate={onSaveAsTemplate} />
+            return (
+                <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} onSaveAsTemplate={onSaveAsTemplate} />
+            )
     }
 }
 
@@ -526,6 +727,13 @@ function EmailTemplaterModal(): JSX.Element {
         useValues(emailTemplaterLogic)
     const { closeWithConfirmation, submitEmailTemplate, saveAsTemplate, setIsSaveTemplateModalOpen } =
         useActions(emailTemplaterLogic)
+    const [fieldsHidden, setFieldsHidden] = useState(false)
+
+    useEffect(() => {
+        if (!isModalOpen) {
+            setFieldsHidden(false)
+        }
+    }, [isModalOpen])
 
     return (
         <>
@@ -535,12 +743,25 @@ function EmailTemplaterModal(): JSX.Element {
                 onClose={() => closeWithConfirmation()}
                 hasUnsavedInput={emailTemplateChanged}
             >
-                <div className="h-[80vh] flex">
+                <div className="h-[85vh] flex relative">
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
+                        onClick={() => setFieldsHidden(!fieldsHidden)}
+                        className="absolute -top-1 right-10 z-10"
+                    >
+                        {fieldsHidden ? 'Show fields' : 'Hide fields'}
+                    </LemonButton>
                     <div className="flex flex-col flex-1">
                         <div className="shrink-0">
                             <h2>Editing email template</h2>
                         </div>
-                        <EmailTemplaterForm mode="full" onSaveAsTemplate={() => setIsSaveTemplateModalOpen(true)} />
+                        <EmailTemplaterForm
+                            mode="full"
+                            fieldsHidden={fieldsHidden}
+                            onSaveAsTemplate={() => setIsSaveTemplateModalOpen(true)}
+                        />
                         <div className="flex gap-2 items-center mt-2">
                             <div className="flex-1" />
                             <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>

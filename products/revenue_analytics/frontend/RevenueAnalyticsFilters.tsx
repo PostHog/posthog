@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconFilter, IconGraph, IconLineGraph, IconPlusSmall } from '@posthog/icons'
+import { IconFilter, IconGear, IconGraph, IconLineGraph, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions, Popover, Tooltip } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
@@ -16,6 +18,8 @@ import { IconAreaChart, IconWithCount } from 'lib/lemon-ui/icons'
 import { DATE_FORMAT, formatDateRange } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import MaxTool from 'scenes/max/MaxTool'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { RevenueAnalyticsBreakdown } from '~/queries/schema/schema-general'
@@ -98,9 +102,35 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
             }
             right={
                 <>
-                    <Tooltip title="Refresh data">
-                        <ReloadAll iconOnly />
-                    </Tooltip>
+                    <AppShortcut
+                        name="RevenueAnalyticsSettings"
+                        keybind={[keyBinds.settings]}
+                        intent="Open settings"
+                        interaction="click"
+                        scope={Scene.RevenueAnalytics}
+                    >
+                        <Tooltip title="Update revenue analytics settings">
+                            <LemonButton
+                                to={urls.revenueSettings()}
+                                icon={<IconGear />}
+                                type="secondary"
+                                size="small"
+                                className="hidden md:flex"
+                            />
+                        </Tooltip>
+                    </AppShortcut>
+
+                    <AppShortcut
+                        name="RevenueAnalyticsRefresh"
+                        keybind={[keyBinds.refresh]}
+                        intent="Refresh data"
+                        interaction="click"
+                        scope={Scene.RevenueAnalytics}
+                    >
+                        <Tooltip title="Refresh data">
+                            <ReloadAll iconOnly />
+                        </Tooltip>
+                    </AppShortcut>
 
                     <LemonSelect
                         value={insightsDisplayMode}
@@ -127,35 +157,35 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
     const [displayFilters, setDisplayFilters] = useState(false)
 
     return (
-        <MaxTool
-            identifier="filter_revenue_analytics"
-            context={{
-                current_filters: {
-                    date_from: dateFrom,
-                    date_to: dateTo,
-                    breakdown: breakdownProperties,
-                    properties: revenueAnalyticsFilter,
-                },
-            }}
-            contextDescription={{
-                text: 'Current filters',
-                icon: <IconFilter />,
-            }}
-            callback={(toolOutput: Record<string, any>) => {
-                // Types suck here, but they *should* be correct if pydantic does its job correctly
-                setRevenueAnalyticsFilters(toolOutput.properties)
-                setDates(toolOutput.date_from, toolOutput.date_to)
-                setBreakdownProperties(toolOutput.breakdown)
-            }}
-            initialMaxPrompt="Show my revenue for "
-            suggestions={[
-                'Show my revenue from the last year',
-                'Show what my revenue is in France',
-                'Break down my revenue by product for the last year',
-            ]}
-            onMaxOpen={() => setDisplayFilters(false)}
-        >
-            <div className="flex flex-row gap-2">
+        <div className="flex flex-row gap-2">
+            <MaxTool
+                identifier="filter_revenue_analytics"
+                context={{
+                    current_filters: {
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                        breakdown: breakdownProperties,
+                        properties: revenueAnalyticsFilter,
+                    },
+                }}
+                contextDescription={{
+                    text: 'Current filters',
+                    icon: <IconFilter />,
+                }}
+                callback={(toolOutput: Record<string, any>) => {
+                    // Types suck here, but they *should* be correct if pydantic does its job correctly
+                    setRevenueAnalyticsFilters(toolOutput.properties)
+                    setDates(toolOutput.date_from, toolOutput.date_to)
+                    setBreakdownProperties(toolOutput.breakdown)
+                }}
+                initialMaxPrompt="Show my revenue for "
+                suggestions={[
+                    'Show my revenue from the last year',
+                    'Show what my revenue is in France',
+                    'Break down my revenue by product for the last year',
+                ]}
+                onMaxOpen={() => setDisplayFilters(false)}
+            >
                 <Popover
                     visible={displayFilters}
                     onClickOutside={() => setDisplayFilters(false)}
@@ -176,29 +206,37 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                         </div>
                     }
                 >
-                    <LemonButton
-                        data-attr="show-revenue-analytics-filters"
-                        icon={
-                            <IconWithCount count={revenueAnalyticsFilter.length} showZero={false}>
-                                <IconFilter />
-                            </IconWithCount>
-                        }
-                        type="secondary"
-                        size="small"
-                        onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
+                    <AppShortcut
+                        name="RevenueAnalyticsFilters"
+                        keybind={[keyBinds.filter]}
+                        intent="Toggle filters"
+                        interaction="click"
+                        scope={Scene.RevenueAnalytics}
                     >
-                        Filters
-                    </LemonButton>
+                        <LemonButton
+                            data-attr="show-revenue-analytics-filters"
+                            icon={
+                                <IconWithCount count={revenueAnalyticsFilter.length} showZero={false}>
+                                    <IconFilter />
+                                </IconWithCount>
+                            }
+                            type="secondary"
+                            size="small"
+                            onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
+                        >
+                            Filters
+                        </LemonButton>
+                    </AppShortcut>
                 </Popover>
+            </MaxTool>
 
-                <div className="flex flex-row gap-1">
-                    {breakdownProperties.map((breakdown) => (
-                        <EditableBreakdownTag key={breakdown.property} breakdown={breakdown} />
-                    ))}
-                    <AddBreakdownButton />
-                </div>
+            <div className="flex flex-row gap-1">
+                {breakdownProperties.map((breakdown) => (
+                    <EditableBreakdownTag key={breakdown.property} breakdown={breakdown} />
+                ))}
+                <AddBreakdownButton />
             </div>
-        </MaxTool>
+        </div>
     )
 }
 
@@ -219,7 +257,7 @@ const AddBreakdownButton = (): JSX.Element => {
                 disabledReason={breakdownProperties.length >= 2 ? 'You can only have up to 2 breakdowns' : undefined}
                 size="small"
             >
-                Add breakdown
+                Breakdown
             </LemonButton>
         </BreakdownPopover>
     )

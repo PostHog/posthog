@@ -1,7 +1,9 @@
+import os
+import json
 import random
 import logging
 from contextlib import contextmanager
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 from unittest import mock
@@ -13,7 +15,7 @@ from django.db import (
     Error as DjangoDatabaseError,
     connections,
 )
-from django.http import HttpResponse
+from django.http import JsonResponse
 from django.test import Client
 
 import psycopg2
@@ -272,11 +274,11 @@ def test_readyz_complains_if_role_does_not_exist(client: Client):
     assert data["error"] == "InvalidRole"
 
 
-def get_readyz(client: Client, exclude: Optional[list[str]] = None, role: Optional[str] = None) -> HttpResponse:
+def get_readyz(client: Client, exclude: Optional[list[str]] = None, role: Optional[str] = None) -> Any:
     return client.get("/_readyz", data={"exclude": exclude or [], "role": role or ""})
 
 
-def get_livez(client: Client) -> HttpResponse:
+def get_livez(client: Client) -> Any:
     return client.get("/_livez")
 
 
@@ -335,8 +337,9 @@ def simulate_clickhouse_cannot_connect():
     """
     Simulates ClickHouse being unreachable by returning a 500 error response
     """
+    from posthog.security.outbound_proxy import internal_requests
 
-    with patch.object(requests, "get") as requests_mock:
+    with patch.object(internal_requests, "get") as requests_mock:
         response = requests.Response()
         response.status_code = 500
         requests_mock.return_value = response
@@ -366,6 +369,51 @@ def simulate_cache_cannot_connect():
             django_redis.exceptions.ConnectionInterrupted(mock.Mock())
         )
         yield
+
+
+@contextmanager
+def simulate_prestop_marker():
+    """
+    Simulates the prestop marker file existing by mocking os.path.exists.
+    """
+    original_exists = os.path.exists
+
+    def mock_exists(path):
+        if path == "/tmp/posthog_prestop":
+            return True
+        return original_exists(path)
+
+    with patch("posthog.health.os.path.exists", side_effect=mock_exists):
+        yield
+
+
+def test_readyz_returns_503_when_prestop_marker_exists(client: Client):
+    with simulate_prestop_marker():
+        resp = get_readyz(client)
+
+    assert isinstance(resp, JsonResponse)
+    assert resp.status_code == 503
+    assert json.loads(resp.content) == {"shutting_down": True}
+
+
+@pytest.mark.django_db
+def test_readyz_returns_503_when_prestop_marker_exists_with_role(client: Client):
+    with simulate_prestop_marker():
+        resp = get_readyz(client, role="web")
+
+    assert isinstance(resp, JsonResponse)
+    assert resp.status_code == 503
+    assert json.loads(resp.content) == {"shutting_down": True}
+
+
+@pytest.mark.django_db
+def test_readyz_skips_prestop_check_when_setting_is_empty(client: Client):
+    with patch("posthog.health.settings.PRESTOP_MARKER_FILE", ""):
+        with simulate_prestop_marker():
+            resp = get_readyz(client)
+
+    assert isinstance(resp, JsonResponse)
+    assert resp.status_code == 200
 
 
 @pytest.fixture(autouse=True)

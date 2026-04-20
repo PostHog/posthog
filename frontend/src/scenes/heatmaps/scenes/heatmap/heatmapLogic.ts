@@ -1,17 +1,34 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
 
 import { HeatmapStatus, HeatmapType } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
+
+const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
+
+// Screenshot heatmaps store a same-origin API path as `screenshotUrl`; the export backend's
+// SSRF validation rejects URLs without an http(s) scheme, so we resolve it to an absolute URL.
+export function resolveHeatmapExportUrl(
+    type: HeatmapType,
+    screenshotUrl: string | null,
+    displayUrl: string | null,
+    origin: string = window.location.origin
+): string {
+    if (type === 'screenshot') {
+        return screenshotUrl ? new URL(screenshotUrl, origin).toString() : ''
+    }
+    return displayUrl ?? ''
+}
 
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['scenes', 'heatmaps', 'scenes', 'heatmap', 'heatmapLogic']),
@@ -20,13 +37,20 @@ export const heatmapLogic = kea<heatmapLogicType>([
     connect(() => ({
         values: [
             heatmapsBrowserLogic,
-            ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'widthOverride'],
+            ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized'],
             heatmapDataLogic({ context: 'in-app' }),
-            ['heatmapFilters', 'heatmapColorPalette', 'heatmapFixedPositionMode', 'commonFilters'],
+            [
+                'heatmapFilters',
+                'heatmapColorPalette',
+                'heatmapFixedPositionMode',
+                'commonFilters',
+                'widthOverride',
+                'heightOverride',
+            ],
         ],
         actions: [
             heatmapsBrowserLogic,
-            ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'setIframeWidth'],
+            ['setDataUrl', 'setDisplayUrl', 'onIframeLoad'],
             heatmapsSceneLogic,
             ['loadSavedHeatmaps'],
             heatmapDataLogic({ context: 'in-app' }),
@@ -41,6 +65,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         updateHeatmap: true,
         setLoading: (loading: boolean) => ({ loading }),
         setType: (type: HeatmapType) => ({ type }),
+        changeCaptureMethod: (type: HeatmapType) => ({ type }),
         setWidth: (width: number) => ({ width }),
         setName: (name: string) => ({ name }),
         setScreenshotUrl: (url: string | null) => ({ url }),
@@ -49,12 +74,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
         pollScreenshotStatus: (id: number, width?: number) => ({ id, width }),
         setHeatmapId: (id: number | null) => ({ id }),
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
+        regenerateScreenshot: true,
         exportHeatmap: true,
         setContainerWidth: (containerWidth: number | null) => ({ containerWidth }),
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
-        width: [1024 as number | null, { setWidth: (_, { width }) => width }],
+        width: [DEFAULT_HEATMAP_WIDTH as number | null, { setWidth: (_, { width }) => width }],
         name: ['New heatmap', { setName: (_, { name }) => name }],
         loading: [false, { setLoading: (_, { loading }) => loading }],
         status: ['processing' as HeatmapStatus, { setStatus: (_, { status }) => status }],
@@ -68,6 +94,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
         containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
     }),
     listeners(({ actions, values, props }) => ({
+        changeCaptureMethod: async ({ type }) => {
+            actions.setType(type)
+            if (!values.heatmapId) {
+                return
+            }
+            await actions.updateHeatmap()
+            if (type === 'screenshot' && !values.screenshotUrl) {
+                actions.regenerateScreenshot()
+            }
+        },
         load: async () => {
             if (!props.id || String(props.id) === 'new') {
                 return
@@ -81,7 +117,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setDataUrl(item.data_url)
                 actions.setType(item.type)
                 if (item.type === 'screenshot') {
-                    const desiredWidth = values.widthOverride ?? 1024
+                    const desiredWidth = values.widthOverride
                     if (item.status === 'completed' && item.has_content) {
                         actions.setScreenshotUrl(
                             `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${item.id}/content/?width=${desiredWidth}`
@@ -100,16 +136,15 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
         },
         // React to viewport width changes by updating the image URL directly
-        setIframeWidth: async ({ width }) => {
+        setWindowWidthOverride: async ({ widthOverride }) => {
             if (values.type !== 'screenshot' || !values.heatmapId) {
                 return
             }
-            const w = width ?? values.widthOverride ?? 1024
+            const w = widthOverride ?? DEFAULT_HEATMAP_WIDTH
             actions.setScreenshotError(null)
             actions.setScreenshotUrl(
                 `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${values.heatmapId}/content/?width=${w}`
             )
-            actions.setWindowWidthOverride(w)
         },
         pollScreenshotStatus: async ({ id, width }, breakpoint) => {
             let attempts = 0
@@ -120,7 +155,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 try {
                     const contentResponse = await api.heatmapScreenshots.getContent(id)
                     if (contentResponse.success) {
-                        const w = width ?? 1024
+                        const w = width ?? DEFAULT_HEATMAP_WIDTH
                         actions.setScreenshotUrl(
                             `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${id}/content/?width=${w}`
                         )
@@ -130,7 +165,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     } else {
                         const screenshot = contentResponse.data
                         if (screenshot.status === 'completed' && screenshot.has_content) {
-                            const w = width ?? 1024
+                            const w = width ?? DEFAULT_HEATMAP_WIDTH
                             actions.setScreenshotUrl(
                                 `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${screenshot.id}/content/?width=${w}`
                             )
@@ -154,14 +189,29 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
 
             if (attempts >= maxAttempts) {
+                actions.setGeneratingScreenshot(false)
                 actions.setScreenshotError('Screenshot generation timed out')
+            }
+        },
+        regenerateScreenshot: async () => {
+            if (!props.id || !values.heatmapId) {
+                return
+            }
+            actions.setScreenshotError(null)
+            actions.setScreenshotUrl(null)
+            actions.setScreenshotLoaded(false)
+            try {
+                await api.savedHeatmaps.regenerate(props.id)
+                actions.pollScreenshotStatus(values.heatmapId, values.widthOverride)
+            } catch (error: any) {
+                actions.setScreenshotError(error.detail || 'Failed to regenerate screenshot')
             }
         },
         createHeatmap: async () => {
             actions.setLoading(true)
             try {
                 const data = {
-                    name: values.name,
+                    name: values.name || DEFAULT_HEATMAP_NAME,
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
@@ -170,6 +220,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.loadSavedHeatmaps()
                 // Navigate to the created heatmap detail page
                 router.actions.push(`/heatmaps/${created.short_id}`)
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to create heatmap')
             } finally {
                 actions.setLoading(false)
             }
@@ -178,12 +230,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.setLoading(true)
             try {
                 const data = {
-                    name: values.name,
+                    name: values.name || DEFAULT_HEATMAP_NAME,
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
                 }
                 await api.savedHeatmaps.update(props.id, data)
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to update heatmap')
             } finally {
                 actions.setLoading(false)
             }
@@ -193,15 +247,15 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 return
             }
             actions.startHeatmapExport({
-                heatmap_url: values.type === 'screenshot' ? (values.screenshotUrl ?? '') : (values.displayUrl ?? ''),
+                heatmap_url: resolveHeatmapExportUrl(values.type, values.screenshotUrl, values.displayUrl),
                 heatmap_data_url: values.dataUrl ?? '',
                 heatmap_type: values.type,
-                width: values.widthOverride ?? 1024,
+                width: values.widthOverride,
                 heatmap_color_palette: values.heatmapColorPalette,
                 heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
                 common_filters: values.commonFilters,
                 heatmap_filters: values.heatmapFilters,
-                filename: `heatmap-${values.name}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
+                filename: `heatmap-${values.name || DEFAULT_HEATMAP_NAME}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
         },
     })),
@@ -229,31 +283,19 @@ export const heatmapLogic = kea<heatmapLogicType>([
         ],
         desiredNumericWidth: [
             (s) => [s.widthOverride, s.containerWidth],
-            (widthOverride: number | null | undefined, containerWidth: number | null) => {
-                const requestedWidth = typeof widthOverride === 'number' ? widthOverride : null
-                return requestedWidth && containerWidth
-                    ? Math.min(requestedWidth, containerWidth)
-                    : (requestedWidth ?? null)
+            (widthOverride: number, containerWidth: number | null) => {
+                return containerWidth ? Math.min(widthOverride, containerWidth) : widthOverride
             },
         ],
-        effectiveWidth: [
-            (s) => [s.desiredNumericWidth],
-            (desiredNumericWidth: number | null) => desiredNumericWidth ?? undefined,
-        ],
+        effectiveWidth: [(s) => [s.desiredNumericWidth], (desiredNumericWidth: number) => desiredNumericWidth],
         scalePercent: [
             (s) => [s.widthOverride, s.containerWidth],
-            (widthOverride: number | null | undefined, containerWidth: number | null) => {
-                const requestedWidth = typeof widthOverride === 'number' ? widthOverride : null
-                const scale = requestedWidth && containerWidth ? Math.min(1, containerWidth / requestedWidth) : 1
+            (widthOverride: number, containerWidth: number | null) => {
+                const scale = containerWidth ? Math.min(1, containerWidth / widthOverride) : 1
                 return Math.round(scale * 100)
             },
         ],
     }),
-    subscriptions(({ actions }) => ({
-        widthOverride: (widthOverride) => {
-            actions.setWindowWidthOverride(widthOverride)
-        },
-    })),
     afterMount(({ actions }) => {
         actions.load()
     }),

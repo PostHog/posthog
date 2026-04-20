@@ -3,9 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { AnimationType } from 'lib/animations/animations'
 import { DataColorToken } from 'lib/colors'
-import { Animation } from 'lib/components/Animation/Animation'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { dataColorThemesLogic } from 'scenes/settings/environment/dataColorThemesLogic'
@@ -69,7 +68,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                         selectedColorToken={colorToken}
                         onSelectColorToken={(colorToken) => {
                             if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, null)
+                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
                             }
 
                             setBreakdownColorConfig({
@@ -98,7 +97,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 placeholder="Defined by insight"
                 onChange={(id) => {
                     if (dashboardMode !== DashboardMode.Edit) {
-                        setDashboardMode(DashboardMode.Edit, null)
+                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
                     }
 
                     setDataColorThemeId(id)
@@ -114,8 +113,6 @@ export function DashboardInsightColorsModal(): JSX.Element {
             </p>
             {insightTilesLoading ? (
                 <div className="flex flex-col items-center">
-                    {/* Slightly offset to the left for visual balance. */}
-                    <Animation type={AnimationType.SportsHog} size="large" className="-ml-4" />
                     <p className="text-primary">Waiting for dashboard tiles to load and refresh…</p>
                 </div>
             ) : (

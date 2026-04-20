@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, ClassVar, Union
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -38,34 +38,34 @@ DEFAULT_LIMIT = 100
 
 FACEBOOK_SOURCE_MAP = {
     "campaign": "campaign1",
-    "source": "source1",
+    "source": "const:Facebook Ads",
     "cost": "spend1",
     "date": "date1",
     "impressions": "impressions1",
     "clicks": "clicks1",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": "conversions1",
 }
 
 TIKTOK_SOURCE_MAP = {
     "campaign": "campaign2",
-    "source": "source2",
+    "source": "const:TikTok Ads",
     "cost": "spend2",
     "date": "date2",
     "impressions": "impressions2",
     "clicks": "clicks2",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": None,
 }
 
 LINKEDIN_SOURCE_MAP = {
     "campaign": "campaign3",
-    "source": "source3",
+    "source": "const:LinkedIn Ads",
     "cost": "spend3",
     "date": "date3",
     "impressions": "impressions3",
     "clicks": "clicks3",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": None,
 }
 
@@ -111,6 +111,7 @@ def _create_action(team, name: str = "test_action") -> Action:
 class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
+    test_data_configs: ClassVar[dict[str, DataConfig]]
 
     @classmethod
     def setUpClass(cls):
@@ -167,7 +168,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
     def setUp(self):
         super().setUp()
         self.test_tables: dict[str, TableInfo] = {}
-        self._cleanup_functions: list[callable] = []
+        self._cleanup_functions: list[Callable[[], None]] = []
 
         config = self.team.marketing_analytics_config
         config.sources_map = {}
@@ -429,6 +430,11 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         ]
         self._setup_team_source_configs(source_configs)
 
+        # Configure MetaAds to use campaign_id matching
+        config = self.team.marketing_analytics_config
+        config.campaign_field_preferences = {"MetaAds": {"match_field": "campaign_id"}}
+        config.save()
+
         test_action = _create_action(self.team, "test_conversion_action")
 
         conversion_goal = ConversionGoalFilter2(
@@ -448,15 +454,22 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
 
-        expected_columns = 10
-        actual_columns = len(response.columns) if response.columns else 0
-        assert (
-            actual_columns == expected_columns
-        ), f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
-
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
-    def test_multiple_conversion_goals(self):
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_conversion_goal_with_mixed_match_fields(self):
+        """
+        Test that when multiple sources have different campaign_field_preferences,
+        the query uses match_key for joining campaign costs with conversion goals.
+
+        Each adapter outputs a match_key column based on team's campaign_field_preferences:
+        - MetaAds with campaign_id preference: match_key = campaign_id
+        - GoogleAds with campaign_name preference: match_key = campaign_name
+        - BingAds with campaign_id preference: match_key = campaign_id
+
+        The JOIN condition uses match_key from both sides, avoiding OR conditions
+        that ClickHouse doesn't support in JOIN ON clauses.
+        """
         facebook_info = self._setup_csv_table("facebook_ads")
 
         source_configs = [
@@ -467,42 +480,43 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         ]
         self._setup_team_source_configs(source_configs)
 
-        signup_action = _create_action(self.team, "signup_action")
-        purchase_action = _create_action(self.team, "purchase_action")
-
-        team_conversion_goals = [
-            {
-                "name": "Signup Goal",
-                "kind": NodeKind.ACTIONS_NODE,
-                "conversion_goal_id": "signup_goal",
-                "conversion_goal_name": "Signup Goal",
-                "id": str(signup_action.id),
-                "math": BaseMathType.TOTAL,
-                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-            },
-            {
-                "name": "Purchase Goal",
-                "kind": NodeKind.ACTIONS_NODE,
-                "conversion_goal_id": "purchase_goal",
-                "conversion_goal_name": "Purchase Goal",
-                "id": str(purchase_action.id),
-                "math": BaseMathType.TOTAL,
-                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-            },
-        ]
-
+        # Configure multiple sources with different match fields
         config = self.team.marketing_analytics_config
-        config.conversion_goals = team_conversion_goals
+        config.campaign_field_preferences = {
+            "MetaAds": {"match_field": "campaign_id"},
+            "GoogleAds": {"match_field": "campaign_name"},  # explicit default
+            "BingAds": {"match_field": "campaign_id"},
+        }
         config.save()
 
-        query = self._create_basic_query()
+        test_action = _create_action(self.team, "test_conversion_action")
+
+        conversion_goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            conversion_goal_id="sign_up_goal",
+            conversion_goal_name="Sign Up Conversions",
+            id=str(test_action.id),
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        query = self._create_basic_query(draftConversionGoal=conversion_goal)
         runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
-        assert len(response.columns) == 12, "Should have 12 columns including multiple conversion goal columns"
+        assert response.hogql is not None
+
+        # Verify the JOIN uses match_key instead of multiIf
+        assert "campaign_costs.match_key" in response.hogql, "Expected match_key in campaign_costs"
+        assert "ucg.match_key" in response.hogql, "Expected match_key in unified conversion goals"
+        assert "equals(campaign_costs.match_key, ucg.match_key)" in response.hogql, (
+            "Expected JOIN on match_key equality"
+        )
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_comprehensive_marketing_analytics_basic(self):
@@ -541,12 +555,12 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         assert response.results is not None
         assert len(response.results) == 3, "Should have 3 Facebook campaigns in November 2024"
 
-        sources = [row[1].value for row in response.results]
+        sources = [row[2].value for row in response.results]
         assert all(source == "Facebook Ads" for source in sources), "All sources should be Facebook Ads"
 
-        total_cost = sum(float(row[2].value or 0) for row in response.results)
-        total_clicks = sum(int(row[3].value or 0) for row in response.results)
-        total_impressions = sum(int(row[4].value or 0) for row in response.results)
+        total_cost = sum(float(row[3].value or 0) for row in response.results)
+        total_clicks = sum(int(row[4].value or 0) for row in response.results)
+        total_impressions = sum(int(row[5].value or 0) for row in response.results)
 
         assert round(total_cost, 2) == 8.40, f"Expected cost $8.40, got ${total_cost}"
         assert total_clicks == 4, f"Expected 4 clicks, got {total_clicks}"

@@ -4,10 +4,11 @@ import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AppContext, TeamType } from '~/types'
+import { AppContext, ChartDisplayType, TeamType } from '~/types'
 
-import { hogql } from './utils'
+import { convertDataTableNodeToDataVisualizationNode, escapeHogQLString, hogql } from './utils'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
@@ -61,5 +62,91 @@ describe('hogql tag', () => {
         if (context?.current_team) {
             context.current_team.timezone = oldTimezone
         }
+    })
+
+    it('properly escapes single quotes in string values', () => {
+        expect(hogql`SELECT * FROM events WHERE properties.name = ${"O'Reilly"}`).toEqual(
+            "SELECT * FROM events WHERE properties.name = 'O\\'Reilly'"
+        )
+    })
+
+    it('properly escapes backslashes in string values', () => {
+        expect(hogql`SELECT * FROM events WHERE properties.path = ${'C:\\Users\\test'}`).toEqual(
+            "SELECT * FROM events WHERE properties.path = 'C:\\\\Users\\\\test'"
+        )
+    })
+})
+
+describe('escapeHogQLString', () => {
+    it.each([
+        ['simple', "'simple'"],
+        ["O'Reilly", "'O\\'Reilly'"],
+        ["'; DROP TABLE users; --", "'\\'; DROP TABLE users; --'"],
+        ['C:\\Users\\test', "'C:\\\\Users\\\\test'"],
+        ['line1\nline2', "'line1\\nline2'"],
+        ['tab\there', "'tab\\there'"],
+        ['carriage\rreturn', "'carriage\\rreturn'"],
+        ['', "''"],
+        ["multiple'quotes'here", "'multiple\\'quotes\\'here'"],
+        ['back\\slash', "'back\\\\slash'"],
+    ])('escapes %s to %s', (input, expected) => {
+        expect(escapeHogQLString(input)).toEqual(expected)
+    })
+})
+
+describe('convertDataTableNodeToDataVisualizationNode', () => {
+    it('preserves visible and pinned columns from legacy HogQL data table nodes', () => {
+        const convertedNode = convertDataTableNodeToDataVisualizationNode({
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from events',
+            },
+            columns: ['event', 'timestamp', 'person_id'],
+            hiddenColumns: ['person_id'],
+            pinnedColumns: ['event', 'person_id'],
+        } as DataTableNode)
+
+        expect(convertedNode).toEqual({
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from events',
+            },
+            display: ChartDisplayType.ActionsTable,
+            tableSettings: {
+                columns: [{ column: 'event' }, { column: 'timestamp' }],
+                pinnedColumns: ['event'],
+            },
+        } as DataVisualizationNode)
+    })
+
+    it('preserves additional legacy table config when converting HogQL data table nodes', () => {
+        const convertedNode = convertDataTableNodeToDataVisualizationNode({
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from events limit 10',
+            },
+            full: true,
+            embedded: true,
+            showReload: true,
+            columns: ['event'],
+        } as DataTableNode)
+
+        expect(convertedNode).toEqual({
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from events limit 10',
+            },
+            display: ChartDisplayType.ActionsTable,
+            full: true,
+            embedded: true,
+            showReload: true,
+            tableSettings: {
+                columns: [{ column: 'event' }],
+            },
+        })
     })
 })

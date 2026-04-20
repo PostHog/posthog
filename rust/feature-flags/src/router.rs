@@ -1,18 +1,31 @@
-use std::{future::ready, sync::Arc};
+use std::{
+    future::ready,
+    panic::{catch_unwind, AssertUnwindSafe},
+    sync::Arc,
+    time::Duration,
+};
 
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
+    error_handling::HandleErrorLayer,
     http::{Method, StatusCode},
     routing::{any, get},
     Router,
 };
+use common_cache::{NegativeCache, ReadThroughCacheWithMetrics};
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
+use common_hypercache::HyperCacheReader;
+use common_metrics::inc;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
-use health::HealthRegistry;
+use health::{readiness_handler, HealthRegistry};
+use metrics::gauge;
+use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
+use tower::timeout::TimeoutLayer;
+use tower::ServiceBuilder;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
     trace::TraceLayer,
@@ -24,12 +37,17 @@ use crate::{
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
     },
-    cohorts::cohort_cache_manager::CohortCacheManager,
-    config::{Config, TeamIdCollection},
+    cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
+    config::{Config, ServiceMode, TeamIdCollection},
+    flags::flag_group_type_mapping::GroupTypeCacheManager,
     metrics::{
-        consts::{FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER},
+        consts::{
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+            FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
+        },
         utils::team_id_label_filter,
     },
+    rayon_dispatcher::RayonDispatcher,
 };
 
 #[derive(Clone)]
@@ -43,6 +61,7 @@ pub struct State {
     pub dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
+    pub group_type_cache_manager: Arc<GroupTypeCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdCollection,
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
@@ -52,6 +71,29 @@ pub struct State {
     pub config: Config,
     pub flags_rate_limiter: FlagsRateLimiter,
     pub ip_rate_limiter: IpRateLimiter,
+    /// Pre-initialized HyperCacheReader for feature flags (flags.json)
+    /// Initialized once at startup to avoid per-request AWS SDK initialization
+    pub flags_hypercache_reader: Arc<HyperCacheReader>,
+    /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
+    /// Used by the /flags/definitions endpoint
+    pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    /// Pre-initialized HyperCacheReader for team metadata (full_metadata.json)
+    /// Uses token-based lookup instead of team_id
+    pub team_hypercache_reader: Arc<HyperCacheReader>,
+    /// Pre-initialized HyperCacheReader for remote config (array/config.json)
+    /// Reads pre-computed config from Python's RemoteConfig.build_config()
+    /// Uses token-based lookup (api_token)
+    pub config_hypercache_reader: Arc<HyperCacheReader>,
+    /// Bounds concurrent large-batch dispatches to the Rayon pool
+    pub rayon_dispatcher: RayonDispatcher,
+    /// In-memory negative cache for invalid API tokens, preventing repeated
+    /// Redis/S3/PG lookups for tokens that don't correspond to any team
+    pub team_negative_cache: NegativeCache,
+    /// Read-through cache for auth tokens (secret + personal API keys).
+    /// Handles Redis-backed positive caching and loader ordering.
+    pub auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
+    /// Provider for realtime/behavioral cohort membership lookups
+    pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -60,28 +102,48 @@ pub fn router(
     dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
+    group_type_cache: Arc<GroupTypeCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
     feature_flags_billing_limiter: FeatureFlagsLimiter,
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
+    flags_hypercache_reader: Arc<HyperCacheReader>,
+    flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    team_hypercache_reader: Arc<HyperCacheReader>,
+    config_hypercache_reader: Arc<HyperCacheReader>,
+    rayon_dispatcher: RayonDispatcher,
+    team_negative_cache: NegativeCache,
+    auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
+    cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
         config.flag_definitions_rate_limits.0.clone(),
+        config.rate_limiting_allow_list_teams.0.clone(),
         FLAG_DEFINITIONS_REQUESTS_COUNTER,
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
-    // Initialize token-based rate limiter with configuration
+    // Initialize token-based rate limiter.
+    // Both modes use the same thresholds (warn at ratio of enforce capacity).
+    // log_only=true sets warn_only, so requests are never blocked.
+    let (flags_warn_cap, flags_enforce_cap, flags_warn_only) = resolve_rate_limit_capacities(
+        config.flags_bucket_capacity,
+        config.flags_warn_capacity_ratio,
+        *config.flags_rate_limit_log_only,
+    );
     let flags_rate_limiter = FlagsRateLimiter::new(
         *config.flags_rate_limit_enabled,
-        *config.flags_rate_limit_log_only,
         config.flags_bucket_replenish_rate,
-        config.flags_bucket_capacity,
+        flags_warn_cap,
+        flags_enforce_cap,
+        flags_warn_only,
+        config.flags_token_rate_limit_overrides.0.clone(),
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -90,12 +152,18 @@ pub fn router(
         )
     });
 
-    // Initialize IP-based rate limiter with configuration
+    // Initialize IP-based rate limiter with backwards-compatible configuration
+    let (ip_warn_cap, ip_enforce_cap, ip_warn_only) = resolve_rate_limit_capacities(
+        config.flags_ip_burst_size,
+        config.flags_warn_capacity_ratio,
+        *config.flags_ip_rate_limit_log_only,
+    );
     let ip_rate_limiter = IpRateLimiter::new(
         *config.flags_ip_rate_limit_enabled,
-        *config.flags_ip_rate_limit_log_only,
         config.flags_ip_replenish_rate,
-        config.flags_ip_burst_size,
+        ip_warn_cap,
+        ip_enforce_cap,
+        ip_warn_only,
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -104,14 +172,19 @@ pub fn router(
         )
     });
 
-    // Clone database_pools for readiness check before moving into State
-    let db_pools_for_readiness = database_pools.clone();
+    spawn_rate_limiter_cleanup_task(
+        flags_rate_limiter.clone(),
+        ip_rate_limiter.clone(),
+        flag_definitions_limiter.clone(),
+        config.rate_limiter_cleanup_interval_secs,
+    );
 
     let state = State {
         redis_client,
         dedicated_redis_client,
         database_pools,
         cohort_cache_manager: cohort_cache,
+        group_type_cache_manager: group_type_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
         feature_flags_billing_limiter,
@@ -121,6 +194,14 @@ pub fn router(
         config: config.clone(),
         flags_rate_limiter,
         ip_rate_limiter,
+        flags_hypercache_reader,
+        flags_with_cohorts_hypercache_reader,
+        team_hypercache_reader,
+        config_hypercache_reader,
+        rayon_dispatcher,
+        team_negative_cache,
+        cohort_membership_provider,
+        auth_token_cache,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -129,33 +210,88 @@ pub fn router(
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::HEAD])
         .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true)
-        .allow_origin(AllowOrigin::mirror_request());
+        .allow_origin(AllowOrigin::mirror_request())
+        .expose_headers([axum::http::HeaderName::from_static(
+            "x-posthog-rate-limit-warning",
+        )]);
 
-    // liveness/readiness checks
+    // Clone database_pools for the startup route
+    let db_pools_for_startup = state.database_pools.clone();
+
+    // liveness/readiness/startup checks
     let status_router = Router::new()
         .route("/", get(index))
+        .route("/_readiness", get(readiness_handler))
+        .route("/_liveness", get(move || ready(liveness.get_status())))
         .route(
-            "/_readiness",
-            get(move || readiness(db_pools_for_readiness.clone())),
-        )
-        .route("/_liveness", get(move || ready(liveness.get_status())));
+            "/_startup",
+            get(move || startup(db_pools_for_startup.clone())),
+        );
 
     // flags endpoint
     // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
-    let flags_router = Router::new()
-        .route("/flags", any(endpoint::flags))
-        .route("/flags/", any(endpoint::flags))
-        .route(
-            "/flags/definitions",
-            any(flag_definitions::flags_definitions),
-        )
-        .route(
-            "/flags/definitions/",
-            any(flag_definitions::flags_definitions),
-        )
-        .route("/decide", any(endpoint::flags))
-        .route("/decide/", any(endpoint::flags))
-        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
+    //
+    // Layer ordering (outermost to innermost, last .layer() call on Router is outermost):
+    // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
+    // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
+    //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
+    // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
+    let mut flags_router = Router::new();
+
+    if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
+        flags_router = flags_router
+            .route("/flags", any(endpoint::flags))
+            .route("/flags/", any(endpoint::flags))
+            .route("/decide", any(endpoint::flags))
+            .route("/decide/", any(endpoint::flags));
+    }
+
+    if matches!(
+        config.service_mode,
+        ServiceMode::All | ServiceMode::Definitions
+    ) {
+        flags_router = flags_router
+            .route(
+                "/flags/definitions",
+                any(flag_definitions::flags_definitions),
+            )
+            .route(
+                "/flags/definitions/",
+                any(flag_definitions::flags_definitions),
+            )
+            // Alias for Django's local_evaluation endpoint — allows Contour to route
+            // traffic to Rust without path rewriting (same pattern as /decide → /flags)
+            .route(
+                "/api/feature_flag/local_evaluation",
+                any(flag_definitions::flags_definitions),
+            )
+            .route(
+                "/api/feature_flag/local_evaluation/",
+                any(flag_definitions::flags_definitions),
+            );
+    }
+
+    let flags_router = flags_router
+        .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
+                    let is_timeout = err.is::<tower::timeout::error::Elapsed>();
+                    tracing::warn!(error = %err, timeout = is_timeout, "Request aborted by tower layer");
+                    if is_timeout {
+                        inc(FLAG_REQUEST_TIMEOUT_COUNTER, &[], 1);
+                    }
+                    let body = if is_timeout {
+                        "Request timed out"
+                    } else {
+                        "Service unavailable"
+                    };
+                    (StatusCode::SERVICE_UNAVAILABLE, body)
+                }))
+                .layer(TimeoutLayer::new(Duration::from_millis(
+                    config.request_timeout_ms,
+                ))),
+        );
 
     let router = Router::new()
         .merge(status_router)
@@ -177,42 +313,323 @@ pub fn router(
     }
 }
 
-pub async fn readiness(
-    database_pools: Arc<DatabasePools>,
-) -> Result<&'static str, (StatusCode, String)> {
-    // Check all pools and collect errors
-    let pools = [
-        ("non_persons_reader", &database_pools.non_persons_reader),
-        ("non_persons_writer", &database_pools.non_persons_writer),
-        ("persons_reader", &database_pools.persons_reader),
-        ("persons_writer", &database_pools.persons_writer),
-    ];
+/// Resolves warn/enforce capacities with backwards-compat logic for the old `log_only` flag.
+///
+/// Returns `(warn_capacity, enforce_capacity, warn_only)`:
+/// - Both modes use the same threshold calculation: warn at `warn_ratio` of enforce capacity.
+/// - `log_only == true`: Sets `warn_only = true` so requests are never blocked, only warned.
+///   Thresholds are identical to enforcing mode, giving operators visibility into what
+///   _would_ happen when they flip `log_only` to `false`.
+/// - `log_only == false`: Same thresholds, but enforce tier actually blocks with 429s.
+/// - Set `warn_ratio` to 0.0 to disable the warn tier entirely.
+fn resolve_rate_limit_capacities(
+    enforce_capacity: u32,
+    warn_ratio: f64,
+    log_only: bool,
+) -> (Option<u32>, u32, bool) {
+    let derived_warn = (enforce_capacity as f64 * warn_ratio.clamp(0.0, 1.0)) as u32;
+    let warn_capacity = if derived_warn > 0 {
+        Some(derived_warn)
+    } else {
+        None
+    };
+    (warn_capacity, enforce_capacity, log_only)
+}
 
-    for (name, pool) in pools {
-        let mut conn = pool.acquire().await.map_err(|e| {
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                format!("{name} pool unavailable: {e}"),
-            )
-        })?;
+/// Spawns a background task to periodically clean up stale rate limiter entries.
+/// Without this, the rate limiters would accumulate entries for every unique
+/// token/IP that makes a request, leading to unbounded memory growth.
+/// See: https://docs.rs/governor/latest/governor/struct.RateLimiter.html#method.retain_recent
+fn spawn_rate_limiter_cleanup_task(
+    flags_rate_limiter: FlagsRateLimiter,
+    ip_rate_limiter: IpRateLimiter,
+    flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    cleanup_interval_secs: u64,
+) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(cleanup_interval_secs));
+        loop {
+            interval.tick().await;
 
-        // If test_before_acquire is false, explicitly test the connection
-        if !database_pools.test_before_acquire {
-            sqlx::query("SELECT 1")
-                .execute(&mut *conn)
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        format!("{name} connection test failed: {e}"),
-                    )
-                })?;
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                // Remove stale entries and reclaim memory
+                flags_rate_limiter.cleanup();
+                ip_rate_limiter.cleanup();
+                flag_definitions_limiter.cleanup();
+
+                // Report metrics for monitoring
+                gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
+                gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
+                gauge!("flags_rate_limiter_definitions_entries")
+                    .set(flag_definitions_limiter.len() as f64);
+
+                tracing::debug!(
+                    token_entries = flags_rate_limiter.len(),
+                    ip_entries = ip_rate_limiter.len(),
+                    definitions_entries = flag_definitions_limiter.len(),
+                    "Rate limiter cleanup completed"
+                );
+            }));
+
+            if let Err(e) = result {
+                tracing::error!(
+                    ?e,
+                    "Rate limiter cleanup panicked, will retry next interval"
+                );
+            }
         }
+    });
+}
+
+/// Tests a single database pool by acquiring a connection and optionally running a test query.
+///
+/// When `skip_query` is true (because `test_before_acquire` is enabled), only connection
+/// acquisition is tested since sqlx already validates connections on acquire.
+async fn test_pool_connection(pool: &PgPool, name: &str, skip_query: bool) -> Result<(), String> {
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| format!("{name} pool unavailable: {e}"))?;
+
+    if !skip_query {
+        sqlx::query("SELECT 1")
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| format!("{name} connection test failed: {e}"))?;
     }
 
-    Ok("ready")
+    Ok(())
 }
 
 pub async fn index() -> &'static str {
     "feature flags"
+}
+
+/// Startup probe for Kubernetes.
+///
+/// Warms up database connection pools by acquiring and testing connections.
+/// This ensures the first user request doesn't pay connection establishment latency.
+///
+/// Always returns 200 OK - warmup failures are logged but don't block startup.
+/// This preserves the resilience of lazy pool initialization: if the DB is temporarily
+/// unavailable at startup, the pod still starts and will connect on first request.
+pub async fn startup(database_pools: Arc<DatabasePools>) -> &'static str {
+    // Check if persons pools are aliased to non-persons pools
+    // (this happens when persons_db_routing is disabled)
+    let persons_reader_is_distinct = !Arc::ptr_eq(
+        &database_pools.non_persons_reader,
+        &database_pools.persons_reader,
+    );
+    let persons_writer_is_distinct = !Arc::ptr_eq(
+        &database_pools.non_persons_writer,
+        &database_pools.persons_writer,
+    );
+
+    // Best-effort warmup: try all pools in parallel, log failures, never block startup
+    let skip_query = database_pools.test_before_acquire;
+    let (reader_result, writer_result, persons_reader_result, persons_writer_result) = tokio::join!(
+        test_pool_connection(
+            &database_pools.non_persons_reader,
+            "non_persons_reader",
+            skip_query
+        ),
+        test_pool_connection(
+            &database_pools.non_persons_writer,
+            "non_persons_writer",
+            skip_query
+        ),
+        async {
+            if persons_reader_is_distinct {
+                test_pool_connection(&database_pools.persons_reader, "persons_reader", skip_query)
+                    .await
+            } else {
+                Ok(()) // Already warmed via non_persons_reader
+            }
+        },
+        async {
+            if persons_writer_is_distinct {
+                test_pool_connection(&database_pools.persons_writer, "persons_writer", skip_query)
+                    .await
+            } else {
+                Ok(()) // Already warmed via non_persons_writer
+            }
+        },
+    );
+
+    // Log results
+    log_warmup_result("non_persons_reader", reader_result);
+    log_warmup_result("non_persons_writer", writer_result);
+
+    if persons_reader_is_distinct {
+        log_warmup_result("persons_reader", persons_reader_result);
+    } else {
+        tracing::info!("persons_reader is aliased to non_persons_reader, already warmed");
+    }
+
+    if persons_writer_is_distinct {
+        log_warmup_result("persons_writer", persons_writer_result);
+    } else {
+        tracing::info!("persons_writer is aliased to non_persons_writer, already warmed");
+    }
+
+    "started"
+}
+
+fn log_warmup_result(name: &str, result: Result<(), String>) {
+    match result {
+        Ok(()) => tracing::info!("{name} pool warmed up successfully"),
+        Err(e) => tracing::warn!("{name} warmup failed (will connect on first use): {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_pool_connection_success() {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://posthog:posthog@localhost:5432/test_database".to_string());
+
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&database_url)
+            .expect("Failed to create pool");
+
+        let result = test_pool_connection(&pool, "test_pool", false).await;
+
+        // If database is available, connection test should succeed
+        // If not, it will fail - both are acceptable in test environment
+        match result {
+            Ok(()) => {}
+            Err(e) => {
+                assert!(e.contains("test_pool"));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pool_connection_failure_includes_pool_name() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_millis(100))
+            .connect_lazy("postgres://invalid:invalid@localhost:54321/nonexistent")
+            .expect("Failed to create pool");
+
+        let result = test_pool_connection(&pool, "test_pool", false).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("test_pool"),
+            "Error should contain pool name: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_startup_always_returns_started() {
+        let invalid_pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .acquire_timeout(std::time::Duration::from_millis(100))
+                .connect_lazy("postgres://invalid:invalid@localhost:54321/nonexistent")
+                .expect("Failed to create pool"),
+        );
+
+        let database_pools = Arc::new(DatabasePools {
+            non_persons_reader: invalid_pool.clone(),
+            non_persons_writer: invalid_pool.clone(),
+            persons_reader: invalid_pool.clone(),
+            persons_writer: invalid_pool,
+            behavioral_cohorts_reader: None,
+            test_before_acquire: false,
+        });
+
+        let result = startup(database_pools).await;
+        assert_eq!(result, "started");
+    }
+
+    #[tokio::test]
+    async fn test_startup_with_aliased_pools() {
+        let shared_pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .acquire_timeout(std::time::Duration::from_millis(100))
+                .connect_lazy("postgres://invalid:invalid@localhost:54321/nonexistent")
+                .expect("Failed to create pool"),
+        );
+
+        let database_pools = Arc::new(DatabasePools {
+            non_persons_reader: shared_pool.clone(),
+            non_persons_writer: shared_pool.clone(),
+            persons_reader: shared_pool.clone(),
+            persons_writer: shared_pool,
+            behavioral_cohorts_reader: None,
+            test_before_acquire: false,
+        });
+
+        let result = startup(database_pools).await;
+        assert_eq!(result, "started");
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_default_ratio() {
+        // 80% of 200 = 160
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(200, 0.8, false);
+        assert_eq!(warn, Some(160));
+        assert_eq!(enforce, 200);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_custom_ratio() {
+        // 40% of 500 = 200
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(500, 0.4, false);
+        assert_eq!(warn, Some(200));
+        assert_eq!(enforce, 500);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_zero_ratio_disables_warn() {
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(500, 0.0, false);
+        assert_eq!(warn, None);
+        assert_eq!(enforce, 500);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_ratio_clamped_to_1() {
+        // ratio > 1.0 is clamped to 1.0, so warn == enforce
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(200, 1.5, false);
+        assert_eq!(warn, Some(200));
+        assert_eq!(enforce, 200);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_log_only_uses_real_thresholds() {
+        // log_only uses the same thresholds as enforcing mode — only warn_only differs
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(200, 0.8, true);
+        assert_eq!(warn, Some(160));
+        assert_eq!(enforce, 200);
+        assert!(warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_tiny_capacity_no_warn() {
+        // enforce=1 → 80% rounds to 0, too small for warn tier
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(1, 0.8, false);
+        assert_eq!(warn, None);
+        assert_eq!(enforce, 1);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_zero_capacity() {
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(0, 0.8, false);
+        assert_eq!(warn, None);
+        assert_eq!(enforce, 0);
+        assert!(!warn_only);
+    }
 }

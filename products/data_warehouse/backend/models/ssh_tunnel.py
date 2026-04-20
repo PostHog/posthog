@@ -27,6 +27,7 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
             file_bytes,
             password=password if passphrase is not None else None,
         )
+        encryption_algorithm: crypto_serialization.KeySerializationEncryption
         if passphrase:
             encryption_algorithm = crypto_serialization.BestAvailableEncryption(password)
         else:
@@ -64,11 +65,17 @@ class SSHTunnelAuthConfig(config.Config):
 
 
 @config.config
+class SSHTunnelRequireTlsConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=True)
+
+
+@config.config
 class SSHTunnelConfig(config.Config):
     host: str | None
-    auth: SSHTunnelAuthConfig = config.value(alias="auth_type")
     port: int | None = config.value(converter=config.str_to_optional_int)
+    auth: SSHTunnelAuthConfig = config.value(alias="auth_type", default_factory=SSHTunnelAuthConfig)
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
+    require_tls: SSHTunnelRequireTlsConfig = config.value(default_factory=SSHTunnelRequireTlsConfig)
 
 
 @dataclasses.dataclass
@@ -161,6 +168,7 @@ class SSHTunnel:
                 ssh_username=self.username,
                 ssh_password=self.password,
                 remote_bind_address=(remote_host, remote_port),
+                local_bind_address=("127.0.0.1",),
             )
         else:
             return SSHTunnelForwarder(
@@ -169,4 +177,5 @@ class SSHTunnel:
                 ssh_pkey=self.parse_private_key(),
                 ssh_private_key_password=self.passphrase,
                 remote_bind_address=(remote_host, remote_port),
+                local_bind_address=("127.0.0.1",),
             )

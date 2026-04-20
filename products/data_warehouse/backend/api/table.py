@@ -1,10 +1,11 @@
 import re
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 
 import boto3
 import posthoganalytics
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
@@ -17,15 +18,17 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.user import User
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.api.external_data_source import SimpleExternalDataSourceSerializers
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
 )
+from products.data_warehouse.backend.models.util import validate_warehouse_table_url_pattern
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -48,6 +51,7 @@ class TableSerializer(serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
+    options = serializers.DictField(required=False, default=dict)
 
     class Meta:
         model = DataWarehouseTable
@@ -63,9 +67,11 @@ class TableSerializer(serializers.ModelSerializer):
             "columns",
             "external_data_source",
             "external_schema",
+            "options",
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
         if not database:
@@ -97,6 +103,7 @@ class TableSerializer(serializers.ModelSerializer):
             for field in serializes_fields
         ]
 
+    @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
         from products.data_warehouse.backend.api.external_data_schema import SimpleExternalDataSchemaSerializer
 
@@ -106,23 +113,60 @@ class TableSerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
 
         validated_data["team_id"] = team_id
-        validated_data["created_by"] = self.context["request"].user
-        if validated_data.get("credential"):
-            validated_data["credential"] = DataWarehouseCredential.objects.create(
-                team_id=team_id,
-                access_key=validated_data["credential"]["access_key"],
-                access_secret=validated_data["credential"]["access_secret"],
-            )
+        validated_data["created_by"] = cast(User, self.context["request"].user)
+        credential = validated_data.get("credential")
+
+        if not credential:
+            raise serializers.ValidationError("Credentials are required")
+
+        access_key: str | None = credential.get("access_key")
+        access_secret: str | None = credential.get("access_secret")
+
+        if not access_key or not access_secret:
+            raise serializers.ValidationError("Access key and secret are required")
+
+        if len(access_key.strip()) == 0 or len(access_secret.strip()) == 0:
+            raise serializers.ValidationError("Access key and secret can't be blank")
+
+        validated_data["credential"] = DataWarehouseCredential.objects.create(
+            team_id=team_id,
+            access_key=access_key,
+            access_secret=access_secret,
+        )
         table = DataWarehouseTable(**validated_data)
+        if table._is_csv_format() and table.csv_allow_double_quotes is not None:
+            try:
+                table._validate_csv_double_quotes_setting()
+            except Exception as err:
+                raise serializers.ValidationError(str(err))
         try:
             table.columns = table.get_columns()
         except Exception as err:
             raise serializers.ValidationError(str(err))
-        table.save()
+        try:
+            table.save()
+        except Exception as err:
+            raise serializers.ValidationError(str(err))
 
         validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
         return table
+
+    def validate_url_pattern(self, url_pattern):
+        s3_domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
+        if s3_domain in url_pattern:
+            raise serializers.ValidationError("Cant use this bucket")
+
+        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+        if not is_valid:
+            raise serializers.ValidationError(error_message)
+
+        return url_pattern
+
+    def validate_options(self, options):
+        if not isinstance(options, dict):
+            raise serializers.ValidationError("Options must be a JSON object.")
+        return options
 
     def validate_name(self, name):
         if not self.instance or self.instance.name != name:
@@ -190,6 +234,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
+            .exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
@@ -212,14 +257,39 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
+            access_key = credential_data.get("access_key")
+            access_secret = credential_data.get("access_secret")
+
+            if access_key is not None and len(access_key.strip()) == 0:
+                raise serializers.ValidationError("Access key can't be blank")
+            if access_secret is not None and len(access_secret.strip()) == 0:
+                raise serializers.ValidationError("Access secret can't be blank")
+
             credential = instance.credential
-            credential.access_key = credential_data.get("access_key", credential.access_key)
-            credential.access_secret = credential_data.get("access_secret", credential.access_secret)
+            if access_key is not None:
+                credential.access_key = access_key
+            if access_secret is not None:
+                credential.access_secret = access_secret
             credential.save()
 
+        old_csv_allow_double_quotes = instance.csv_allow_double_quotes
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        instance.save()
+
+        if (
+            instance._is_csv_format()
+            and instance.csv_allow_double_quotes is not None
+            and instance.csv_allow_double_quotes != old_csv_allow_double_quotes
+        ):
+            try:
+                instance._validate_csv_double_quotes_setting()
+            except Exception as err:
+                raise serializers.ValidationError(str(err))
+
+        try:
+            instance.save()
+        except Exception as err:
+            raise serializers.ValidationError(str(err))
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -233,8 +303,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "The table must be a manually linked table"}
             )
 
-        columns = table.columns
-        column_keys: list[str] = columns.keys()
+        columns = table.columns or {}
+        column_keys = list(columns.keys())
         for key in updates.keys():
             if key not in column_keys:
                 return response.Response(
@@ -304,8 +374,27 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
 
         file = request.FILES["file"]
-        table_name = request.data.get("name", file.name)
+
+        # Sanitize filename — Django strips path separators via os.path.basename
+        # in UploadedFile._set_name, but we further restrict to safe characters
+        # as defense-in-depth for the S3 key and url_pattern.
+        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name)
+        if not safe_filename or safe_filename.startswith("."):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Invalid filename"},
+            )
+
+        table_name = request.data.get("name", safe_filename)
         file_format = request.data.get("format", "CSVWithNames")
+
+        # Validate format against allowed choices
+        valid_formats = {c[0] for c in DataWarehouseTable.TableFormat.choices}
+        if file_format not in valid_formats:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid format. Must be one of: {', '.join(sorted(valid_formats))}"},
+            )
 
         # Validate table name format
         if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
@@ -331,49 +420,35 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Create the table record
         try:
-            # Create credential if object storage is available
-            credential = None
-            if hasattr(settings, "AIRBYTE_BUCKET_KEY") and hasattr(settings, "AIRBYTE_BUCKET_SECRET"):
-                credential = get_or_create_datawarehouse_credential(
-                    team_id=team_id,
-                    access_key=settings.AIRBYTE_BUCKET_KEY,
-                    access_secret=settings.AIRBYTE_BUCKET_SECRET,
-                )
-            else:
-                capture_exception(
-                    Exception("Object storage keys not found: AIRBYTE_BUCKET_KEY or AIRBYTE_BUCKET_SECRET")
-                )
-                return response.Response(
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    data={"message": "An unexpected error occurred. Please try again later."},
-                )
-
             # Create the table if it doesn't exist, otherwise use existing one
             if table is None:
+                created_by = request.user if isinstance(request.user, User) else None
                 table = DataWarehouseTable.objects.create(
                     team_id=team_id,
                     name=table_name,
                     format=file_format,
-                    created_by=request.user,
-                    credential=credential,  # type: ignore
+                    created_by=created_by,
                 )
 
             # Generate URL pattern and store file in object storage
-            if credential and settings.DATAWAREHOUSE_BUCKET:
-                s3 = boto3.client(
-                    "s3",
-                    aws_access_key_id=credential.access_key,
-                    aws_secret_access_key=credential.access_secret,
-                    endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-                )
-                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{file.name}")
+            if settings.DATAWAREHOUSE_BUCKET:
+                if settings.USE_LOCAL_SETUP:
+                    s3 = boto3.client(
+                        "s3",
+                        aws_access_key_id=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+                        aws_secret_access_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+                        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+                    )
+                else:
+                    s3 = boto3.client("s3")
+
+                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{safe_filename}")
 
                 # Set the URL pattern for the table
-                table.url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/managed/team_{team_id}/{file.name}"
+                table.url_pattern = (
+                    f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/managed/team_{team_id}/{safe_filename}"
+                )
                 table.format = file_format
-
-                if table.credential is None:
-                    table.credential = credential
 
                 # Try to determine columns from the file
                 table.columns = table.get_columns()

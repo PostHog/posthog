@@ -4,10 +4,8 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -16,16 +14,14 @@ import { DashboardPlacement } from '~/types'
 import { EVALUATION_METRICS_COLLECTION_ID } from './evaluations/components/EvaluationMetrics'
 import { evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 
 export function LLMAnalyticsReloadAction(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { activeTab, selectedDashboardId, isRefreshing: oldTilesRefreshing } = useValues(llmAnalyticsLogic)
-    const { refreshAllDashboardItems } = useActions(llmAnalyticsLogic)
+    const { activeTab } = useValues(llmAnalyticsSharedLogic)
+    const { selectedDashboardId } = useValues(llmAnalyticsDashboardLogic)
 
-    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
-
-    const shouldUseDashboardLogic = selectedDashboardId && useCustomizableDashboard && activeTab === 'dashboard'
+    const shouldUseDashboardLogic = selectedDashboardId && activeTab === 'dashboard'
     const dashboardLogicInstance = dashboardLogic({
         id: selectedDashboardId || 0,
         placement: DashboardPlacement.Builtin,
@@ -45,18 +41,12 @@ export function LLMAnalyticsReloadAction(): JSX.Element {
     const { refreshMetrics: refreshEvaluationMetrics } = useActions(evaluationMetricsLogic)
     const { loadEvaluations } = useActions(llmEvaluationsLogic)
 
-    const isLoading = shouldUseDashboardLogic ? dashboardLoading : oldTilesRefreshing
+    const isLoading = shouldUseDashboardLogic ? dashboardLoading : false
     const lastRefresh = shouldUseDashboardLogic ? effectiveLastRefresh : null
 
     const handleRefresh = (): void => {
         if (activeTab === 'dashboard') {
-            if (shouldUseDashboardLogic) {
-                // New customizable dashboard
-                triggerDashboardRefresh()
-            } else {
-                // Old hardcoded tiles
-                refreshAllDashboardItems()
-            }
+            triggerDashboardRefresh()
         } else if (activeTab === 'evaluations') {
             // Refresh evaluations list and metrics
             loadEvaluations()

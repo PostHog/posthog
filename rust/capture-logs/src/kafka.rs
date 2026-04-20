@@ -1,8 +1,11 @@
 use crate::avro_schema::AVRO_SCHEMA;
 use crate::log_record::KafkaLogRow;
+use crate::trace_record::KafkaTraceRow;
+use crate::traces_avro_schema::TRACES_AVRO_SCHEMA;
 use anyhow::anyhow;
 use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
 use capture::config::KafkaConfig;
+use chrono::Utc;
 use health::HealthHandle;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
@@ -107,7 +110,8 @@ impl rdkafka::ClientContext for KafkaContext {
 #[derive(Clone)]
 pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
-    topic: String,
+    logs_topic: String,
+    traces_topic: String,
 }
 
 impl KafkaSink {
@@ -179,7 +183,8 @@ impl KafkaSink {
 
         Ok(KafkaSink {
             producer,
-            topic: config.kafka_topic,
+            logs_topic: config.kafka_topic,
+            traces_topic: config.kafka_traces_topic,
         })
     }
 
@@ -188,32 +193,36 @@ impl KafkaSink {
         self.producer.flush(Duration::new(30, 0))
     }
 
-    pub async fn write(
+    async fn write_avro_batch<T: serde::Serialize>(
         &self,
+        topic: &str,
+        avro_schema_str: &str,
         token: &str,
-        rows: Vec<KafkaLogRow>,
+        rows: &[T],
         uncompressed_bytes: u64,
+        timestamps_overridden: u64,
     ) -> Result<(), anyhow::Error> {
-        let schema = Schema::parse_str(AVRO_SCHEMA)?;
+        let schema = Schema::parse_str(avro_schema_str)?;
         let mut writer = Writer::with_codec(
             &schema,
             Vec::new(),
-            Codec::Zstandard(ZstandardSettings::default()),
+            Codec::Zstandard(ZstandardSettings::new(1)),
         );
 
-        for row in &rows {
+        for row in rows {
             writer.append_ser(row)?;
         }
 
         let payload: Vec<u8> = writer.into_inner()?;
 
         let future = match self.producer.send_result(FutureRecord {
-            topic: self.topic.as_str(),
+            topic,
             payload: Some(&payload),
             partition: None,
             key: None::<Vec<u8>>.as_ref(),
             timestamp: None,
-            headers: Some(
+            headers: Some({
+                let created_at = Utc::now().to_rfc3339();
                 OwnedHeaders::new()
                     .insert(Header {
                         key: "token",
@@ -230,14 +239,82 @@ impl KafkaSink {
                     .insert(Header {
                         key: "record_count",
                         value: Some(&rows.len().to_string()),
-                    }),
-            ),
+                    })
+                    .insert(Header {
+                        key: "created_at",
+                        value: Some(&created_at),
+                    })
+                    .insert(Header {
+                        key: "batch_uuid",
+                        value: Some(&uuid::Uuid::new_v4().to_string()),
+                    })
+                    .insert(Header {
+                        key: "timestamps_overridden",
+                        value: Some(&timestamps_overridden.to_string()),
+                    })
+            }),
         }) {
-            Err((err, _)) => Err(anyhow!(format!("kafka error: {}", err))),
+            Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
             Ok(delivery_future) => Ok(delivery_future),
         }?;
 
         drop(future.await?);
+
+        Ok(())
+    }
+
+    pub async fn write(
+        &self,
+        token: &str,
+        rows: Vec<KafkaLogRow>,
+        uncompressed_bytes: u64,
+        timestamps_overridden: u64,
+    ) -> Result<(), anyhow::Error> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        if timestamps_overridden > 0 {
+            counter!("capture_logs_timestamps_overridden").increment(timestamps_overridden);
+        }
+
+        self.write_avro_batch(
+            &self.logs_topic,
+            AVRO_SCHEMA,
+            token,
+            &rows,
+            uncompressed_bytes,
+            timestamps_overridden,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn write_traces(
+        &self,
+        token: &str,
+        rows: Vec<KafkaTraceRow>,
+        uncompressed_bytes: u64,
+        timestamps_overridden: u64,
+    ) -> Result<(), anyhow::Error> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        if timestamps_overridden > 0 {
+            counter!("capture_traces_timestamps_overridden").increment(timestamps_overridden);
+        }
+
+        self.write_avro_batch(
+            &self.traces_topic,
+            TRACES_AVRO_SCHEMA,
+            token,
+            &rows,
+            uncompressed_bytes,
+            timestamps_overridden,
+        )
+        .await?;
 
         Ok(())
     }

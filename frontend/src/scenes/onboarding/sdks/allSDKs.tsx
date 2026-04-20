@@ -1,50 +1,66 @@
+/**
+ * SDK logos can be either:
+ * - Cloudinary URLs (string) - preferred, for logos hosted on Cloudinary CDN
+ * - SVG/PNG files (imported as images) - for logos not yet on Cloudinary
+ * - TSX components (React.memo) - for logos that need Tailwind's `dark:fill-white` class to work,
+ *   since CSS classes inside SVG files don't apply when rendered as <img> tags
+ */
 import { Logomark } from 'lib/brand/Logomark'
 
 import { SDK, SDKKey, SDKTag } from '~/types'
 
 import androidImage from './logos/android.svg'
 import angularImage from './logos/angular.svg'
-import anthropicImage from './logos/anthropic.svg'
+import { AnthropicLogo } from './logos/AnthropicLogo'
+import { AstroLogo } from './logos/AstroLogo'
+import { BubbleLogo } from './logos/BubbleLogo'
 import djangoImage from './logos/django.svg'
 import docusaurusImage from './logos/docusaurus.svg'
 import elixirImage from './logos/elixir.svg'
 import flutterImage from './logos/flutter.svg'
+import { FramerLogo } from './logos/FramerLogo'
 import gatsbyImage from './logos/gatsby.svg'
 import geminiImage from './logos/gemini.svg'
 import goImage from './logos/go.svg'
 import gtmImage from './logos/gtm.svg'
-import heliconeImage from './logos/helicone.svg'
-import htmlImage from './logos/html.svg'
+import honoImage from './logos/hono.svg'
+import { IOSLogo } from './logos/IOSLogo'
 import javaImage from './logos/java.svg'
 import jsImage from './logos/javascript_web.svg'
-import langchainImage from './logos/langchain.svg'
+import { LangChainLogo } from './logos/LangChainLogo'
 import langfuseImage from './logos/langfuse.svg'
 import laravelImage from './logos/laravel.svg'
-import litellmImage from './logos/litellm.png'
+import moengageImage from './logos/moengage.png'
+import n8nImage from './logos/n8n.svg'
 import nextjsImage from './logos/nextjs.svg'
 import nodejsImage from './logos/nodejs.svg'
 import nuxtImage from './logos/nuxt.svg'
-import openaiImage from './logos/openai.svg'
-import openrouterImage from './logos/openrouter.png'
+import { OpenAILogo } from './logos/OpenAILogo'
+import { OpenRouterLogo } from './logos/OpenRouterLogo'
 import phpImage from './logos/php.svg'
 import pythonImage from './logos/python.svg'
+import railsImage from './logos/rails.svg'
 import reactImage from './logos/react.svg'
 import reactNativeImage from './logos/react.svg'
-import retoolImage from './logos/retool.svg'
+import { ReactRouterLogo } from './logos/ReactRouterLogo'
+import { RemixLogo } from './logos/RemixLogo'
+import { RetoolLogo } from './logos/RetoolLogo'
 import rubyImage from './logos/ruby.svg'
-import rudderstackImage from './logos/rudderstack.svg'
+import { RudderstackLogo } from './logos/RudderstackLogo'
 import rustImage from './logos/rust.svg'
 import segmentImage from './logos/segment.svg'
-import sentryImage from './logos/sentry.svg'
+import { SentryLogo } from './logos/SentryLogo'
 import shopifyImage from './logos/shopify.svg'
 import svelteImage from './logos/svelte.svg'
+import tanStackImage from './logos/tanstack.png'
 import traceloopImage from './logos/traceloop.svg'
-import vercelImage from './logos/vercel.svg'
+import viteImage from './logos/vite.svg'
 import vueImage from './logos/vue.svg'
 import webflowImage from './logos/webflow.svg'
-import wordpressImage from './logos/wordpress.svg'
+import { WordpressLogo } from './logos/WordpressLogo'
+import zapierImage from './logos/zapier.svg'
 
-export const allSDKs: SDK[] = [
+export const ALL_SDKS: SDK[] = [
     // Web
     {
         name: 'Next.js',
@@ -55,15 +71,7 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/next-js',
     },
     {
-        name: 'HTML snippet',
-        key: SDKKey.HTML_SNIPPET,
-        recommended: true,
-        tags: [SDKTag.POPULAR, SDKTag.WEB],
-        image: htmlImage,
-        docsLink: 'https://posthog.com/docs/libraries/js',
-    },
-    {
-        name: 'JavaScript web',
+        name: 'Web',
         key: SDKKey.JS_WEB,
         recommended: true,
         tags: [SDKTag.POPULAR, SDKTag.WEB],
@@ -103,9 +111,9 @@ export const allSDKs: SDK[] = [
     {
         name: 'API',
         key: SDKKey.API,
-        tags: [SDKTag.SERVER],
+        tags: [SDKTag.SERVER, SDKTag.INTEGRATION],
         image: (
-            <span className="flex w-4">
+            <span className="flex h-8 w-8">
                 <Logomark />
             </span>
         ),
@@ -115,72 +123,14 @@ export const allSDKs: SDK[] = [
         name: 'Astro',
         key: SDKKey.ASTRO,
         tags: [SDKTag.WEB],
-        image: (
-            <span className="flex w-4">
-                <svg width="24" height="24" viewBox="0 0 85 107" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <title>Astro logo</title>
-                    <path
-                        d="M27.5894 91.1365C22.7555 86.7178 21.3444 77.4335 23.3583 70.7072C26.8503 74.948 31.6888 76.2914 36.7005 77.0497C44.4375 78.2199 52.0359 77.7822 59.2232 74.2459C60.0454 73.841 60.8052 73.3027 61.7036 72.7574C62.378 74.714 62.5535 76.6892 62.318 78.6996C61.7452 83.5957 59.3086 87.3778 55.4332 90.2448C53.8835 91.3916 52.2437 92.4167 50.6432 93.4979C45.7262 96.8213 44.3959 100.718 46.2435 106.386C46.2874 106.525 46.3267 106.663 46.426 107C43.9155 105.876 42.0817 104.24 40.6845 102.089C39.2087 99.8193 38.5066 97.3081 38.4696 94.5909C38.4511 93.2686 38.4511 91.9345 38.2733 90.6309C37.8391 87.4527 36.3471 86.0297 33.5364 85.9478C30.6518 85.8636 28.37 87.6469 27.7649 90.4554C27.7187 90.6707 27.6517 90.8837 27.5847 91.1341L27.5894 91.1365Z"
-                        fill="black"
-                        className="dark:fill-white"
-                    />
-                    <path
-                        d="M27.5894 91.1365C22.7555 86.7178 21.3444 77.4335 23.3583 70.7072C26.8503 74.948 31.6888 76.2914 36.7005 77.0497C44.4375 78.2199 52.0359 77.7822 59.2232 74.2459C60.0454 73.841 60.8052 73.3027 61.7036 72.7574C62.378 74.714 62.5535 76.6892 62.318 78.6996C61.7452 83.5957 59.3086 87.3778 55.4332 90.2448C53.8835 91.3916 52.2437 92.4167 50.6432 93.4979C45.7262 96.8213 44.3959 100.718 46.2435 106.386C46.2874 106.525 46.3267 106.663 46.426 107C43.9155 105.876 42.0817 104.24 40.6845 102.089C39.2087 99.8193 38.5066 97.3081 38.4696 94.5909C38.4511 93.2686 38.4511 91.9345 38.2733 90.6309C37.8391 87.4527 36.3471 86.0297 33.5364 85.9478C30.6518 85.8636 28.37 87.6469 27.7649 90.4554C27.7187 90.6707 27.6517 90.8837 27.5847 91.1341L27.5894 91.1365Z"
-                        fill="url(#astro_logo_gradient)"
-                    />
-                    <path
-                        d="M0 69.5866C0 69.5866 14.3139 62.6137 28.6678 62.6137L39.4901 29.1204C39.8953 27.5007 41.0783 26.3999 42.4139 26.3999C43.7495 26.3999 44.9325 27.5007 45.3377 29.1204L56.1601 62.6137C73.1601 62.6137 84.8278 69.5866 84.8278 69.5866C84.8278 69.5866 60.5145 3.35233 60.467 3.21944C59.7692 1.2612 58.5911 0 57.0029 0H27.8274C26.2392 0 25.1087 1.2612 24.3634 3.21944C24.3108 3.34983 0 69.5866 0 69.5866Z"
-                        fill="black"
-                        className="dark:fill-white"
-                    />
-                    <defs>
-                        <linearGradient
-                            id="astro_logo_gradient"
-                            x1="22.4702"
-                            y1="107"
-                            x2="69.1451"
-                            y2="84.9468"
-                            gradientUnits="userSpaceOnUse"
-                        >
-                            <stop stopColor="#D83333" />
-                            <stop offset="1" stopColor="#F041FF" />
-                        </linearGradient>
-                    </defs>
-                </svg>
-            </span>
-        ),
+        image: <AstroLogo />,
         docsLink: 'https://posthog.com/docs/libraries/astro',
     },
     {
         name: 'Bubble',
         key: SDKKey.BUBBLE,
         tags: [SDKTag.WEB],
-        image: (
-            <span className="flex w-4">
-                <svg
-                    className="w-4 h-4"
-                    width="16"
-                    height="18"
-                    viewBox="0 0 256 276"
-                    version="1.1"
-                    xmlns="http://www.w3.org/2000/svg"
-                    preserveAspectRatio="xMidYMid"
-                >
-                    <title>Bubble logo</title>
-                    <g>
-                        <path
-                            className="dark:fill-white"
-                            d="M156.687886,71.5306475 C131.928045,71.5306475 107.524298,82.1604077 88.8931172,103.059013 L88.8931172,0 L52.0240423,0 L52.0240423,173.506229 C52.0240423,173.510361 52.0240423,173.514494 52.0240423,173.519315 C52.0240423,229.845404 97.6852437,275.506605 154.012021,275.506605 C210.33811,275.506605 256,229.845404 256,173.519315 C256,117.193226 213.013974,71.5306475 156.687886,71.5306475 M154.012021,236.224775 C119.380066,236.224775 91.3051835,208.149893 91.3051835,173.518626 C91.3051835,138.886671 119.380066,110.811789 154.012021,110.811789 C188.643288,110.811789 216.71817,138.886671 216.71817,173.518626 C216.71817,208.150582 188.643288,236.224775 154.012021,236.224775"
-                            fill="#262626"
-                        />
-                        <path
-                            d="M25.2199377,225.066041 C11.2909777,225.066041 1.0658141e-14,236.357707 1.0658141e-14,250.285979 C1.0658141e-14,264.21425 11.2909777,275.505916 25.2199377,275.505916 C39.1488977,275.505916 50.4398754,264.21425 50.4398754,250.285979 C50.4398754,236.357707 39.1488977,225.066041 25.2199377,225.066041"
-                            fill="#0000FF"
-                        />
-                    </g>
-                </svg>
-            </span>
-        ),
+        image: <BubbleLogo />,
         docsLink: 'https://posthog.com/docs/libraries/bubble',
     },
     {
@@ -208,20 +158,7 @@ export const allSDKs: SDK[] = [
         name: 'Framer',
         key: SDKKey.FRAMER,
         tags: [SDKTag.WEB],
-        image: (
-            <span className="flex w-4">
-                <svg
-                    fill="#000000"
-                    className="w-4 h-4 dark:fill-white"
-                    viewBox="0 0 24 24"
-                    role="img"
-                    xmlns="http://www.w3.org/2000/svg"
-                >
-                    <title>Framer logo</title>
-                    <path d="M4 0h16v8h-8zM4 8h8l8 8H4zM4 16h8v8z" />
-                </svg>
-            </span>
-        ),
+        image: <FramerLogo />,
         docsLink: 'https://posthog.com/docs/libraries/framer',
     },
     {
@@ -239,65 +176,282 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/go',
     },
     {
-        name: 'Helicone',
-        key: SDKKey.HELICONE,
-        tags: [SDKTag.LLM],
-        image: heliconeImage,
-        docsLink: 'https://posthog.com/docs/llm-analytics/integrations/helicone-posthog',
+        name: 'Hono',
+        key: SDKKey.HONO,
+        tags: [SDKTag.SERVER],
+        image: honoImage,
+        docsLink: 'https://posthog.com/docs/libraries/hono',
     },
     {
         name: 'OpenAI',
         key: SDKKey.OPENAI,
-        tags: [],
-        image: openaiImage,
+        tags: [SDKTag.MODEL_PROVIDER, SDKTag.FRAMEWORK],
+        image: <OpenAILogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/openai',
+    },
+    {
+        name: 'OpenAI Agents',
+        key: SDKKey.OPENAI_AGENTS,
+        tags: [SDKTag.FRAMEWORK],
+        image: <OpenAILogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/openai-agents',
     },
     {
         name: 'Anthropic',
         key: SDKKey.ANTHROPIC,
-        tags: [],
-        image: anthropicImage,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: <AnthropicLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/anthropic',
     },
     {
         name: 'Google Gemini',
         key: SDKKey.GOOGLE_GEMINI,
-        tags: [],
+        tags: [SDKTag.MODEL_PROVIDER],
         image: geminiImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/google',
     },
     {
         name: 'Vercel AI SDK',
         key: SDKKey.VERCEL_AI,
-        tags: [],
-        image: vercelImage,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/vercel_373fa70879.svg',
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/vercel-ai',
     },
     {
         name: 'LangChain',
         key: SDKKey.LANGCHAIN,
-        tags: [],
-        image: langchainImage,
+        tags: [SDKTag.FRAMEWORK],
+        image: <LangChainLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/langchain',
     },
     {
         name: 'LiteLLM',
         key: SDKKey.LITELLM,
-        tags: [],
-        image: litellmImage,
+        tags: [SDKTag.FRAMEWORK, SDKTag.GATEWAY],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/litellmicon_a2805d75e5.png',
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/litellm',
     },
     {
         name: 'OpenRouter',
         key: SDKKey.OPENROUTER,
-        tags: [],
-        image: openrouterImage,
+        tags: [SDKTag.GATEWAY],
+        image: <OpenRouterLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/openrouter',
+    },
+    {
+        name: 'Cloudflare AI Gateway',
+        key: SDKKey.CLOUDFLARE_AI_GATEWAY,
+        tags: [SDKTag.GATEWAY],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/cloudflare_logo_6572a9f441.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/cloudflare-ai-gateway',
+    },
+    {
+        name: 'Dedalus Labs',
+        key: SDKKey.DEDALUS,
+        tags: [SDKTag.GATEWAY],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/dedalus_labs_logo_e03bb97137.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/dedalus',
+    },
+    {
+        name: 'DeepSeek',
+        key: SDKKey.DEEPSEEK,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/deepseek_df02608124.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/deepseek',
+    },
+    {
+        name: 'LangGraph',
+        key: SDKKey.LANGGRAPH,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/langgraph_2f91869ac8.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/langgraph',
+    },
+    {
+        name: 'Ollama',
+        key: SDKKey.OLLAMA,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/ollama_ff56896a1f.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/ollama',
+    },
+    {
+        name: 'AWS Bedrock',
+        key: SDKKey.AWS_BEDROCK,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/bedrock_5c06698148.png',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/aws-bedrock',
+    },
+    {
+        name: 'Azure OpenAI',
+        key: SDKKey.AZURE_OPENAI,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/azure_openai_884ba0124a.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/azure-openai',
+    },
+    {
+        name: 'Groq',
+        key: SDKKey.GROQ,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/groq_a0ed539e47.png',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/groq',
+    },
+    {
+        name: 'Mistral',
+        key: SDKKey.MISTRAL,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/mistral_551c75e2dd.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/mistral',
+    },
+    {
+        name: 'LlamaIndex',
+        key: SDKKey.LLAMAINDEX,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/llamaindex_f831132d7c.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/llamaindex',
+    },
+    {
+        name: 'CrewAI',
+        key: SDKKey.CREWAI,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/crewai_67ee9f5eb6.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/crewai',
+    },
+    {
+        name: 'Instructor',
+        key: SDKKey.INSTRUCTOR,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/instructor_b1982d9ce9.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/instructor',
+    },
+    {
+        name: 'Pydantic AI',
+        key: SDKKey.PYDANTIC_AI,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/pydantic_ai_55029bc39b.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/pydantic-ai',
+    },
+    {
+        name: 'xAI',
+        key: SDKKey.XAI,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/xai_77b917714b.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/xai',
+    },
+    {
+        name: 'Perplexity',
+        key: SDKKey.PERPLEXITY,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/perplexity_7d451cb62c.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/perplexity',
+    },
+    {
+        name: 'Together AI',
+        key: SDKKey.TOGETHER_AI,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/together_ai_49ac1a57fb.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/together-ai',
+    },
+    {
+        name: 'Fireworks AI',
+        key: SDKKey.FIREWORKS_AI,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/fireworks_ai_a3d8a59e96.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/fireworks-ai',
+    },
+    {
+        name: 'Cohere',
+        key: SDKKey.COHERE,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/cohere_0ddf02d545.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/cohere',
+    },
+    {
+        name: 'Hugging Face',
+        key: SDKKey.HUGGING_FACE,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/hugging_face_ae0a406f62.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/hugging-face',
+    },
+    {
+        name: 'DSPy',
+        key: SDKKey.DSPY,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/dspy_548bc2f255.webp',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/dspy',
+    },
+    {
+        name: 'AutoGen',
+        key: SDKKey.AUTOGEN,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/autogen_a8c56d013e.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/autogen',
+    },
+    {
+        name: 'Semantic Kernel',
+        key: SDKKey.SEMANTIC_KERNEL,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_200,c_limit,q_auto,f_auto/semantic_kernel_5102489978.png',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/semantic-kernel',
+    },
+    {
+        name: 'smolagents',
+        key: SDKKey.SMOLAGENTS,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/smolagents_logo_1_545072ae17.png',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/smolagents',
+    },
+    {
+        name: 'Mastra',
+        key: SDKKey.MASTRA,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/mastra_7ea7df92ab.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/mastra',
+    },
+    {
+        name: 'Mirascope',
+        key: SDKKey.MIRASCOPE,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/mirascope_33f38e04ea.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/mirascope',
+    },
+    {
+        name: 'Convex',
+        key: SDKKey.CONVEX,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/convex_d8dcddcd63.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/convex',
+    },
+    {
+        name: 'Cerebras',
+        key: SDKKey.CEREBRAS,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/cerebras_4d953c1c2b.png',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/cerebras',
+    },
+    {
+        name: 'Vercel AI Gateway',
+        key: SDKKey.VERCEL_AI_GATEWAY,
+        tags: [SDKTag.GATEWAY],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/vercel_373fa70879.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/vercel-ai-gateway',
+    },
+    {
+        name: 'Portkey',
+        key: SDKKey.PORTKEY,
+        tags: [SDKTag.GATEWAY],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/portkey_15a83f0395.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/portkey',
+    },
+    {
+        name: 'Helicone',
+        key: SDKKey.HELICONE,
+        tags: [SDKTag.LLM, SDKTag.GATEWAY],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/helicone_7c41fa4c2d.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/helicone',
     },
     {
         name: 'Manual Capture',
         key: SDKKey.MANUAL_CAPTURE,
-        tags: [],
+        tags: [SDKTag.FRAMEWORK, SDKTag.MODEL_PROVIDER, SDKTag.GATEWAY],
         image: (
             <span className="flex w-8 pb-3">
                 <Logomark />
@@ -306,21 +460,17 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/manual-capture',
     },
     {
+        name: 'OpenTelemetry',
+        key: SDKKey.OPENTELEMETRY,
+        tags: [SDKTag.INTEGRATION],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/opentelemetry_afb29df5ab.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/opentelemetry',
+    },
+    {
         name: 'iOS',
         key: SDKKey.IOS,
         tags: [SDKTag.MOBILE],
-        image: (
-            <span className="flex w-4">
-                <svg width="21" height="24" fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 24">
-                    <title>iOS logo</title>
-                    <path
-                        d="M16.844 23.016c-1.3 1.262-2.736 1.066-4.104.47-1.454-.607-2.784-.645-4.32 0-1.913.826-2.928.586-4.08-.47C-2.164 16.32-1.204 6.12 6.188 5.736c1.793.096 3.048.991 4.104 1.066 1.57-.32 3.072-1.234 4.752-1.114 2.018.163 3.528.96 4.536 2.393-4.152 2.496-3.168 7.968.646 9.504-.764 2.004-1.743 3.984-3.384 5.448l.002-.017zM10.148 5.664C9.954 2.688 12.366.24 15.14 0c.382 3.432-3.12 6-4.992 5.664z"
-                        fill="#000"
-                        className="dark:fill-white"
-                    />
-                </svg>
-            </span>
-        ),
+        image: <IOSLogo />,
         docsLink: 'https://posthog.com/docs/libraries/ios',
     },
     {
@@ -353,8 +503,15 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/node',
     },
     {
-        name: 'Nuxt.js',
+        name: 'Nuxt.js 3.7+',
         key: SDKKey.NUXT_JS,
+        tags: [SDKTag.WEB, SDKTag.SERVER],
+        image: nuxtImage,
+        docsLink: 'https://posthog.com/docs/libraries/nuxt-js',
+    },
+    {
+        name: 'Nuxt.js 3.6 and below',
+        key: SDKKey.NUXT_JS_36,
         tags: [SDKTag.WEB, SDKTag.SERVER],
         image: nuxtImage,
         docsLink: 'https://posthog.com/docs/libraries/nuxt-js',
@@ -375,28 +532,18 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/python',
     },
     {
+        name: 'React Router',
+        key: SDKKey.REACT_ROUTER,
+        tags: [SDKTag.WEB],
+        searchTerms: ['remix'],
+        image: <ReactRouterLogo />,
+        docsLink: 'https://posthog.com/docs/libraries/react-router',
+    },
+    {
         name: 'Remix',
         key: SDKKey.REMIX,
         tags: [SDKTag.WEB],
-        image: (
-            <span className="flex w-4 pl-1">
-                <svg width="21" height="24" viewBox="0 0 411 473" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <title>Remix logo</title>
-                    <path
-                        fillRule="evenodd"
-                        clipRule="evenodd"
-                        d="M392.946 364.768C397.201 419.418 397.201 445.036 397.201 473H270.756C270.756 466.909 270.865 461.337 270.975 455.687C271.317 438.123 271.674 419.807 268.828 382.819C265.067 328.667 241.748 316.634 198.871 316.634H160.883H0V218.109H204.889C259.049 218.109 286.13 201.633 286.13 158.011C286.13 119.654 259.049 96.4098 204.889 96.4098H0V0H227.456C350.069 0 411 57.9117 411 150.42C411 219.613 368.123 264.739 310.201 272.26C359.096 282.037 387.681 309.865 392.946 364.768Z"
-                        fill="#121212"
-                        className="dark:fill-white"
-                    />
-                    <path
-                        d="M0 473V399.553H133.697C156.029 399.553 160.878 416.116 160.878 425.994V473H0Z"
-                        fill="#121212"
-                        className="dark:fill-white"
-                    />
-                </svg>
-            </span>
-        ),
+        image: <RemixLogo />,
         docsLink: 'https://posthog.com/docs/libraries/remix',
     },
     {
@@ -405,6 +552,13 @@ export const allSDKs: SDK[] = [
         tags: [SDKTag.SERVER],
         image: rubyImage,
         docsLink: 'https://posthog.com/docs/libraries/ruby',
+    },
+    {
+        name: 'Ruby on Rails',
+        key: SDKKey.RUBY_ON_RAILS,
+        tags: [SDKTag.SERVER],
+        image: railsImage,
+        docsLink: 'https://posthog.com/docs/libraries/rails',
     },
     {
         name: 'Rust',
@@ -421,11 +575,25 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/svelte',
     },
     {
+        name: 'TanStack Start',
+        key: SDKKey.TANSTACK_START,
+        tags: [SDKTag.WEB],
+        image: tanStackImage,
+        docsLink: 'https://posthog.com/docs/libraries/react',
+    },
+    {
         name: 'Traceloop',
         key: SDKKey.TRACELOOP,
         tags: [SDKTag.LLM],
         image: traceloopImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/integrations/traceloop-posthog',
+    },
+    {
+        name: 'Vite',
+        key: SDKKey.VITE,
+        tags: [SDKTag.WEB],
+        image: viteImage,
+        docsLink: 'https://posthog.com/docs/libraries/react',
     },
     {
         name: 'Vue.js',
@@ -441,27 +609,13 @@ export const allSDKs: SDK[] = [
         image: webflowImage,
         docsLink: 'https://posthog.com/docs/libraries/webflow',
     },
-    // integrations
+    // Integrations
     {
         name: 'Google Tag Manager',
         key: SDKKey.GOOGLE_TAG_MANAGER,
         tags: [SDKTag.WEB, SDKTag.INTEGRATION],
         image: gtmImage,
         docsLink: 'https://posthog.com/docs/libraries/google-tag-manager',
-    },
-    {
-        name: 'Segment',
-        key: SDKKey.SEGMENT,
-        tags: [SDKTag.INTEGRATION],
-        image: segmentImage,
-        docsLink: 'https://posthog.com/docs/libraries/segment',
-    },
-    {
-        name: 'RudderStack',
-        key: SDKKey.RUDDERSTACK,
-        tags: [SDKTag.INTEGRATION],
-        image: rudderstackImage,
-        docsLink: 'https://posthog.com/docs/libraries/rudderstack',
     },
     {
         name: 'Docusaurus',
@@ -471,6 +625,34 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/docusaurus',
     },
     {
+        name: 'MoEngage',
+        key: SDKKey.MOENGAGE,
+        tags: [SDKTag.WEB, SDKTag.INTEGRATION],
+        image: moengageImage,
+        docsLink: 'https://posthog.com/docs/libraries/moengage',
+    },
+    {
+        name: 'n8n',
+        key: SDKKey.N8N,
+        tags: [SDKTag.INTEGRATION],
+        image: n8nImage,
+        docsLink: 'https://posthog.com/docs/libraries/n8n',
+    },
+    {
+        name: 'Segment',
+        key: SDKKey.SEGMENT,
+        tags: [SDKTag.INTEGRATION],
+        image: segmentImage,
+        docsLink: 'https://posthog.com/docs/libraries/segment',
+    },
+    {
+        name: 'Sentry',
+        key: SDKKey.SENTRY,
+        tags: [SDKTag.INTEGRATION],
+        image: <SentryLogo />,
+        docsLink: 'https://posthog.com/docs/libraries/sentry',
+    },
+    {
         name: 'Shopify',
         key: SDKKey.SHOPIFY,
         tags: [SDKTag.INTEGRATION],
@@ -478,24 +660,31 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/shopify',
     },
     {
+        name: 'RudderStack',
+        key: SDKKey.RUDDERSTACK,
+        tags: [SDKTag.INTEGRATION],
+        image: <RudderstackLogo />,
+        docsLink: 'https://posthog.com/docs/libraries/rudderstack',
+    },
+    {
         name: 'Wordpress',
         key: SDKKey.WORDPRESS,
         tags: [SDKTag.INTEGRATION],
-        image: wordpressImage,
+        image: <WordpressLogo />,
         docsLink: 'https://posthog.com/docs/libraries/wordpress',
-    },
-    {
-        name: 'Sentry',
-        key: SDKKey.SENTRY,
-        tags: [SDKTag.INTEGRATION],
-        image: sentryImage,
-        docsLink: 'https://posthog.com/docs/libraries/sentry',
     },
     {
         name: 'Retool',
         key: SDKKey.RETOOL,
         tags: [SDKTag.INTEGRATION],
-        image: retoolImage,
+        image: <RetoolLogo />,
         docsLink: 'https://posthog.com/docs/libraries/retool',
+    },
+    {
+        name: 'Zapier',
+        key: SDKKey.ZAPIER,
+        tags: [SDKTag.INTEGRATION],
+        image: zapierImage,
+        docsLink: 'https://posthog.com/docs/libraries/zapier',
     },
 ]

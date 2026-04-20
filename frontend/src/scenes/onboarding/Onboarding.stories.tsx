@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
@@ -8,10 +8,11 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
-import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
+import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
+import domainConnectJson from '~/mocks/fixtures/_domain_connect_check.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingProduct, OnboardingStepKey } from '~/types'
+import { OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 import { availableOnboardingProducts } from './utils'
@@ -36,110 +37,319 @@ const meta: Meta = {
                 '/api/billing/': {
                     ...billingJson,
                 },
+                '/api/environments/:team_id/integrations/domain-connect/check': domainConnectJson,
                 '/api/environments/:team_id/external_data_sources/wizard': () => {
                     return [
                         200,
                         {
+                            // 4 featured ones
+                            Github: {
+                                name: 'Github',
+                                iconPath: '/static/services/github.png',
+                                fields: [],
+                                caption: '',
+                                featured: true,
+                            },
+                            Hubspot: {
+                                name: 'Hubspot',
+                                iconPath: '/static/services/hubspot.png',
+                                fields: [],
+                                caption: '',
+                                featured: true,
+                            },
+                            Postgres: {
+                                name: 'Postgres',
+                                iconPath: '/static/services/postgres.png',
+                                fields: [],
+                                caption: '',
+                                featured: true,
+                            },
                             Stripe: {
                                 name: 'Stripe',
                                 iconPath: '/static/services/stripe.png',
                                 fields: [],
                                 caption: '',
+                                featured: true,
+                            },
+                            // Extra sources to be displayed under button
+                            Ashby: {
+                                name: 'Ashby',
+                                iconPath: '/static/services/ashby.png',
+                                fields: [],
+                                caption: '',
+                                featured: false,
+                            },
+                            Supabase: {
+                                name: 'Supabase',
+                                iconPath: '/static/services/supabase.png',
+                                fields: [],
+                                caption: '',
+                                featured: false,
+                            },
+                            Shopify: {
+                                name: 'Shopify',
+                                iconPath: '/static/services/shopify.png',
+                                fields: [],
+                                caption: '',
+                                featured: false,
                             },
                         },
                     ]
                 },
             },
             patch: {
-                '/api/environments/@current/add_product_intent/': {},
+                '/api/environments/:team_id/add_product_intent/': {},
             },
         }),
     ],
 }
 export default meta
 
-export const _OnboardingSDKs = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
+type Story = StoryObj<{}>
 
-    useDelayedOnMountEffect(() => {
-        const product: OnboardingProduct = availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS]
-        setProduct(product)
-        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL))
-    })
+// ==========================================
+// SDK Install (one example)
+// ==========================================
 
-    return <App />
+export const SDKInstall: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+            )
+        })
+
+        return <App />
+    },
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
+    },
 }
 
-export const _OnboardingProductConfiguration = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
+export const LLMAnalyticsSDKInstall: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    const { setProduct } = useActions(onboardingLogic)
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.LLM_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+            )
+        })
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.SESSION_REPLAY])
-        router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.PRODUCT_CONFIGURATION))
-    })
-
-    return <App />
+        return <App />
+    },
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
+    },
 }
 
-export const _OnboardingBilling = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
+// ==========================================
+// Product Configuration Steps
+// ==========================================
 
-    useStorybookMocks({
-        get: {
-            '/api/billing/': {
-                ...billingUnsubscribedJson,
+export const ProductAnalyticsConfiguration: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({
+                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                    stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
+                })
+            )
+        })
+
+        return <App />
+    },
+}
+
+export const SessionReplayConfiguration: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.SESSION_REPLAY])
+            router.actions.push(
+                urls.onboarding({
+                    productKey: ProductKey.SESSION_REPLAY,
+                    stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
+                })
+            )
+        })
+
+        return <App />
+    },
+}
+
+export const SessionReplayOptIn: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.SESSION_REPLAY })
+            )
+        })
+
+        return <App />
+    },
+}
+
+// ==========================================
+// Web Analytics
+// ==========================================
+
+export const AuthorizedDomains: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.WEB_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.WEB_ANALYTICS, stepKey: OnboardingStepKey.AUTHORIZED_DOMAINS })
+            )
+        })
+
+        return <App />
+    },
+}
+
+// ==========================================
+// Data Warehouse
+// ==========================================
+
+export const LinkData: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.DATA_WAREHOUSE])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.DATA_WAREHOUSE, stepKey: OnboardingStepKey.LINK_DATA })
+            )
+        })
+
+        return <App />
+    },
+}
+
+// ==========================================
+// Error Tracking
+// ==========================================
+
+export const SourceMaps: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.ERROR_TRACKING, stepKey: OnboardingStepKey.SOURCE_MAPS })
+            )
+        })
+
+        return <App />
+    },
+}
+
+export const Alerts: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.ERROR_TRACKING, stepKey: OnboardingStepKey.ALERTS })
+            )
+        })
+
+        return <App />
+    },
+}
+
+// ==========================================
+// Workflows
+// ==========================================
+
+export const WorkflowsCustomInstallationInstructions: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.WORKFLOWS])
+            router.actions.push(
+                urls.onboarding({
+                    productKey: ProductKey.WORKFLOWS,
+                    stepKey: OnboardingStepKey.INSTALL,
+                })
+            )
+        })
+
+        return <App />
+    },
+}
+
+// ==========================================
+// Shared Steps
+// ==========================================
+
+export const BillingPlans: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingUnsubscribedJson,
+                },
             },
-        },
-    })
+        })
 
-    const { setProduct } = useActions(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.PLANS))
-    })
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.PLANS })
+            )
+        })
 
-    return <App />
+        return <App />
+    },
 }
 
-export const _OnboardingInvite = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
+export const InviteTeammates: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
 
-    const { setProduct } = useActions(onboardingLogic)
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            router.actions.push(
+                urls.onboarding({
+                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                    stepKey: OnboardingStepKey.INVITE_TEAMMATES,
+                })
+            )
+        })
 
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INVITE_TEAMMATES))
-    })
-
-    return <App />
-}
-
-export const _OnboardingReverseProxy = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.FEATURE_FLAGS])
-        router.actions.push(urls.onboarding(ProductKey.FEATURE_FLAGS, OnboardingStepKey.REVERSE_PROXY))
-    })
-
-    return <App />
-}
-
-export const _OnboardingLinkData = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.DATA_WAREHOUSE])
-        router.actions.push(urls.onboarding(ProductKey.DATA_WAREHOUSE, OnboardingStepKey.LINK_DATA))
-    })
-
-    return <App />
+        return <App />
+    },
 }

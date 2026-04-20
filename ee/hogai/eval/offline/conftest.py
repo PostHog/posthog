@@ -30,7 +30,7 @@ from ee.hogai.eval.offline.snapshot_loader import SnapshotLoader
 from ee.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig
 
 
-@pytest.fixture(scope="package")
+@pytest.fixture(scope="session")
 def dagster_context() -> Generator[PipesContext, None, None]:
     with open_dagster_pipes() as context:
         yield context
@@ -115,7 +115,7 @@ class EvaluationContext(BaseModel):
         )
 
 
-@pytest.fixture(scope="package", autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def eval_ctx(
     set_up_evals,  # noqa: F811
     dagster_context: PipesContext,

@@ -1,8 +1,10 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,6 +14,8 @@ import { WeekdayType } from '~/types'
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { stepWaitUntilTimeWindowLogic } from './stepWaitUntilTimeWindowLogic'
+import { TIME_RANGE_OPTIONS, WEEKDAY_OPTIONS } from './timeWindowConstants'
 
 type DayConfig = 'any' | 'weekday' | 'weekend' | WeekdayType[]
 type TimeConfig = 'any' | [string, string]
@@ -32,22 +36,6 @@ const TIME_OPTIONS = [
     { value: 'any', label: 'Any time' },
     { value: 'custom', label: 'Specific time range' },
 ]
-
-const WEEKDAY_OPTIONS = [
-    { key: 'monday', label: 'Monday' },
-    { key: 'tuesday', label: 'Tuesday' },
-    { key: 'wednesday', label: 'Wednesday' },
-    { key: 'thursday', label: 'Thursday' },
-    { key: 'friday', label: 'Friday' },
-    { key: 'saturday', label: 'Saturday' },
-    { key: 'sunday', label: 'Sunday' },
-]
-
-// Generate time range options (00:00 to 23:00)
-const TIME_RANGE_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
-    value: `${i.toString().padStart(2, '0')}:00`,
-    label: `${i.toString().padStart(2, '0')}:00`,
-}))
 
 // Configuration utility functions
 const isCustomDay = (day: DayConfig): day is WeekdayType[] => {
@@ -102,11 +90,17 @@ const getUpdatedTimeRangeConfig = (
 
 export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<WaitUntilTimeWindowAction> }): JSX.Element {
     const action = node.data
-    const { timezone, day, time } = action.config
+    const { timezone, day, time, use_person_timezone, fallback_timezone } = action.config
 
-    const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { logicProps } = useValues(workflowLogic)
+    const { partialSetWaitUntilTimeWindowConfig } = useActions(
+        stepWaitUntilTimeWindowLogic({ workflowLogicProps: logicProps })
+    )
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const showPersonTimezone = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_PERSON_TIMEZONE]
 
     const timezoneOptions = Object.entries(preflight?.available_timezones || {}).map(([tz, offset]) => ({
         key: tz,
@@ -120,7 +114,18 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
         if (!preflight?.available_timezones) {
             throw new Error('No timezones are available')
         }
-        partialSetWorkflowActionConfig(action.id, { timezone: newTimezone[0] })
+        partialSetWaitUntilTimeWindowConfig(action.id, { timezone: newTimezone[0] })
+    }
+
+    const handleUsePersonTimezoneChange = (checked: boolean): void => {
+        partialSetWaitUntilTimeWindowConfig(action.id, { use_person_timezone: checked })
+    }
+
+    const handleFallbackTimezoneChange = (newTimezone: string[]): void => {
+        if (!preflight?.available_timezones) {
+            throw new Error('No timezones are available')
+        }
+        partialSetWaitUntilTimeWindowConfig(action.id, { fallback_timezone: newTimezone[0] })
     }
 
     return (
@@ -133,10 +138,10 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
                         isCustomDate={isCustomDate}
                         onDayChange={(value) => {
                             const config = getUpdatedDayConfig(value)
-                            partialSetWorkflowActionConfig(action.id, config)
+                            partialSetWaitUntilTimeWindowConfig(action.id, config)
                         }}
                         onCustomDaysChange={(newDays) =>
-                            partialSetWorkflowActionConfig(action.id, { day: [...newDays] as WeekdayType[] })
+                            partialSetWaitUntilTimeWindowConfig(action.id, { day: [...newDays] as WeekdayType[] })
                         }
                     />
 
@@ -147,12 +152,12 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
                         isCustomTime={isCustomTimeRange}
                         onTimeChange={(value) => {
                             const config = getUpdatedTimeConfig(value)
-                            partialSetWorkflowActionConfig(action.id, config)
+                            partialSetWaitUntilTimeWindowConfig(action.id, config)
                         }}
                         onTimeRangeChange={(newTime, index) => {
                             if (isCustomTimeRange) {
                                 const config = getUpdatedTimeRangeConfig(newTime, index, time)
-                                partialSetWorkflowActionConfig(action.id, config)
+                                partialSetWaitUntilTimeWindowConfig(action.id, config)
                             }
                         }}
                     />
@@ -160,9 +165,14 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
 
                 <TimezoneConfiguration
                     timezone={timezone}
+                    usePersonTimezone={use_person_timezone}
+                    fallbackTimezone={fallback_timezone}
                     currentTeamTimezone={currentTeam?.timezone}
                     timezoneOptions={timezoneOptions}
                     onTimezoneChange={handleTimezoneChange}
+                    onUsePersonTimezoneChange={handleUsePersonTimezoneChange}
+                    onFallbackTimezoneChange={handleFallbackTimezoneChange}
+                    showPersonTimezoneOption={showPersonTimezone}
                 />
             </div>
         </>
@@ -253,27 +263,68 @@ function TimeConfiguration({
 
 function TimezoneConfiguration({
     timezone,
+    usePersonTimezone,
+    fallbackTimezone,
     currentTeamTimezone,
     timezoneOptions,
     onTimezoneChange,
+    onUsePersonTimezoneChange,
+    onFallbackTimezoneChange,
+    showPersonTimezoneOption,
 }: {
     timezone: string | null
+    usePersonTimezone?: boolean
+    fallbackTimezone?: string | null
     currentTeamTimezone?: string
     timezoneOptions: { key: string; label: string }[]
     onTimezoneChange: (timezone: string[]) => void
+    onUsePersonTimezoneChange: (checked: boolean) => void
+    onFallbackTimezoneChange: (timezone: string[]) => void
+    showPersonTimezoneOption: boolean
 }): JSX.Element {
     return (
-        <div>
-            <LemonLabel>Timezone</LemonLabel>
-            <LemonInputSelect
-                mode="single"
-                placeholder="Select a time zone"
-                value={[timezone || currentTeamTimezone || 'UTC']}
-                popoverClassName="z-[1000]"
-                onChange={onTimezoneChange}
-                options={timezoneOptions}
-                data-attr="timezone-select"
-            />
+        <div className="flex flex-col gap-3">
+            {showPersonTimezoneOption && (
+                <LemonSwitch
+                    checked={usePersonTimezone ?? false}
+                    onChange={onUsePersonTimezoneChange}
+                    label="Use person's timezone"
+                    bordered
+                    tooltip="Requires the GeoIP transformation to be enabled in Data pipelines → Transformations."
+                    data-attr="use-person-timezone-switch"
+                />
+            )}
+
+            {showPersonTimezoneOption && usePersonTimezone ? (
+                <div>
+                    <LemonLabel>Fallback timezone</LemonLabel>
+                    <p className="text-xs text-muted mb-2">
+                        Used when the person doesn't have a timezone set (no $geoip_time_zone property)
+                    </p>
+                    <LemonInputSelect
+                        mode="single"
+                        placeholder="Select a fallback time zone"
+                        value={[fallbackTimezone || timezone || currentTeamTimezone || 'UTC']}
+                        popoverClassName="z-[1000]"
+                        onChange={onFallbackTimezoneChange}
+                        options={timezoneOptions}
+                        data-attr="fallback-timezone-select"
+                    />
+                </div>
+            ) : (
+                <div>
+                    <LemonLabel>Timezone</LemonLabel>
+                    <LemonInputSelect
+                        mode="single"
+                        placeholder="Select a time zone"
+                        value={[timezone || currentTeamTimezone || 'UTC']}
+                        popoverClassName="z-[1000]"
+                        onChange={onTimezoneChange}
+                        options={timezoneOptions}
+                        data-attr="timezone-select"
+                    />
+                </div>
+            )}
         </div>
     )
 }

@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -16,10 +17,28 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { InsightVizNode, Node } from '~/queries/schema/schema-general'
+import { InsightVizNode, Node, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'
+
+// Queue for operations that arrive before the Notebook component mounts its
+// kea logic. `openNotebook` pushes here; `notebookLogic.afterMount` drains.
+const pendingNotebookOperations = new Map<string, ((logic: BuiltLogic<notebookLogicType>) => void)[]>()
+
+export function drainPendingNotebookOperations(shortId: string): void {
+    const ops = pendingNotebookOperations.get(shortId)
+    if (!ops?.length) {
+        return
+    }
+    pendingNotebookOperations.delete(shortId)
+    const logic = notebookLogic.findMounted({ shortId })
+    if (logic) {
+        for (const op of ops) {
+            op(logic)
+        }
+    }
+}
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     id: 'scratchpad',
@@ -33,10 +52,8 @@ export const openNotebook = async (
     notebookId: string,
     target: NotebookTarget,
     autofocus: EditorFocusPosition | undefined = undefined,
-    // operations to run against the notebook once it has opened and the editor is ready
-    onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
+    onOpen?: (logic: BuiltLogic<notebookLogicType>) => void
 ): Promise<void> => {
-    // TODO: We want a better solution than assuming it will always be mounted
     const thePanelLogic = notebookPanelLogic.findMounted()
 
     if (thePanelLogic && target === NotebookTarget.Popover) {
@@ -49,13 +66,15 @@ export const openNotebook = async (
         }
     }
 
-    const theNotebookLogic = notebookLogic({ shortId: notebookId })
-    const unmount = theNotebookLogic.mount()
-
-    try {
-        onOpen(theNotebookLogic)
-    } finally {
-        unmount()
+    if (onOpen) {
+        const mountedLogic = notebookLogic.findMounted({ shortId: notebookId })
+        if (mountedLogic) {
+            onOpen(mountedLogic)
+        } else {
+            const ops = pendingNotebookOperations.get(notebookId) || []
+            ops.push(onOpen)
+            pendingNotebookOperations.set(notebookId, ops)
+        }
     }
 }
 
@@ -66,12 +85,14 @@ export const notebooksModel = kea<notebooksModelType>([
             location: NotebookTarget,
             title?: string,
             content?: JSONContent[],
-            onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void
+            onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void,
+            shortId?: string
         ) => ({
             title,
             location,
             content,
             onCreate,
+            shortId,
         }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
@@ -90,11 +111,12 @@ export const notebooksModel = kea<notebooksModelType>([
         notebooks: [
             [] as NotebookListItemType[],
             {
-                createNotebook: async ({ title, location, content, onCreate }) => {
+                createNotebook: async ({ title, location, content, onCreate, shortId }) => {
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),
                         _create_in_folder: getLastNewFolder(),
+                        ...(shortId ? { short_id: shortId } : {}),
                     })
 
                     await openNotebook(notebook.short_id, location, 'end', (logic) => {
@@ -103,6 +125,11 @@ export const notebooksModel = kea<notebooksModelType>([
 
                     posthog.capture(`notebook created`, {
                         short_id: notebook.short_id,
+                    })
+
+                    void addProductIntent({
+                        product_type: ProductKey.NOTEBOOKS,
+                        intent_context: ProductIntentContext.NOTEBOOK_CREATED,
                     })
 
                     return [notebook, ...values.notebooks]

@@ -18,7 +18,11 @@ export function FingerprintRecordPartDisplay({
     const iconRef = useRef<HTMLDivElement>(null)
     const isHovering = useIsHovering(iconRef)
     return (
-        <Tooltip title={renderPartTooltip(part)} placement="right">
+        <Tooltip
+            title={renderPartTooltip(part)}
+            placement="right"
+            docLink="https://posthog.com/docs/error-tracking/fingerprints"
+        >
             <span ref={iconRef} className="inline-flex items-center">
                 <IconFingerprint className={className} color={isHovering ? 'red' : 'gray'} fontSize="17px" />
             </span>

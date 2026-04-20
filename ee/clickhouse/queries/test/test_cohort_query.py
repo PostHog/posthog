@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 import unittest
@@ -13,8 +14,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from tenacity import retry, stop_after_attempt, wait_exponential
-
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.clickhouse.client import sync_execute
@@ -25,7 +24,8 @@ from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
-from posthog.models.property_definition import PropertyDefinition
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
 
@@ -47,7 +47,9 @@ def _make_event_sequence(
                 event=event,
                 properties=properties,
                 distinct_id=distinct_id,
-                timestamp=datetime.now() - timedelta(days=interval_days * period_index, hours=1, minutes=i),
+                # Use midpoint of each period to avoid flakiness from clock drift
+                # between Python's datetime.now() and ClickHouse's now()
+                timestamp=datetime.now() - timedelta(days=interval_days * period_index, hours=12, minutes=i),
             )
 
 
@@ -60,13 +62,33 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def execute(filter: Filter, team: Team):
-    cohort_query = CohortQuery(filter=filter, team=team)
-    q, params = cohort_query.get_query()
-    res = sync_execute(q, {**params, **filter.hogql_context.values})
-    unittest.TestCase().assertCountEqual(res, cohort_query.hogql_result.results)
-    assert ["id"] == cohort_query.hogql_result.columns
-    return res, q, params
+def execute(filter: Filter, team: Team, max_retries: int = 5):
+    # Ensure tables are fully merged before comparing HogQL and raw SQL results.
+    # Due to ClickHouse's eventual consistency with CollapsingMergeTree and other
+    # MergeTree variants, HogQL and raw SQL queries may see slightly different states.
+    # We retry the comparison to handle transient inconsistencies.
+    sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
+    sync_execute("OPTIMIZE TABLE person FINAL")
+    sync_execute("OPTIMIZE TABLE sharded_events FINAL")
+
+    last_error: AssertionError | None = None
+    for attempt in range(max_retries):
+        cohort_query = CohortQuery(filter=filter, team=team)
+        q, params = cohort_query.get_query()
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
+        try:
+            unittest.TestCase().assertCountEqual(res, cohort_query.hogql_result.results)
+            assert ["id"] == cohort_query.hogql_result.columns
+            return res, q, params
+        except AssertionError as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                # Force another merge before retrying
+                sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
+                sync_execute("OPTIMIZE TABLE person FINAL")
+                sync_execute("OPTIMIZE TABLE sharded_events FINAL")
+    assert last_error is not None  # Always set since loop runs at least once
+    raise last_error
 
 
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
@@ -1043,7 +1065,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             # Filter for:
             # Regularly completed [$pageview] [at least] [1] times per
             # [3][day] period for at least [3] of the last [3] periods
-            data = {
+            data: dict[str, Any] = {
                 "properties": {
                     "type": "AND",
                     "values": [
@@ -1845,7 +1867,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(
             team=self.team,
@@ -1984,7 +2006,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(
             team=self.team,
@@ -2058,12 +2080,11 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
     @snapshot_clickhouse_queries
-    @pytest.mark.flaky(max_runs=2)
     def test_cohort_filter_with_extra(self):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(
             team=self.team,
@@ -2105,18 +2126,10 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         cohort.calculate_people_ch(pending_version=0)
+        sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
 
-        @retry(wait=wait_exponential(multiplier=1, min=1, max=3), stop=stop_after_attempt(5))
-        def assert_cohort_results(expected: list[str]):
-            """
-            we retry the cohort query with backoff
-            to give the cohort time to calculate
-            and hopefully to stop the test flaking in cI
-            """
-            res, q, params = execute(filter, self.team)
-            assert sorted(expected) == sorted([r[0] for r in res])
-
-        assert_cohort_results([p2.uuid])
+        res, q, params = execute(filter, self.team)
+        assert sorted([p2.uuid]) == sorted([r[0] for r in res])
 
         filter = Filter(
             data={
@@ -2139,7 +2152,10 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         cohort.calculate_people_ch(pending_version=0)
-        assert_cohort_results([p1.uuid, p2.uuid])
+        sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
+
+        res, q, params = execute(filter, self.team)
+        assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
     @snapshot_clickhouse_queries
     def test_cohort_filter_with_another_cohort_with_event_sequence(self):
@@ -2236,7 +2252,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
         flush_persons_and_events()
@@ -2260,7 +2276,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
 
@@ -2863,7 +2879,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort_static = _create_cohort(team=self.team, name="cohort static", groups=[], is_static=True)
 

@@ -1,10 +1,18 @@
 import * as crypto from 'crypto'
 import { RE2JS } from 're2js'
 
-import { ExecOptions, ExecResult, VMState, exec as hogExec, execAsync as hogExecAsync } from '@posthog/hogvm'
+import {
+    ExecOptions,
+    ExecResult,
+    HogQLPrinter,
+    VMState,
+    ASTNode,
+    exec as hogExec,
+    execAsync as hogExecAsync,
+} from '@posthog/hogvm'
 
 import { performQuery } from '~/queries/query'
-import { HogQLASTQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 const external = {
@@ -17,6 +25,18 @@ const external = {
                 (multiline ? RE2JS.MULTILINE : 0) |
                 (dotall ? RE2JS.DOTALL : 0)
             return RE2JS.compile(newRegex, flags).matcher(value).find()
+        },
+        extract: (regex: string, value: string): string => {
+            const { regex: newRegex, insensitive, multiline, dotall } = gatherRegExModifiers(regex, 's')
+            const flags =
+                (insensitive ? RE2JS.CASE_INSENSITIVE : 0) |
+                (multiline ? RE2JS.MULTILINE : 0) |
+                (dotall ? RE2JS.DOTALL : 0)
+            const matcher = RE2JS.compile(newRegex, flags).matcher(value)
+            if (!matcher.find()) {
+                return ''
+            }
+            return matcher.groupCount() > 0 ? (matcher.group(1) ?? '') : (matcher.group(0) ?? '')
         },
     },
 }
@@ -37,19 +57,16 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
                 return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
             },
             run: async (queryInput: string | Record<string, any>) => {
-                const queryNode: HogQLQuery | HogQLASTQuery =
-                    typeof queryInput === 'object'
-                        ? setLatestVersionsOnQuery(
-                              {
-                                  kind: NodeKind.HogQLASTQuery,
-                                  query: queryInput,
-                              },
-                              { recursion: false }
-                          )
-                        : setLatestVersionsOnQuery(
-                              { kind: NodeKind.HogQLQuery, query: queryInput },
-                              { recursion: false }
-                          )
+                const queryNode: HogQLQuery = setLatestVersionsOnQuery(
+                    {
+                        kind: NodeKind.HogQLQuery,
+                        query:
+                            typeof queryInput === 'object'
+                                ? new HogQLPrinter(false).print(queryInput as ASTNode)
+                                : queryInput,
+                    },
+                    { recursion: false }
+                )
                 const response = await performQuery(queryNode)
                 return { results: response.results, columns: response.columns }
             },

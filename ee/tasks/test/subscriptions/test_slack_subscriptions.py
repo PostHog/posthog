@@ -5,17 +5,21 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
-from posthog.models.dashboard import Dashboard
+from parameterized import parameterized
+
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     _block_for_asset,
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
@@ -31,7 +35,12 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
     def setUp(self) -> None:
         self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
-        self.asset = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
+        self.asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test.png",
+        )
         self.subscription = create_subscription(
             team=self.team,
             insight=self.insight,
@@ -86,21 +95,50 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
             },
         ]
 
-    def test_subscription_delivery_new(self, MockSlackIntegration: MagicMock) -> None:
+    @parameterized.expand(
+        [
+            (
+                "recurring_without_title",
+                None,
+                False,
+                "Your subscription to the Insight *My Test subscription* is ready! 🎉",
+            ),
+            (
+                "recurring_with_title",
+                "Weekly KPI Report",
+                False,
+                "Your subscription to *Weekly KPI Report* (Insight: My Test subscription) is ready! 🎉",
+            ),
+            (
+                "new_without_title",
+                None,
+                True,
+                "This channel has been subscribed to the Insight *My Test subscription* on PostHog! 🎉\nThis subscription is sent every day. The next one will be sent on Wednesday February 02, 2022",
+            ),
+            (
+                "new_with_title",
+                "Weekly KPI Report",
+                True,
+                "This channel has been subscribed to *Weekly KPI Report* (Insight: My Test subscription) on PostHog! 🎉\nThis subscription is sent every day. The next one will be sent on Wednesday February 02, 2022",
+            ),
+        ]
+    )
+    def test_subscription_delivery_title(
+        self, MockSlackIntegration: MagicMock, _name: str, title: str | None, is_new: bool, expected_text: str
+    ) -> None:
         mock_slack_integration = MagicMock()
         MockSlackIntegration.return_value = mock_slack_integration
         mock_slack_integration.client.chat_postMessage.return_value = {"ts": "1.234"}
 
-        send_slack_subscription_report(self.subscription, [self.asset], 1, is_new_subscription=True)
+        if title:
+            self.subscription.title = title
+            self.subscription.save()
+
+        send_slack_subscription_report(self.subscription, [self.asset], 1, is_new_subscription=is_new)
 
         assert mock_slack_integration.client.chat_postMessage.call_count == 1
-        post_message_calls = mock_slack_integration.client.chat_postMessage.call_args_list
-        first_call = post_message_calls[0].kwargs
-
-        assert (
-            first_call["text"]
-            == "This channel has been subscribed to the Insight *My Test subscription* on PostHog! 🎉\nThis subscription is sent every day. The next one will be sent on Wednesday February 02, 2022"
-        )
+        first_call = mock_slack_integration.client.chat_postMessage.call_args_list[0].kwargs
+        assert first_call["text"] == expected_text
 
     def test_subscription_dashboard_delivery(self, MockSlackIntegration: MagicMock) -> None:
         mock_slack_integration = MagicMock()
@@ -220,7 +258,12 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     def setUp(self) -> None:
         self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
-        self.asset = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
+        self.asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test.png",
+        )
         self.subscription = create_subscription(
             team=self.team,
             dashboard=self.dashboard,
@@ -238,8 +281,18 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         mock_slack_integration.async_client = MagicMock(return_value=mock_async_client)
         mock_async_client.chat_postMessage.return_value = {"ts": "1.234"}
 
-        asset2 = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
-        asset3 = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
+        asset2 = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test2.png",
+        )
+        asset3 = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test3.png",
+        )
         assets = list(
             ExportedAsset.objects.filter(id__in=[self.asset.id, asset2.id, asset3.id]).select_related("insight")
         )
@@ -276,8 +329,18 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             {"ts": "3.456"},  # Third thread message "Showing 3 of 10"
         ]
 
-        asset2 = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
-        asset3 = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
+        asset2 = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test2.png",
+        )
+        asset3 = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test3.png",
+        )
         assets = list(
             ExportedAsset.objects.filter(id__in=[self.asset.id, asset2.id, asset3.id]).select_related("insight")
         )
@@ -443,7 +506,7 @@ class TestSlackErrorTruncation(APIBaseTest):
             team=self.team, insight_id=self.insight.id, export_format="image/png", exception=short_error
         )
 
-        block = _block_for_asset(asset)
+        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
 
         assert block["type"] == "section"
         assert short_error in block["text"]["text"]
@@ -456,7 +519,7 @@ class TestSlackErrorTruncation(APIBaseTest):
             team=self.team, insight_id=self.insight.id, export_format="image/png", exception=long_error
         )
 
-        block = _block_for_asset(asset)
+        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
 
         assert block["type"] == "section"
         text = block["text"]["text"]
@@ -464,3 +527,13 @@ class TestSlackErrorTruncation(APIBaseTest):
         assert len(text) < 3000
         assert "*My Test subscription*" in text
         assert "There was an error generating your asset:" in text
+
+    def test_block_for_asset_without_content_or_location(self) -> None:
+        asset = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
+
+        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+
+        assert block["type"] == "section"
+        text = block["text"]["text"]
+        assert "*My Test subscription*" in text
+        assert ASSET_GENERATION_FAILED_MESSAGE in text

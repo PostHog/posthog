@@ -1,0 +1,19 @@
+.FunnelsQuerySteps {
+    .ActionFilterGroup {
+        margin-top: 0 !important;
+
+        &:not(:first-child) {
+            margin-top: 0.5rem !important;
+        }
+
+        .ActionFilterRow-content {
+            padding: 0.5rem 0 !important;
+            border: none !important;
+        }
+
+        .ActionFilterRow-filters {
+            padding: 0 !important;
+            border-bottom: none !important;
+        }
+    }
+}

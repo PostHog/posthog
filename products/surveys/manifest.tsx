@@ -1,7 +1,7 @@
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -11,7 +11,9 @@ export const manifest: ProductManifest = {
         surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
         /** @param id A UUID or 'new'. ':id' for routing. */
         survey: (id: string): string => `/surveys/${id}`,
-        surveyTemplates: (): string => '/survey_templates',
+        surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
+        surveyWizard: (id: string = 'new', template?: string): string =>
+            `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
     },
     fileSystemTypes: {
         survey: {
@@ -26,7 +28,7 @@ export const manifest: ProductManifest = {
         {
             path: `Survey`,
             type: 'survey',
-            href: urls.survey('new'),
+            href: urls.surveyWizard('new'),
             iconType: 'survey',
             iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
         },
@@ -35,7 +37,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Surveys',
             intents: [ProductKey.SURVEYS],
-            category: 'Behavior',
+            category: ProductItemCategory.BEHAVIOR,
             type: 'survey',
             href: urls.surveys(),
             iconType: 'survey',

@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -16,7 +15,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-15', // To stabilize relative dates
-        featureFlags: [FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED],
         pageUrl: urls.ingestionWarnings(),
     },
     decorators: [
@@ -31,5 +29,5 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const IngestionWarnings: Story = {}

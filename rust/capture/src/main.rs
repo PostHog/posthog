@@ -5,32 +5,18 @@ use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
-use tokio::signal;
 use tracing::level_filters::LevelFilter;
 use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
 use capture::server::serve;
+use capture::setup;
 
 common_alloc::used!();
-
-async fn shutdown() {
-    let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
-        .expect("failed to register SIGTERM handler");
-
-    let mut interrupt = signal::unix::signal(signal::unix::SignalKind::interrupt())
-        .expect("failed to register SIGINT handler");
-
-    tokio::select! {
-        _ = term.recv() => {},
-        _ = interrupt.recv() => {},
-    };
-
-    tracing::info!("Shutting down gracefully...");
-}
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
@@ -61,10 +47,50 @@ fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer
 async fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
-    // Instantiate tracing outputs:
-    //   - stdout with a level configured by the RUST_LOG envvar (default=ERROR)
-    //   - OpenTelemetry if enabled, for levels INFO and higher
-    let log_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    // Fails gracefully - logs error but doesn't prevent service from starting
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            eprintln!("Failed to start continuous profiling agent: {e:#}");
+            None
+        }
+    };
+
+    let log_layer = {
+        let base = tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true);
+
+        if config.log_level == tracing::Level::DEBUG {
+            base.with_span_events(
+                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+            )
+            .with_ansi(true)
+            .with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy()
+                    .add_directive("pyroscope=warn".parse().unwrap()),
+            )
+            .boxed()
+        } else {
+            // Production: JSON format so Loki/Grafana can extract useful filter tags
+            base.json()
+                .flatten_event(true)
+                .with_span_list(true)
+                .with_current_span(true)
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env_lossy()
+                        .add_directive("pyroscope=warn".parse().unwrap()),
+                )
+                .boxed()
+        }
+    };
+
     let otel_layer = config
         .otel_url
         .clone()
@@ -81,9 +107,31 @@ async fn main() {
         .with(otel_layer)
         .init();
 
-    // Open the TCP port and start the server
+    // Root span with pod hostname for Loki/Grafana filtering
+    let pod = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+    let _root_span = tracing::info_span!("service", pod = %pod).entered();
+
+    let mut manager = lifecycle::Manager::builder("capture")
+        .with_trap_signals(true)
+        .with_prestop_check(true)
+        .with_health_poll_interval(Duration::from_secs(2))
+        .build();
+
+    let handles = setup::register_components(&mut manager, &config);
+    let guard = manager.monitor_background();
+
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, shutdown()).await
+    tracing::info!("listening on {:?}", listener.local_addr().unwrap());
+
+    let components = setup::build_components(config, handles).await;
+
+    serve(listener, components).await;
+
+    match guard.wait().await {
+        Ok(()) => tracing::info!("All lifecycle components completed cleanly"),
+        Err(e) => tracing::warn!("Lifecycle monitor reported: {e}"),
+    }
+    tracing::info!("Shutdown complete");
 }

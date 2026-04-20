@@ -7,7 +7,13 @@ import { asDisplay } from 'scenes/persons/person-utils'
 
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { isEventsQuery, isHogQLQuery, isMarketingAnalyticsTableQuery, isPersonsNode } from '~/queries/utils'
+import {
+    isEventsQuery,
+    isHogQLQuery,
+    isMarketingAnalyticsTableQuery,
+    isNonIntegratedConversionsTableQuery,
+    isPersonsNode,
+} from '~/queries/utils'
 
 import { DataTableRow } from './dataTableLogic'
 
@@ -51,7 +57,11 @@ export const flattenObject = (obj: any, prefix?: string, separator = '.'): Recor
 const processRowData = (row: DataTableRow, columns: string[], query: DataTableNode): Record<string, any> => {
     const flattenedRecord: Record<string, any> = {}
 
-    if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
+    if (
+        isHogQLQuery(query.source) ||
+        isMarketingAnalyticsTableQuery(query.source) ||
+        isNonIntegratedConversionsTableQuery(query.source)
+    ) {
         const data = row.result ?? {}
         columns.forEach((col, index) => {
             const value = Array.isArray(data) ? data[index] : (data as Record<string, any>)[index]
@@ -175,7 +185,11 @@ export const getJsonTableData = (
         })
     }
 
-    if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
+    if (
+        isHogQLQuery(query.source) ||
+        isMarketingAnalyticsTableQuery(query.source) ||
+        isNonIntegratedConversionsTableQuery(query.source)
+    ) {
         return dataTableRows.map((n) => {
             const data = n.result ?? {}
             return columns.reduce(
@@ -222,6 +236,43 @@ export function copyTableToExcel(dataTableRows: DataTableRow[], columns: string[
         const tsv = Papa.unparse(tableData, { delimiter: '\t' })
 
         void copyToClipboard(tsv, 'table')
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
+}
+
+export function copyTableToMarkdown(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
+    try {
+        const tableData = getCsvTableData(dataTableRows, columns, query)
+
+        if (tableData.length === 0) {
+            lemonToast.error('No data to copy!')
+            return
+        }
+
+        const [headers, ...rows] = tableData
+        const escape = (cell: any): string =>
+            String(cell ?? '')
+                .replace(/\n/g, '\\n')
+                .replace(/\r/g, '\\r')
+                .replace(/\|/g, '\\|')
+
+        const escapedHeaders = headers.map(escape)
+        const escapedRows = rows.map((row) => row.map(escape))
+
+        const colWidths = escapedHeaders.map((header, colIndex) =>
+            Math.max(3, header.length, ...escapedRows.map((row) => (row[colIndex] ?? '').length))
+        )
+
+        const pad = (cell: string, width: number): string => cell.padEnd(width)
+
+        const headerRow = `| ${escapedHeaders.map((h, i) => pad(h, colWidths[i])).join(' | ')} |`
+        const separatorRow = `| ${colWidths.map((w) => '-'.repeat(w)).join(' | ')} |`
+        const dataRows = escapedRows.map((row) => `| ${row.map((cell, i) => pad(cell, colWidths[i])).join(' | ')} |`)
+
+        const markdown = [headerRow, separatorRow, ...dataRows].join('\n')
+
+        void copyToClipboard(markdown, 'table')
     } catch {
         lemonToast.error('Copy failed!')
     }

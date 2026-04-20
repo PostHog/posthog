@@ -66,8 +66,7 @@ def produce_internal_event(team_id: int, event: InternalEventEvent, person: Opti
 
     try:
         producer = KafkaProducer()
-        future = producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
-        future.get()
+        producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
     except Exception as e:
         logger.exception("Failed to produce internal event", data=serialized_data, error=e)
         raise

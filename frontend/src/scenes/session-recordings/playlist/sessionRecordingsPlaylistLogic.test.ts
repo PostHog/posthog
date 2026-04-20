@@ -1,18 +1,22 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActionFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
-import { playlistLogic } from './playlistLogic'
+import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
+    getDefaultFilters,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -141,8 +145,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 updateSearchParams: true,
             })
             logic.mount()
-            playlistLogic.mount()
-            playlistLogic.actions.setIsFiltersExpanded(false)
+            playlistFiltersLogic.mount()
+            playlistFiltersLogic.actions.setIsFiltersExpanded(false)
         })
 
         describe('core assumptions', () => {
@@ -201,6 +205,68 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     activeSessionRecording: listOfSessionRecordings[0],
                 })
                 expect(router.values.searchParams).not.toHaveProperty('sessionRecordingId', 'not-in-list')
+            })
+        })
+
+        describe('nextSessionRecording', () => {
+            it('returns next older recording when autoplay direction is null (autoplay off)', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection(null)
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[0],
+                        nextSessionRecording: listOfSessionRecordings[1],
+                    })
+            })
+
+            it('returns next older recording when autoplay direction is older', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('older')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[0],
+                        nextSessionRecording: listOfSessionRecordings[1],
+                    })
+            })
+
+            it('returns next newer recording when autoplay direction is newer', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('newer')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('def'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[1],
+                        nextSessionRecording: listOfSessionRecordings[0],
+                    })
+            })
+
+            it('returns undefined when at the end of the list (older direction)', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('older')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('def'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[1],
+                        nextSessionRecording: undefined,
+                    })
+            })
+
+            it('returns undefined when at the start of the list (newer direction)', async () => {
+                playerSettingsLogic.mount()
+                playerSettingsLogic.actions.setAutoplayDirection('newer')
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        activeSessionRecording: listOfSessionRecordings[0],
+                        nextSessionRecording: undefined,
+                    })
             })
         })
 
@@ -555,6 +621,117 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     },
                 })
         })
+
+        describe('deleting recordings', () => {
+            it('otherRecordings filters out deleted recording ids', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+
+                await expectLogic(logic).toMatchValues({
+                    otherRecordings: [bRecording],
+                })
+            })
+
+            it('clears selectedRecordingId when the active recording is deleted', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ selectedRecordingId: 'abc' })
+
+                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+
+                await expectLogic(logic).toMatchValues({
+                    selectedRecordingId: null,
+                })
+            })
+
+            it('does not clear selectedRecordingId when a different recording is deleted', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ selectedRecordingId: 'abc' })
+
+                deletedRecordingsLogic.actions.addDeletedRecordings(['def'])
+
+                await expectLogic(logic).toMatchValues({
+                    selectedRecordingId: 'abc',
+                })
+            })
+
+            it('bulk delete marks recordings as deleted after API success', async () => {
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockResolvedValue({
+                    success: true,
+                    deleted_count: 2,
+                    total_requested: 2,
+                    failed_ids: [],
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                logic.actions.setIsDeleteSelectedRecordingsDialogOpen(true)
+
+                await expectLogic(logic, () => logic.actions.handleDeleteSelectedRecordings(undefined))
+                    .toDispatchActions(['addDeletedRecordings', 'setSelectedRecordingsIds'])
+                    .toMatchValues({
+                        otherRecordings: [],
+                        selectedRecordingsIds: [],
+                    })
+
+                expect(api.recordings.bulkDeleteRecordings).toHaveBeenCalledWith(['abc', 'def'], '-3d')
+            })
+
+            it('deleted recordings are excluded from hiddenRecordings count', async () => {
+                playerSettingsLogic.mount()
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                // mark abc as viewed so it becomes "hidden" when hideViewedRecordings is on
+                logic.actions.setSelectedRecordingId('abc')
+                await expectLogic(logic).toFinishAllListeners()
+                // deselect so selectedRecordingId exclusion doesn't interfere
+                logic.actions.setSelectedRecordingId(null)
+                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
+
+                // abc is now hidden (viewed but not selected)
+                await expectLogic(logic).toMatchValues({
+                    hiddenRecordings: [expect.objectContaining({ id: 'abc' })],
+                })
+
+                // delete abc — should no longer be in hiddenRecordings
+                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+
+                await expectLogic(logic).toMatchValues({
+                    hiddenRecordings: [],
+                })
+            })
+
+            it('bulk delete only marks successfully deleted recordings', async () => {
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockResolvedValue({
+                    success: true,
+                    deleted_count: 1,
+                    total_requested: 2,
+                    failed_ids: ['def'],
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+
+                await expectLogic(logic, () => logic.actions.handleDeleteSelectedRecordings(undefined))
+                    .toDispatchActions(['addDeletedRecordings'])
+                    .toMatchValues({
+                        otherRecordings: [bRecording],
+                    })
+            })
+        })
     })
 
     describe('person specific logic', () => {
@@ -702,7 +879,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     })
 
     describe('convertUniversalFiltersToRecordingsQuery', () => {
-        it('expands the visited_page filter to a pageview with $current_url property', () => {
+        it('passes the visited_page filter as a recording property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({
                 ...DEFAULT_RECORDING_FILTERS,
                 filter_group: {
@@ -730,21 +907,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 console_log_filters: [],
                 date_from: '-3d',
                 date_to: null,
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        properties: [
-                            {
-                                key: '$current_url',
-                                operator: 'exact',
-                                type: 'event',
-                                value: ['https://example-url.com'],
-                            },
-                        ],
-                        type: 'events',
-                    },
-                ],
+                events: [],
                 filter_test_accounts: false,
                 having_predicates: [
                     {
@@ -758,7 +921,53 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 operand: 'AND',
                 order: 'console_error_count',
                 order_direction: 'DESC',
+                properties: [
+                    {
+                        key: 'visited_page',
+                        operator: 'exact',
+                        type: 'recording',
+                        value: ['https://example-url.com'],
+                    },
+                ],
+            })
+        })
+
+        it('passes through session_ids when provided', () => {
+            const result = convertUniversalFiltersToRecordingsQuery({
+                ...DEFAULT_RECORDING_FILTERS,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [],
+                        },
+                    ],
+                },
+                session_ids: ['session-1', 'session-2', 'session-3'],
+            })
+
+            expect(result).toEqual({
+                actions: [],
+                console_log_filters: [],
+                date_from: '-3d',
+                date_to: null,
+                events: [],
+                filter_test_accounts: false,
+                having_predicates: [
+                    {
+                        key: 'active_seconds',
+                        operator: 'gt',
+                        type: 'recording',
+                        value: 5,
+                    },
+                ],
+                kind: 'RecordingsQuery',
+                operand: 'AND',
+                order: 'start_time',
+                order_direction: 'DESC',
                 properties: [],
+                session_ids: ['session-1', 'session-2', 'session-3'],
             })
         })
     })
@@ -850,6 +1059,334 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 order: 'start_time',
                 order_direction: 'DESC',
             })
+        })
+    })
+
+    describe('getDefaultFilters', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        it('returns filter_test_accounts as false when localStorage is empty', () => {
+            const result = getDefaultFilters()
+            expect(result.filter_test_accounts).toBe(false)
+        })
+
+        it('returns filter_test_accounts as true when localStorage has default_filter_test_accounts set to true', () => {
+            localStorage.setItem('default_filter_test_accounts', 'true')
+            const result = getDefaultFilters()
+            expect(result.filter_test_accounts).toBe(true)
+        })
+
+        it('returns filter_test_accounts as false when localStorage has default_filter_test_accounts set to false', () => {
+            localStorage.setItem('default_filter_test_accounts', 'false')
+            const result = getDefaultFilters()
+            expect(result.filter_test_accounts).toBe(false)
+        })
+
+        it('returns date_from as -30d for person recordings', () => {
+            const result = getDefaultFilters('person-uuid')
+            expect(result.date_from).toBe('-30d')
+        })
+
+        it('returns date_from as -3d for non-person recordings', () => {
+            const result = getDefaultFilters()
+            expect(result.date_from).toBe('-3d')
+        })
+
+        it('merges pinnedFilters into the default filter_group', () => {
+            const pinnedFilters = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: 'events',
+                        name: 'All events',
+                        properties: [{ key: "$group_0 = 'abc'", type: 'hogql' }],
+                    } as ActionFilter,
+                ],
+            }
+            const result = getDefaultFilters(undefined, pinnedFilters)
+            const firstGroup = result.filter_group.values[0] as any
+            expect(firstGroup.values).toContainEqual(pinnedFilters.values[0])
+        })
+    })
+
+    describe('pinnedFilters', () => {
+        const groupPinnedFilters = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: 'events',
+                    name: 'All events',
+                    properties: [{ key: "$group_0 = 'test-group'", type: 'hogql' }],
+                } as ActionFilter,
+            ],
+        }
+
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'pinned-filters-test',
+                pinnedFilters: groupPinnedFilters,
+            })
+            logic.mount()
+        })
+
+        it('includes pinned filters in initial state', () => {
+            const firstGroup = logic.values.filters.filter_group.values[0] as any
+            expect(firstGroup.values).toContainEqual(groupPinnedFilters.values[0])
+        })
+
+        it('preserves pinned filters after setFilters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
+                                        operator: PropertyOperator.IContains,
+                                        value: ['warn'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
+            }).toMatchValues({
+                filters: expect.objectContaining({
+                    filter_group: expect.objectContaining({
+                        values: expect.arrayContaining([
+                            expect.objectContaining({
+                                values: expect.arrayContaining([groupPinnedFilters.values[0]]),
+                            }),
+                        ]),
+                    }),
+                }),
+            })
+        })
+
+        it('preserves pinned filters after resetFilters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.resetFilters()
+            }).toMatchValues({
+                filters: expect.objectContaining({
+                    filter_group: expect.objectContaining({
+                        values: expect.arrayContaining([
+                            expect.objectContaining({
+                                values: expect.arrayContaining([groupPinnedFilters.values[0]]),
+                            }),
+                        ]),
+                    }),
+                }),
+            })
+        })
+
+        it('does not count pinned filters in totalFiltersCount', async () => {
+            await expectLogic(logic).toMatchValues({ totalFiltersCount: 0 })
+        })
+
+        it('merges pinned filters into flat filter groups without duplicating', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: PropertyFilterType.Person,
+                                key: 'email',
+                                operator: PropertyOperator.Exact,
+                                value: ['test@example.com'],
+                            },
+                        ],
+                    },
+                })
+            })
+
+            const filterGroup = logic.values.filters.filter_group
+            // Should have exactly one nested group
+            expect(filterGroup.values).toHaveLength(1)
+            const nestedGroup = filterGroup.values[0] as any
+            // Nested group should contain pinned + user filter, not duplicates
+            expect(nestedGroup.values).toHaveLength(2)
+            expect(nestedGroup.values).toContainEqual(groupPinnedFilters.values[0])
+        })
+
+        it('counts user-added filters but not pinned ones', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
+                                        operator: PropertyOperator.IContains,
+                                        value: ['error'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
+            }).toMatchValues({ totalFiltersCount: 1 })
+        })
+    })
+
+    describe('summarizeDisabledReason', () => {
+        it('shows loading while recordings are being fetched', () => {
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'summarize-test' })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({ summarizeDisabledReason: 'Loading…' })
+        })
+
+        it.each([
+            {
+                scenario: 'no type, no filters, no recordings',
+                props: { logicKey: 'summarize-test' },
+                mockResults: [],
+                hasFilters: false,
+                expected: 'No recordings in the list',
+            },
+            {
+                scenario: 'no type, no filters, has recordings',
+                props: { logicKey: 'summarize-test' },
+                mockResults: undefined,
+                hasFilters: false,
+                expected: 'Add filters to summarize recordings',
+            },
+            {
+                scenario: 'no type, has filters, has recordings',
+                props: { logicKey: 'summarize-test' },
+                mockResults: undefined,
+                hasFilters: true,
+                expected: undefined,
+            },
+            {
+                scenario: 'collection type, no filters, no recordings',
+                props: { logicKey: 'summarize-test', type: 'collection' as const },
+                mockResults: [],
+                hasFilters: false,
+                expected: 'No recordings in the list',
+            },
+            {
+                scenario: 'collection type, no filters, has recordings',
+                props: { logicKey: 'summarize-test', type: 'collection' as const },
+                mockResults: undefined,
+                hasFilters: false,
+                expected: undefined,
+            },
+            {
+                scenario: 'filters type, no filters, no recordings',
+                props: { logicKey: 'summarize-test', type: 'filters' as const },
+                mockResults: [],
+                hasFilters: false,
+                expected: 'No recordings in the list',
+            },
+            {
+                scenario: 'filters type, no filters, has recordings',
+                props: { logicKey: 'summarize-test', type: 'filters' as const },
+                mockResults: undefined,
+                hasFilters: false,
+                expected: undefined,
+            },
+            {
+                scenario: 'personUUID set, no filters, no recordings',
+                props: { logicKey: 'summarize-test', personUUID: 'abc-123' },
+                mockResults: [],
+                hasFilters: false,
+                expected: 'No recordings in the list',
+            },
+            {
+                scenario: 'personUUID set, no filters, has recordings',
+                props: { logicKey: 'summarize-test', personUUID: 'abc-123' },
+                mockResults: undefined,
+                hasFilters: false,
+                expected: undefined,
+            },
+            {
+                scenario: 'pinnedFilters set, no filters, no recordings',
+                props: {
+                    logicKey: 'summarize-test',
+                    pinnedFilters: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: 'events',
+                                name: 'All events',
+                                properties: [{ key: "$group_0 = 'abc'", type: 'hogql' }],
+                            } as ActionFilter,
+                        ],
+                    },
+                },
+                mockResults: [],
+                hasFilters: false,
+                expected: 'No recordings in the list',
+            },
+            {
+                scenario: 'pinnedFilters set, no filters, has recordings',
+                props: {
+                    logicKey: 'summarize-test',
+                    pinnedFilters: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: 'events',
+                                name: 'All events',
+                                properties: [{ key: "$group_0 = 'abc'", type: 'hogql' }],
+                            } as ActionFilter,
+                        ],
+                    },
+                },
+                mockResults: undefined,
+                hasFilters: false,
+                expected: undefined,
+            },
+        ])('after loading: $scenario -> $expected', async ({ props, mockResults, hasFilters, expected }) => {
+            if (mockResults !== undefined) {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/session_recordings': {
+                            results: mockResults,
+                        },
+                    },
+                })
+            }
+
+            logic = sessionRecordingsPlaylistLogic(props)
+            logic.mount()
+            await expectLogic(logic).toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
+
+            if (hasFilters) {
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
+                                        operator: PropertyOperator.IContains,
+                                        value: ['error'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
+                await expectLogic(logic).toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
+            }
+
+            expectLogic(logic).toMatchValues({ summarizeDisabledReason: expected })
         })
     })
 })

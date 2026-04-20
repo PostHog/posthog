@@ -414,8 +414,8 @@ const WebVitalsPathBreakdown: WebVitalsPathBreakdownQuery = {
     thresholds: [WEB_VITALS_THRESHOLDS['CLS'].good, WEB_VITALS_THRESHOLDS['CLS'].poor],
 }
 
-const WebAnalyticsReferrerDomain: DataTableNode = {
-    kind: NodeKind.DataTableNode,
+const WebAnalyticsReferrerDomain: InsightVizNode = {
+    kind: NodeKind.InsightVizNode,
     source: {
         kind: NodeKind.WebStatsTableQuery,
         properties: [],
@@ -424,15 +424,15 @@ const WebAnalyticsReferrerDomain: DataTableNode = {
             date_from: '-14d',
             date_to: null,
         },
-        compareFilter: { compare: false },
+        compareFilter: { compare: true },
         limit: 10,
         filterTestAccounts: false,
         conversionGoal: null,
     },
 }
 
-const WebAnalyticsPath: DataTableNode = {
-    kind: NodeKind.DataTableNode,
+const WebAnalyticsPath: InsightVizNode = {
+    kind: NodeKind.InsightVizNode,
     source: {
         kind: NodeKind.WebStatsTableQuery,
         properties: [],
@@ -441,15 +441,15 @@ const WebAnalyticsPath: DataTableNode = {
             date_from: '-14d',
             date_to: null,
         },
-        compareFilter: { compare: false },
+        compareFilter: { compare: true },
         limit: 10,
         filterTestAccounts: false,
         conversionGoal: null,
     },
 }
 
-const WebAnalyticsBrowser: DataTableNode = {
-    kind: NodeKind.DataTableNode,
+const WebAnalyticsBrowser: InsightVizNode = {
+    kind: NodeKind.InsightVizNode,
     source: {
         kind: NodeKind.WebStatsTableQuery,
         properties: [],
@@ -458,7 +458,7 @@ const WebAnalyticsBrowser: DataTableNode = {
             date_from: '-14d',
             date_to: null,
         },
-        compareFilter: { compare: false },
+        compareFilter: { compare: true },
         limit: 10,
         filterTestAccounts: false,
         conversionGoal: null,

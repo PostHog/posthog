@@ -8,11 +8,6 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
-    "RECORDINGS_TTL_WEEKS": (
-        3,
-        "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
-        int,
-    ),
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
         3,
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
@@ -150,6 +145,46 @@ CONSTANCE_CONFIG = {
         "Used to validate Slack events for example when unfurling links",
         str,
     ),
+    "SUPPORT_SLACK_APP_CLIENT_ID": (
+        get_from_env("SUPPORT_SLACK_APP_CLIENT_ID", default=""),
+        "Used to enable the 'Add to Slack' button for the SupportHog Slack app.",
+        str,
+    ),
+    "SUPPORT_SLACK_APP_CLIENT_SECRET": (
+        get_from_env("SUPPORT_SLACK_APP_CLIENT_SECRET", default=""),
+        "Used by the SupportHog Slack OAuth callback to exchange authorization codes.",
+        str,
+    ),
+    "SUPPORT_SLACK_SIGNING_SECRET": (
+        get_from_env("SUPPORT_SLACK_SIGNING_SECRET", default=""),
+        "Used to validate incoming webhook events for the Support Slack bot.",
+        str,
+    ),
+    "CONVERSATIONS_HMAC_SIGNING_SECRET": (
+        get_from_env("CONVERSATIONS_HMAC_SIGNING_SECRET", default=""),
+        "HMAC signing secret for conversations widget identity verification in the support sidebar.",
+        str,
+    ),
+    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN": (
+        get_from_env("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", default=""),
+        "Mailgun receiving domain for inbound email routing, e.g. mg.posthog.com.",
+        str,
+    ),
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY": (
+        get_from_env("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY", default=""),
+        "HMAC signing key for validating inbound Mailgun webhook authenticity.",
+        str,
+    ),
+    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY": (
+        get_from_env("CONVERSATIONS_EMAIL_MAILGUN_API_KEY", default=""),
+        "Mailgun API key for domain management (add/verify/delete sending domains).",
+        str,
+    ),
+    "GITHUB_WEBHOOK_SECRET": (
+        get_from_env("GITHUB_WEBHOOK_SECRET", default=""),
+        "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
+        str,
+    ),
     "PARALLEL_DASHBOARD_ITEM_CACHE": (
         get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
         "user to determine how many insight cache updates to run at a time",
@@ -165,6 +200,16 @@ CONSTANCE_CONFIG = {
         "Whether rate limiting is enabled",
         bool,
     ),
+    "CLICKHOUSE_KILL_SWITCH": (
+        get_from_env("CLICKHOUSE_KILL_SWITCH", "off"),
+        "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
+        str,
+    ),
+    "CLICKHOUSE_HEDGED_APP_QUERIES": (
+        get_from_env("CLICKHOUSE_HEDGED_APP_QUERIES", False, type_cast=str_to_bool),
+        "Enable hedged requests for online APP queries to ClickHouse.",
+        bool,
+    ),
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
         get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
@@ -175,10 +220,34 @@ CONSTANCE_CONFIG = {
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
         bool,
     ),
+    "WEB_ANALYTICS_WARMING_DAYS": (
+        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=7, type_cast=int),
+        "Number of days to look back for frequently-run web analytics queries",
+        int,
+    ),
+    "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
+        get_from_env("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT", default=10, type_cast=int),
+        "Minimum query count threshold for web analytics cache warming",
+        int,
+    ),
+    "WEB_ANALYTICS_WARMING_TEAMS_TO_WARM": (
+        get_from_env("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", default=[2], type_cast=list[int]),
+        "Teams that will have web analytics cache warming enabled",
+        list[int],
+    ),
+    "CLICKHOUSE_ENABLE_ANALYZER_TEAMS": (
+        get_from_env("CLICKHOUSE_ENABLE_ANALYZER_TEAMS", default=[], type_cast=list[int]),
+        "Comma-separated list of team IDs for which ClickHouse enable_analyzer is enabled",
+        list[int],
+    ),
+    "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS": (
+        get_from_env("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS", default=[2, 140988], type_cast=list[int]),
+        "Team IDs that use prefiltered events subqueries in web analytics bounce/scroll queries for better granule pruning",
+        list[int],
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
-    "RECORDINGS_TTL_WEEKS",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
@@ -204,11 +273,25 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "SUPPORT_SLACK_APP_CLIENT_ID",
+    "SUPPORT_SLACK_APP_CLIENT_SECRET",
+    "SUPPORT_SLACK_SIGNING_SECRET",
+    "CONVERSATIONS_HMAC_SIGNING_SECRET",
+    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
+    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
+    "GITHUB_WEBHOOK_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
+    "CLICKHOUSE_KILL_SWITCH",
+    "CLICKHOUSE_HEDGED_APP_QUERIES",
+    "CLICKHOUSE_ENABLE_ANALYZER_TEAMS",
+    "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS",
     "REDIRECT_APP_TO_US",
+    "WEB_ANALYTICS_WARMING_DAYS",
+    "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
@@ -217,4 +300,10 @@ SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "SUPPORT_SLACK_SIGNING_SECRET",
+    "SUPPORT_SLACK_APP_CLIENT_SECRET",
+    "CONVERSATIONS_HMAC_SIGNING_SECRET",
+    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
+    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
+    "GITHUB_WEBHOOK_SECRET",
 ]

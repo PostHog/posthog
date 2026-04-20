@@ -5,6 +5,7 @@ from uuid import UUID
 from django.db.models import QuerySet
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, mixins, permissions, request, response, serializers, status, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -18,8 +19,13 @@ from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions, TimeSensitiveActionPermission, UserCanInvitePermission
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.permissions import (
+    APIScopePermission,
+    OrganizationMemberPermissions,
+    TimeSensitiveActionPermission,
+    UserCanInvitePermission,
+)
+from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.tasks.email import send_invite
 
 
@@ -214,24 +220,21 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             if not team_access_controls.exists():
                 continue
 
-            # Check if there's an access control with level 'none' (private team)
-            private_team_access = team_access_controls.filter(access_level="none").exists()
+            # Team is restricted, check if user has sufficient access
+            user_access_control = UserAccessControl(user=self.context["request"].user, team=team)
+            access_level = user_access_control.access_level_for_object(team)
+            if access_level == "none":
+                raise exceptions.ValidationError(team_error)
 
-            if private_team_access:
-                # Team is private, check if user has admin access
-                uac = UserAccessControl(user=self.context["request"].user, team=team)
-                access_level = uac.access_level_for_object(team)
-                if access_level == "none":
-                    raise exceptions.ValidationError(team_error)
+            # Check if user is trying to invite with a higher level than their own
+            levels = ordered_access_levels("project")
+            user_level_rank = levels.index(access_level) if access_level in levels else 0
+            requested_level_rank = levels.index(level) if level in levels else 0
 
-                # Check if user is trying to invite with a higher level than their own
-                user_level_rank = {"member": 1, "admin": 2}.get(access_level or "", 0)
-                requested_level_rank = {"member": 1, "admin": 2}.get(level, 0)
-
-                if requested_level_rank > user_level_rank:
-                    raise exceptions.ValidationError(
-                        "You cannot invite to a private project with a higher level than your own."
-                    )
+            if requested_level_rank > user_level_rank:
+                raise exceptions.ValidationError(
+                    "You cannot invite to a restricted project with a higher level than your own."
+                )
 
         return private_project_access
 
@@ -287,6 +290,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         return invite
 
 
+@extend_schema(tags=["core"])
 class OrganizationInviteViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
@@ -309,6 +313,7 @@ class OrganizationInviteViewSet(
                     OrganizationMemberPermissions,
                     UserCanInvitePermission,
                     TimeSensitiveActionPermission,
+                    APIScopePermission,
                 ]
             ]
             return write_permissions
@@ -324,6 +329,7 @@ class OrganizationInviteViewSet(
                     OrganizationMemberPermissions,
                     OrganizationAdminWritePermissions,
                     TimeSensitiveActionPermission,
+                    APIScopePermission,
                 ]
             ]
             return delete_permissions

@@ -4,8 +4,8 @@ import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,11 +14,16 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature } from '~/types'
 
 export function ActivityLogSettings(): JSX.Element {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
     return (
         <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
             <div className="flex">
                 <p>
-                    <LemonButton to={urls.advancedActivityLogs()} type="primary">
+                    <LemonButton to={urls.advancedActivityLogs()} type="primary" disabledReason={restrictedReason}>
                         Browse all activity logs
                     </LemonButton>
                 </p>
@@ -43,13 +48,13 @@ export function ActivityLogOrgLevelSettings(): JSX.Element {
         <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
             <div>
                 <p className="flex items-center gap-1">
-                    Enable organization-level activity logs for this project.
+                    Include organization-level activity logs in this project.
                     <Tooltip
                         title={
                             <>
                                 When enabled, activity logs from organization-level changes (such as organization
-                                settings, domains, and members) will also be sent to this project, allowing you to view
-                                them in the activity logs page and create notifications for these events.
+                                settings, domains, and members) will be included in this project's activity logs page,
+                                exports, and notifications subscriptions.
                             </>
                         }
                     >
@@ -62,7 +67,7 @@ export function ActivityLogOrgLevelSettings(): JSX.Element {
                     onChange={handleToggle}
                     checked={!!currentTeam?.receive_org_level_activity_logs}
                     disabledReason={restrictionReason || undefined}
-                    label="Receive organization-level activity logs"
+                    label="Include organization-level activity"
                     bordered
                 />
             </div>
@@ -70,7 +75,16 @@ export function ActivityLogOrgLevelSettings(): JSX.Element {
     )
 }
 
-export function ActivityLogNotifications(): JSX.Element {
+export function ActivityLogNotifications(): JSX.Element | null {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    if (restrictedReason) {
+        return null
+    }
+
     return (
         <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
             <div>
@@ -88,7 +102,13 @@ export function ActivityLogNotifications(): JSX.Element {
                     </Tooltip>
                 </p>
 
-                <LinkedHogFunctions type="internal_destination" subTemplateIds={['activity-log']} />
+                <LinkedHogFunctions
+                    type="internal_destination"
+                    subTemplateIds={['activity-log']}
+                    queryParams={{
+                        returnTo: urls.settings('environment-activity-logs', 'activity-log-notifications'),
+                    }}
+                />
             </div>
         </PayGateMini>
     )

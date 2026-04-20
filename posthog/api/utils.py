@@ -6,7 +6,7 @@ import urllib.parse
 from enum import Enum, auto
 from functools import wraps
 from ipaddress import ip_address
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -15,6 +15,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 
 import structlog
+from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
@@ -33,7 +34,8 @@ from posthog.exceptions import (
     UnspecifiedCompressionFallbackParsingError,
     generate_exception_response,
 )
-from posthog.models import Entity
+from posthog.models import Entity, User
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -299,7 +301,7 @@ def safe_clickhouse_string(s: str, with_counter=True) -> str:
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
     try:
         # Test if value is a UUID
-        UUID(key)
+        UUID(str(key))
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)
@@ -314,6 +316,14 @@ INSIGHT_KINDS = {
     "StickinessQuery",
     "LifecycleQuery",
 }
+
+# Queries that should run asynchronously with an extended ClickHouse timeout.
+# Superset of INSIGHT_KINDS — includes expensive non-insight queries like TracesQuery
+# whose two-phase GROUP BY over the events table can exceed the default 60s limit.
+ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
+    "TracesQuery",
+}
+_EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 
 INSIGHT_ACTORS_KINDS = {
     "InsightActorsQuery",
@@ -336,6 +346,27 @@ def is_insight_query(query: dict) -> bool:
             return True
     if kind == "DataVisualizationNode":
         if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
+            return True
+
+    return False
+
+
+def is_async_query(query: dict) -> bool:
+    """Check if a query should run asynchronously with an extended timeout.
+
+    Superset of is_insight_query — also covers expensive non-insight queries.
+    """
+    if is_insight_query(query):
+        return True
+
+    kind = query.get("kind")
+    source = query.get("source")
+
+    if kind in _EXTRA_ASYNC_KINDS:
+        return True
+    if kind in ("DataTableNode", "DataVisualizationNode"):
+        source_kind = source.get("kind") if source and isinstance(source, dict) else getattr(source, "kind", None)
+        if source_kind in _EXTRA_ASYNC_KINDS:
             return True
 
     return False
@@ -398,13 +429,17 @@ def raise_if_connected_to_private_ip(conn):
 class PublicIPOnlyHTTPConnectionPool(HTTPConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        validate_conn = getattr(super(), "_validate_conn", None)
+        if validate_conn is not None:
+            validate_conn(conn)
 
 
 class PublicIPOnlyHTTPSConnectionPool(HTTPSConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        validate_conn = getattr(super(), "_validate_conn", None)
+        if validate_conn is not None:
+            validate_conn(conn)
 
 
 class PublicIPOnlyHttpAdapter(HTTPAdapter):
@@ -435,6 +470,11 @@ def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]],
     return hostname_in_allowed_url_list(allowed_url_list, hostname)
 
 
+def _strip_www(host: str) -> str:
+    """Treat www.domain.com and domain.com as equivalent."""
+    return host[4:] if host.startswith("www.") else host
+
+
 def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
     if not hostname:
         return False
@@ -451,7 +491,7 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
             pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
             if re.search(pattern, hostname):
                 return True
-        elif permitted_domain == hostname:
+        elif _strip_www(permitted_domain) == _strip_www(hostname):
             return True
 
     return False
@@ -589,3 +629,43 @@ class ServerTimingsGathered:
             current_length = new_length
 
         return ", ".join(result)
+
+
+ACTIVITY_TYPES = {
+    "partial_update": "updated",
+    "update": "updated",
+    "delete": "deleted",
+    "create": "created",
+    "default": "changed",
+}
+
+
+def log_activity_from_viewset(
+    viewset, instance, activity=None, name=None, previous=None, detail_type=None, short_id=None
+) -> None:
+    try:
+        model_class = instance.__class__.__name__
+        name = name or model_class
+        activity = activity or ACTIVITY_TYPES.get(viewset.action, ACTIVITY_TYPES["default"])
+
+        detail_kwargs = {"name": name}
+        if previous is not None:
+            changes = changes_between(model_class, previous=previous, current=instance)
+            detail_kwargs["changes"] = changes
+        if detail_type is not None:
+            detail_kwargs["type"] = detail_type
+        if short_id is not None:
+            detail_kwargs["short_id"] = short_id
+
+        log_activity(
+            organization_id=viewset.organization.id,
+            team_id=viewset.team.id,
+            user=cast(User, viewset.request.user),
+            was_impersonated=is_impersonated_session(viewset.request),
+            item_id=str(instance.id),
+            scope=model_class,
+            activity=activity,
+            detail=Detail(**detail_kwargs),
+        )
+    except:
+        pass

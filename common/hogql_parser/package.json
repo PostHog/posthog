@@ -1,0 +1,47 @@
+{
+    "name": "@posthog/hogql-parser",
+    "version": "1.3.40",
+    "description": "WebAssembly HogQL Parser - Parse HogQL queries in JavaScript/TypeScript",
+    "keywords": [
+        "antlr4",
+        "hogql",
+        "parser",
+        "wasm",
+        "webassembly"
+    ],
+    "homepage": "https://github.com/PostHog/posthog/tree/master/common/hogql_parser",
+    "bugs": {
+        "url": "https://github.com/PostHog/posthog/issues"
+    },
+    "license": "MIT",
+    "author": "PostHog Inc.",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/PostHog/posthog.git",
+        "directory": "common/hogql_parser"
+    },
+    "files": [
+        "dist/hogql_parser_wasm.js",
+        "dist/hogql_parser_wasm_browser.js",
+        "dist/hogql_parser_wasm.cjs",
+        "dist/index.cjs",
+        "dist/index.d.ts"
+    ],
+    "type": "module",
+    "main": "dist/index.cjs",
+    "module": "dist/hogql_parser_wasm.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "browser": "./dist/hogql_parser_wasm_browser.js",
+            "import": "./dist/hogql_parser_wasm.js",
+            "require": "./dist/index.cjs"
+        }
+    },
+    "scripts": {
+        "build:compile": "emmake cmake --build build_wasm --config Release && cmake --install build_wasm",
+        "build:make": "emcmake cmake -S . -B build_wasm -DCMAKE_BUILD_TYPE=Release && npm run build:compile || echo 'Warning: hogql-parser build failed, skipping'",
+        "build": "emcmake cmake -S . -B build_wasm -G Ninja -DCMAKE_BUILD_TYPE=Release && npm run build:compile || echo 'Warning: hogql-parser build failed, skipping'"
+    }
+}

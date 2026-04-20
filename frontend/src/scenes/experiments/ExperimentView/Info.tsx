@@ -2,71 +2,27 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { IconPencil, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { ExperimentStatsMethod, ProgressStatus } from '~/types'
+import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
-import { getExperimentStatus } from '../experimentsLogic'
+import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
-import { ExperimentDuration } from './ExperimentDuration'
-import { RunningTimeNew } from './RunningTimeNew'
-import { StatsMethodModal } from './StatsMethodModal'
 import { StatusTag } from './components'
-
-export const ExperimentLastRefresh = ({
-    isRefreshing,
-    lastRefresh,
-    onClick,
-}: {
-    isRefreshing: boolean
-    lastRefresh: string
-    onClick: () => void
-}): JSX.Element => {
-    usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date last refresh time
-
-    return (
-        <div className="flex flex-col">
-            <Label intent="menu">Last refreshed</Label>
-            <div className="inline-flex deprecated-space-x-2">
-                <span
-                    className={`${
-                        lastRefresh
-                            ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
-                                ? 'text-danger'
-                                : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                  ? 'text-warning'
-                                  : ''
-                            : ''
-                    }`}
-                >
-                    {isRefreshing ? 'Loading…' : lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
-                </span>
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    onClick={onClick}
-                    data-attr="refresh-experiment"
-                    icon={<IconRefresh />}
-                    tooltip="Refresh experiment results"
-                />
-            </div>
-        </div>
-    )
-}
+import { ExperimentDuration } from './ExperimentDuration'
+import { ExperimentReloadAction } from './ExperimentReloadAction'
+import { RunningTimeNew } from './RunningTimeNew'
 
 export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
@@ -78,21 +34,16 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
         statsMethod,
-        usesNewQueryRunner,
         isExperimentDraft,
-        featureFlags,
+        isSingleVariantShipped,
+        shippedVariantKey,
+        autoRefresh,
     } = useValues(experimentLogic)
-    const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
-    const {
-        openEditConclusionModal,
-        openDescriptionModal,
-        closeDescriptionModal,
-        openStatsEngineModal,
-        openRunningTimeConfigModal,
-    } = useActions(modalsLogic)
+    const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
+    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
+        useActions(modalsLogic)
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
-    const useNewCalculator = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_CALCULATOR] === 'test'
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
     useEffect(() => {
@@ -114,26 +65,47 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         secondaryMetricsResults?.[0]?.last_refresh
 
     const status = getExperimentStatus(experiment)
+    const isPaused = isExperimentPaused(experiment)
 
     return (
         <>
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1200px]:grid-cols-[1fr_26rem]">
+            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1100px]:grid-cols-[1fr_1fr]">
                 {/* Column 1 */}
-                <div className="flex flex-col gap-0 overflow-hidden">
+                <div className="flex flex-col gap-0 overflow-hidden min-w-0">
                     {/* Row 1: Status, Feature flag, Stats engine */}
-                    <div className="inline-flex deprecated-space-x-8">
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
-                            <StatusTag status={status} />
+                            <div className="flex gap-1">
+                                {isPaused ? (
+                                    <Tooltip
+                                        placement="bottom"
+                                        title="Your experiment is paused. The linked flag is disabled and no data is being collected."
+                                    >
+                                        <StatusTag status={status} isPaused={isPaused} />
+                                    </Tooltip>
+                                ) : (
+                                    <StatusTag status={status} />
+                                )}
+                                {isSingleVariantShipped && (
+                                    <Tooltip
+                                        title={`Variant "${shippedVariantKey}" has been rolled out to 100% of users`}
+                                    >
+                                        <LemonTag type="completion" className="cursor-default">
+                                            <b className="uppercase">100% rollout</b>
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </div>
                         </div>
                         {experiment.feature_flag && (
-                            <div className="flex flex-col">
+                            <div className="flex flex-col max-w-[500px]">
                                 <Label intent="menu">Feature flag</Label>
                                 <div className="flex gap-1 items-center">
-                                    {status === ProgressStatus.Running && !experiment.feature_flag.active && (
+                                    {isPaused && (
                                         <Tooltip
                                             placement="bottom"
-                                            title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                                            title="Your experiment is paused. The linked flag is disabled and no data is being collected."
                                         >
                                             <IconWarning
                                                 style={{ transform: 'translateY(2px)' }}
@@ -164,30 +136,18 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                             </div>
                         )}
                         <div className="flex flex-col">
-                            <Label intent="menu">Stats Engine</Label>
-                            <div className="inline-flex deprecated-space-x-2">
-                                <span>
-                                    {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
-                                </span>
-                                {usesNewQueryRunner && (
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            onClick={() => {
-                                                openStatsEngineModal()
-                                            }}
-                                            icon={<IconGear />}
-                                            tooltip="Change stats engine"
-                                        />
-                                        <StatsMethodModal />
-                                    </>
-                                )}
-                            </div>
+                            <Label intent="menu">Statistics</Label>
+                            <span>
+                                {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
+                                {' / '}
+                                {statsMethod === ExperimentStatsMethod.Bayesian
+                                    ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
+                                    : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
+                            </span>
                         </div>
                     </div>
 
-                    <div className="w-[500px]">
+                    <div className="max-w-[500px]">
                         <div className="flex items-center gap-2 mt-2">
                             <Label intent="menu">Hypothesis</Label>
                             <LemonButton
@@ -237,28 +197,35 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                 </div>
 
                 {/* Column 2 */}
-                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1200px]:items-end">
-                    {/* Row 1: Duration */}
+                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1100px]:items-end min-w-0">
+                    {/* Row 1: Duration (date pickers) - only for launched experiments */}
                     {!isExperimentDraft && <ExperimentDuration />}
 
-                    {/* Row 2: Last refreshed, Created by */}
-                    <div className="flex flex-col overflow-hidden items-start min-[1200px]:items-end">
-                        <div className="inline-flex deprecated-space-x-8">
-                            {experiment.start_date && (
-                                <>
-                                    {useNewCalculator && tabId && (
-                                        <RunningTimeNew
-                                            experiment={experiment}
-                                            tabId={tabId}
-                                            onClick={openRunningTimeConfigModal}
-                                        />
-                                    )}
-                                    <ExperimentLastRefresh
-                                        isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
-                                        lastRefresh={lastRefresh}
-                                        onClick={() => refreshExperimentResults(true)}
-                                    />
-                                </>
+                    {/* Row 2: Running time, Last refreshed, Created by */}
+                    <div className="flex flex-col overflow-hidden items-start min-[1100px]:items-end">
+                        <div className="flex flex-wrap gap-x-8 gap-y-2 justify-end">
+                            {tabId && (
+                                <RunningTimeNew
+                                    experiment={experiment}
+                                    tabId={tabId}
+                                    onClick={openRunningTimeConfigModal}
+                                    isExperimentDraft={isExperimentDraft}
+                                />
+                            )}
+                            {status !== ExperimentStatus.Draft && (
+                                <ExperimentReloadAction
+                                    isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+                                    lastRefresh={lastRefresh}
+                                    onClick={() => {
+                                        // Track manual refresh click
+                                        reportExperimentMetricsRefreshed(experiment, true, {
+                                            triggered_by: 'manual',
+                                            auto_refresh_enabled: autoRefresh.enabled,
+                                            auto_refresh_interval: autoRefresh.interval,
+                                        })
+                                        refreshExperimentResults(true, 'manual')
+                                    }}
+                                />
                             )}
                             <div className="flex flex-col">
                                 <Label intent="menu">Created by</Label>
@@ -270,7 +237,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
             </div>
             <div className="flex gap-6">
                 {experiment.conclusion && experiment.end_date && (
-                    <div className="w-[500px]">
+                    <div className="max-w-[500px]">
                         <div className="flex items-center gap-2">
                             <Label intent="menu">Conclusion</Label>
                             <LemonButton

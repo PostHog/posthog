@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -17,7 +17,9 @@ from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourc
 from posthog.temporal.data_imports.sources.mongodb.mongo import (
     _parse_connection_string,
     filter_mongo_incremental_fields,
+    get_collection_names,
     get_schemas as get_mongo_schemas,
+    mongo_client,
     mongo_source,
 )
 
@@ -31,15 +33,20 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         return ExternalDataSourceType.MONGODB
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {"The DNS query name does not exist": None, "authentication failed": None}
+        return {"The DNS query name does not exist": None, "authentication failed": None, "SSL handshake failed": None}
 
-    def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        mongo_schemas = get_mongo_schemas(config)
+    def get_schemas(
+        self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
-        filtered_results = [
-            (collection_name, filter_mongo_incremental_fields(columns, config.connection_string, collection_name))
-            for collection_name, columns in mongo_schemas.items()
-        ]
+        connection_params = _parse_connection_string(config.connection_string)
+        with mongo_client(config.connection_string, team_id=team_id) as client:
+            db = client[connection_params["database"]]
+            filtered_results = [
+                (collection_name, filter_mongo_incremental_fields(columns, db[collection_name]))
+                for collection_name, columns in mongo_schemas.items()
+            ]
 
         return [
             SourceSchema(
@@ -59,7 +66,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             for name, incremental_fields in filtered_results
         ]
 
-    def validate_credentials(self, config: MongoDBSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: MongoDBSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         from pymongo.errors import OperationFailure
 
         try:
@@ -70,14 +79,19 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         if not connection_params.get("database"):
             return False, "Database name is required in connection string"
 
-        if not connection_params.get("is_srv"):
-            valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id, False)
+        if not connection_params["is_srv"]:
+            # For SRV connections the hostname is a DNS namespace (e.g.
+            # cluster0.mongodb.net), not a real host. Actual server addresses
+            # are resolved at connection time and validated by
+            # _make_safe_server_selector instead.
+            # This check allows an early failure for obviously invalid connection strings for non SRV connections.
+            valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
             if not valid_host:
                 return False, host_errors
 
         try:
-            schemas = self.get_schemas(config, team_id)
-            if len(schemas) == 0:
+            collection_names = get_collection_names(config, team_id=team_id)
+            if len(collection_names) == 0:
                 return False, "No collections found in database"
         except OperationFailure as e:
             capture_exception(e)
@@ -97,6 +111,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             incremental_field=inputs.incremental_field,
             incremental_field_type=inputs.incremental_field_type,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            team_id=inputs.team_id,
         )
 
     @property

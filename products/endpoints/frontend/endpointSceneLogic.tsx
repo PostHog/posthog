@@ -1,33 +1,54 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { getTabSceneParams, updateTabUrl } from 'lib/logic/scenes/tabSceneUtils'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, EndpointType } from '~/types'
+import { Breadcrumb, DataModelingSyncInterval, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
 
-export function generateEndpointPayload(endpoint: EndpointType | null): Record<string, any> {
+export interface EndpointSceneLogicProps {
+    tabId: string
+}
+
+// Query types that support user-configurable breakdown filtering
+const BREAKDOWN_SUPPORTED_QUERY_TYPES = new Set([NodeKind.TrendsQuery, NodeKind.RetentionQuery])
+
+function getSingleBreakdownProperty(breakdownFilter: any): string | null {
+    if (breakdownFilter?.breakdown) {
+        return breakdownFilter.breakdown
+    }
+    const breakdowns = breakdownFilter?.breakdowns || []
+    if (breakdowns.length === 1) {
+        return breakdowns[0]?.property
+    }
+    return null
+}
+
+export function generateEndpointPayload(endpoint: EndpointVersionType | null): Record<string, any> {
     if (!endpoint) {
         return {}
     }
 
-    if (isInsightQueryNode(endpoint.query)) {
-        return {
-            query_override: {},
-            filters_override: {},
-        }
-    }
-    if (endpoint.query?.kind === NodeKind.HogQLQuery) {
-        const variables = endpoint.query?.variables || {}
+    const query = endpoint.query
+    const isMaterialized = endpoint.is_materialized
+    const queryKind = query?.kind
+
+    if (queryKind === NodeKind.HogQLQuery) {
+        // HogQL: include variables with default values
+        const variables = query.variables || {}
         const entries = Object.entries(variables)
 
         if (entries.length === 0) {
@@ -41,31 +62,89 @@ export function generateEndpointPayload(endpoint: EndpointType | null): Record<s
 
         return { variables: variablesValues }
     }
+
+    if (isInsightQueryNode(query)) {
+        // Insight query - build variables based on what's available
+        const variablesValues: Record<string, any> = {}
+
+        // Only include breakdown for query types that support it
+        if (queryKind && BREAKDOWN_SUPPORTED_QUERY_TYPES.has(queryKind as NodeKind)) {
+            const breakdownFilter = (query as any).breakdownFilter || {}
+            const breakdown = getSingleBreakdownProperty(breakdownFilter)
+            if (breakdown) {
+                variablesValues[breakdown] = ''
+            }
+        }
+
+        // Non-materialized also supports date filtering
+        if (!isMaterialized) {
+            variablesValues['date_from'] = '-7d'
+            variablesValues['date_to'] = ''
+        }
+
+        if (Object.keys(variablesValues).length > 0) {
+            return { variables: variablesValues }
+        }
+    }
+
     return {}
 }
 
-function generateInitialPayloadJson(endpoint: EndpointType | null): string {
+function generateInitialPayloadJson(endpoint: EndpointVersionType | null): string {
     return JSON.stringify(generateEndpointPayload(endpoint), null, 2)
 }
 
 export enum EndpointTab {
     QUERY = 'query',
     CONFIGURATION = 'configuration',
+    VERSIONS = 'versions',
     PLAYGROUND = 'playground',
     HISTORY = 'history',
 }
 
+export interface MaterializationPreview {
+    can_materialize: boolean
+    reason: string | null
+    transformed_query: string | null
+    execution_query: string | null
+    display_execution_query: string | null
+    range_pairs: { column: string; variables: string[]; bucket_fn: string }[]
+    aggregates: { expression: string; reaggregate_fn: string | null }[]
+}
+
 export const endpointSceneLogic = kea<endpointSceneLogicType>([
+    props({} as EndpointSceneLogicProps),
     path(['products', 'endpoints', 'frontend', 'endpointSceneLogic']),
     tabAwareScene(),
-    connect(() => ({
-        actions: [endpointLogic, ['loadEndpoint', 'loadEndpointSuccess']],
-        values: [endpointLogic, ['endpoint', 'endpointLoading']],
+    connect((props: EndpointSceneLogicProps) => ({
+        actions: [
+            endpointLogic({ tabId: props.tabId }),
+            [
+                'loadEndpoint',
+                'loadEndpointSuccess',
+                'loadVersions',
+                'setEndpointDescription',
+                'clearMaterializationStatus',
+                'updateEndpointSuccess',
+            ],
+        ],
+        values: [endpointLogic({ tabId: props.tabId }), ['endpoint', 'endpointLoading']],
     })),
     actions({
         setLocalQuery: (query: Node | null) => ({ query }),
         setActiveTab: (tab: EndpointTab) => ({ tab }),
         setPayloadJson: (value: string) => ({ value }),
+        setPayloadJsonError: (error: string | null) => ({ error }),
+        setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
+        setSyncFrequency: (syncFrequency: DataModelingSyncInterval | null) => ({ syncFrequency }),
+        setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
+        setEndpointName: (name: string | null) => ({ name }),
+        setViewingVersion: (version: EndpointVersionType | null) => ({ version }),
+        setBucketOverride: (column: string, bucketFn: string) => ({ column, bucketFn }),
+        resetBucketOverrides: (overrides: Record<string, string>) => ({ overrides }),
+        setDebugMode: (debugMode: boolean) => ({ debugMode }),
+        loadMaterializationPreview: true,
+        keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
     reducers({
         localQuery: [
@@ -79,16 +158,105 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             EndpointTab.QUERY as EndpointTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+                loadEndpoint: () => EndpointTab.QUERY,
             },
         ],
         payloadJson: [
             '' as string,
             {
                 setPayloadJson: (_, { value }) => value,
+                loadEndpoint: () => '',
+            },
+        ],
+        payloadJsonError: [
+            null as string | null,
+            {
+                setPayloadJsonError: (_, { error }) => error,
+                setPayloadJson: () => null,
+                loadEndpoint: () => null,
+                updateEndpointSuccess: () => null,
+            },
+        ],
+        cacheAge: [
+            null as number | null,
+            {
+                setCacheAge: (_, { cacheAge }) => cacheAge,
+                loadEndpoint: () => null,
+            },
+        ],
+        syncFrequency: [
+            '24hour' as DataModelingSyncInterval | null,
+            {
+                setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
+                loadEndpoint: () => null,
+            },
+        ],
+        isMaterialized: [
+            true as boolean | null,
+            {
+                setIsMaterialized: (_, { isMaterialized }) => isMaterialized,
+                loadEndpointSuccess: (_, { endpoint }) => endpoint?.is_materialized ?? null,
+                loadEndpoint: () => null,
+            },
+        ],
+        endpointName: [
+            null as string | null,
+            {
+                setEndpointName: (_, { name }) => name,
+            },
+        ],
+        viewingVersion: [
+            null as EndpointVersionType | null,
+            {
+                setViewingVersion: (_, { version }) => version,
+                // Reset when switching endpoints; loadEndpointSuccess listener restores from URL if needed
+                loadEndpoint: () => null,
+            },
+        ],
+        debugMode: [
+            false,
+            {
+                setDebugMode: (_, { debugMode }: { debugMode: boolean }) => debugMode,
+                loadEndpoint: () => false,
+            },
+        ],
+        bucketOverrides: [
+            {} as Record<string, string>,
+            {
+                setBucketOverride: (state, { column, bucketFn }) => ({ ...state, [column]: bucketFn }),
+                resetBucketOverrides: (_, { overrides }) => overrides,
+                loadEndpointSuccess: (_, { endpoint }) => endpoint?.bucket_overrides ?? {},
+            },
+        ],
+        // Clear stale playground results when switching endpoints
+        endpointResult: [
+            null as string | null,
+            {
+                loadEndpoint: () => null,
+                updateEndpointSuccess: () => null,
+            },
+        ],
+        // Clear stale materialization preview when switching endpoints
+        materializationPreview: [
+            null as MaterializationPreview | null,
+            {
+                loadEndpoint: () => null,
             },
         ],
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
+        materializationPreview: {
+            __default: null as MaterializationPreview | null,
+            loadMaterializationPreview: async () => {
+                const endpoint = values.endpoint
+                if (!endpoint?.name) {
+                    return null
+                }
+                const version = values.viewingVersion?.version
+                const overrides = Object.keys(values.bucketOverrides).length > 0 ? values.bucketOverrides : undefined
+                return await api.endpoint.getMaterializationPreview(endpoint.name, version, overrides)
+            },
+        },
         endpointResult: {
             __default: null as string | null,
             loadEndpointResult: async ({ name, data }: { name: string; data: EndpointRunRequest }) => {
@@ -113,9 +281,12 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
     })),
     selectors({
         currentQuery: [
-            (s) => [s.localQuery, s.endpoint],
-            (localQuery: Node | null, endpoint: EndpointType | null): Node | null =>
-                localQuery || endpoint?.query || null,
+            (s) => [s.localQuery, s.endpoint, s.viewingVersion],
+            (
+                localQuery: Node | null,
+                endpoint: EndpointType | null,
+                viewingVersion: EndpointVersionType | null
+            ): Node | null => localQuery || viewingVersion?.query || endpoint?.query || null,
         ],
         queryToRender: [
             (s) => [s.currentQuery],
@@ -148,7 +319,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             (endpoint: EndpointType | null): Breadcrumb[] => [
                 {
                     key: Scene.Endpoints,
-                    name: 'Endpoints',
+                    name: 'endpoints',
                     path: urls.endpoints(),
                     iconType: 'endpoints',
                 },
@@ -159,23 +330,193 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             ],
         ],
     }),
-    listeners(({ actions }) => ({
-        loadEndpointSuccess: ({ endpoint }: { endpoint: EndpointType }) => {
+    listeners(({ actions, values, props, cache }) => ({
+        keepSqlEditorMounted: ({ editorTabId }) => {
+            // Already holding a mount for this editor
+            if (cache.sqlEditorTabId === editorTabId) {
+                return
+            }
+            cache.unmountSqlEditor?.()
+            cache.sqlEditorTabId = editorTabId
+            cache.unmountSqlEditor = sqlEditorLogic({ tabId: editorTabId, mode: SQLEditorMode.Embedded }).mount()
+        },
+        loadEndpoint: () => {
+            cache.unmountSqlEditor?.()
+            cache.unmountSqlEditor = null
+            cache.sqlEditorTabId = null
+        },
+        loadEndpointSuccess: async ({ endpoint }: { endpoint: EndpointVersionType | null; payload?: string }) => {
             const initialPayload = generateInitialPayloadJson(endpoint)
             actions.setPayloadJson(initialPayload)
+            actions.setCacheAge(endpoint?.cache_age_seconds ?? null)
+            actions.setSyncFrequency(endpoint?.materialization?.sync_frequency ?? null)
+
+            const { searchParams, hashParams } = getTabSceneParams(props.tabId)
+
+            // Load tab-specific data
+            if (searchParams.tab === EndpointTab.VERSIONS && endpoint?.name) {
+                actions.loadVersions(endpoint.name)
+            }
+            if (searchParams.tab === EndpointTab.CONFIGURATION && endpoint?.name) {
+                actions.loadMaterializationPreview()
+            }
+
+            // Handle version param from URL
+            if (searchParams.version && endpoint?.name) {
+                const versionNumber = parseInt(searchParams.version, 10)
+                if (!isNaN(versionNumber) && versionNumber !== endpoint.current_version) {
+                    try {
+                        const versionData = await api.endpoint.get(endpoint.name, versionNumber)
+                        actions.setViewingVersion(versionData)
+                    } catch {
+                        // Version not found, clear the param
+                        const { version: _, ...nextSearchParams } = searchParams
+                        updateTabUrl(props.tabId, urls.endpoint(endpoint.name), nextSearchParams, hashParams)
+                        actions.setViewingVersion(null)
+                    }
+                } else {
+                    // Version equals current, clear viewing version
+                    actions.setViewingVersion(null)
+                }
+            } else {
+                // No version param, clear viewing version
+                actions.setViewingVersion(null)
+            }
+        },
+        setActiveTab: ({ tab }) => {
+            if (tab === EndpointTab.VERSIONS && values.endpoint?.name) {
+                actions.loadVersions(values.endpoint.name)
+            }
+            if (tab === EndpointTab.CONFIGURATION && values.endpoint?.name) {
+                actions.loadMaterializationPreview()
+            }
+        },
+        setBucketOverride: () => {
+            actions.loadMaterializationPreview()
+        },
+        setViewingVersion: ({ version }) => {
+            // Reset local state so viewed version's data shows through
+            actions.setLocalQuery(null)
+            actions.setCacheAge(null)
+            actions.setSyncFrequency(null)
+            actions.setIsMaterialized(null)
+            actions.clearMaterializationStatus()
+
+            // Reset bucket overrides to viewed version's values
+            actions.resetBucketOverrides(version?.bucket_overrides ?? values.endpoint?.bucket_overrides ?? {})
+
+            // Reset description to viewed version's description (or endpoint's if going back to current)
+            if (version) {
+                actions.setEndpointDescription(version.description || '')
+            } else if (values.endpoint) {
+                actions.setEndpointDescription(values.endpoint.description || '')
+            }
+
+            // Update payload with version field if viewing a specific version
+            if (values.endpoint) {
+                const basePayload = generateEndpointPayload(values.endpoint)
+                if (version && version.version !== values.endpoint.current_version) {
+                    const payloadWithVersion = { ...basePayload, version: version.version }
+                    actions.setPayloadJson(JSON.stringify(payloadWithVersion, null, 2))
+                } else {
+                    actions.setPayloadJson(JSON.stringify(basePayload, null, 2))
+                }
+            }
+
+            // Update URL when viewing version changes
+            const { searchParams, hashParams } = getTabSceneParams(props.tabId)
+            if (values.endpoint?.name) {
+                const { version: _, ...nextSearchParams } = searchParams
+                if (version && version.version !== values.endpoint.current_version) {
+                    updateTabUrl(
+                        props.tabId,
+                        urls.endpoint(values.endpoint.name),
+                        {
+                            ...nextSearchParams,
+                            version: version.version,
+                        },
+                        hashParams
+                    )
+                } else {
+                    // Clear version param when going back to current version
+                    updateTabUrl(props.tabId, urls.endpoint(values.endpoint.name), nextSearchParams, hashParams)
+                }
+            }
+        },
+        loadEndpointResultSuccess: () => {
+            // Mark test endpoint task as completed when user runs an endpoint in the playground
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TestEndpoint)
+        },
+        updateEndpointSuccess: async ({ endpointName, options }) => {
+            // Reload the viewed version after update to get fresh data
+            const versionToReload = options?.version ?? values.viewingVersion?.version
+            if (versionToReload && endpointName) {
+                try {
+                    const versionData = await api.endpoint.get(endpointName, versionToReload)
+                    actions.setViewingVersion(versionData)
+                } catch {
+                    // Version may have been deleted, clear it
+                    actions.setViewingVersion(null)
+                }
+            }
         },
     })),
-    tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.endpoint(':name')]: ({ name }: { name?: string }) => {
+    tabAwareUrlToAction(({ actions, values, props }) => ({
+        [urls.endpoint(':name')]: ({ name }: { name?: string }, _, __, currentLocation, previousLocation) => {
             const { searchParams } = router.values
-            if (name) {
-                actions.loadEndpoint(name)
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+
+            if (name && didPathChange) {
+                const isSameEndpoint = values.endpointName === name
+
+                if (!currentLocation.initial && isSameEndpoint) {
+                    // Already viewing this endpoint, skip reload
+                } else {
+                    actions.setEndpointName(name)
+                    actions.loadEndpoint(name)
+                }
             }
+
             if (searchParams.tab && searchParams.tab !== values.activeTab) {
                 actions.setActiveTab(searchParams.tab as EndpointTab)
             } else if (!searchParams.tab && values.activeTab !== EndpointTab.QUERY) {
                 actions.setActiveTab(EndpointTab.QUERY)
             }
+
+            // Handle version param changes without full endpoint reload
+            if (!didPathChange && name) {
+                const versionParam = searchParams.version ? parseInt(searchParams.version, 10) : null
+                const currentViewingVersion = values.viewingVersion?.version ?? null
+
+                if (versionParam !== currentViewingVersion) {
+                    if (versionParam && values.endpoint?.name) {
+                        // Load the requested version
+                        const requestedVersion = versionParam
+                        api.endpoint
+                            .get(name, versionParam)
+                            .then((versionData) => {
+                                // Only apply if this is still the requested version
+                                const currentParam = getTabSceneParams(props.tabId).searchParams.version
+                                if (currentParam && parseInt(currentParam, 10) === requestedVersion) {
+                                    actions.setViewingVersion(versionData)
+                                }
+                            })
+                            .catch(() => {
+                                // Version not found
+                                actions.setViewingVersion(null)
+                            })
+                    } else {
+                        actions.setViewingVersion(null)
+                    }
+                }
+            }
+        },
+    })),
+    events(({ cache }) => ({
+        beforeUnmount: () => {
+            cache.unmountSqlEditor?.()
+            cache.unmountSqlEditor = null
+            cache.sqlEditorTabId = null
         },
     })),
 ])

@@ -1,5 +1,10 @@
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any, Literal, Optional, TypedDict
+
+
+class BillingProvider(StrEnum):
+    VERCEL = "vercel"
 
 
 class Tier(TypedDict):

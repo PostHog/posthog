@@ -13,7 +13,11 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
-from posthog.queries.breakdown_props import _to_bucketing_expression, get_breakdown_prop_values
+from posthog.queries.breakdown_props import (
+    _to_bucketing_expression,
+    get_breakdown_cohort_name,
+    get_breakdown_prop_values,
+)
 from posthog.queries.trends.util import process_math
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -516,6 +520,21 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
 
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result[0], ["mac", "test"])
+
+    def test_get_breakdown_cohort_name_rejects_cross_project_cohort(self):
+        from posthog.models.organization import Organization
+
+        _, _, other_team = Organization.objects.bootstrap(self.user, name="other org")
+        other_cohort = Cohort.objects.create(
+            team=other_team,
+            name="secret cohort",
+            groups=[{"properties": [{"key": "$browser", "value": "test", "type": "person"}]}],
+        )
+
+        assert get_breakdown_cohort_name(0, self.team) == "all users"
+
+        with pytest.raises(Cohort.DoesNotExist):
+            get_breakdown_cohort_name(other_cohort.pk, self.team)
 
 
 @pytest.mark.parametrize(

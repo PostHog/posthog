@@ -546,7 +546,7 @@ class FunnelCorrelation:
                 f"""
                 arrayJoin(arrayZip(
                         %(property_names)s,
-                        [{','.join(person_property_expressions)}]
+                        [{",".join(person_property_expressions)}]
                     )) as prop
             """,
                 person_property_params,
@@ -556,7 +556,7 @@ class FunnelCorrelation:
         events: set[Union[int, str]] = set()
         for entity in self._filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                action = entity.get_action()
+                action = entity.get_action(self._team.pk)
                 events.update([x for x in action.get_step_events() if x])
             elif entity.id is not None:
                 events.add(entity.id)
@@ -697,7 +697,7 @@ class FunnelCorrelation:
                 cache_invalidation_key=cache_invalidation_key,
             )
 
-        return None
+        raise ValueError(f"Unsupported correlation type: {self._filter.correlation_type}")
 
     def construct_event_correlation_people_url(
         self,

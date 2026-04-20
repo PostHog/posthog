@@ -4,6 +4,8 @@ import pytest
 
 from django.conf import settings
 
+import pytest_asyncio
+
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
 from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_client, delete_all_from_s3
@@ -68,7 +70,7 @@ def file_format(request) -> str:
         return f"JSONLines"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def minio_client(bucket_name):
     """Manage an S3 client to interact with a MinIO bucket.
 
@@ -89,7 +91,7 @@ async def minio_client(bucket_name):
         await minio_client.delete_bucket(Bucket=bucket_name)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def s3_batch_export(
     ateam,
     s3_key_prefix,

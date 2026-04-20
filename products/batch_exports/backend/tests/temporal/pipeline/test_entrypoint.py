@@ -7,17 +7,18 @@ import pytest
 
 from django.conf import settings
 
+import pytest_asyncio
 from temporalio import activity, workflow
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.service import BaseBatchExportInputs, BatchExportInsertInputs, BatchExportModel
 from posthog.models import BatchExport, BatchExportDestination
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
+from products.batch_exports.backend.service import BaseBatchExportInputs, BatchExportInsertInputs, BatchExportModel
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     finish_batch_export_run,
@@ -32,7 +33,7 @@ from products.batch_exports.backend.temporal.utils import handle_non_retryable_e
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def batch_export(
     ateam,
     # temporal_client,
@@ -47,6 +48,27 @@ async def batch_export(
         name="test-batch-export",
         destination=destination,
         interval="hour",
+    )
+
+    yield batch_export
+
+    await batch_export.adelete()
+    await destination.adelete()
+
+
+@pytest.fixture(params=["hour", "day", "week", "every 5 minutes", "every 15 minutes"])
+def interval(request):
+    return request.param
+
+
+@pytest_asyncio.fixture
+async def batch_export_by_interval(ateam, interval):
+    destination = await BatchExportDestination.objects.acreate(type="Dummy", config={})
+    batch_export = await BatchExport.objects.acreate(
+        team=ateam,
+        name="test-batch-export",
+        destination=destination,
+        interval=interval,
     )
 
     yield batch_export
@@ -73,6 +95,7 @@ class DummyExportInputs(BaseBatchExportInputs):
     """Inputs for the Dummy export workflow."""
 
     exception_to_raise: str | None = None
+    records_failed_count: int | None = None
 
 
 @dataclass(kw_only=True)
@@ -80,6 +103,7 @@ class DummyInsertInputs(BatchExportInsertInputs):
     """Inputs for the Dummy insert activity."""
 
     exception_to_raise: str | None = None
+    records_failed_count: int | None = None
 
 
 @workflow.defn(name="dummy-export", failure_exception_types=[workflow.NondeterminismError])
@@ -97,7 +121,9 @@ class DummyExportWorkflow(PostHogWorkflow):
         """Workflow implementation to test the batch export entrypoint."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
@@ -136,6 +162,7 @@ class DummyExportWorkflow(PostHogWorkflow):
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=None,
             exception_to_raise=inputs.exception_to_raise,
+            records_failed_count=inputs.records_failed_count,
         )
 
         await execute_batch_export_using_internal_stage(
@@ -154,7 +181,13 @@ async def insert_into_dummy_activity_from_stage(inputs: DummyInsertInputs) -> Ba
         # get the exception class from the string
         exception_cls = globals()[inputs.exception_to_raise]
         raise exception_cls()
-    return BatchExportResult(records_completed=100, bytes_exported=100)
+    records_failed = inputs.records_failed_count
+    records_completed = 100 - (records_failed or 0)
+    return BatchExportResult(
+        records_completed=records_completed,
+        bytes_exported=100,
+        records_failed=records_failed,
+    )
 
 
 class TestErrorHandling:
@@ -233,3 +266,30 @@ class TestErrorHandling:
         run = await self._run_workflow(inputs, expect_workflow_failure=True)
         assert run.status == "FailedRetryable"
         assert run.latest_error == "DummyRetryableError: This is an unexpected internal error"
+
+    async def test_successful_run(self, batch_export_by_interval, interval):
+        inputs = DummyExportInputs(
+            team_id=batch_export_by_interval.team_id,
+            batch_export_id=str(batch_export_by_interval.id),
+            interval=interval,
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportModel(name="events", schema=None),
+        )
+        run = await self._run_workflow(inputs, expect_workflow_failure=False)
+        assert run.status == "Completed"
+        assert run.records_completed == 100
+        assert run.records_failed is None
+
+    async def test_completed_with_records_failed(self, batch_export):
+        inputs = DummyExportInputs(
+            team_id=batch_export.team_id,
+            batch_export_id=str(batch_export.id),
+            interval="hour",
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportModel(name="events", schema=None),
+            records_failed_count=5,
+        )
+        run = await self._run_workflow(inputs, expect_workflow_failure=False)
+        assert run.status == "Completed"
+        assert run.records_completed == 95
+        assert run.records_failed == 5

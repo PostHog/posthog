@@ -1,9 +1,11 @@
 import os
+import json
 import time
 import uuid
 import tempfile
 from datetime import timedelta
 from typing import Literal, Optional
+from urllib.parse import quote
 
 from django.conf import settings
 
@@ -18,24 +20,55 @@ from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
-from posthog.hogql.constants import LimitContext
+from posthog.schema import FunnelLayout, NodeKind
 
 from posthog.api.insight_variable import map_stale_to_latest
-from posthog.api.services.query import process_query_dict
+from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import InsightVariable
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.tasks.exporter import EXPORT_FAILED_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
+from posthog.security.url_validation import is_url_allowed
+from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
 
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+
 logger = structlog.get_logger(__name__)
+
+
+def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str:
+    if not insight_cache_keys:
+        return ""
+    return f"&cache_keys={quote(json.dumps(insight_cache_keys))}"
+
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
-ScreenWidth = Literal[800, 1920, 1400]
+# Newer versions of selenium seem to include the search bar in the height calculation.
+# This is a manually determined offset to ensure the screenshot is the correct height.
+# See https://github.com/SeleniumHQ/selenium/issues/14660.
+HEIGHT_OFFSET = 85
+MAX_WIDTH_PIXELS = 4000  # Max width for wide content like funnels with many steps
+MAX_HEIGHT_PIXELS = 5000  # Prevents Chrome from consuming excessive memory on very tall pages
+CONTENT_PADDING = 80  # Padding for card borders
+
+MEASURE_CONTENT_HEIGHT_JS = """
+    const element = document.querySelector('.InsightCard__viz') ||
+                  document.querySelector('.ExportedInsight__content') ||
+                  document.querySelector('.replayer-wrapper') ||
+                  document.querySelector('.heatmap-exporter');
+    if (element) {
+        const rect = element.getBoundingClientRect();
+        return Math.max(rect.height, document.body.scrollHeight);
+    }
+    return document.body.scrollHeight;
+"""
+
+ScreenWidth = Literal[800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
@@ -43,6 +76,10 @@ CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", "
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
     options = Options()
+    # Bypass HTTP_PROXY/HTTPS_PROXY for Selenium's internal communication
+    # with the local chromedriver process (the browser itself also doesn't
+    # use the proxy — it only loads URLs hardcoded to settings.SITE_URL)
+    options.ignore_local_proxy_environment_variables()
     options.add_argument("--headless=new")  # Hint: Try removing this line when debugging
     options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image
     options.add_argument("--use-gl=swiftshader")
@@ -68,23 +105,40 @@ def get_driver() -> webdriver.Chrome:
 
     if os.environ.get("CHROMEDRIVER_BIN"):
         service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
-        return webdriver.Chrome(service=service, options=options)
+        driver = webdriver.Chrome(service=service, options=options)
+    else:
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
+            options=options,
+        )
 
-    return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
-        options=options,
-    )
+    # Selenium's Service.send_remote_shutdown_command() uses urllib.request.urlopen()
+    # which routes through HTTP_PROXY. The egress proxy blocks this localhost request,
+    # but it doesn't matter — Service.stop() always calls _terminate_process() (SIGTERM)
+    # right after, so the HTTP shutdown is redundant.
+    driver.service.send_remote_shutdown_command = lambda: None
+
+    return driver
 
 
-def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None) -> None:
+def _export_to_png(
+    exported_asset: ExportedAsset,
+    max_height_pixels: Optional[int] = None,
+    insight_cache_keys: Optional[dict[int, str]] = None,
+) -> None:
     """
     Exporting an Insight means:
     1. Loading the Insight from the web app in a dedicated rendering mode
     2. Waiting for the page to have fully loaded before taking a screenshot to disk
     3. Loading that screenshot into memory and saving the data representation to the relevant Insight
     4. Cleanup: Remove the old file and close the browser session
-    """
 
+    Args:
+        exported_asset: The asset to export
+        max_height_pixels: Maximum height for the screenshot
+        insight_cache_keys: Map of insight IDs to their cache keys, used to ensure
+            the exporter fetches data from the exact cache that was warmed
+    """
     image_path = None
 
     try:
@@ -104,14 +158,28 @@ def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[in
         screenshot_width: ScreenWidth
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
+        page_load_timeout: int = 40
         if exported_asset.insight is not None:
             show_legend = exported_asset.insight.show_legend
             legend_param = "&legend=true" if show_legend else ""
-            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}")
+            cache_keys_param = _build_cache_keys_param(insight_cache_keys)
+            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
-            screenshot_width = 800
+            query = exported_asset.insight.query or {}
+            source = query.get("source", query)  # This to handle the InsightVizNode wrapper
+            is_funnel = source.get("kind") == NodeKind.FUNNELS_QUERY
+            # Only use wide width for left-to-right funnels (vertical layout, which is the default)
+            # Top-to-bottom funnels (horizontal layout) grow vertically, not horizontally
+            funnels_filter = source.get("funnelsFilter") or {}
+            funnel_layout = funnels_filter.get("layout")
+            is_left_to_right_funnel = is_funnel and (funnel_layout is None or funnel_layout == FunnelLayout.VERTICAL)
+            # Set initial window size large enough for wide content like left-to-right funnels with many steps
+            # Small funnels will be constrained later.
+            # The higher the number, the more RAM will be required by the Chromium driver.
+            screenshot_width = 4000 if is_left_to_right_funnel else 800
         elif exported_asset.dashboard is not None:
-            url_to_render = absolute_uri(f"/exporter?token={access_token}")
+            cache_keys_param = _build_cache_keys_param(insight_cache_keys)
+            url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
@@ -132,13 +200,25 @@ def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[in
                 token_preview=access_token[:10],
             )
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
-            # Handle replay export using /exporter route (same as insights/dashboards)
+            heatmap_url = exported_asset.export_context["heatmap_url"]
+            ok, err = is_url_allowed(heatmap_url)
+            if not ok:
+                raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
+
+            # URL-encode the page and data URLs so their inner `?` and `&` (e.g.
+            # `?width=1024&format=jpeg` on screenshot content URLs) don't corrupt
+            # the `/exporter` query string.
+            encoded_page_url = quote(heatmap_url, safe="")
+            encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
             url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}&dataURL={exported_asset.export_context.get('heatmap_data_url')}"
+                f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
             screenshot_width = exported_asset.export_context.get("width", 1400)
             screenshot_height = exported_asset.export_context.get("height", 600)
+            # Heatmaps wait for the data fetch to complete (`.heatmaps-ready` is added
+            # by HeatmapCanvas after heatmapDataLogic loads the data), which can take a while.
+            page_load_timeout = 100
 
             logger.info(
                 "exporting_heatmap",
@@ -155,7 +235,13 @@ def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[in
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
         _screenshot_asset(
-            image_path, url_to_render, screenshot_width, wait_for_css_selector, screenshot_height, max_height_pixels
+            image_path,
+            url_to_render,
+            screenshot_width,
+            wait_for_css_selector,
+            screenshot_height,
+            max_height_pixels,
+            page_load_timeout,
         )
 
         with open(image_path, "rb") as image_file:
@@ -175,12 +261,6 @@ def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[in
         raise
 
 
-# Newer versions of selenium seem to include the search bar in the height calculation.
-# This is a manually determined offset to ensure the screenshot is the correct height.
-# See https://github.com/SeleniumHQ/selenium/issues/14660.
-HEIGHT_OFFSET = 85
-
-
 def _screenshot_asset(
     image_path: str,
     url_to_render: str,
@@ -188,24 +268,20 @@ def _screenshot_asset(
     wait_for_css_selector: CSSSelector,
     screenshot_height: int = 600,
     max_height_pixels: Optional[int] = None,
+    page_load_timeout: int = 40,
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:
         driver = get_driver()
-        # Set initial window size with a more reasonable height to prevent initial rendering issues
         driver.set_window_size(screenshot_width, screenshot_height)
         driver.get(url_to_render)
         posthoganalytics.tag("url_to_render", url_to_render)
 
-        timeout = 20
-
-        # For heatmaps, we need to wait until the heatmap is ready
-        if wait_for_css_selector == ".heatmap-exporter":
-            timeout = 100
-
         try:
-            WebDriverWait(driver, timeout).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
-        except TimeoutException:
+            WebDriverWait(driver, page_load_timeout).until(
+                lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector)
+            )
+        except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
                 try:
@@ -213,14 +289,14 @@ def _screenshot_asset(
                     posthoganalytics.tag("image_path", image_path)
                 except Exception:
                     pass
-                capture_exception()
+                capture_exception(e)
 
-            raise Exception(f"Timeout while waiting for the page to load")
+            raise TimeoutException(f"Timeout while waiting for the page to load")
 
         try:
             # Also wait until nothing is loading
             WebDriverWait(driver, 20).until_not(lambda x: x.find_element(By.CLASS_NAME, "Spinner"))
-        except TimeoutException:
+        except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
                 try:
@@ -228,50 +304,76 @@ def _screenshot_asset(
                     posthoganalytics.tag("image_path", image_path)
                 except Exception:
                     pass
-                capture_exception()
+                capture_exception(e)
 
-        # Get the height of the visualization container specifically
-        height = driver.execute_script(
-            """
-            const element = document.querySelector('.InsightCard__viz') ||
-                          document.querySelector('.ExportedInsight__content') ||
-                          document.querySelector('.replayer-wrapper') ||
-                          document.querySelector('.heatmap-exporter');
-            if (element) {
-                const rect = element.getBoundingClientRect();
-                return Math.max(rect.height, document.body.scrollHeight);
-            }
-            return document.body.scrollHeight;
-        """
-        )
+        height = int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS))
 
-        if max_height_pixels and height > max_height_pixels:
+        effective_max = min(max_height_pixels, MAX_HEIGHT_PIXELS) if max_height_pixels else MAX_HEIGHT_PIXELS
+        if height > effective_max:
             logger.warning(
                 "screenshot_height_capped",
                 original_height=height,
-                capped_height=max_height_pixels,
+                capped_height=effective_max,
                 url=url_to_render,
             )
-            height = max_height_pixels
+            height = effective_max
 
-        # For example funnels use a table that can get very wide, so try to get its width
-        # For replay players, check for player width
+        # Calculate width for replay players and non-funnel tables
+        # Funnels are handled separately with fit-content measurement below
         width = driver.execute_script(
-            """
-            // Check for replay player first
+            f"""
+            // Check for heatmap exporter first — its width is set explicitly
+            const heatmapElement = document.querySelector('.heatmap-exporter');
+            if (heatmapElement) {{
+                return heatmapElement.offsetWidth;
+            }}
+
+            // Check for replay player
             const replayElement = document.querySelector('.replayer-wrapper');
-            if (replayElement) {
+            if (replayElement) {{
                 return replayElement.offsetWidth;
-            }
+            }}
+
+            // Check for left-to-right funnel (FunnelBarVertical)
+            // Top-to-bottom funnels use FunnelBarHorizontal and don't need width expansion
+            const funnelElement = document.querySelector('.FunnelBarVertical');
+            if (funnelElement) {{
+                // Force funnel to shrink to content size
+                funnelElement.style.width = 'fit-content';
+                funnelElement.style.maxWidth = 'fit-content';
+
+                const table = funnelElement.querySelector('table');
+                if (table) {{
+                    table.style.width = 'fit-content';
+                    table.style.maxWidth = 'fit-content';
+                }}
+
+                // Force a reflow
+                void funnelElement.offsetWidth;
+
+                // Now measure the actual content width
+                return funnelElement.offsetWidth + {CONTENT_PADDING};
+            }}
+
             // Fall back to table width for insights
             const tableElement = document.querySelector('table');
-            if (tableElement) {
+            if (tableElement) {{
                 return tableElement.offsetWidth * 1.5;
-            }
+            }}
+
+            return null;
         """
         )
-        if isinstance(width, int):
-            width = max(int(screenshot_width), min(1800, width or screenshot_width))
+        if isinstance(width, (int, float)):
+            calculated_width = width or screenshot_width
+            if calculated_width > MAX_WIDTH_PIXELS:
+                logger.warning(
+                    "screenshot_width_capped",
+                    original_width=calculated_width,
+                    capped_width=MAX_WIDTH_PIXELS,
+                    url=url_to_render,
+                )
+            width = min(MAX_WIDTH_PIXELS, int(calculated_width))
         else:
             width = screenshot_width
 
@@ -281,29 +383,16 @@ def _screenshot_asset(
         # Allow a moment for any dynamic resizing
         driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
 
-        # Get the final height after any dynamic adjustments
-        final_height = driver.execute_script(
-            """
-            const element = document.querySelector('.InsightCard__viz') ||
-                          document.querySelector('.ExportedInsight__content') ||
-                          document.querySelector('.replayer-wrapper') ||
-                          document.querySelector('.heatmap-exporter');
-            if (element) {
-                const rect = element.getBoundingClientRect();
-                return Math.max(rect.height, document.body.scrollHeight);
-            }
-            return document.body.scrollHeight;
-        """
-        )
+        final_height = int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS))
 
-        if max_height_pixels and final_height > max_height_pixels:
+        if final_height > effective_max:
             logger.warning(
                 "screenshot_final_height_capped",
                 original_final_height=final_height,
-                capped_height=max_height_pixels,
+                capped_height=effective_max,
                 url=url_to_render,
             )
-            final_height = max_height_pixels
+            final_height = effective_max
 
         # Set final window size
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)
@@ -327,41 +416,85 @@ def _screenshot_asset(
             driver.quit()
 
 
-def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None) -> None:
+def export_image(
+    exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None, source: Optional[EventSource] = None
+) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("team_id", exported_asset.team_id if exported_asset else "unknown")
         posthoganalytics.tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
         try:
+            # Track cache keys for insights so we can pass them to Chrome for guaranteed cache hits
+            insight_cache_keys: dict[int, str] = {}
+            export_analytics_props: AnalyticsProps = {"source": source or EventSource.EXPORT}
+
             if exported_asset.insight:
                 logger.info(
                     "export_image.calculate_insight",
                     insight_id=exported_asset.insight.id,
                     dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
                 )
-                dashboard_variables = None
-                if exported_asset.dashboard and exported_asset.dashboard.variables:
-                    variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
-                    dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
 
-                with upgrade_query(exported_asset.insight):
-                    process_query_dict(
-                        exported_asset.team,
-                        exported_asset.insight.query,
-                        dashboard_filters_json=exported_asset.dashboard.filters if exported_asset.dashboard else None,
-                        variables_override_json=dashboard_variables,
-                        limit_context=LimitContext.QUERY_ASYNC,
+                # When export_context contains a source query, use it as the query for cache warming.
+                # This captures the user's full current state (variables, filters, date ranges, etc.).
+                # Falls back to the saved insight query for subscriptions and other server-initiated exports.
+                export_context = exported_asset.export_context or {}
+                query_override = export_context.get("source")
+
+                dashboard_variables = None
+                tile_filters_override = None
+                if exported_asset.dashboard:
+                    if exported_asset.dashboard.variables:
+                        variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                        dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
+                    tile = DashboardTile.objects.filter(
+                        dashboard=exported_asset.dashboard,
+                        insight=exported_asset.insight,
+                    ).first()
+                    if tile:
+                        tile_filters_override = tile.filters_overrides
+
+                if query_override:
+                    # query_override is upgraded inside calculate_for_query_based_insight,
+                    # so we skip upgrade_query (which only upgrades insight.query we won't use).
+                    # variables_override is None because query_override already encodes the
+                    # user's full current state — applying saved dashboard variables on top
+                    # would clobber unsaved variable selections.
+                    result = calculate_for_query_based_insight(
+                        exported_asset.insight,
+                        team=exported_asset.team,
+                        dashboard=exported_asset.dashboard,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                        insight_id=exported_asset.insight.id,
-                        dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
+                        user=None,
+                        variables_override=None,
+                        tile_filters_override=tile_filters_override,
+                        query_override=query_override,
+                        analytics_props=export_analytics_props,
                     )
+                else:
+                    with upgrade_query(exported_asset.insight):
+                        result = calculate_for_query_based_insight(
+                            exported_asset.insight,
+                            team=exported_asset.team,
+                            dashboard=exported_asset.dashboard,
+                            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                            user=None,
+                            variables_override=dashboard_variables,
+                            tile_filters_override=tile_filters_override,
+                            analytics_props=export_analytics_props,
+                        )
+                if result.cache_key:
+                    insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
                 logger.info(
                     "export_image.calculate_dashboard_insights",
                     dashboard_id=exported_asset.dashboard.id,
                 )
-                dashboard_variables = None
-                if exported_asset.dashboard.variables:
+                # Use variable overrides from export_context (user's current unsaved selection),
+                # falling back to saved dashboard variables
+                export_context = exported_asset.export_context or {}
+                dashboard_variables = export_context.get("variables_override")
+                if not dashboard_variables and exported_asset.dashboard.variables:
                     variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
                     dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
 
@@ -370,34 +503,38 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                     .filter(insight__isnull=False, insight__deleted=False)
                     .all()
                 )
-                insights_to_update = [tile.insight for tile in tiles if tile.insight]
-                for insight in insights_to_update:
-                    if not insight.query:
+                for tile in tiles:
+                    insight = tile.insight
+                    if not insight or not insight.query:
                         continue
+
                     with upgrade_query(insight):
-                        process_query_dict(
-                            exported_asset.team,
-                            insight.query,
-                            dashboard_filters_json=exported_asset.dashboard.filters,
-                            variables_override_json=dashboard_variables,
-                            limit_context=LimitContext.QUERY_ASYNC,
+                        result = calculate_for_query_based_insight(
+                            insight,
+                            team=exported_asset.team,
+                            dashboard=exported_asset.dashboard,
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                            insight_id=insight.id,
-                            dashboard_id=exported_asset.dashboard.id,
+                            user=None,
+                            variables_override=dashboard_variables,
+                            tile_filters_override=tile.filters_overrides,
+                            analytics_props=export_analytics_props,
                         )
+                        if result.cache_key:
+                            insight_cache_keys[insight.id] = result.cache_key
 
             if exported_asset.export_format == "image/png":
-                with EXPORT_TIMER.labels(type="image").time():
-                    _export_to_png(exported_asset, max_height_pixels=max_height_pixels)
-                EXPORT_SUCCEEDED_COUNTER.labels(type="image").inc()
+                with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
+                    _export_to_png(
+                        exported_asset,
+                        max_height_pixels=max_height_pixels,
+                        insight_cache_keys=insight_cache_keys or None,
+                    )
             else:
                 raise NotImplementedError(
                     f"Export to format {exported_asset.export_format} is not supported for insights"
                 )
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
-            capture_exception(e, additional_properties={"celery_task": "image_export", "team_id": team_id})
-
+            capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             logger.error("image_exporter.failed", exception=e, exc_info=True)
-            EXPORT_FAILED_COUNTER.labels(type="image").inc()
             raise

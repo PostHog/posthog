@@ -16,6 +16,7 @@ from glom import (
 
 from posthog.models.user import User
 
+from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.constants import (
     EXPIRES_AFTER_DAYS,
     FAILED_MOMENTS_MIN_RATIO,
@@ -196,6 +197,8 @@ class SessionSummaryVideoValidator:
             logger.error(
                 f"Milliseconds since start not found in the event {event.data['event_uuid']} for session {self.session_id}"
                 "when generating video for validating session summary",
+                session_id=self.session_id,
+                signals_type="session-summaries",
             )
             return None
         event_timestamp = floor(ms_from_start / 1000)
@@ -264,19 +267,57 @@ class SessionSummaryVideoValidator:
         # Call LLM with the validation prompt
         updates_raw = await call_llm(
             input_prompt=validation_prompt,
-            user_key=self.user.id,
+            user_id=self.user.id,
             session_id=self.session_id,
             model=model_to_use,
             system_prompt=system_prompt,
             trace_id=self.trace_id or str(uuid.uuid4()),
+            user_distinct_id=self.user.distinct_id,
         )
         updates_content = get_raw_content(updates_raw)
         if not updates_content:
             logger.exception(
-                f"No updates content found for session {self.session_id} when validating session summary with videos"
+                f"No updates content found for session {self.session_id} when validating session summary with videos",
+                session_id=self.session_id,
+                signals_type="session-summaries",
             )
-            return None
+            raise ExceptionToRetry()
         updates_result = load_yaml_from_raw_llm_content(raw_content=updates_content, final_validation=True)
+        # Validate that updates_result is a list
+        if not isinstance(updates_result, list):
+            type_err = TypeError(
+                f"Invalid updates_result type for session {self.session_id}, expected list but got {type(updates_result).__name__}"
+            )
+            logger.error(
+                str(type_err),
+                session_id=self.session_id,
+                signals_type="session-summaries",
+                exc_info=type_err,
+            )
+            raise ExceptionToRetry() from type_err
+        # Validate that fields are dicts with required keys
+        first_field = updates_result[0]
+        if not isinstance(first_field, dict):
+            type_err = TypeError(
+                f"Invalid field type in updates_result for session {self.session_id}, expected dict but got {type(first_field).__name__}"
+            )
+            logger.error(
+                str(type_err),
+                session_id=self.session_id,
+                signals_type="session-summaries",
+                exc_info=type_err,
+            )
+            raise ExceptionToRetry() from type_err
+        if "path" not in first_field or "new_value" not in first_field:
+            value_err = ValueError(f"Missing required keys in field for session {self.session_id}")
+            logger.error(
+                str(value_err),
+                session_id=self.session_id,
+                signals_type="session-summaries",
+                exc_info=value_err,
+            )
+            raise ExceptionToRetry() from value_err
+        # We're good on the format front, let's go
         updates_result = cast(list[dict[str, str]], updates_result)
         return updates_result
 
@@ -289,7 +330,9 @@ class SessionSummaryVideoValidator:
                 find_value(target=summary_to_update, spec=field["path"])
             except PathAccessError:
                 logger.exception(
-                    f"Field {field['path']} not found in the session summary to update for the session {self.session_id}, skipping"
+                    f"Field {field['path']} not found in the session summary to update for the session {self.session_id}, skipping",
+                    session_id=self.session_id,
+                    signals_type="session-summaries",
                 )
                 continue
             # Assign the new value to the summary

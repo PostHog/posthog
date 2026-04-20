@@ -3,12 +3,19 @@ Security tests for sharing access tokens - ensuring they cannot be abused to acc
 """
 
 import json
+from datetime import timedelta
+from typing import Any, cast
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
-from posthog.models.dashboard import Dashboard
+from django.conf import settings
+from django.utils import timezone
+
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class SharingAccessTokenSecurityTest(APIBaseTest):
@@ -32,6 +39,97 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             [401, 403],
             f"Expected 401/403 for logged out user, got {response.status_code}. User may still be logged in!",
         )
+
+    def test_expired_sharing_token_rejected_by_api(self):
+        insight = Insight.objects.create(
+            name="Shared Insight",
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+        )
+        self.dashboard.tiles.create(
+            insight=insight,
+            layouts={"sm": {"w": 6, "h": 5, "x": 0, "y": 0, "minW": 3, "minH": 3}},
+        )
+
+        sharing_config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
+        old_token = sharing_config.access_token
+
+        # Rotate — old config gets expires_at set to now + grace period
+        new_config = sharing_config.rotate_access_token()
+        new_token = new_config.access_token
+
+        # Jump past the grace period so the old token is fully expired
+        future = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS + 60)
+        with freeze_time(future):
+            # Old token must be rejected
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                cast(Any, {"sharing_access_token": old_token}),
+            )
+            assert response.status_code in [401, 403], (
+                f"Expired sharing token should be rejected. Got {response.status_code}"
+            )
+
+            # New token must still work
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                cast(Any, {"sharing_access_token": new_token}),
+            )
+            assert response.status_code == 200, f"New sharing token should still work. Got {response.status_code}"
+
+    def test_expired_password_protected_sharing_token_rejected_by_api(self):
+        insight = Insight.objects.create(
+            name="Shared Insight",
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+        )
+        self.dashboard.tiles.create(
+            insight=insight,
+            layouts={"sm": {"w": 6, "h": 5, "x": 0, "y": 0, "minW": 3, "minH": 3}},
+        )
+
+        from posthog.models.share_password import SharePassword
+
+        sharing_config = SharingConfiguration.objects.create(
+            team=self.team, dashboard=self.dashboard, enabled=True, password_required=True
+        )
+        share_password, _ = SharePassword.create_password(sharing_config, created_by=self.user)
+
+        # Generate a JWT for the password-protected share
+        jwt_token = sharing_config.generate_password_protected_token(share_password)
+        old_access_token = sharing_config.access_token
+
+        # Rotate — old config gets expires_at set
+        new_config = sharing_config.rotate_access_token()
+        new_config.password_required = True
+        new_config.save()
+        new_share_password, _ = SharePassword.create_password(new_config, created_by=self.user)
+        new_jwt_token = new_config.generate_password_protected_token(new_share_password)
+
+        # Jump past the grace period
+        future = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS + 60)
+        with freeze_time(future):
+            # Old JWT against expired config must be rejected
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                cast(Any, {"sharing_access_token": old_access_token}),
+                HTTP_AUTHORIZATION=f"Bearer {jwt_token}",
+            )
+            assert response.status_code in [401, 403], (
+                f"Expired password-protected sharing token should be rejected. Got {response.status_code}"
+            )
+
+            # New JWT against active config must still work
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                cast(Any, {"sharing_access_token": new_config.access_token}),
+                HTTP_AUTHORIZATION=f"Bearer {new_jwt_token}",
+            )
+            assert response.status_code == 200, (
+                f"New password-protected sharing token should still work. Got {response.status_code}"
+            )
 
     def test_sharing_access_token_cannot_access_insights_not_on_dashboard(self):
         """
@@ -76,9 +174,9 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             f"/api/environments/{self.team.id}/insights/{insight_on_dashboard.id}/",
             {"sharing_access_token": sharing_config.access_token},  # type: ignore[arg-type]
         )
-        assert (
-            response.status_code == 200
-        ), f"Should be able to access insight on dashboard. Got {response.status_code}: {response.content}"
+        assert response.status_code == 200, (
+            f"Should be able to access insight on dashboard. Got {response.status_code}: {response.content}"
+        )
 
         # Test 2: Should NOT be able to access insight that is NOT on the dashboard
         response = self.client.get(
@@ -140,9 +238,9 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         # CRITICAL: This is the vulnerability - the date range should NOT be overridden to -365d
         # It should remain the original -7d from the insight definition
         date_from = original_query.get("dateRange", {}).get("date_from")
-        assert (
-            date_from == "-7d"
-        ), f"SECURITY VULNERABILITY: filters_override was applied! Expected '-7d' but got '{date_from}'"
+        assert date_from == "-7d", (
+            f"SECURITY VULNERABILITY: filters_override was applied! Expected '-7d' but got '{date_from}'"
+        )
 
     def test_sharing_access_token_cannot_override_variables(self):
         """
@@ -212,16 +310,16 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         source_query = original_query.get("source", {}).get("query")
 
         # The query should still contain the variable placeholder, not the overridden value
-        assert (
-            "{variables.test_event}" in source_query
-        ), f"SECURITY VULNERABILITY: variables_override was applied! Query: {source_query}"
+        assert "{variables.test_event}" in source_query, (
+            f"SECURITY VULNERABILITY: variables_override was applied! Query: {source_query}"
+        )
 
         # The variables should still contain the original default value, not the malicious override
         variables = original_query.get("source", {}).get("variables", {})
         actual_variable_value = variables.get(str(variable.id), {}).get("value")
-        assert (
-            actual_variable_value == "pageview"
-        ), f"SECURITY VULNERABILITY: variables_override was applied! Expected 'pageview' but got '{actual_variable_value}'"
+        assert actual_variable_value == "pageview", (
+            f"SECURITY VULNERABILITY: variables_override was applied! Expected 'pageview' but got '{actual_variable_value}'"
+        )
 
     def test_sharing_access_token_cannot_access_other_team_insights(self):
         """
@@ -323,9 +421,9 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
                 "query": {"kind": "TrendsQuery", "series": [{"event": "malicious_event"}]},
             },
         )
-        assert (
-            response.status_code in [401, 403]
-        ), f"Should not be able to create insights with sharing access token in query params. Got {response.status_code}: {response.content}"
+        assert response.status_code in [401, 403], (
+            f"Should not be able to create insights with sharing access token in query params. Got {response.status_code}: {response.content}"
+        )
 
         # Test 2: Try to create an insight using sharing access token in body - should fail
         response = self.client.post(
@@ -336,24 +434,24 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
                 "sharing_access_token": sharing_config.access_token,
             },
         )
-        assert (
-            response.status_code in [401, 403]
-        ), f"Should not be able to create insights with sharing access token in body. Got {response.status_code}: {response.content}"
+        assert response.status_code in [401, 403], (
+            f"Should not be able to create insights with sharing access token in body. Got {response.status_code}: {response.content}"
+        )
 
         # Test 3: Try to update the dashboard using sharing access token as query param - should fail
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/?sharing_access_token={sharing_config.access_token}",
             {"name": "Hacked Dashboard"},
         )
-        assert (
-            response.status_code in [401, 403]
-        ), f"Should not be able to update dashboard with sharing access token in query params. Got {response.status_code}: {response.content}"
+        assert response.status_code in [401, 403], (
+            f"Should not be able to update dashboard with sharing access token in query params. Got {response.status_code}: {response.content}"
+        )
 
         # Test 4: Try to update the dashboard using sharing access token in body - should fail
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/",
             {"name": "Hacked Dashboard", "sharing_access_token": sharing_config.access_token},
         )
-        assert (
-            response.status_code in [401, 403]
-        ), f"Should not be able to update dashboard with sharing access token in body. Got {response.status_code}: {response.content}"
+        assert response.status_code in [401, 403], (
+            f"Should not be able to update dashboard with sharing access token in body. Got {response.status_code}: {response.content}"
+        )

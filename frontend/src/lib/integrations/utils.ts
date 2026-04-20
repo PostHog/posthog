@@ -2,9 +2,12 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { IntegrationKind } from '~/types'
 
+import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
+import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
+import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
 import IconGitLab from 'public/services/gitlab.png'
 import IconGoogleAds from 'public/services/google-ads.png'
@@ -13,23 +16,28 @@ import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
 import IconHubspot from 'public/services/hubspot.png'
 import IconIntercom from 'public/services/intercom.png'
+import IconJira from 'public/services/jira.svg'
 import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
+import IconPinterest from 'public/services/pinterest_ads.png'
 import IconReddit from 'public/services/reddit.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
+import IconVercel from 'public/services/vercel.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
+    'slack-posthog-code': IconSlack,
     salesforce: IconSalesforce,
     hubspot: IconHubspot,
     'google-pubsub': IconGoogleCloud,
     'google-cloud-storage': IconGoogleCloudStorage,
+    'google-cloud-service-account': IconGoogleCloud,
     'google-ads': IconGoogleAds,
     'google-sheets': IconGoogleSheets,
     snapchat: IconSnapchat,
@@ -46,16 +54,28 @@ export const ICONS: Record<IntegrationKind, any> = {
     databricks: IconDatabricks,
     'tiktok-ads': IconTikTok,
     'bing-ads': IconBingAds,
+    vercel: IconVercel,
+    'azure-blob': IconAzureBlob,
+    firebase: IconFirebase,
+    jira: IconJira,
+    'pinterest-ads': IconPinterest,
+    'customerio-app': IconCustomerIO,
+    'customerio-webhook': IconCustomerIO,
+    'customerio-track': IconCustomerIO,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
+        case 'slack-posthog-code':
+            return 'PostHog Code (Slack)'
         case 'google-pubsub':
             return 'Google Cloud Pub/Sub'
         case 'google-cloud-storage':
             return 'Google Cloud Storage'
         case 'google-ads':
             return 'Google Ads'
+        case 'google-cloud-service-account':
+            return 'Google Cloud service account'
         case 'linkedin-ads':
             return 'LinkedIn Ads'
         case 'reddit-ads':
@@ -64,10 +84,16 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'TikTok Ads'
         case 'bing-ads':
             return 'Bing Ads'
+        case 'azure-blob':
+            return 'Azure Blob Storage'
+        case 'pinterest-ads':
+            return 'Pinterest Ads'
         case 'email':
             return 'email'
         case 'github':
             return 'GitHub'
+        case 'firebase':
+            return 'Firebase'
         default:
             return capitalizeFirstLetter(kind)
     }

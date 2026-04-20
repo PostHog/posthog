@@ -8,6 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { StateInspector } from 'products/live_debugger/frontend/StateInspector'
 
@@ -17,6 +18,7 @@ import { RepositoryBrowser } from './repo_browser/RepositoryBrowser'
 export const scene: SceneExport = {
     component: LiveDebugger,
     logic: liveDebuggerLogic,
+    productKey: ProductKey.LIVE_DEBUGGER,
 }
 
 function BreakpointInstanceCard({

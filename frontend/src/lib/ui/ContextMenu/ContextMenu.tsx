@@ -8,7 +8,33 @@ import { IconCheckCircle } from '@posthog/icons'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 
-const ContextMenu = ContextMenuPrimitive.Root
+import { MenuSeparator } from '../Menus/Menus'
+
+const ContextMenuOpenContext = React.createContext(false)
+
+function ContextMenu({
+    children,
+    onOpenChange,
+    ...props
+}: React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Root>): JSX.Element {
+    const [isOpen, setIsOpen] = React.useState(false)
+
+    const handleOpenChange = React.useCallback(
+        (open: boolean) => {
+            setIsOpen(open)
+            onOpenChange?.(open)
+        },
+        [onOpenChange]
+    )
+
+    return (
+        <ContextMenuOpenContext.Provider value={isOpen}>
+            <ContextMenuPrimitive.Root onOpenChange={handleOpenChange} {...props}>
+                {children}
+            </ContextMenuPrimitive.Root>
+        </ContextMenuOpenContext.Provider>
+    )
+}
 
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger
 
@@ -63,8 +89,14 @@ ContextMenuSubContent.displayName = ContextMenuPrimitive.SubContent.displayName
 const ContextMenuContent = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
->(
-    ({ className, children, collisionPadding = { top: 50, bottom: 50 }, ...props }, ref): JSX.Element => (
+>(({ className, children, collisionPadding = { top: 50, bottom: 50 }, ...props }, ref): JSX.Element | null => {
+    const open = React.useContext(ContextMenuOpenContext)
+
+    if (!open) {
+        return null
+    }
+
+    return (
         <ContextMenuPrimitive.Portal>
             <ContextMenuPrimitive.Content
                 ref={ref}
@@ -81,7 +113,7 @@ const ContextMenuContent = React.forwardRef<
             </ContextMenuPrimitive.Content>
         </ContextMenuPrimitive.Portal>
     )
-)
+})
 ContextMenuContent.displayName = ContextMenuPrimitive.Content.displayName
 
 const ContextMenuItem = React.forwardRef<
@@ -166,11 +198,9 @@ const ContextMenuSeparator = React.forwardRef<
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator>
 >(
     ({ className, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.Separator
-            ref={ref}
-            className={cn('-mx-1 my-1 h-px bg-border-primary', className)}
-            {...props}
-        />
+        <ContextMenuPrimitive.Separator ref={ref} asChild {...props}>
+            <MenuSeparator className={className} />
+        </ContextMenuPrimitive.Separator>
     )
 )
 ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName

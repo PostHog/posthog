@@ -7,6 +7,7 @@ import {
     IconCopy,
     IconDatabase,
     IconDay,
+    IconExpand45,
     IconFeatures,
     IconGear,
     IconLaptop,
@@ -21,11 +22,11 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -33,7 +34,6 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
-    DropdownMenuOpenIndicator,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -41,22 +41,22 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getTreeItemsGames } from '~/products'
-import { SidePanelTab, UserTheme } from '~/types'
+import { UserTheme } from '~/types'
 
 import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
@@ -83,7 +83,7 @@ function ThemeMenu(): JSX.Element {
                     Color theme
                     <div className="ml-auto flex items-center gap-1">
                         <LemonTag>{themeMode}</LemonTag>
-                        <DropdownMenuOpenIndicator intent="sub" />
+                        <MenuOpenIndicator intent="sub" className="ml-auto" />
                     </div>
                 </ButtonPrimitive>
             </DropdownMenuSubTrigger>
@@ -141,14 +141,13 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { currentOrganization } = useValues(organizationLogic)
     const { isCloudOrDev, isCloud, preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { billing } = useValues(billingLogic)
+    const { billing, canAccessBilling } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
-    const { mobileLayout } = useValues(navigationLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const { toggleZenMode } = useActions(navigation3000Logic)
 
     return (
         <DropdownMenu>
@@ -186,7 +185,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             </div>
                         </Link>
                     </DropdownMenuItem>
-                    {isCloudOrDev ? (
+                    {isCloudOrDev && canAccessBilling ? (
                         <DropdownMenuItem asChild>
                             <Link
                                 to={
@@ -263,7 +262,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             <ButtonPrimitive menuItem>
                                 <IconBlank />
                                 Other organizations
-                                <DropdownMenuOpenIndicator intent="sub" />
+                                <MenuOpenIndicator intent="sub" />
                             </ButtonPrimitive>
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="min-w-[var(--project-panel-width)]">
@@ -314,6 +313,19 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
 
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive
+                            tooltip="Hide navigation and focus on content"
+                            tooltipPlacement="right"
+                            onClick={toggleZenMode}
+                            menuItem
+                        >
+                            <IconExpand45 />
+                            Zen mode
+                            <KeyboardShortcut command option z className="ml-auto" />
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
                             tooltip="Open shortcut menu"
                             tooltipPlacement="right"
                             onClick={() => setAppShortcutMenuOpen(true)}
@@ -334,12 +346,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             to="https://posthog.com/changelog"
                             buttonProps={{
                                 menuItem: true,
-                            }}
-                            onClick={(e) => {
-                                if (!mobileLayout) {
-                                    e.preventDefault()
-                                    openSidePanel(SidePanelTab.Docs, '/changelog')
-                                }
                             }}
                             data-attr="whats-new-button"
                             target="_blank"
@@ -372,7 +378,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                     <IconCake />
                                     Game center
                                     <div className="ml-auto">
-                                        <DropdownMenuOpenIndicator intent="sub" />
+                                        <MenuOpenIndicator intent="sub" className="ml-auto" />
                                     </div>
                                 </ButtonPrimitive>
                             </DropdownMenuSubTrigger>

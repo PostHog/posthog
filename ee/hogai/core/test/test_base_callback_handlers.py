@@ -7,6 +7,7 @@ import posthoganalytics
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from ee.hogai.chat_agent.runner import ChatAgentRunner
+from ee.hogai.core.runner import SubagentCallbackHandler
 from ee.models import Conversation
 
 
@@ -169,3 +170,130 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
         assert isinstance(config["callbacks"], list)
         self.assertEqual(config["callbacks"], runner._callback_handlers)
         self.assertEqual(len(config["callbacks"]), 1)
+
+    @patch("ee.hogai.core.runner.is_cloud")
+    @patch("ee.hogai.core.runner.get_instance_region")
+    @patch("ee.hogai.core.runner.get_client")
+    def test_subagent_callback_handler_used_when_parent_span_id_provided(
+        self, mock_get_client, mock_get_region, mock_is_cloud
+    ):
+        mock_is_cloud.return_value = True
+        mock_get_region.return_value = "US"
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        parent_span_id = uuid4()
+        runner = ChatAgentRunner(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            parent_span_id=parent_span_id,
+        )
+
+        self.assertEqual(len(runner._callback_handlers), 1)
+        self.assertIsInstance(runner._callback_handlers[0], SubagentCallbackHandler)
+        assert isinstance(runner._callback_handlers[0], SubagentCallbackHandler)
+        self.assertEqual(runner._callback_handlers[0]._parent_span_id, parent_span_id)
+
+    @patch("ee.hogai.core.runner.is_cloud")
+    @patch("ee.hogai.core.runner.get_instance_region")
+    @patch("ee.hogai.core.runner.get_client")
+    def test_regular_callback_handler_used_without_parent_span_id(
+        self, mock_get_client, mock_get_region, mock_is_cloud
+    ):
+        mock_is_cloud.return_value = True
+        mock_get_region.return_value = "US"
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        runner = ChatAgentRunner(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+        )
+
+        self.assertEqual(len(runner._callback_handlers), 1)
+        self.assertIsInstance(runner._callback_handlers[0], CallbackHandler)
+        self.assertNotIsInstance(runner._callback_handlers[0], SubagentCallbackHandler)
+
+
+class TestSubagentCallbackHandler(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.mock_client = Mock()
+        self.parent_span_id = uuid4()
+        self.handler = SubagentCallbackHandler(
+            self.mock_client,
+            distinct_id="test-user",
+            parent_span_id=self.parent_span_id,
+        )
+
+    def test_parent_span_id_stored_as_uuid(self):
+        self.assertEqual(self.handler._parent_span_id, self.parent_span_id)
+
+    def test_parent_span_id_string_converted_to_uuid(self):
+        string_id = str(uuid4())
+        handler = SubagentCallbackHandler(
+            self.mock_client,
+            distinct_id="test-user",
+            parent_span_id=string_id,
+        )
+        from uuid import UUID
+
+        self.assertIsInstance(handler._parent_span_id, UUID)
+        self.assertEqual(str(handler._parent_span_id), string_id)
+
+    def test_regular_callback_handler_emits_trace_for_root_chains(self):
+        """Verify the baseline: regular CallbackHandler emits $ai_trace for root-level chains."""
+        mock_client = Mock()
+        regular_handler = CallbackHandler(mock_client, distinct_id="test", trace_id="trace-123")
+
+        run_id = uuid4()
+        regular_handler.on_chain_start({"name": "TestChain"}, {"input": "test"}, run_id=run_id, parent_run_id=None)
+        regular_handler.on_chain_end({"output": "result"}, run_id=run_id, parent_run_id=None)
+
+        capture_calls = list(mock_client.capture.call_args_list)
+        self.assertEqual(len(capture_calls), 1)
+        event_name = capture_calls[0][1]["event"]
+        self.assertEqual(event_name, "$ai_trace")
+
+    def test_subagent_handler_emits_span_for_root_chains(self):
+        """SubagentCallbackHandler emits $ai_span (not $ai_trace) for root-level chains."""
+        run_id = uuid4()
+        self.handler.on_chain_start({"name": "SubagentChain"}, {"input": "test"}, run_id=run_id, parent_run_id=None)
+        self.handler.on_chain_end({"output": "result"}, run_id=run_id, parent_run_id=None)
+
+        capture_calls = list(self.mock_client.capture.call_args_list)
+        self.assertEqual(len(capture_calls), 1)
+
+        event_name = capture_calls[0][1]["event"]
+        properties = capture_calls[0][1]["properties"]
+
+        self.assertEqual(event_name, "$ai_span")
+        self.assertEqual(properties["$ai_parent_id"], self.parent_span_id)
+
+    def test_subagent_handler_nested_chains_have_correct_parents(self):
+        """Nested chains in SubagentCallbackHandler maintain correct parent relationships."""
+        root_run_id = uuid4()
+        child_run_id = uuid4()
+
+        # Simulate nested chain execution
+        self.handler.on_chain_start({"name": "RootChain"}, {"input": "test"}, run_id=root_run_id, parent_run_id=None)
+        self.handler.on_chain_start(
+            {"name": "ChildChain"}, {"input": "test"}, run_id=child_run_id, parent_run_id=root_run_id
+        )
+        self.handler.on_chain_end({"output": "child_result"}, run_id=child_run_id, parent_run_id=root_run_id)
+        self.handler.on_chain_end({"output": "root_result"}, run_id=root_run_id, parent_run_id=None)
+
+        capture_calls = list(self.mock_client.capture.call_args_list)
+        self.assertEqual(len(capture_calls), 2)
+
+        # First capture is child chain (ends first) - should be $ai_span
+        child_event = capture_calls[0][1]["event"]
+        self.assertEqual(child_event, "$ai_span")
+
+        # Second capture is root chain - should be $ai_span with injected parent_span_id
+        root_event = capture_calls[1][1]["event"]
+        root_props = capture_calls[1][1]["properties"]
+        self.assertEqual(root_event, "$ai_span")
+        self.assertEqual(root_props["$ai_parent_id"], self.parent_span_id)

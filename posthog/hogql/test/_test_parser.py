@@ -1,7 +1,9 @@
 import math
-from typing import Literal, Optional, cast
+from typing import Optional, cast
 
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
+
+from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.ast import (
@@ -27,13 +29,14 @@ from posthog.hogql.ast import (
     VariableDeclaration,
     WhileStatement,
 )
+from posthog.hogql.constants import HogQLParserBackend
 from posthog.hogql.errors import ExposedHogQLError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.visitor import clear_locations
 
 
-def parser_test_factory(backend: Literal["python", "cpp"]):
-    base_classes = (MemoryLeakTestMixin, BaseTest) if backend == "cpp" else (BaseTest,)
+def parser_test_factory(backend: HogQLParserBackend):
+    base_classes = (BaseTest,) if backend == "python" else (MemoryLeakTestMixin, BaseTest)
 
     class TestParser(*base_classes):  # type: ignore
         MEMORY_INCREASE_PER_PARSE_LIMIT_B = 10_000
@@ -182,6 +185,58 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     property=ast.Constant(value=1),
                 ),
             )
+            self.assertEqual(
+                self._expr("arr[1:3]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=ast.Constant(value=1),
+                    end_expr=ast.Constant(value=3),
+                ),
+            )
+            self.assertEqual(
+                self._expr("arr[:3]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=None,
+                    end_expr=ast.Constant(value=3),
+                ),
+            )
+            self.assertEqual(
+                self._expr("arr[1:]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=ast.Constant(value=1),
+                    end_expr=None,
+                ),
+            )
+            self.assertEqual(
+                self._expr("arr[:]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=None,
+                    end_expr=None,
+                ),
+            )
+            self.assertEqual(
+                self._expr("arr[(1 + 2):(-3)]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                    ),
+                    end_expr=ast.Constant(value=-3),
+                ),
+            )
+            self.assertEqual(
+                self._expr("arr[-5:]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=ast.Constant(value=-5),
+                    end_expr=None,
+                ),
+            )
 
         def test_tuples(self):
             self.assertEqual(
@@ -237,6 +292,28 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._expr("x -> x * y"),
                 ast.Lambda(
                     args=["x"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("lambda x: x * 2"),
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Constant(value=2),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("lambda x, y: x * y"),
+                ast.Lambda(
+                    args=["x", "y"],
                     expr=ast.ArithmeticOperation(
                         op=ast.ArithmeticOperationOp.Mult,
                         left=ast.Field(chain=["x"]),
@@ -313,6 +390,12 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_try_cast(self):
+            self.assertEqual(
+                self._expr("try_cast(1 AS Int64)"),
+                ast.TryCast(expr=ast.Constant(value=1), type_name="int64"),
+            )
+
         def test_call_expr(self):
             self.assertEqual(
                 self._expr("asd.asd(123)"),
@@ -364,6 +447,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(self._expr("'n\null'"), ast.Constant(value="n\null"))  # newline passed into string
             self.assertEqual(self._expr("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
             self.assertEqual(self._expr("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
+            self.assertEqual(self._expr("'\\x41'"), ast.Constant(value="\\x41"))
+            self.assertEqual(self._expr("'\\x61\\x62'"), ast.Constant(value="\\x61\\x62"))
+            self.assertEqual(self._expr("'\\x5a'"), ast.Constant(value="\\x5a"))
+
+            # String literals containing special float names should remain as strings
+            self.assertEqual(self._expr("'Infinity'"), ast.Constant(value="Infinity"))
+            self.assertEqual(self._expr("'-Infinity'"), ast.Constant(value="-Infinity"))
+            self.assertEqual(self._expr("'NaN'"), ast.Constant(value="NaN"))
 
         def test_arithmetic_operations(self):
             self.assertEqual(
@@ -520,6 +611,22 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     op=ast.CompareOperationOp.GtEq,
                 ),
             )
+            self.assertEqual(
+                self._expr("1 is distinct from 2"),
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    negated=False,
+                ),
+            )
+            self.assertEqual(
+                self._expr("1 is not distinct from 2"),
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    negated=True,
+                ),
+            )
 
         def test_null_comparison_operations(self):
             self.assertEqual(
@@ -528,6 +635,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     left=ast.Constant(value=1),
                     right=ast.Constant(value=None),
                     op=ast.CompareOperationOp.Eq,
+                    is_null_comparison_style=True,
                 ),
             )
             self.assertEqual(
@@ -536,6 +644,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     left=ast.Constant(value=1),
                     right=ast.Constant(value=None),
                     op=ast.CompareOperationOp.NotEq,
+                    is_null_comparison_style=True,
                 ),
             )
 
@@ -717,6 +826,61 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
+        def test_percentile_calls_within_group(self, function_name: str):
+            self.assertEqual(
+                self._expr(f"{function_name}(0.5) within group (order by foo desc)"),
+                ast.Call(
+                    name=function_name,
+                    args=[],
+                    params=[ast.Constant(value=0.5)],
+                    within_group=[ast.OrderExpr(expr=ast.Field(chain=["foo"]), order="DESC")],
+                ),
+            )
+
+        def test_function_calls_with_filter(self):
+            self.assertEqual(
+                self._expr("sum(event) FILTER (WHERE event = 'a')"),
+                ast.Call(
+                    name="sum",
+                    params=None,
+                    args=[ast.Field(chain=["event"])],
+                    distinct=False,
+                    filter_expr=ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value="a"),
+                        op=ast.CompareOperationOp.Eq,
+                    ),
+                ),
+            )
+
+        def test_function_calls_with_order_by(self):
+            self.assertEqual(
+                self._expr("sum(event ORDER BY timestamp DESC)"),
+                ast.Call(
+                    name="sum",
+                    params=None,
+                    args=[ast.Field(chain=["event"])],
+                    distinct=False,
+                    order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                ),
+            )
+
+        def test_keyword_named_function_call(self):
+            self.assertEqual(
+                self._expr("if(1, 2, 3)"),
+                ast.Call(
+                    name="if",
+                    params=None,
+                    args=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                        ast.Constant(value=3),
+                    ],
+                    distinct=False,
+                ),
+            )
+
         def test_alias(self):
             self.assertEqual(
                 self._expr("1 as asd"),
@@ -733,6 +897,84 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("(1 as b) as `🍄`"),
                 ast.Alias(alias="🍄", expr=ast.Alias(alias="b", expr=ast.Constant(value=1))),
+            )
+
+        def test_quoted_reserved_keyword_alias(self):
+            self.assertEqual(
+                self._select('select 1 "from"'),
+                ast.SelectQuery(
+                    select=[ast.Alias(alias="from", expr=ast.Constant(value=1))],
+                ),
+            )
+
+        def test_quoted_reserved_keyword_alias_with_from_clause(self):
+            self.assertEqual(
+                self._select('select 1 "from" from events'),
+                ast.SelectQuery(
+                    select=[ast.Alias(alias="from", expr=ast.Constant(value=1))],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
+        def test_not_expression_is_not_parsed_as_implicit_alias(self):
+            self.assertEqual(
+                self._select("select not true"),
+                ast.SelectQuery(
+                    select=[ast.Not(expr=ast.Constant(value=True))],
+                ),
+            )
+
+        @parameterized.expand(
+            [["ascending"], ["cohort"], ["date"], ["descending"], ["final"], ["id"], ["return"], ["top"], ["totals"]]
+        )
+        def test_allowed_keyword_implicit_aliases(self, alias: str):
+            self.assertEqual(
+                self._select(f"select 1 {alias} from events"),
+                ast.SelectQuery(
+                    select=[ast.Alias(alias=alias, expr=ast.Constant(value=1))],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
+        @parameterized.expand([["name"], ["timestamp"]])
+        def test_disallowed_keyword_implicit_aliases(self, alias: str):
+            with self.assertRaises(SyntaxError):
+                self._select(f"select 1 {alias} from events")
+
+        def test_from_cannot_precede_implicit_alias(self):
+            with self.assertRaises(ExposedHogQLError):
+                self._select("select from foo")
+
+        def test_select_trailing_comma_before_from(self):
+            self.assertEqual(
+                self._select(
+                    """
+                    select
+                      session.id as session_id,
+                    from events
+                    where
+                      session_id = '019d4492-db9b-713e-b5ba-211e88348587'
+                      and timestamp >= '1970-01-01'
+                    """
+                ),
+                ast.SelectQuery(
+                    select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["session", "id"]))],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    where=ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["session_id"]),
+                                right=ast.Constant(value="019d4492-db9b-713e-b5ba-211e88348587"),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["timestamp"]),
+                                right=ast.Constant(value="1970-01-01"),
+                                op=ast.CompareOperationOp.GtEq,
+                            ),
+                        ]
+                    ),
+                ),
             )
 
         def test_expr_with_ignored_sql_comment(self):
@@ -811,6 +1053,21 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.SelectQuery(select=[ast.Constant(value=1)]),
             )
             self.assertEqual(
+                self._select("select total: 1 + 2"),
+                ast.SelectQuery(
+                    select=[
+                        ast.Alias(
+                            alias="total",
+                            expr=ast.ArithmeticOperation(
+                                op=ast.ArithmeticOperationOp.Add,
+                                left=ast.Constant(value=1),
+                                right=ast.Constant(value=2),
+                            ),
+                        )
+                    ]
+                ),
+            )
+            self.assertEqual(
                 self._select("select 1, 4, 'string'"),
                 ast.SelectQuery(
                     select=[
@@ -878,6 +1135,37 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_select_qualify(self):
+            self.assertEqual(
+                self._select("select 1 qualify true"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], qualify=ast.Constant(value=True)),
+            )
+            self.assertEqual(
+                self._select("select 1 qualify 1 == 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    qualify=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                    ),
+                ),
+            )
+
+        def test_select_qualify_with_having(self):
+            self.assertEqual(
+                self._select("select 1 having true qualify 1 == 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    having=ast.Constant(value=True),
+                    qualify=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                    ),
+                ),
+            )
+
         def test_select_complex_wheres(self):
             self.assertEqual(
                 self._select("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'"),
@@ -914,6 +1202,24 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events as e (event_alias, ts_alias)"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["events"]),
+                        alias="e",
+                        column_aliases=["event_alias", "ts_alias"],
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select * exclude (first_name) from customers"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(all_columns=True, exclude=["first_name"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),
                 ),
             )
             self.assertEqual(
@@ -967,6 +1273,64 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         ),
                         alias="sq",
                     ),
+                ),
+            )
+
+        def test_select_replace_columns(self):
+            self.assertEqual(
+                self._select("select (* replace (1 as event)) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(all_columns=True, replace={"event": ast.Constant(value=1)})],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
+        def test_ignore_nulls_expr(self):
+            self.assertEqual(
+                self._expr("event IGNORE NULLS"),
+                ast.Field(chain=["event"]),
+            )
+            self.assertEqual(
+                self._select("select event IGNORE NULLS from events"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["event"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
+        def test_select_columns_qualified(self):
+            self.assertEqual(
+                self._select("select COLUMNS(events.*) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(columns=[ast.Field(chain=["events", "*"])])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+            self.assertEqual(
+                self._select("select COLUMNS(events.* EXCLUDE (event)) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(columns=[ast.ColumnsExpr(all_columns=True, exclude=["event"])])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+            self.assertEqual(
+                self._select("select COLUMNS(events.* REPLACE (1 as event)) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(all_columns=True, replace={"event": ast.Constant(value=1)})],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+            self.assertEqual(
+                self._select("select COLUMNS(events.* EXCLUDE (event) REPLACE (1 as event)) from events"),
+                ast.SelectQuery(
+                    select=[
+                        ast.ColumnsExpr(
+                            all_columns=True,
+                            exclude=["event"],
+                            replace={"event": ast.Constant(value=1)},
+                        )
+                    ],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 ),
             )
 
@@ -1047,6 +1411,39 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                             join_type="JOIN",
                             table=ast.Field(chain=["events2"]),
                             constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="USING"),
+                        ),
+                    ),
+                ),
+            )
+
+        def test_select_from_table_function_join(self):
+            # Regression: TableFunctionExpr produced a JoinExpr without next_join,
+            # causing chainJoinExprs to throw "JoinExpr is missing 'next_join' field"
+            self.assertEqual(
+                self._select("select 1 from numbers(10) JOIN events ON 1"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["numbers"]),
+                        table_args=[ast.Constant(value=10)],
+                        next_join=ast.JoinExpr(
+                            join_type="JOIN",
+                            table=ast.Field(chain=["events"]),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                        ),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from numbers(10) CROSS JOIN events"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["numbers"]),
+                        table_args=[ast.Constant(value=10)],
+                        next_join=ast.JoinExpr(
+                            join_type="CROSS JOIN",
+                            table=ast.Field(chain=["events"]),
                         ),
                     ),
                 ),
@@ -1254,6 +1651,138 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_select_group_by_all(self):
+            self.assertEqual(
+                self._select("select distinct_id, event, count(*) from events GROUP BY ALL"),
+                ast.SelectQuery(
+                    select=[
+                        ast.Field(chain=["distinct_id"]),
+                        ast.Field(chain=["event"]),
+                        ast.Call(name="count", args=[ast.Field(chain=["*"])]),
+                    ],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    group_by=None,
+                    group_by_mode="all",
+                ),
+            )
+
+        @parameterized.expand(
+            [
+                (
+                    "count_cast_with_as",
+                    "select count(*)::int as num_events from active_events",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="num_events",
+                                expr=ast.TypeCast(
+                                    expr=ast.Call(name="count", args=[ast.Field(chain=["*"])]),
+                                    type_name="int",
+                                ),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["active_events"])),
+                    ),
+                ),
+                (
+                    "paren_count_cast_without_as",
+                    "select (count(*))::int num_events from active_events",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="num_events",
+                                expr=ast.TypeCast(
+                                    expr=ast.Call(name="count", args=[ast.Field(chain=["*"])]),
+                                    type_name="int",
+                                ),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["active_events"])),
+                    ),
+                ),
+                (
+                    "qualified_field_cast",
+                    "select e.event::text as event_name from events e",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="event_name",
+                                expr=ast.TypeCast(expr=ast.Field(chain=["e", "event"]), type_name="text"),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+                    ),
+                ),
+                (
+                    "compound_type_cast",
+                    "select now()::timestamp with time zone as ts from events",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="ts",
+                                expr=ast.TypeCast(
+                                    expr=ast.Call(name="now", args=[]),
+                                    type_name="timestamp with time zone",
+                                ),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    ),
+                ),
+                (
+                    "interval_cast",
+                    "select 1::interval as i from events",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="i",
+                                expr=ast.TypeCast(expr=ast.Constant(value=1), type_name="interval"),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    ),
+                ),
+                (
+                    "int_cast_with_as",
+                    "select 1::int as value",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="value",
+                                expr=ast.TypeCast(expr=ast.Constant(value=1), type_name="int"),
+                            )
+                        ],
+                    ),
+                ),
+                (
+                    "literal_cast",
+                    "select '123'::int as x from events",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="x",
+                                expr=ast.TypeCast(expr=ast.Constant(value="123"), type_name="int"),
+                            )
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    ),
+                ),
+            ]
+        )
+        def test_type_cast_alias_parsing(self, _, query, expected):
+            self.assertEqual(self._select(query), expected)
+
+        @parameterized.expand(
+            [
+                ("with_alone", "select 1::with"),
+                ("zone_alone", "select 1::zone"),
+                ("local_alone", "select 1::local"),
+            ]
+        )
+        def test_type_cast_rejects_partial_with_time_zone_keywords(self, _, query):
+            with self.assertRaises(SyntaxError):
+                self._select(query)
+
         def test_order_by(self):
             self.assertEqual(
                 parse_order_expr("1 ASC"),
@@ -1293,6 +1822,141 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_order_by_with_fill(self):
+            self.assertEqual(
+                clear_locations(parse_order_expr("timestamp WITH FILL", backend=backend)),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    order="ASC",
+                    with_fill=ast.WithFillExpr(),
+                ),
+            )
+            self.assertEqual(
+                clear_locations(parse_order_expr("timestamp WITH FILL FROM 1 TO 10 STEP 2", backend=backend)),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    order="ASC",
+                    with_fill=ast.WithFillExpr(
+                        from_value=ast.Constant(value=1),
+                        to_value=ast.Constant(value=10),
+                        step_value=ast.Constant(value=2),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                clear_locations(parse_order_expr("timestamp DESC WITH FILL FROM 0 TO 100", backend=backend)),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    order="DESC",
+                    with_fill=ast.WithFillExpr(
+                        from_value=ast.Constant(value=0),
+                        to_value=ast.Constant(value=100),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                clear_locations(parse_order_expr("timestamp WITH FILL STEP 1", backend=backend)),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    order="ASC",
+                    with_fill=ast.WithFillExpr(
+                        step_value=ast.Constant(value=1),
+                    ),
+                ),
+            )
+
+        def test_select_order_by_with_fill(self):
+            self.assertEqual(
+                self._select("select 1 from events ORDER BY timestamp WITH FILL FROM 0 TO 10 STEP 1"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    order_by=[
+                        ast.OrderExpr(
+                            expr=ast.Field(chain=["timestamp"]),
+                            order="ASC",
+                            with_fill=ast.WithFillExpr(
+                                from_value=ast.Constant(value=0),
+                                to_value=ast.Constant(value=10),
+                                step_value=ast.Constant(value=1),
+                            ),
+                        ),
+                    ],
+                ),
+            )
+
+        def test_select_order_by_with_fill_and_interpolate(self):
+            self.assertEqual(
+                self._select("select x, y from events ORDER BY x WITH FILL FROM 0 TO 10 STEP 1 INTERPOLATE (y AS 0)"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"]), ast.Field(chain=["y"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    order_by=[
+                        ast.OrderExpr(
+                            expr=ast.Field(chain=["x"]),
+                            order="ASC",
+                            with_fill=ast.WithFillExpr(
+                                from_value=ast.Constant(value=0),
+                                to_value=ast.Constant(value=10),
+                                step_value=ast.Constant(value=1),
+                            ),
+                        ),
+                    ],
+                    interpolate=[
+                        ast.InterpolateExpr(
+                            expr=ast.Field(chain=["y"]),
+                            value=ast.Constant(value=0),
+                        ),
+                    ],
+                ),
+            )
+
+        def test_select_order_by_with_fill_and_naked_interpolate(self):
+            self.assertEqual(
+                self._select("select x, y from events ORDER BY x WITH FILL FROM 0 TO 10 STEP 1 INTERPOLATE"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"]), ast.Field(chain=["y"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    order_by=[
+                        ast.OrderExpr(
+                            expr=ast.Field(chain=["x"]),
+                            order="ASC",
+                            with_fill=ast.WithFillExpr(
+                                from_value=ast.Constant(value=0),
+                                to_value=ast.Constant(value=10),
+                                step_value=ast.Constant(value=1),
+                            ),
+                        ),
+                    ],
+                    interpolate=[],
+                ),
+            )
+
+        def test_select_order_by_with_fill_and_interpolate_no_as(self):
+            self.assertEqual(
+                self._select("select x, y from events ORDER BY x WITH FILL FROM 0 TO 10 STEP 1 INTERPOLATE (y)"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"]), ast.Field(chain=["y"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    order_by=[
+                        ast.OrderExpr(
+                            expr=ast.Field(chain=["x"]),
+                            order="ASC",
+                            with_fill=ast.WithFillExpr(
+                                from_value=ast.Constant(value=0),
+                                to_value=ast.Constant(value=10),
+                                step_value=ast.Constant(value=1),
+                            ),
+                        ),
+                    ],
+                    interpolate=[
+                        ast.InterpolateExpr(
+                            expr=ast.Field(chain=["y"]),
+                        ),
+                    ],
+                ),
+            )
+
         def test_select_order_by(self):
             self.assertEqual(
                 self._select("select 1 from events ORDER BY 1 ASC, event, timestamp DESC"),
@@ -1317,12 +1981,66 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
+                self._select("select 1 from events LIMIT 1 %"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=1),
+                    limit_percent=True,
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT (60 + 7) %"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=ast.Constant(value=60),
+                        right=ast.Constant(value=7),
+                    ),
+                    limit_percent=True,
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT (select avg(team_id) from events) %"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.SelectQuery(
+                        select=[ast.Call(name="avg", args=[ast.Field(chain=["team_id"])])],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    ),
+                    limit_percent=True,
+                ),
+            )
+            self.assertEqual(
                 self._select("select 1 from events LIMIT 1 OFFSET 3"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     limit=ast.Constant(value=1),
                     offset=ast.Constant(value=3),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 1 % OFFSET 3"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=1),
+                    limit_percent=True,
+                    offset=ast.Constant(value=3),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 42% OFFSET 20"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=42),
+                    limit_percent=True,
+                    offset=ast.Constant(value=20),
                 ),
             )
             self.assertEqual(
@@ -1461,6 +2179,82 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         for query in (
                             ast.SelectQuery(select=[ast.Constant(value=2)]),
                             ast.SelectQuery(select=[ast.Constant(value=3)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_select_intersect_all(self):
+            self.assertEqual(
+                self._select("select 1 intersect all select 2"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            set_operator="INTERSECT ALL",
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_select_except_all(self):
+            self.assertEqual(
+                self._select("select 1 except all select 2"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            set_operator="EXCEPT ALL",
+                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_select_set_order_by(self):
+            self.assertEqual(
+                self._select("select 1 union all select 2 order by 1"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            set_operator="UNION ALL",
+                            select_query=ast.SelectQuery(
+                                select=[ast.Constant(value=2)],
+                                order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
+                            ),
+                        )
+                    ],
+                ),
+            )
+
+        @parameterized.expand(
+            [
+                ("union by name", "UNION DISTINCT BY NAME"),
+                ("union all by name", "UNION ALL BY NAME"),
+                ("union distinct by name", "UNION DISTINCT BY NAME"),
+            ]
+        )
+        def test_select_union_by_name(self, sql_operator, expected_operator):
+            self.assertEqual(
+                self._select(f"select 1 as a, 2 as b {sql_operator} select 3 as b, 4 as a"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(
+                        select=[
+                            ast.Alias(alias="a", expr=ast.Constant(value=1)),
+                            ast.Alias(alias="b", expr=ast.Constant(value=2)),
+                        ]
+                    ),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            set_operator=expected_operator,
+                            select_query=ast.SelectQuery(
+                                select=[
+                                    ast.Alias(alias="b", expr=ast.Constant(value=3)),
+                                    ast.Alias(alias="a", expr=ast.Constant(value=4)),
+                                ]
+                            ),
                         )
                     ],
                 ),
@@ -1630,6 +2424,19 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_ctes_preserve_declaration_order(self):
+            node = cast(
+                ast.SelectQuery,
+                self._select(
+                    "with zz_first as (select 1 from events), "
+                    "mm_middle as (select * from zz_first), "
+                    "aa_last as (select * from mm_middle) "
+                    "select * from aa_last"
+                ),
+            )
+            assert isinstance(node.ctes, dict)
+            self.assertEqual(list(node.ctes.keys()), ["zz_first", "mm_middle", "aa_last"])
+
         def test_ctes_subquery_recursion(self):
             query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
             self.assertEqual(
@@ -1796,6 +2603,29 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._select(query)
             self.assertEqual(e.exception.start, 7)
             self.assertEqual(e.exception.end, 16)
+
+        def test_unquoted_reserved_keyword_alias_is_invalid(self):
+            with self.assertRaises(SyntaxError):
+                self._select("select 1 from")
+
+        def test_quoted_reserved_keyword_identifier(self):
+            self.assertEqual(
+                self._select('select "from" from events'),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["from"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
+        @parameterized.expand([["id"], ["name"], ["timestamp"], ["time"], ["date"], ["key"]])
+        def test_non_reserved_keywords_can_be_used_as_identifiers(self, identifier: str):
+            self.assertEqual(
+                self._select(f"select {identifier} from events"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=[identifier])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
 
         def test_malformed_sql(self):
             query = "SELEC 2"
@@ -2105,10 +2935,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         # 4. <strong><a href="…">Hello <em>{event}</em></a>{'a'}</strong>
         def test_visit_hogqlx_mixed_nested_attributes(self) -> None:
             node = self._select(
-                "select <strong>"
-                "<a href='https://google.com'>Hello <em>{event}</em></a>"
-                "{'a'}"
-                "</strong> from events"
+                "select <strong><a href='https://google.com'>Hello <em>{event}</em></a>{'a'}</strong> from events"
             )
             assert isinstance(node, ast.SelectQuery)
             outer = cast(ast.HogQLXTag, node.select[0])
@@ -2939,5 +3766,445 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
             self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
+
+        def test_postgres_style_cast(self):
+            self.assertEqual(
+                self._expr("x::int"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"),
+            )
+            self.assertEqual(self._expr("'123'::int"), ast.TypeCast(expr=ast.Constant(value="123"), type_name="int"))
+            self.assertEqual(self._expr("x::integer"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="integer"))
+            self.assertEqual(self._expr("x::text"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="text"))
+            self.assertEqual(self._expr("x::float"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="float"))
+            self.assertEqual(self._expr("x::boolean"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="boolean"))
+            self.assertEqual(self._expr("x::INT"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"))
+            self.assertEqual(self._expr("x::Text"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="text"))
+            self.assertEqual(
+                self._expr("a.b::int"),
+                ast.TypeCast(expr=ast.Field(chain=["a", "b"]), type_name="int"),
+            )
+            self.assertEqual(
+                self._expr("x::int + 1"),
+                ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Add,
+                    left=ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"),
+                    right=ast.Constant(value=1),
+                ),
+            )
+
+        def test_cast_with_nested_and_parametric_types(self):
+            self.assertEqual(
+                self._expr("CAST(x AS STRUCT(a INTEGER, b VARCHAR))"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="struct(a integer, b varchar)"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS DECIMAL(10, 2))"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="decimal(10, 2)"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS INTEGER[])"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="integer[]"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS VARCHAR[3])"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="varchar[3]"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS ARRAY(INTEGER))"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="array(integer)"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS TUPLE(INTEGER, VARCHAR))"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="tuple(integer, varchar)"),
+            )
+
+        def test_with_clause_column_name_list(self):
+            node = self._select("WITH cte (a, b) AS (SELECT 1, 2) SELECT * FROM cte")
+            assert isinstance(node, ast.SelectQuery)
+            assert node.ctes is not None and node.ctes.get("cte") is not None
+            cte = node.ctes["cte"]
+            assert cte.name == "cte"
+            assert cte.columns == ["a", "b"]
+
+        def test_with_recursive(self):
+            parsed = self._select("WITH RECURSIVE events AS (SELECT * FROM posthog_event) SELECT * FROM events;")
+
+            expected = SelectQuery(
+                ctes={
+                    "events": ast.CTE(
+                        name="events",
+                        expr=SelectQuery(
+                            select=[Field(chain=["*"], from_asterisk=False)],
+                            select_from=JoinExpr(
+                                table=Field(chain=["posthog_event"], from_asterisk=False),
+                            ),
+                        ),
+                        cte_type="subquery",
+                        recursive=True,
+                    )
+                },
+                select=[Field(chain=["*"], from_asterisk=False)],
+                select_from=JoinExpr(table=Field(chain=["events"])),
+            )
+
+            self.assertEqual(parsed, expected)
+
+        def test_cte_materialization_hint_is_none_when_omitted(self):
+            parsed = self._select("WITH x AS (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.materialized is None
+
+        def test_cte_materialization_hint_materialized(self):
+            parsed = self._select("WITH x AS MATERIALIZED (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.materialized is True
+
+        def test_cte_materialization_hint_not_materialized(self):
+            parsed = self._select("WITH x AS NOT MATERIALIZED (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.materialized is False
+
+        def test_with_clause_before_parens_select_set(self):
+            self.assertEqual(
+                self._select("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(
+                        select=[ast.Field(chain=["a"])],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["cte"])),
+                        ctes={
+                            "cte": ast.CTE(
+                                name="cte",
+                                expr=ast.SelectQuery(
+                                    select=[ast.Alias(alias="a", expr=ast.Constant(value=1))],
+                                ),
+                                cte_type="subquery",
+                            )
+                        },
+                    ),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            set_operator="UNION ALL",
+                            select_query=ast.SelectQuery(
+                                select=[ast.Field(chain=["a"])],
+                                select_from=ast.JoinExpr(table=ast.Field(chain=["cte"])),
+                            ),
+                        )
+                    ],
+                ),
+            )
+
+        def test_cte_using_key_is_none_when_omitted(self):
+            parsed = self._select("WITH RECURSIVE x(a, b) AS (SELECT 1, 2) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key is None
+
+        def test_cte_using_key_single_column(self):
+            parsed = self._select("WITH RECURSIVE x(a, b) USING KEY (a) AS (SELECT 1, 2) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key == ["a"]
+            assert cte.columns == ["a", "b"]
+
+        def test_cte_using_key_multiple_columns(self):
+            parsed = self._select("WITH RECURSIVE x(a, b, c) USING KEY (a, b) AS (SELECT 1, 2, 3) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key == ["a", "b"]
+            assert cte.columns == ["a", "b", "c"]
+
+        def test_cte_using_key_without_column_name_list(self):
+            parsed = self._select("WITH RECURSIVE x USING KEY (a) AS (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.using_key == ["a"]
+            assert cte.columns is None
+
+        def test_select_from_values(self):
+            self.assertEqual(
+                self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.ValuesQuery(
+                            rows=[
+                                [ast.Constant(value=1), ast.Constant(value="a")],
+                                [ast.Constant(value=2), ast.Constant(value="b")],
+                            ]
+                        ),
+                        alias="v",
+                        column_aliases=["id", "name"],
+                    ),
+                ),
+            )
+
+        def test_select_from_values_no_column_aliases(self):
+            self.assertEqual(
+                self._select("SELECT * FROM (VALUES (1), (2)) AS v"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.ValuesQuery(
+                            rows=[
+                                [ast.Constant(value=1)],
+                                [ast.Constant(value=2)],
+                            ]
+                        ),
+                        alias="v",
+                    ),
+                ),
+            )
+
+        def test_select_from_unpivot(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["field_name"]), ast.Field(chain=["field_value"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["event"])],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_unpivot_tuple(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT * FROM events UNPIVOT ((value_a, value_b) FOR (name_a, name_b) IN ((event, uuid)))"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Tuple(
+                                        exprs=[ast.Field(chain=["value_a"]), ast.Field(chain=["value_b"])]
+                                    ),
+                                    name_columns=ast.Tuple(
+                                        exprs=[ast.Field(chain=["name_a"]), ast.Field(chain=["name_b"])]
+                                    ),
+                                    unpivot_values=[
+                                        ast.Tuple(exprs=[ast.Field(chain=["event"]), ast.Field(chain=["uuid"])])
+                                    ],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_unpivot_multiple_in(self):
+            self.assertEqual(
+                self._select("SELECT * FROM events UNPIVOT (field_value FOR field_name IN (event, uuid))"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["event"]), ast.Field(chain=["uuid"])],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_unpivot_with_table_alias(self):
+            self.assertEqual(
+                self._select("SELECT * FROM events e UNPIVOT (field_value FOR field_name IN (event))"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["event"])],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_pivot(self):
+            self.assertEqual(
+                self._select("SELECT * FROM events PIVOT (count() FOR event IN ('a', 'b'))"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.PivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            aggregates=[ast.Call(name="count", args=[])],
+                            columns=[
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["event"]),
+                                    values=[ast.Constant(value="a"), ast.Constant(value="b")],
+                                )
+                            ],
+                            group_by=None,
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_pivot_multiple_columns(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT * FROM events PIVOT (count() FOR event IN ('a') person_id IN (1, 2) GROUP BY distinct_id)"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.PivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            aggregates=[ast.Call(name="count", args=[])],
+                            columns=[
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["event"]),
+                                    values=[ast.Constant(value="a")],
+                                ),
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["person_id"]),
+                                    values=[ast.Constant(value=1), ast.Constant(value=2)],
+                                ),
+                            ],
+                            group_by=[ast.Field(chain=["distinct_id"])],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_join_pivot(self):
+            self.assertEqual(
+                self._select("SELECT 1 FROM events JOIN events AS e2 ON 1 PIVOT (count() FOR events.event IN ('a'))"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(
+                        table=ast.PivotExpr(
+                            table=ast.JoinExpr(
+                                table=ast.Field(chain=["events"]),
+                                next_join=ast.JoinExpr(
+                                    join_type="JOIN",
+                                    table=ast.Field(chain=["events"]),
+                                    alias="e2",
+                                    constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                                ),
+                            ),
+                            aggregates=[ast.Call(name="count", args=[])],
+                            columns=[
+                                ast.PivotColumn(
+                                    column=ast.Field(chain=["events", "event"]),
+                                    values=[ast.Constant(value="a")],
+                                )
+                            ],
+                            group_by=None,
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_unpivot_include_nulls(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT field_name, field_value FROM events UNPIVOT INCLUDE NULLS (field_value FOR field_name IN (event))"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["field_name"]), ast.Field(chain=["field_value"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["event"])],
+                                )
+                            ],
+                            include_nulls=True,
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_join_unpivot(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 "
+                    "UNPIVOT (field_value FOR field_name IN (events.event))"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["field_name"]), ast.Field(chain=["field_value"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.JoinExpr(
+                                table=ast.Field(chain=["events"]),
+                                next_join=ast.JoinExpr(
+                                    join_type="JOIN",
+                                    table=ast.Field(chain=["events"]),
+                                    alias="e2",
+                                    constraint=ast.JoinConstraint(expr=ast.Constant(value=1), constraint_type="ON"),
+                                ),
+                            ),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["events", "event"])],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_positional_join(self):
+            self.assertEqual(
+                self._select("SELECT * FROM events POSITIONAL JOIN persons"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["events"]),
+                        next_join=ast.JoinExpr(table=ast.Field(chain=["persons"]), join_type="POSITIONAL JOIN"),
+                    ),
+                ),
+            )
+
+        def test_select_positional_refs(self):
+            self.assertEqual(
+                self._select("SELECT #1, #2 FROM events"),
+                ast.SelectQuery(
+                    select=[ast.PositionalRef(index=1), ast.PositionalRef(index=2)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
 
     return TestParser

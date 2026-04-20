@@ -1,9 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
-import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
@@ -19,12 +19,20 @@ import {
     IntegrationFilter,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsDrillDownLevel,
+    NativeMarketingSource,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     SourceMap,
+    VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSchemaStatus, ExternalDataSource, IntervalType } from '~/types'
 import { ChartDisplayType } from '~/types'
+
+import { mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 import { defaultConversionGoalFilter } from '../components/settings/constants'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
@@ -33,11 +41,21 @@ import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
-    NativeMarketingSource,
-    VALID_NATIVE_MARKETING_SOURCES,
+    findSchemaByFieldName,
     generateUniqueName,
     validColumnsForTiles,
 } from './utils'
+
+export enum MarketingAnalyticsTab {
+    DASHBOARD = 'dashboard',
+    INTEGRATION_HEALTH = 'integration-health',
+}
+
+const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([
+    MarketingAnalyticsDrillDownLevel.Medium,
+    MarketingAnalyticsDrillDownLevel.Content,
+    MarketingAnalyticsDrillDownLevel.Term,
+])
 
 export enum MarketingSourceStatus {
     Warning = 'Warning',
@@ -58,12 +76,22 @@ function getSourceStatus(
             NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[
                 nativeSource.source_type as keyof typeof NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS
             ] || []
-        const schemaStatuses = requiredFields
-            .map((fieldName) => {
-                const schema = nativeSource.schemas?.find((schema) => schema.name === fieldName)
-                return schema?.status
-            })
-            .filter(Boolean)
+        const schemas = requiredFields.map((fieldName) =>
+            findSchemaByFieldName(nativeSource.schemas, fieldName, nativeSource.source_type)
+        )
+
+        // Check for tables not selected for sync (should_sync=false) or missing entirely
+        const disabledTables = schemas.filter((s) => s && !s.should_sync)
+        const missingTables = schemas.filter((s) => !s)
+        if (disabledTables.length > 0 || missingTables.length > 0) {
+            return {
+                status: MarketingSourceStatus.Warning,
+                message:
+                    'Some required tables are not selected for import. Enable them in the data warehouse source settings.',
+            }
+        }
+
+        const schemaStatuses = schemas.map((s) => s?.status).filter(Boolean)
 
         if (schemaStatuses.includes(ExternalDataSchemaStatus.Failed)) {
             return { status: ExternalDataSchemaStatus.Failed, message: 'One or more required tables failed to sync' }
@@ -170,36 +198,78 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
             ['sources_map', 'conversion_goals'],
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
-            dataWarehouseSettingsLogic,
-            ['loadSources', 'loadSourcesSuccess'],
+            sourceManagementLogic,
+            ['loadSources', 'loadSourcesSuccess', 'loadDatabase'],
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
+            marketingAnalyticsSettingsLogic,
+            ['addOrUpdateConversionGoal'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     })),
     actions({
+        setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
+
+        // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
         setConversionGoalInput: (goal: ConversionGoalFilter) => ({ goal }),
-        resetConversionGoalInput: () => true,
-        saveDraftConversionGoal: () => true,
+
+        // User intent actions (used by components)
+        applyConversionGoal: true,
+        saveConversionGoal: true,
+        clearConversionGoal: true,
+        loadConversionGoal: (goal: ConversionGoalFilter) => ({ goal }),
+
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setInterval: (interval: IntervalType) => ({ interval }),
+        setDateInterval: (interval: IntervalType) => ({ interval }),
         setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
             dateFrom,
             dateTo,
             interval,
         }),
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
+        // Internal action for URL sync - updates state without triggering actionToUrl
+        syncFromUrl: (params: {
+            dateFrom?: string | null
+            dateTo?: string | null
+            interval?: IntervalType
+            compare?: boolean
+            compare_to?: string
+            integrationSourceIds?: string[]
+            chartDisplayType?: ChartDisplayType
+            tileColumnSelection?: string
+            drillDownLevel?: MarketingAnalyticsDrillDownLevel
+        }) => ({ params }),
         showColumnConfigModal: true,
         hideColumnConfigModal: true,
+        showConversionGoalModal: true,
+        hideConversionGoalModal: true,
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
+        setDrillDownLevel: (level: MarketingAnalyticsDrillDownLevel) => ({ level }),
+        setInitialized: true,
     }),
     reducers({
+        activeTab: [
+            MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        initialized: [
+            false,
+            {
+                setInitialized: () => true,
+            },
+        ],
         draftConversionGoal: [
             null as ConversionGoalFilter | null,
             {
@@ -207,22 +277,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         conversionGoalInput: [
-            (() => {
-                return {
-                    ...defaultConversionGoalFilter,
-                    conversion_goal_id: uuid(),
-                    conversion_goal_name: '',
-                }
-            })() as ConversionGoalFilter,
+            {
+                ...defaultConversionGoalFilter,
+                conversion_goal_id: uuid(),
+                conversion_goal_name: '',
+            } as ConversionGoalFilter,
             {
                 setConversionGoalInput: (_, { goal }) => goal,
-                resetConversionGoalInput: () => {
-                    return {
-                        ...defaultConversionGoalFilter,
-                        conversion_goal_id: uuid(),
-                        conversion_goal_name: '',
-                    }
-                },
             },
         ],
         compareFilter: [
@@ -230,6 +291,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             persistConfig,
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
+                syncFromUrl: (state, { params }) => {
+                    if (params.compare === undefined && params.compare_to === undefined) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        ...(params.compare !== undefined ? { compare: params.compare } : {}),
+                        ...(params.compare_to !== undefined ? { compare_to: params.compare_to } : {}),
+                    }
+                },
             },
         ],
         integrationFilter: [
@@ -237,6 +308,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             persistConfig,
             {
                 setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
+                syncFromUrl: (state, { params }) =>
+                    params.integrationSourceIds ? { integrationSourceIds: params.integrationSourceIds } : state,
             },
         ],
         dateFilter: [
@@ -260,7 +333,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         interval: getDefaultInterval(dateFrom, dateTo),
                     }
                 },
-                setInterval: (state, { interval }) => {
+                setDateInterval: (state, { interval }) => {
                     const { dateFrom, dateTo } = updateDatesWithInterval(interval, state.dateFrom, state.dateTo)
                     return {
                         dateFrom,
@@ -285,6 +358,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
                     }
                 },
+                syncFromUrl: (state, { params }) => {
+                    if (params.dateFrom === undefined && params.dateTo === undefined && params.interval === undefined) {
+                        return state
+                    }
+                    const dateFrom = params.dateFrom ?? state.dateFrom
+                    const dateTo = params.dateTo ?? state.dateTo
+                    const interval = params.interval ?? state.interval
+                    return { dateFrom, dateTo, interval }
+                },
             },
         ],
         columnConfigModalVisible: [
@@ -294,11 +376,20 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 hideColumnConfigModal: () => false,
             },
         ],
+        conversionGoalModalVisible: [
+            false,
+            {
+                showConversionGoalModal: () => true,
+                hideConversionGoalModal: () => false,
+            },
+        ],
         chartDisplayType: [
             ChartDisplayType.ActionsAreaGraph as ChartDisplayType,
             persistConfig,
             {
                 setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
+                syncFromUrl: (state, { params }) =>
+                    params.chartDisplayType !== undefined ? params.chartDisplayType : state,
             },
         ],
         tileColumnSelection: [
@@ -306,10 +397,38 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             persistConfig,
             {
                 setTileColumnSelection: (_, { column }) => column,
+                syncFromUrl: (state, { params }) =>
+                    params.tileColumnSelection !== undefined
+                        ? (params.tileColumnSelection as validColumnsForTiles)
+                        : state,
+            },
+        ],
+        _drillDownLevel: [
+            MarketingAnalyticsDrillDownLevel.Campaign as MarketingAnalyticsDrillDownLevel,
+            persistConfig,
+            {
+                setDrillDownLevel: (_, { level }) => level,
+                syncFromUrl: (state, { params }) =>
+                    params.drillDownLevel !== undefined ? params.drillDownLevel : state,
             },
         ],
     }),
     selectors({
+        drillDownLevel: [
+            (s) => [s._drillDownLevel, s.featureFlags],
+            (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
+                if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
+                    return MarketingAnalyticsDrillDownLevel.Campaign
+                }
+                if (
+                    EXTENDED_DRILL_DOWN_LEVELS.has(level) &&
+                    !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
+                ) {
+                    return MarketingAnalyticsDrillDownLevel.Campaign
+                }
+                return level
+            },
+        ],
         validSourcesMap: [
             (s) => [s.sources_map],
             (sources_map) => {
@@ -317,7 +436,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     return null
                 }
 
-                const validSourcesMap = sources_map
+                const validSourcesMap = { ...sources_map }
                 const requiredColumns = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
                     (column_name: MarketingAnalyticsColumnsSchemaNames) =>
                         MARKETING_ANALYTICS_SCHEMA[column_name].required
@@ -418,7 +537,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource] || []
 
                     const syncingSchemas = requiredFields.filter((fieldName) => {
-                        const schema = source.schemas?.find((s) => s.name === fieldName)
+                        const schema = findSchemaByFieldName(source.schemas, fieldName, source.source_type)
                         return schema?.should_sync ?? false
                     })
 
@@ -463,7 +582,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         name: nativeSource.source.source_type,
                         type: 'native',
                         source_type: nativeSource.source.source_type,
-                        prefix: nativeSource.source.prefix,
+                        prefix: nativeSource.source.prefix ?? undefined,
                     })
                 })
 
@@ -482,8 +601,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
         allAvailableSourcesWithStatus: [
             (s) => [s.allAvailableSources, s.nativeSources, s.validExternalTables],
-            (allAvailableSources, nativeSources, validExternalTables) => {
-                return allAvailableSources.map((source) => {
+            (allAvailableSources, nativeSources: ExternalDataSource[], validExternalTables) => {
+                const sourcesWithStatus = allAvailableSources.map((source) => {
                     const status = getSourceStatus(source, nativeSources, validExternalTables)
                     return {
                         ...source,
@@ -491,7 +610,51 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         statusMessage: status.message,
                     }
                 })
+
+                // Also include native sources not in allAvailableSources (those with
+                // disabled/missing tables) so the banner can surface warnings for them
+                const includedIds = new Set(allAvailableSources.map((s) => s.id))
+                nativeSources.forEach((source) => {
+                    if (!includedIds.has(source.id)) {
+                        const status = getSourceStatus(
+                            {
+                                id: source.id,
+                                name: source.source_type,
+                                type: 'native',
+                                prefix: source.prefix ?? undefined,
+                            },
+                            nativeSources,
+                            validExternalTables
+                        )
+                        sourcesWithStatus.push({
+                            id: source.id,
+                            name: source.source_type,
+                            type: 'native',
+                            source_type: source.source_type,
+                            prefix: source.prefix ?? undefined,
+                            status: status.status,
+                            statusMessage: status.message,
+                        })
+                    }
+                })
+
+                return sourcesWithStatus
             },
+        ],
+        hasNoConfiguredSources: [
+            (s) => [s.validExternalTables, s.validNativeSources, s.loading, s.dataWarehouseTables],
+            (validExternalTables, validNativeSources, loading, dataWarehouseTables): boolean => {
+                // Don't show error banner while data is loading or if tables haven't been fetched yet
+                if (loading || dataWarehouseTables === null) {
+                    return false
+                }
+                return validExternalTables.length === 0 && validNativeSources.length === 0
+            },
+        ],
+        hasSources: [
+            (s) => [s.validExternalTables, s.validNativeSources],
+            (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]): boolean =>
+                validExternalTables.length > 0 || validNativeSources.length > 0,
         ],
         allExternalTablesWithStatus: [
             (s) => [s.externalTables, s.nativeSources],
@@ -525,7 +688,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 // Get all native sources with status and convert to ExternalTable format
                 const nativeSourcesAsExternalTables = nativeSources.map((source) => {
                     const status = getSourceStatus(
-                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix },
+                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix ?? undefined },
                         nativeSources,
                         []
                     )
@@ -607,49 +770,222 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             }),
         ],
     }),
-    actionToUrl(({ values }) => ({
-        setChartDisplayType: () => {
-            const searchParams = new URLSearchParams(window.location.search)
-            searchParams.set('chart_display_type', values.chartDisplayType)
+    actionToUrl(({ values }) => {
+        const buildUrl = (): [string, string] => {
+            const searchParams = new URLSearchParams()
+
+            // Tab
+            if (values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD) {
+                searchParams.set('tab', values.activeTab)
+            }
+
+            // Date filters
+            if (values.dateFilter.dateFrom) {
+                searchParams.set('date_from', values.dateFilter.dateFrom)
+            }
+            if (values.dateFilter.dateTo) {
+                searchParams.set('date_to', values.dateFilter.dateTo)
+            }
+            if (values.dateFilter.interval) {
+                searchParams.set('interval', values.dateFilter.interval)
+            }
+
+            // Compare filter
+            if (values.compareFilter?.compare !== undefined) {
+                searchParams.set('compare', values.compareFilter.compare ? 'true' : 'false')
+            }
+            if (values.compareFilter?.compare_to) {
+                searchParams.set('compare_to', values.compareFilter.compare_to)
+            }
+
+            // Integration filter
+            if (values.integrationFilter?.integrationSourceIds?.length) {
+                searchParams.set('integration_sources', values.integrationFilter.integrationSourceIds.join(','))
+            }
+
+            // Chart display type
+            if (values.chartDisplayType) {
+                searchParams.set('chart_display_type', values.chartDisplayType)
+            }
+
+            // Tile column selection
+            if (values.tileColumnSelection) {
+                searchParams.set('tile_column', values.tileColumnSelection)
+            }
+
+            // Drill-down level
+            if (values.drillDownLevel && values.drillDownLevel !== MarketingAnalyticsDrillDownLevel.Campaign) {
+                searchParams.set('drill_down_level', values.drillDownLevel)
+            }
+
             return [window.location.pathname, searchParams.toString()]
-        },
-    })),
-    urlToAction(({ actions }) => ({
-        '*': (_, searchParams) => {
-            const chartDisplayType = searchParams.chart_display_type as ChartDisplayType | undefined
-            if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {
-                actions.setChartDisplayType(chartDisplayType)
-            }
-        },
-    })),
-    listeners(({ actions, values }) => ({
-        saveDraftConversionGoal: () => {
-            // Create a new local conversion goal with new id
-            actions.resetConversionGoalInput()
-        },
-        resetConversionGoalInput: () => {
-            // Clear the draft goal when resetting local goal
-            actions.setDraftConversionGoal(null)
-        },
-        loadSourcesSuccess: () => {
-            // Clean up integrationFilter if it contains IDs of sources that no longer exist
-            const currentFilter = values.integrationFilter
-            if (currentFilter.integrationSourceIds && currentFilter.integrationSourceIds.length > 0) {
-                const availableSourceIds = values.allAvailableSources.map((s) => s.id)
-                const validFilterIds = currentFilter.integrationSourceIds.filter((id) =>
-                    availableSourceIds.includes(id)
-                )
+        }
 
-                if (validFilterIds.length !== currentFilter.integrationSourceIds.length) {
-                    actions.setIntegrationFilter({ integrationSourceIds: validFilterIds })
+        return {
+            setActiveTab: buildUrl,
+            setDates: buildUrl,
+            setDateInterval: buildUrl,
+            setDatesAndInterval: buildUrl,
+            setCompareFilter: buildUrl,
+            setIntegrationFilter: buildUrl,
+            setChartDisplayType: buildUrl,
+            setTileColumnSelection: buildUrl,
+            setDrillDownLevel: buildUrl,
+            // Note: syncFromUrl is NOT mapped here - it's only for receiving URL changes
+        }
+    }),
+    // Note: We don't use urlToAction here to avoid sync loops.
+    // URL params are read once on mount in afterMount instead.
+    listeners(({ actions, values }) => {
+        const trackDashboardInteraction = (): void => {
+            // Only track after initialization to avoid tracking initial render/setup
+            if (!values.initialized) {
+                return
+            }
+            actions.addProductIntent({
+                product_type: ProductKey.MARKETING_ANALYTICS,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_DASHBOARD_INTERACTION,
+            })
+        }
+
+        return {
+            // Track dashboard interactions for filters and chart controls
+            setDates: trackDashboardInteraction,
+            setDateInterval: trackDashboardInteraction,
+            setCompareFilter: trackDashboardInteraction,
+            setIntegrationFilter: trackDashboardInteraction,
+            setChartDisplayType: trackDashboardInteraction,
+            setTileColumnSelection: trackDashboardInteraction,
+            setDrillDownLevel: trackDashboardInteraction,
+            reloadAll: trackDashboardInteraction,
+            applyConversionGoal: [
+                () => {
+                    const goal = {
+                        ...values.conversionGoalInput,
+                        conversion_goal_name: values.uniqueConversionGoalName,
+                    }
+                    actions.setDraftConversionGoal(goal)
+                    actions.setConversionGoalInput(goal)
+                    actions.hideConversionGoalModal()
+                },
+                trackDashboardInteraction,
+            ],
+            saveConversionGoal: [
+                () => {
+                    // First save the draft goal to the conversion_goals list
+                    if (values.draftConversionGoal) {
+                        actions.addOrUpdateConversionGoal(values.draftConversionGoal)
+                    }
+                    // Then clear the draft and input state (resets UI)
+                    actions.setDraftConversionGoal(null)
+                    actions.setConversionGoalInput({
+                        ...defaultConversionGoalFilter,
+                        conversion_goal_id: uuid(),
+                        conversion_goal_name: '',
+                    })
+                    actions.hideConversionGoalModal()
+                },
+                trackDashboardInteraction,
+            ],
+            clearConversionGoal: [
+                () => {
+                    actions.setDraftConversionGoal(null)
+                    actions.setConversionGoalInput({
+                        ...defaultConversionGoalFilter,
+                        conversion_goal_id: uuid(),
+                        conversion_goal_name: '',
+                    })
+                    actions.hideConversionGoalModal()
+                },
+                trackDashboardInteraction,
+            ],
+            loadConversionGoal: ({ goal }) => {
+                // Generate new ID so changes are always detected when applying
+                actions.setConversionGoalInput({
+                    ...goal,
+                    conversion_goal_id: uuid(),
+                })
+            },
+            loadSourcesSuccess: () => {
+                // Clean up integrationFilter if it contains IDs of sources that no longer exist
+                const currentFilter = values.integrationFilter
+                if (currentFilter.integrationSourceIds && currentFilter.integrationSourceIds.length > 0) {
+                    const availableSourceIds = values.allAvailableSources.map((s) => s.id)
+                    const validFilterIds = currentFilter.integrationSourceIds.filter((id) =>
+                        availableSourceIds.includes(id)
+                    )
+
+                    if (validFilterIds.length !== currentFilter.integrationSourceIds.length) {
+                        actions.setIntegrationFilter({ integrationSourceIds: validFilterIds })
+                    }
                 }
-            }
 
-            // Reload all queries to reflect the updated sources
-            actions.reloadAll()
-        },
-    })),
+                // Refresh warehouse tables so newly added source tables are picked up
+                actions.loadDatabase()
+
+                // Reload all queries to reflect the updated sources
+                actions.reloadAll()
+
+                // Mark as initialized after initial data load to enable interaction tracking
+                if (!values.initialized) {
+                    actions.setInitialized()
+                }
+            },
+        }
+    }),
     afterMount(({ actions }) => {
-        actions.loadSources(null)
+        // Read URL params on initial mount (one-time sync from URL)
+        const searchParams = new URLSearchParams(window.location.search)
+        const params: Parameters<typeof actions.syncFromUrl>[0] = {}
+
+        const tab = searchParams.get('tab') as MarketingAnalyticsTab | null
+        if (tab && Object.values(MarketingAnalyticsTab).includes(tab)) {
+            actions.setActiveTab(tab)
+        }
+
+        const dateFrom = searchParams.get('date_from')
+        if (dateFrom) {
+            params.dateFrom = dateFrom
+        }
+        const dateTo = searchParams.get('date_to')
+        if (dateTo) {
+            params.dateTo = dateTo
+        }
+        const interval = searchParams.get('interval') as IntervalType | null
+        if (interval) {
+            params.interval = interval
+        }
+        const compare = searchParams.get('compare')
+        if (compare !== null) {
+            params.compare = compare === 'true'
+        }
+        const compareTo = searchParams.get('compare_to')
+        if (compareTo) {
+            params.compare_to = compareTo
+        }
+        const integrationSources = searchParams.get('integration_sources')
+        if (integrationSources) {
+            params.integrationSourceIds = integrationSources.split(',').filter(Boolean)
+        }
+        const chartDisplayType = searchParams.get('chart_display_type') as ChartDisplayType | null
+        if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {
+            params.chartDisplayType = chartDisplayType
+        }
+        const tileColumn = searchParams.get('tile_column')
+        if (tileColumn) {
+            params.tileColumnSelection = tileColumn
+        }
+        const drillDownLevel = searchParams.get('drill_down_level') as MarketingAnalyticsDrillDownLevel | null
+        if (drillDownLevel && Object.values(MarketingAnalyticsDrillDownLevel).includes(drillDownLevel)) {
+            params.drillDownLevel = drillDownLevel
+        }
+
+        // Apply URL params if any were found
+        if (Object.keys(params).length > 0) {
+            actions.syncFromUrl(params)
+        }
+
+        actions.loadSources()
+        actions.loadDatabase()
     }),
 ])

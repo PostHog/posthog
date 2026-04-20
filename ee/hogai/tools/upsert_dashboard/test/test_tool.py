@@ -1,0 +1,2206 @@
+from typing import Any
+from uuid import uuid4
+
+from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from parameterized import parameterized
+
+from posthog.schema import (
+    ArtifactSource,
+    AssistantHogQLQuery,
+    DataTableNode,
+    EventsNode,
+    FunnelsQuery,
+    HogQLQuery,
+    InsightVizNode,
+    LifecycleQuery,
+    RetentionFilter,
+    RetentionQuery,
+    TrendsQuery,
+    VisualizationArtifactContent,
+    VisualizationMessage,
+)
+
+from posthog.models import Insight
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+
+from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
+from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardTool
+from ee.hogai.utils.types import AssistantState
+from ee.models.assistant import AgentArtifact, Conversation
+
+DEFAULT_TRENDS_QUERY = TrendsQuery(series=[EventsNode(name="$pageview")])
+
+
+class TestUpsertDashboardTool(BaseTest):
+    def _create_tool(self, state: AssistantState | None = None) -> UpsertDashboardTool:
+        if state is None:
+            state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+
+        # Mock aget_visualizations to return ModelArtifactResult for existing insights
+        async def mock_aget_visualizations(messages, insight_ids):
+            results: list[ModelArtifactResult | None] = []
+            for insight_id in insight_ids:
+                try:
+                    insight = await Insight.objects.aget(short_id=insight_id, team=self.team)
+                    query = InsightContext.extract_query(insight)
+                    content = VisualizationArtifactContent(
+                        query=query,
+                        name=insight.name or insight.derived_name,
+                        description=insight.description,
+                    )
+                    results.append(
+                        ModelArtifactResult(
+                            source=ArtifactSource.INSIGHT,
+                            content=content,
+                            model=insight,
+                        )
+                    )
+                except Insight.DoesNotExist:
+                    results.append(None)
+            return results
+
+        context_manager.artifacts.aget_visualizations = AsyncMock(side_effect=mock_aget_visualizations)
+        return UpsertDashboardTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+    async def _create_insight(
+        self,
+        name: str,
+        query: Any | None = None,
+    ) -> Insight:
+        if query is None:
+            query = DEFAULT_TRENDS_QUERY
+        return await Insight.objects.acreate(
+            team=self.team,
+            created_by=self.user,
+            name=name,
+            query=DataTableNode(source=query).model_dump()
+            if isinstance(query, HogQLQuery | AssistantHogQLQuery)
+            else InsightVizNode(source=query).model_dump(),
+            saved=True,
+        )
+
+    async def test_create_dashboard_from_scratch_attaches_insights_in_order(self):
+        insight1 = await self._create_insight("First Insight")
+        insight2 = await self._create_insight("Second Insight")
+        insight3 = await self._create_insight("Third Insight")
+
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight1.short_id, insight2.short_id, insight3.short_id],
+            name="Test Dashboard",
+            description="A test dashboard",
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        dashboard = await Dashboard.objects.aget(name="Test Dashboard")
+        self.assertEqual(dashboard.description, "A test dashboard")
+        self.assertEqual(dashboard.created_by_id, self.user.id)
+        self.assertEqual(dashboard.team_id, self.team.id)
+
+        tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard).order_by("id")]
+        self.assertEqual(len(tiles), 3)
+        self.assertEqual(tiles[0].insight_id, insight1.id)
+        self.assertEqual(tiles[1].insight_id, insight2.id)
+        self.assertEqual(tiles[2].insight_id, insight3.id)
+
+        self.assertIn("Test Dashboard", result)
+        self.assertIn(str(dashboard.id), result)
+
+    async def test_create_dashboard_output_includes_correct_url(self):
+        insight = await self._create_insight("URL Test Insight")
+
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight.short_id],
+            name="URL Dashboard",
+            description="Testing URL output",
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        dashboard = await Dashboard.objects.aget(name="URL Dashboard")
+        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        self.assertIn(f"Dashboard URL: {expected_url}", result)
+        self.assertNotIn("/dashboards/", result)
+
+    async def test_update_dashboard_output_includes_correct_url(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Existing Dashboard",
+            created_by=self.user,
+        )
+
+        insight = await self._create_insight("Update URL Insight")
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts={})
+
+        tool = self._create_tool()
+
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            name="Updated Dashboard",
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        self.assertIn(f"Dashboard URL: {expected_url}", result)
+        self.assertNotIn("/dashboards/", result)
+
+    async def test_update_dashboard_with_multiple_insights_replaces_all(self):
+        """Test that insight_ids replaces all existing insights with the new ones."""
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard to Replace",
+            created_by=self.user,
+        )
+
+        old_insight1 = await self._create_insight("Old Insight 1")
+        old_insight2 = await self._create_insight("Old Insight 2")
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=old_insight1, layouts={})
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=old_insight2, layouts={})
+
+        new_insight = await self._create_insight("New Replacement Insight")
+
+        tool = self._create_tool()
+
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[new_insight.short_id],
+        )
+
+        await tool._arun_impl(action)
+
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(active_tiles), 1)
+        self.assertEqual(active_tiles[0].insight_id, new_insight.id)
+
+        # Old tiles should be soft-deleted, new tile created
+        all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
+        # 1 active (new) + 2 soft-deleted (old)
+        self.assertEqual(len(all_tiles), 3)
+
+        soft_deleted_tiles = [t for t in all_tiles if t.deleted]
+        self.assertEqual(len(soft_deleted_tiles), 2)
+
+    @parameterized.expand(
+        [
+            ("trends", TrendsQuery(series=[EventsNode(name="$pageview")])),
+            ("funnels", FunnelsQuery(series=[EventsNode(name="step1"), EventsNode(name="step2")])),
+            ("retention", RetentionQuery(retentionFilter=RetentionFilter())),
+            ("lifecycle", LifecycleQuery(series=[EventsNode(name="$pageview")])),
+            ("hogql", HogQLQuery(query="SELECT 1")),
+        ]
+    )
+    async def test_dashboard_accepts_different_insight_types(
+        self, _name: str, query: TrendsQuery | FunnelsQuery | RetentionQuery | LifecycleQuery | HogQLQuery
+    ):
+        insight = await self._create_insight(f"{_name} Insight", query)
+
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight.short_id],
+            name=f"Dashboard with {_name}",
+            description=f"Testing {_name} insight type",
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        dashboard = await Dashboard.objects.aget(name=f"Dashboard with {_name}")
+        tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(tiles), 1)
+        self.assertEqual(tiles[0].insight_id, insight.id)
+
+    async def test_update_dashboard_permission_denied_for_restricted_dashboard(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Restricted Dashboard",
+            created_by=self.user,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+
+        new_insight = await self._create_insight("New Insight")
+
+        tool = self._create_tool()
+
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[new_insight.short_id],
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with self.assertRaises(MaxToolAccessDeniedError) as ctx:
+                await tool._arun_impl(action)
+
+        self.assertIn("access", str(ctx.exception).lower())
+
+        tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(tiles), 0)
+
+    async def test_update_dashboard_permission_allowed_for_unrestricted_dashboard(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Unrestricted Dashboard",
+            created_by=self.user,
+            restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
+        )
+
+        new_insight = await self._create_insight("New Insight")
+
+        tool = self._create_tool()
+
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[new_insight.short_id],
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(tiles), 1)
+        self.assertEqual(tiles[0].insight_id, new_insight.id)
+
+    async def test_create_dashboard_with_no_valid_insights_returns_error(self):
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=["nonexistent1", "nonexistent2"],
+            name="Empty Dashboard",
+            description="Should fail",
+        )
+
+        with self.assertRaises(MaxToolRetryableError) as ctx:
+            await tool._arun_impl(action)
+
+        self.assertIn("nonexistent1", str(ctx.exception))
+        self.assertIn("nonexistent2", str(ctx.exception))
+
+        dashboards = [d async for d in Dashboard.objects.filter(name="Empty Dashboard")]
+        self.assertEqual(len(dashboards), 0)
+
+    async def test_update_dashboard_name_and_description(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Original Name",
+            description="Original description",
+            created_by=self.user,
+        )
+
+        insight = await self._create_insight("Some Insight")
+
+        tool = self._create_tool()
+
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight.short_id],
+            name="Updated Name",
+            description="Updated description",
+        )
+
+        await tool._arun_impl(action)
+
+        await dashboard.arefresh_from_db()
+        self.assertEqual(dashboard.name, "Updated Name")
+        self.assertEqual(dashboard.description, "Updated description")
+
+    async def test_positional_replacement_preserves_sizes(self):
+        """Test that replacing insights preserves original tile sizes but updates coordinates.
+
+        When updating a dashboard:
+        - Old insights are soft-deleted
+        - New insights get new tiles
+        - Tile sizes (w, h) from original tiles are preserved via defaults
+        - Coordinates (x, y) are updated based on position in insight_ids
+        """
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard with Layouts",
+            created_by=self.user,
+        )
+
+        # Create insights with specific layouts
+        insight_a = await self._create_insight("Insight A")
+        insight_b = await self._create_insight("Insight B")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}, color="blue"
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 5}}, color="white"
+        )
+
+        # Create new insights to replace existing ones
+        insight_a_new = await self._create_insight("Insight A New")
+        insight_b_new = await self._create_insight("Insight B New")
+
+        tool = self._create_tool()
+
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a_new.short_id, insight_b_new.short_id],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        # Old tiles are soft-deleted, new tiles created
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(active_tiles), 2)
+
+        all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
+        self.assertEqual(len(all_tiles), 4)  # 2 active + 2 soft-deleted
+
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(active_tiles)
+        self.assertEqual(sorted_tiles[0].insight_id, insight_a_new.id)
+        self.assertEqual(sorted_tiles[1].insight_id, insight_b_new.id)
+
+    async def test_add_insight_preserves_existing_layouts_by_default(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard with custom layout",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("Insight A")
+        insight_b = await self._create_insight("Insight B")
+        insight_c = await self._create_insight("Insight C")
+
+        tile_a = await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_a,
+            layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 7}, "xs": {"x": 0, "y": 0, "w": 1, "h": 5}},
+        )
+        tile_b = await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_b,
+            layouts={"sm": {"x": 8, "y": 0, "w": 4, "h": 6}, "xs": {"x": 0, "y": 5, "w": 1, "h": 5}},
+        )
+
+        original_layout_a = tile_a.layouts.copy()
+        original_layout_b = tile_b.layouts.copy()
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id, insight_c.short_id],
+        )
+
+        await tool._arun_impl(action)
+
+        await tile_a.arefresh_from_db()
+        await tile_b.arefresh_from_db()
+
+        self.assertEqual(tile_a.layouts, original_layout_a)
+        self.assertEqual(tile_b.layouts, original_layout_b)
+
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        self.assertEqual(tile_c.layouts, {})
+
+    @parameterized.expand(
+        [
+            ("shrink_3_to_1", 3, 1),
+            ("expand_1_to_3", 1, 3),
+        ]
+    )
+    async def test_positional_replacement_handles_insight_count_changes(
+        self, _name: str, initial_count: int, new_count: int
+    ):
+        """Test that insight count changes are handled correctly (soft-deletes and creates)."""
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name=f"Dashboard {_name}",
+            created_by=self.user,
+        )
+
+        initial_insights = [await self._create_insight(f"Initial {i}") for i in range(initial_count)]
+        for insight in initial_insights:
+            await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts={})
+
+        new_insights = [await self._create_insight(f"New {i}") for i in range(new_count)]
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight.short_id for insight in new_insights],
+        )
+
+        await tool._arun_impl(action)
+
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard).order_by("id")]
+        self.assertEqual(len(active_tiles), new_count)
+        for i, tile in enumerate(active_tiles):
+            self.assertEqual(tile.insight_id, new_insights[i].id)
+
+        all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
+        self.assertEqual(len(all_tiles), initial_count + new_count)
+        soft_deleted = [t for t in all_tiles if t.deleted]
+        self.assertEqual(len(soft_deleted), initial_count)
+
+    async def test_is_dangerous_operation_with_insight_ids(self):
+        """Test that providing insight_ids is flagged as a dangerous operation only when insights change."""
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+        )
+
+        existing_insight = await self._create_insight("Existing Insight")
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=existing_insight, layouts={})
+
+        new_insight = await self._create_insight("New Insight")
+
+        # Replacing with different insight should be dangerous
+        tool1 = self._create_tool()
+        action_with_different_insight = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[new_insight.short_id],
+        )
+        self.assertTrue(await tool1.is_dangerous_operation(action=action_with_different_insight))
+
+        # Keeping same insight should NOT be dangerous
+        tool2 = self._create_tool()
+        action_with_same_insight = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[existing_insight.short_id],
+        )
+        self.assertFalse(await tool2.is_dangerous_operation(action=action_with_same_insight))
+
+        # Just updating name/description should NOT be dangerous
+        tool3 = self._create_tool()
+        action_metadata = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            name="New Name",
+            description="New description",
+        )
+        self.assertFalse(await tool3.is_dangerous_operation(action=action_metadata))
+
+    async def test_resolve_insights_preserves_order_with_state_and_database(self):
+        # Create a conversation for artifacts
+        conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
+
+        # Create an insight in database (will be resolved from Insight model)
+        db_insight = await self._create_insight("Database Insight")
+
+        # Create an artifact in database (will be resolved from AgentArtifact)
+        artifact_query = TrendsQuery(series=[EventsNode(name="$pageview")])
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=conversation,
+            name="Artifact Insight",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={
+                "query": artifact_query.model_dump(exclude_none=True),
+                "name": "Artifact Insight",
+                "description": "From artifact",
+            },
+        )
+
+        # Create a state message (will be resolved from state)
+        state_viz_id = str(uuid4())
+        state_query = TrendsQuery(series=[EventsNode(name="$identify")])
+        state_viz_message = VisualizationMessage(
+            id=state_viz_id,
+            query="state query",
+            answer=state_query,
+            plan="state plan",
+        )
+
+        state = AssistantState(messages=[state_viz_message], root_tool_call_id=str(uuid4()))
+        # Use real context manager for this test since it needs to fetch from multiple sources
+        context_manager = AssistantContextManager(team=self.team, user=self.user)
+        tool = UpsertDashboardTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        # Test ordering: state, artifact, database
+        insight_ids = [state_viz_id, artifact.short_id, db_insight.short_id]
+
+        # First get the artifacts, then resolve them to insights
+        artifacts = await tool._get_visualization_artifacts(insight_ids)
+        insights = tool._resolve_insights(artifacts)
+
+        self.assertEqual(len(insights), 3)
+
+        # Verify order is preserved
+        # State visualizations get default name "Insight" from the handler
+        self.assertEqual(insights[0].name, "Insight")
+        self.assertEqual(insights[1].name, "Artifact Insight")
+        self.assertEqual(insights[2].name, "Database Insight")
+
+    async def test_full_integration_positional_reordering(self):
+        """
+        Integration test: Verify dashboard update with reordering and new insights.
+
+        Initial dashboard: [A, B, C] (each with specific layouts)
+        Update with: [B, D, A, E]
+        Expected:
+        - Existing insights (B, A) keep their tiles with updated coordinates
+        - C's tile is soft-deleted (not in new list)
+        - New tiles created for D and E
+        - Visual order is [B, D, A, E] based on insight_ids order
+        """
+        # Create initial dashboard with A, B, C
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard ABC",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("Insight A")
+        insight_b = await self._create_insight("Insight B")
+        insight_c = await self._create_insight("Insight C")
+
+        tile_a = await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        tile_b = await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 5}}
+        )
+        tile_c = await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 5, "w": 6, "h": 5}}
+        )
+
+        # Create new insights D and E
+        insight_d = await self._create_insight("Insight D")
+        insight_e = await self._create_insight("Insight E")
+
+        # Update dashboard with new order: [B, D, A, E]
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_b.short_id, insight_d.short_id, insight_a.short_id, insight_e.short_id],
+            layout_mode="reflow_all",
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        # Verify the result contains all insights
+        self.assertIn("Insight B", result)
+        self.assertIn("Insight D", result)
+        self.assertIn("Insight A", result)
+        self.assertIn("Insight E", result)
+
+        # Verify tiles in database have correct visual order [B, D, A, E]
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(active_tiles), 4)
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(active_tiles)
+
+        # Verify visual order
+        self.assertEqual(sorted_tiles[0].insight_id, insight_b.id)
+        self.assertEqual(sorted_tiles[1].insight_id, insight_d.id)
+        self.assertEqual(sorted_tiles[2].insight_id, insight_a.id)
+        self.assertEqual(sorted_tiles[3].insight_id, insight_e.id)
+
+        # Existing insights (A, B) keep their original tiles
+        self.assertEqual(sorted_tiles[0].id, tile_b.id)  # B's tile
+        self.assertEqual(sorted_tiles[2].id, tile_a.id)  # A's tile
+
+        # C's tile should be soft-deleted
+        all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
+        # 3 original (A, B, C) + 2 new (D, E) = 5 total, with C soft-deleted
+        self.assertEqual(len(all_tiles), 5)
+        deleted_tiles = [t for t in all_tiles if t.deleted]
+        self.assertEqual(len(deleted_tiles), 1)
+        self.assertEqual(deleted_tiles[0].id, tile_c.id)
+
+    async def test_full_integration_with_empty_layouts(self):
+        """
+        Integration test: Verify ordering works even with empty layouts.
+
+        When layouts are empty ({}), the tool should generate default sequential layouts
+        to ensure proper ordering.
+        """
+        # Create initial dashboard with A, B, C (empty layouts)
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard ABC No Layouts",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("Insight A")
+        insight_b = await self._create_insight("Insight B")
+        insight_c = await self._create_insight("Insight C")
+
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight_a, layouts={})
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight_b, layouts={})
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight_c, layouts={})
+
+        # Create new insights D and E
+        insight_d = await self._create_insight("Insight D")
+        insight_e = await self._create_insight("Insight E")
+
+        # Update dashboard with new order: [B, D, A, E]
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_b.short_id, insight_d.short_id, insight_a.short_id, insight_e.short_id],
+            layout_mode="reflow_all",
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        # Verify the result contains all insights
+        self.assertIn("Insight B", result)
+        self.assertIn("Insight D", result)
+        self.assertIn("Insight A", result)
+        self.assertIn("Insight E", result)
+
+        # Verify tiles have correct visual order [B, D, A, E]
+        all_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(all_tiles), 4)
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(all_tiles)
+
+        # Verify order matches
+        self.assertEqual(sorted_tiles[0].insight_id, insight_b.id)
+        self.assertEqual(sorted_tiles[1].insight_id, insight_d.id)
+        self.assertEqual(sorted_tiles[2].insight_id, insight_a.id)
+        self.assertEqual(sorted_tiles[3].insight_id, insight_e.id)
+
+        # Verify layouts were generated (not empty)
+        for tile in sorted_tiles:
+            self.assertIsNotNone(tile.layouts)
+            self.assertIn("sm", tile.layouts)
+            self.assertIn("y", tile.layouts["sm"])
+
+    async def test_reflow_all_updates_existing_insight_tiles(self):
+        """
+        Test that reflow_all keeps tile IDs while rewriting layout.
+
+        When updating a dashboard:
+        - Existing insights that remain keep their tile IDs
+        - Their layouts are updated based on position in insight_ids
+        - Heights are preserved
+        - Widths are equalized per row when there is horizontal gap
+        """
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard with Layouts",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("Insight A")
+        insight_b = await self._create_insight("Insight B")
+
+        # Create tiles with specific layouts
+        tile_a = await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 7}}, color="blue"
+        )
+        tile_b = await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 0, "y": 7, "w": 10, "h": 6}}, color="white"
+        )
+
+        original_tile_a_id = tile_a.id
+        original_tile_b_id = tile_b.id
+
+        tool = self._create_tool()
+
+        # Reorder: [B, A] - same insights, different order
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_b.short_id, insight_a.short_id],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        # Fetch tiles after update
+        await tile_a.arefresh_from_db()
+        await tile_b.arefresh_from_db()
+
+        # Tiles keep their IDs
+        self.assertEqual(tile_a.id, original_tile_a_id)
+        self.assertEqual(tile_b.id, original_tile_b_id)
+
+        # Heights are preserved and single-tile rows are widened to fill.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 12)
+        self.assertEqual(tile_a.layouts["sm"]["h"], 7)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 12)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 6)
+
+        # Coordinates are updated based on order
+        # B at position 0: x=0, y=0
+        # A at position 1: x=0, y=6 (below B which has h=6)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 6)
+
+    async def test_reflow_all_preserves_existing_xs_heights(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard preserve xs heights",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_a,
+            layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 5}, "xs": {"x": 0, "y": 0, "w": 1, "h": 9}},
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_b,
+            layouts={"sm": {"x": 8, "y": 0, "w": 4, "h": 4}, "xs": {"x": 0, "y": 9, "w": 1, "h": 3}},
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+
+        self.assertEqual(tile_a.layouts["xs"]["h"], 9)
+        self.assertEqual(tile_b.layouts["xs"]["h"], 3)
+        self.assertEqual(tile_a.layouts["xs"]["y"], 0)
+        self.assertEqual(tile_b.layouts["xs"]["y"], 9)
+
+    async def test_reflow_all_compacts_layout_and_preserves_sizes(self):
+        """
+        Test row compaction for reflow_all.
+
+        Rules:
+        - Tile order is preserved
+        - Row heights are normalized to the tallest tile in the row
+        - Full-width single-tile rows stay unchanged
+        - Rows are stacked without overlap
+        """
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard for Layout Test",
+            created_by=self.user,
+        )
+
+        # Create insights with different widths:
+        # A: w=6 (half), B: w=6 (half), C: w=12 (full), D: w=6 (half), E: w=6 (half)
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        insight_d = await self._create_insight("D")
+        insight_e = await self._create_insight("E")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 5, "w": 12, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_d, layouts={"sm": {"x": 0, "y": 8, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_e, layouts={"sm": {"x": 6, "y": 8, "w": 6, "h": 6}}
+        )
+
+        tool = self._create_tool()
+
+        # Reorder: [A, B, C, D, E] -> same order, should produce correct layout
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[
+                insight_a.short_id,
+                insight_b.short_id,
+                insight_c.short_id,
+                insight_d.short_id,
+                insight_e.short_id,
+            ],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        # Fetch and sort tiles
+        tiles = {
+            t.insight_id: t async for t in DashboardTile.objects.filter(dashboard=dashboard).select_related("insight")
+        }
+
+        tile_a = tiles[insight_a.id]
+        tile_b = tiles[insight_b.id]
+        tile_c = tiles[insight_c.id]
+        tile_d = tiles[insight_d.id]
+        tile_e = tiles[insight_e.id]
+
+        # Expected layout:
+        # A (w=6, h=5): x=0, y=0 (left column, first)
+        # B (w=6, h=4): x=6, y=0 (fills top row gap on the right)
+        # C (w=12, h=3): x=0, y=5 (full width, below max(5, 4)=5)
+        # D (w=6, h=5): x=0, y=8 (left column, both at y=8 after C)
+        # E (w=6, h=6): x=6, y=8 (right column)
+
+        # Verify widths and heights
+        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 6)
+        # First row height is normalized to tallest tile (A has h=5).
+        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 12)
+        # Full-width single row remains unchanged.
+        self.assertEqual(tile_c.layouts["sm"]["h"], 3)
+        # Third row height is normalized to tallest tile (E has h=6).
+        self.assertEqual(tile_d.layouts["sm"]["h"], 6)
+        self.assertEqual(tile_e.layouts["sm"]["h"], 6)
+
+        # Verify coordinates
+        # A: first tile, goes to left column
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+
+        # B: second tile fills the top-right gap
+        self.assertEqual(tile_b.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+
+        # C: wide tile (w=12), placed at y=max(5, 4)=5, advances both to y=8
+        self.assertEqual(tile_c.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 5)
+
+        # D: after C, both columns at y=8, goes left (prefers left when equal)
+        self.assertEqual(tile_d.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["y"], 8)
+
+        # E: follows D in the same row
+        self.assertEqual(tile_e.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_e.layouts["sm"]["y"], 8)
+
+    async def test_reflow_all_fills_top_row_gap_for_mixed_widths(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard mixed widths",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 0, "y": 4, "w": 4, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 4, "y": 4, "w": 4, "h": 2}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id, insight_c.short_id],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        tiles = {
+            t.insight_id: t async for t in DashboardTile.objects.filter(dashboard=dashboard).select_related("insight")
+        }
+
+        tile_a = tiles[insight_a.id]
+        tile_b = tiles[insight_b.id]
+        tile_c = tiles[insight_c.id]
+
+        # First row stays [A, B] because it already fills 12 columns.
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 12)
+        # C is alone in row 2, so it expands to fill the row.
+        self.assertEqual(tile_c.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 4)
+
+    async def test_reflow_all_equalizes_partial_row_widths(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard equal width scaling",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 8, "y": 0, "w": 2, "h": 5}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+
+        # Row width 10 is expanded to 12 with equal split for two tiles.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+
+    async def test_reflow_all_equalizes_three_tile_row_with_gap(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard three tile equalization",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 4, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 4, "y": 0, "w": 2, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 6, "y": 0, "w": 2, "h": 4}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id, insight_c.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+
+        # Row total width 8 is expanded to 12 as equal thirds.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 8)
+        # Row heights normalized to tallest tile (A has h=5).
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+
+    async def test_reflow_all_adapts_inserted_large_middle_tile_to_row(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard middle insertion",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+
+        # Existing row with A and B, each taking a third, with a gap in between.
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 4, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 8, "y": 0, "w": 4, "h": 4}}
+        )
+        # New/moved large tile that would normally overflow after A (4 + 10 > 12).
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 8, "w": 10, "h": 6}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_c.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+
+        # All three should stay in one row and adapt to equal thirds.
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
+        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        # Height normalized to tallest in row (tile C h=6).
+        self.assertEqual(tile_a.layouts["sm"]["h"], 6)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 6)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+
+    async def test_reflow_all_adapts_third_tile_into_two_half_width_tiles_row(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard half width insertion",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 8, "w": 4, "h": 3}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_c.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+
+        # Two half-width tiles plus inserted third tile should compact to one equal row.
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
+        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        # Row height normalized to tallest tile in that row (A has h=5).
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
+
+    async def test_reflow_all_does_not_pull_fourth_tile_into_already_full_three_tile_row(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard four tile adaptation",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        insight_d = await self._create_insight("D")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 8, "w": 3, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_d, layouts={"sm": {"x": 3, "y": 8, "w": 3, "h": 2}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_c.short_id, insight_d.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
+
+        # Row [A, C, D] already fills 12 columns, so B stays in the next row.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_d.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 12)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_d.layouts["sm"]["x"], 9)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 5)
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_d.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 4)
+
+    async def test_reflow_all_keeps_insert_between_two_tiles_as_three_tile_row(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard insert between keeps row at three",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        insight_d = await self._create_insight("D")
+
+        # Initial shape: [A, B] in first row, [C, D] in next rows.
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 4, "h": 6}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 6, "w": 4, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_d, layouts={"sm": {"x": 6, "y": 6, "w": 6, "h": 4}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_d.short_id, insight_b.short_id, insight_c.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
+
+        # A, D, B share first row. C must stay on the next row.
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["x"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
+        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_d.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 6)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 12)
+
+    async def test_reflow_all_can_adapt_four_tiles_when_row_has_slack_before_overflow(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard four tile slack adaptation",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        insight_d = await self._create_insight("D")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 5, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 5, "y": 0, "w": 2, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 7, "y": 0, "w": 2, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_d, layouts={"sm": {"x": 0, "y": 8, "w": 4, "h": 2}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id, insight_c.short_id, insight_d.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
+
+        # Row had slack (width 9) before D caused overflow, so all four are adapted to one row.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_d.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 3)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_d.layouts["sm"]["x"], 9)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_d.layouts["sm"]["h"], 5)
+
+    async def test_reflow_all_splits_five_tiles_when_equalization_would_overcompress(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard five tile adaptation",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        insight_d = await self._create_insight("D")
+        insight_e = await self._create_insight("E")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 8, "w": 3, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_d, layouts={"sm": {"x": 3, "y": 8, "w": 3, "h": 2}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_e, layouts={"sm": {"x": 6, "y": 8, "w": 3, "h": 4}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[
+                insight_a.short_id,
+                insight_c.short_id,
+                insight_d.short_id,
+                insight_e.short_id,
+                insight_b.short_id,
+            ],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
+        tile_e = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_e)
+
+        # Row [A, C, D] stays full. E and B are reflowed in the next row.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_d.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_e.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_d.layouts["sm"]["x"], 9)
+        self.assertEqual(tile_e.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_e.layouts["sm"]["y"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 5)
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_d.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_e.layouts["sm"]["h"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 4)
+
+    async def test_reflow_all_does_not_overcompress_six_medium_tiles_into_one_row(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard six tile over-compression guard",
+            created_by=self.user,
+        )
+
+        insights = [await self._create_insight(name) for name in ["A", "B", "C", "D", "E", "F"]]
+        for index, insight in enumerate(insights):
+            await DashboardTile.objects.acreate(
+                dashboard=dashboard,
+                insight=insight,
+                layouts={"sm": {"x": (index % 3) * 4, "y": (index // 3) * 5, "w": 4, "h": 5}},
+            )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight.short_id for insight in insights],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tiles_by_insight_id = {
+            tile.insight_id: tile async for tile in DashboardTile.objects.filter(dashboard=dashboard)
+        }
+        row1 = [tiles_by_insight_id[insights[i].id] for i in range(3)]
+        row2 = [tiles_by_insight_id[insights[i].id] for i in range(3, 6)]
+
+        for expected_x, tile in zip([0, 4, 8], row1):
+            self.assertEqual(tile.layouts["sm"]["x"], expected_x)
+            self.assertEqual(tile.layouts["sm"]["y"], 0)
+            self.assertEqual(tile.layouts["sm"]["w"], 4)
+            self.assertEqual(tile.layouts["sm"]["h"], 5)
+
+        for expected_x, tile in zip([0, 4, 8], row2):
+            self.assertEqual(tile.layouts["sm"]["x"], expected_x)
+            self.assertEqual(tile.layouts["sm"]["y"], 5)
+            self.assertEqual(tile.layouts["sm"]["w"], 4)
+            self.assertEqual(tile.layouts["sm"]["h"], 5)
+
+    async def test_reflow_all_respects_full_width_text_tile_band(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard with full width text separator",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 4, "w": 4, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 8, "y": 4, "w": 4, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 10, "w": 8, "h": 5}}
+        )
+
+        text = await Text.objects.acreate(team=self.team, body="Separator")
+        text_tile = await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            text=text,
+            layouts={"sm": {"x": 0, "y": 0, "w": 12, "h": 3}},
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_c.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        await text_tile.arefresh_from_db()
+
+        # Row should compact to equal thirds while staying below the fixed full-width text tile.
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
+        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 3)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 3)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 3)
+
+        # Text tile stays fixed and undeleted.
+        self.assertFalse(text_tile.deleted)
+        self.assertEqual(text_tile.layouts["sm"]["x"], 0)
+        self.assertEqual(text_tile.layouts["sm"]["y"], 0)
+        self.assertEqual(text_tile.layouts["sm"]["w"], 12)
+        self.assertEqual(text_tile.layouts["sm"]["h"], 3)
+
+    async def test_reflow_all_produces_non_overlapping_layouts(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard no overlap",
+            created_by=self.user,
+        )
+
+        insights = [await self._create_insight(name) for name in ["A", "B", "C", "D", "E", "F"]]
+        layouts = [
+            {"w": 8, "h": 4},
+            {"w": 4, "h": 5},
+            {"w": 6, "h": 3},
+            {"w": 6, "h": 4},
+            {"w": 12, "h": 2},
+            {"w": 4, "h": 6},
+        ]
+
+        for insight, layout in zip(insights, layouts):
+            await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts={"sm": layout})
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight.short_id for insight in insights],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        sm_layouts = [tile.layouts["sm"] for tile in active_tiles]
+
+        def overlaps(a: dict, b: dict) -> bool:
+            return (
+                a["x"] < b["x"] + b["w"]
+                and a["x"] + a["w"] > b["x"]
+                and a["y"] < b["y"] + b["h"]
+                and a["y"] + a["h"] > b["y"]
+            )
+
+        for i, layout_a in enumerate(sm_layouts):
+            for layout_b in sm_layouts[i + 1 :]:
+                self.assertFalse(overlaps(layout_a, layout_b))
+
+    @parameterized.expand(
+        [
+            ("at_end", ["A", "C", "B"]),  # [A, B, C] -> [A, C] -> [A, C, B]
+            ("at_beginning", ["B", "A", "C"]),  # [A, B, C] -> [A, C] -> [B, A, C]
+        ]
+    )
+    async def test_restoring_previously_removed_insight(self, _name: str, new_order: list[str]):
+        """When a previously removed insight is restored, the tile should be undeleted."""
+        insights = {
+            "A": await self._create_insight("Insight_A"),
+            "B": await self._create_insight("Insight_B"),
+            "C": await self._create_insight("Insight_C"),
+        }
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        for i, key in enumerate(["A", "B", "C"]):
+            await DashboardTile.objects.acreate(
+                dashboard=dashboard, insight=insights[key], layouts={"sm": {"x": 0, "y": i * 5, "w": 12, "h": 5}}
+            )
+
+        # Simulate removing B (soft-delete its tile)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insights["B"])
+        tile_b.deleted = True
+        await tile_b.asave()
+
+        # Restore B at specified position
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insights[key].short_id for key in new_order],
+            layout_mode="reflow_all",
+        )
+        result, _ = await tool._arun_impl(action)
+
+        # Verify output order
+        for i in range(len(new_order) - 1):
+            self.assertLess(
+                result.index(f"Insight_{new_order[i]}"),
+                result.index(f"Insight_{new_order[i + 1]}"),
+            )
+
+        # B's tile should be undeleted
+        await tile_b.arefresh_from_db()
+        self.assertFalse(tile_b.deleted)
+
+        # Dashboard should have 3 active tiles
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(active_tiles), 3)
+        self.assertEqual({t.insight_id for t in active_tiles}, {insights[k].id for k in ["A", "B", "C"]})
+
+    async def test_preserve_existing_restores_soft_deleted_tile_and_keeps_layout(self):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        insight_a = await self._create_insight("Insight_A")
+        insight_b = await self._create_insight("Insight_B")
+        insight_c = await self._create_insight("Insight_C")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_a,
+            layouts={"sm": {"x": 0, "y": 0, "w": 4, "h": 5}, "xs": {"x": 0, "y": 0, "w": 1, "h": 5}},
+        )
+        tile_b = await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_b,
+            layouts={"sm": {"x": 4, "y": 0, "w": 8, "h": 6}, "xs": {"x": 0, "y": 5, "w": 1, "h": 5}},
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_c,
+            layouts={"sm": {"x": 0, "y": 6, "w": 12, "h": 4}, "xs": {"x": 0, "y": 10, "w": 1, "h": 5}},
+        )
+
+        original_layout_b = tile_b.layouts.copy()
+        tile_b.deleted = True
+        await tile_b.asave(update_fields=["deleted"])
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id, insight_c.short_id],
+        )
+        await tool._arun_impl(action)
+
+        await tile_b.arefresh_from_db()
+        self.assertFalse(tile_b.deleted)
+        self.assertEqual(tile_b.layouts, original_layout_b)
+
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(active_tiles), 3)
+        self.assertEqual({t.insight_id for t in active_tiles}, {insight_a.id, insight_b.id, insight_c.id})
+
+    @parameterized.expand(
+        [
+            ("add_insight_to_dashboard_with_text", None),
+            ("replace_insights_on_dashboard_with_text", "Old Insight"),
+        ]
+    )
+    async def test_update_dashboard_preserves_text_tiles(self, _name: str, existing_insight_name: str | None):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+
+        text = await Text.objects.acreate(body="Hello World", team=self.team)
+        text_tile = await DashboardTile.objects.acreate(
+            dashboard=dashboard, text=text, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 3}}
+        )
+
+        if existing_insight_name:
+            old_insight = await self._create_insight(existing_insight_name)
+            await DashboardTile.objects.acreate(dashboard=dashboard, insight=old_insight, layouts={})
+
+        new_insight = await self._create_insight("New Insight")
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[new_insight.short_id],
+        )
+
+        await tool._arun_impl(action)
+
+        await text_tile.arefresh_from_db()
+        self.assertFalse(text_tile.deleted)
+
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        text_tiles = [t for t in active_tiles if t.text_id is not None]
+        insight_tiles = [t for t in active_tiles if t.insight_id is not None]
+        self.assertEqual(len(text_tiles), 1)
+        self.assertEqual(text_tiles[0].text_id, text.id)
+        self.assertEqual(len(insight_tiles), 1)
+        self.assertEqual(insight_tiles[0].insight_id, new_insight.id)
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_create_dashboard_reports_dashboard_created(self, mock_report):
+        insight = await self._create_insight("Test Insight")
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight.short_id],
+            name="Reported Dashboard",
+            description="Test",
+        )
+
+        await tool._arun_impl(action)
+
+        dashboard_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "dashboard created"]
+        self.assertEqual(len(dashboard_created_calls), 1)
+        self.assertEqual(dashboard_created_calls[0][0][0], self.user)
+        self.assertEqual(dashboard_created_calls[0][0][2]["source"], "posthog_ai")
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_update_dashboard_reports_dashboard_updated(self, mock_report):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Existing", created_by=self.user)
+        insight = await self._create_insight("Test Insight")
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts={})
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            name="Updated",
+        )
+
+        await tool._arun_impl(action)
+
+        dashboard_updated_calls = [c for c in mock_report.call_args_list if c[0][1] == "dashboard updated"]
+        self.assertEqual(len(dashboard_updated_calls), 1)
+        self.assertEqual(dashboard_updated_calls[0][0][0], self.user)
+        self.assertEqual(dashboard_updated_calls[0][0][2]["source"], "posthog_ai")
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_create_dashboard_reports_insight_created_for_new_insights(self, mock_report):
+        state_query = TrendsQuery(series=[EventsNode(name="$pageview")])
+        state_content = VisualizationArtifactContent(
+            query=state_query,
+            name="New Insight",
+            description="From state",
+        )
+        state_result: VisualizationWithSourceResult = StateArtifactResult(content=state_content)
+
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=["state-id"],
+            name="Dashboard with New Insights",
+            description="Test",
+        )
+
+        with patch.object(
+            tool._context_manager.artifacts, "aget_visualizations", new=AsyncMock(return_value=[state_result])
+        ):
+            await tool._arun_impl(action)
+
+        insight_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "insight created"]
+        self.assertEqual(len(insight_created_calls), 1)
+        self.assertEqual(insight_created_calls[0][0][2]["source"], "posthog_ai")
+        self.assertIn("insight_id", insight_created_calls[0][0][2])
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_create_dashboard_does_not_report_insight_created_for_existing_insights(self, mock_report):
+        insight = await self._create_insight("Existing Insight")
+        tool = self._create_tool()
+
+        action = CreateDashboardToolArgs(
+            insight_ids=[insight.short_id],
+            name="Dashboard with Existing",
+            description="Test",
+        )
+
+        await tool._arun_impl(action)
+
+        insight_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "insight created"]
+        self.assertEqual(len(insight_created_calls), 0)
+
+
+class TestGetDashboardAndSortedTiles(BaseTest):
+    def _create_tool(self, state: AssistantState | None = None) -> UpsertDashboardTool:
+        if state is None:
+            state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = AssistantContextManager(team=self.team, user=self.user)
+        return UpsertDashboardTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+    async def _create_insight(self, name: str) -> Insight:
+        return await Insight.objects.acreate(
+            team=self.team,
+            created_by=self.user,
+            name=name,
+            query=InsightVizNode(source=DEFAULT_TRENDS_QUERY).model_dump(),
+            saved=True,
+        )
+
+    async def test_returns_dashboard_and_sorted_tiles(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+        )
+
+        insight1 = await self._create_insight("Top Left")
+        insight2 = await self._create_insight("Top Right")
+        insight3 = await self._create_insight("Bottom")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight2,
+            layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 5}},
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight3,
+            layouts={"sm": {"x": 0, "y": 5, "w": 12, "h": 5}},
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight1,
+            layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}},
+        )
+
+        tool = self._create_tool()
+        sorted_tiles = await tool._get_dashboard_sorted_tiles(dashboard)
+
+        self.assertEqual(len(sorted_tiles), 3)
+        self.assertEqual(sorted_tiles[0].insight_id, insight1.id)
+        self.assertEqual(sorted_tiles[1].insight_id, insight2.id)
+        self.assertEqual(sorted_tiles[2].insight_id, insight3.id)
+
+    @parameterized.expand(
+        [
+            ("int", lambda id: id),
+            ("str", lambda id: str(id)),
+            ("float_str", lambda id: f"{id}.0"),
+        ]
+    )
+    async def test_get_dashboard_parses_various_id_formats(self, _name: str, format_id):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+        )
+
+        tool = self._create_tool()
+        result = await tool._get_dashboard(format_id(dashboard.id))
+
+        self.assertEqual(result.id, dashboard.id)
+
+    @parameterized.expand(
+        [
+            ("invalid_string", "not-a-number"),
+            ("empty_string", ""),
+        ]
+    )
+    async def test_get_dashboard_raises_error_for_invalid_id_format(self, _name: str, invalid_id: str):
+        tool = self._create_tool()
+
+        with self.assertRaises(MaxToolFatalError) as ctx:
+            await tool._get_dashboard(invalid_id)
+
+        self.assertIn(invalid_id, str(ctx.exception))
+
+    async def test_raises_error_for_nonexistent_dashboard(self):
+        tool = self._create_tool()
+
+        with self.assertRaises(MaxToolFatalError) as ctx:
+            await tool._get_dashboard("999999")
+
+        self.assertIn("999999", str(ctx.exception))
+
+    async def test_raises_error_for_deleted_dashboard(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Deleted Dashboard",
+            created_by=self.user,
+            deleted=True,
+        )
+
+        tool = self._create_tool()
+
+        with self.assertRaises(MaxToolFatalError) as ctx:
+            await tool._get_dashboard(str(dashboard.id))
+
+        self.assertIn(str(dashboard.id), str(ctx.exception))
+
+    async def test_excludes_soft_deleted_tiles(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard with Deleted Tiles",
+            created_by=self.user,
+        )
+
+        insight1 = await self._create_insight("Active")
+        insight2 = await self._create_insight("Deleted")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight1,
+            layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}},
+        )
+        await DashboardTile.objects_including_soft_deleted.acreate(
+            dashboard=dashboard,
+            insight=insight2,
+            layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 5}},
+            deleted=True,
+        )
+
+        tool = self._create_tool()
+        sorted_tiles = await tool._get_dashboard_sorted_tiles(dashboard)
+
+        self.assertEqual(len(sorted_tiles), 1)
+        self.assertEqual(sorted_tiles[0].insight_id, insight1.id)
+
+    async def test_returns_empty_tiles_for_dashboard_without_tiles(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Empty Dashboard",
+            created_by=self.user,
+        )
+
+        tool = self._create_tool()
+        result_dashboard = await tool._get_dashboard(dashboard.id)
+        sorted_tiles = await tool._get_dashboard_sorted_tiles(dashboard)
+
+        self.assertEqual(result_dashboard.id, dashboard.id)
+        self.assertEqual(len(sorted_tiles), 0)
+
+
+class TestGetVisualizationArtifacts(BaseTest):
+    def _create_tool(self, state: AssistantState | None = None) -> UpsertDashboardTool:
+        if state is None:
+            state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = AssistantContextManager(team=self.team, user=self.user)
+        return UpsertDashboardTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+    async def _create_insight(self, name: str) -> Insight:
+        return await Insight.objects.acreate(
+            team=self.team,
+            created_by=self.user,
+            name=name,
+            query=InsightVizNode(source=DEFAULT_TRENDS_QUERY).model_dump(),
+            saved=True,
+        )
+
+    async def test_returns_artifacts_from_state_messages(self):
+        viz_id = str(uuid4())
+        viz_message = VisualizationMessage(
+            id=viz_id,
+            query="Show me pageviews",
+            answer=DEFAULT_TRENDS_QUERY,
+            plan="I'll create a trends chart",
+        )
+        state = AssistantState(messages=[viz_message], root_tool_call_id=str(uuid4()))
+
+        tool = self._create_tool(state=state)
+
+        results = await tool._get_visualization_artifacts([viz_id])
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].content.query, DEFAULT_TRENDS_QUERY)
+
+    async def test_returns_artifacts_from_saved_insights(self):
+        insight = await self._create_insight("Saved Insight")
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        results = await tool._get_visualization_artifacts([insight.short_id])
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].content.name, "Saved Insight")
+
+    async def test_returns_artifacts_from_database(self):
+        conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=conversation,
+            name="DB Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={
+                "query": DEFAULT_TRENDS_QUERY.model_dump(exclude_none=True),
+                "name": "DB Artifact",
+            },
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        results = await tool._get_visualization_artifacts([artifact.short_id])
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].content.name, "DB Artifact")
+
+    async def test_preserves_order_with_mixed_sources(self):
+        conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
+        db_artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=conversation,
+            name="DB Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={
+                "query": DEFAULT_TRENDS_QUERY.model_dump(exclude_none=True),
+                "name": "DB Artifact",
+            },
+        )
+
+        insight = await self._create_insight("Insight Artifact")
+
+        state_viz_id = str(uuid4())
+        state_viz = VisualizationMessage(
+            id=state_viz_id,
+            query="state query",
+            answer=DEFAULT_TRENDS_QUERY,
+            plan="state plan",
+        )
+
+        state = AssistantState(messages=[state_viz], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        # Request in specific order: db, state, insight
+        results = await tool._get_visualization_artifacts([db_artifact.short_id, state_viz_id, insight.short_id])
+
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0].content.name, "DB Artifact")
+        self.assertEqual(results[1].content.name, "Insight")
+        self.assertEqual(results[2].content.name, "Insight Artifact")
+
+    @parameterized.expand(
+        [
+            ("single_missing", [], ["nonexistent-id"]),
+            ("multiple_missing_with_valid", ["Valid Insight"], ["missing-1", "missing-2"]),
+        ]
+    )
+    async def test_raises_error_when_artifacts_not_found(
+        self, _name: str, valid_insight_names: list[str], missing_ids: list[str]
+    ):
+        valid_insights = [await self._create_insight(name) for name in valid_insight_names]
+        insight_ids = [i.short_id for i in valid_insights] + missing_ids
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        with self.assertRaises(MaxToolRetryableError) as ctx:
+            await tool._get_visualization_artifacts(insight_ids)
+
+        for missing_id in missing_ids:
+            self.assertIn(missing_id, str(ctx.exception))
+
+
+class TestGetUpdateDiff(BaseTest):
+    def _create_tool(self, state: AssistantState | None = None) -> UpsertDashboardTool:
+        if state is None:
+            state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = AssistantContextManager(team=self.team, user=self.user)
+        return UpsertDashboardTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+    async def _create_insight(self, name: str) -> Insight:
+        return await Insight.objects.acreate(
+            team=self.team,
+            created_by=self.user,
+            name=name,
+            query=InsightVizNode(source=DEFAULT_TRENDS_QUERY).model_dump(),
+            saved=True,
+        )
+
+    async def _create_dashboard_with_tiles(
+        self, name: str, insights: list[Insight]
+    ) -> tuple[Dashboard, list[DashboardTile]]:
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name=name,
+            created_by=self.user,
+        )
+        tiles = []
+        for i, insight in enumerate(insights):
+            tile = await DashboardTile.objects.acreate(
+                dashboard=dashboard,
+                insight=insight,
+                layouts={"sm": {"x": 0, "y": i * 5, "w": 12, "h": 5}},
+            )
+            tiles.append(tile)
+        return dashboard, DashboardTile.sort_tiles_by_layout(tiles)
+
+    async def test_returns_empty_diff_for_empty_insight_ids(self):
+        insight = await self._create_insight("Existing")
+        _, tiles = await self._create_dashboard_with_tiles("Dashboard", [insight])
+
+        tool = self._create_tool()
+        diff = await tool._get_update_diff(tiles, [])
+
+        self.assertEqual(diff["created"], [])
+        self.assertEqual(diff["deleted"], [])
+
+    async def test_identifies_deleted_tiles(self):
+        insight1 = await self._create_insight("Will Delete 1")
+        insight2 = await self._create_insight("Will Delete 2")
+        _, tiles = await self._create_dashboard_with_tiles("Dashboard", [insight1, insight2])
+
+        # Create a new insight - both existing ones will be deleted
+        new_insight = await self._create_insight("New")
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        diff = await tool._get_update_diff(tiles, [new_insight.short_id])
+
+        # Both existing insights are deleted (not in new list)
+        self.assertEqual(len(diff["deleted"]), 2)
+        deleted_ids = {tile.insight_id for tile in diff["deleted"]}
+        self.assertEqual(deleted_ids, {insight1.id, insight2.id})
+        # New insight is created
+        self.assertEqual(len(diff["created"]), 1)
+
+    async def test_identifies_created_tiles(self):
+        """When keeping an existing insight and adding new ones, only the new ones are "created"."""
+        insight = await self._create_insight("Existing")
+        _, tiles = await self._create_dashboard_with_tiles("Dashboard", [insight])
+
+        # Create new insights to add
+        new_insight1 = await self._create_insight("New 1")
+        new_insight2 = await self._create_insight("New 2")
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        # Keep existing insight at position 0, add new ones
+        diff = await tool._get_update_diff(tiles, [insight.short_id, new_insight1.short_id, new_insight2.short_id])
+
+        # "created" only includes insights not already in the dashboard
+        self.assertEqual(len(diff["created"]), 2)
+        created_names = {a.content.name for a in diff["created"]}
+        self.assertEqual(created_names, {"New 1", "New 2"})
+        self.assertEqual(len(diff["deleted"]), 0)
+
+    async def test_identifies_swapped_insight(self):
+        """When replacing one insight with another, old is deleted and new is created."""
+        old_insight = await self._create_insight("Old")
+        _, tiles = await self._create_dashboard_with_tiles("Dashboard", [old_insight])
+
+        new_insight = await self._create_insight("New")
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        diff = await tool._get_update_diff(tiles, [new_insight.short_id])
+
+        self.assertEqual(len(diff["deleted"]), 1)
+        self.assertEqual(diff["deleted"][0].insight_id, old_insight.id)
+        self.assertEqual(len(diff["created"]), 1)
+        self.assertEqual(diff["created"][0].content.name, "New")
+
+    async def test_handles_complex_diff(self):
+        """
+        Initial: [A, B, C] (3 tiles)
+        New: [D, E, F, G] (4 insights)
+        Result:
+        - deleted: A, B, C (all removed from dashboard)
+        - created: D, E, F, G (all new to dashboard)
+        """
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        _, tiles = await self._create_dashboard_with_tiles("Dashboard", [insight_a, insight_b, insight_c])
+
+        insight_d = await self._create_insight("D")
+        insight_e = await self._create_insight("E")
+        insight_f = await self._create_insight("F")
+        insight_g = await self._create_insight("G")
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        diff = await tool._get_update_diff(
+            tiles, [insight_d.short_id, insight_e.short_id, insight_f.short_id, insight_g.short_id]
+        )
+
+        self.assertEqual(len(diff["deleted"]), 3)
+        deleted_ids = {tile.insight_id for tile in diff["deleted"]}
+        self.assertEqual(deleted_ids, {insight_a.id, insight_b.id, insight_c.id})
+        self.assertEqual(len(diff["created"]), 4)
+        created_names = {a.content.name for a in diff["created"]}
+        self.assertEqual(created_names, {"D", "E", "F", "G"})
+
+    async def test_handles_shrinking_diff(self):
+        """
+        Initial: [A, B, C] (3 tiles)
+        New: [D] (1 insight)
+        Result:
+        - deleted: A, B, C (all removed)
+        - created: D (new to dashboard)
+        """
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        _, tiles = await self._create_dashboard_with_tiles("Dashboard", [insight_a, insight_b, insight_c])
+
+        insight_d = await self._create_insight("D")
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        diff = await tool._get_update_diff(tiles, [insight_d.short_id])
+
+        self.assertEqual(len(diff["deleted"]), 3)
+        deleted_insight_ids = {tile.insight_id for tile in diff["deleted"]}
+        self.assertEqual(deleted_insight_ids, {insight_a.id, insight_b.id, insight_c.id})
+        self.assertEqual(len(diff["created"]), 1)
+        self.assertEqual(diff["created"][0].content.name, "D")
+
+    async def test_caches_update_diff(self):
+        insight = await self._create_insight("Existing")
+        _, tiles = await self._create_dashboard_with_tiles("Dashboard", [insight])
+
+        new_insight = await self._create_insight("New")
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        diff1 = await tool._get_update_diff(tiles, [new_insight.short_id])
+        diff2 = await tool._get_update_diff(tiles, [new_insight.short_id])
+
+        self.assertIs(diff1, diff2)
+
+    async def test_handles_empty_dashboard(self):
+        await Dashboard.objects.acreate(
+            team=self.team,
+            name="Empty Dashboard",
+            created_by=self.user,
+        )
+        tiles: list[DashboardTile] = []
+
+        new_insight = await self._create_insight("New")
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        diff = await tool._get_update_diff(tiles, [new_insight.short_id])
+
+        self.assertEqual(len(diff["created"]), 1)
+        self.assertEqual(diff["created"][0].content.name, "New")
+        self.assertEqual(len(diff["deleted"]), 0)
+
+    async def test_recognizes_same_insight_in_position(self):
+        """When an insight ID is already in the dashboard, no changes are needed."""
+        insight = await self._create_insight("Same")
+        _, tiles = await self._create_dashboard_with_tiles("Dashboard", [insight])
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state=state)
+
+        diff = await tool._get_update_diff(tiles, [insight.short_id])
+
+        # No changes needed - insight stays in place
+        self.assertEqual(len(diff["created"]), 0)
+        self.assertEqual(len(diff["deleted"]), 0)

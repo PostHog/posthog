@@ -105,7 +105,7 @@ export const replayActiveHoursHeatMapLogic = kea<replayActiveHoursHeatMapLogicTy
                     GROUP BY hour_block
                     ORDER BY hour_block`
 
-                const qResponse = await api.queryHogQL(q)
+                const qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
 
                 // this gives an array of arrays
                 // we're loading hours 0-4, 4-8, 8-12, 12-16, 16-20, 20-24

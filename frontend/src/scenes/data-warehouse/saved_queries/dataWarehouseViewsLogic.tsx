@@ -4,17 +4,14 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
-import { DataModelingJob, DataWarehouseSavedQuery } from '~/types'
+import { DataWarehouseSavedQuery, DataWarehouseSavedQueryFolder } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
-
-const REFRESH_INTERVAL = 10000
-const DEFAULT_JOBS_PAGE_SIZE = 10
 
 export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSavedQueriesLogic']),
@@ -38,30 +35,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 updateDataWarehouseSavedQueryFailure: () => false,
             },
         ],
-        startingMaterialization: [
-            false,
-            {
-                setStartingMaterialization: (_, { starting }) => starting,
-                loadDataModelingJobsSuccess: (state, { dataModelingJobs }) => {
-                    const currentJobStatus = dataModelingJobs?.results?.[0]?.status
-                    if (
-                        currentJobStatus &&
-                        ['Running', 'Completed', 'Failed', 'Cancelled'].includes(currentJobStatus)
-                    ) {
-                        return false
-                    }
-                    return state
-                },
-            },
-        ],
     }),
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         cancelDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
+        materializeDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         revertMaterialization: (viewId: string) => ({ viewId }),
-        loadOlderDataModelingJobs: () => {},
-        resetDataModelingJobs: () => {},
-        setStartingMaterialization: (starting: boolean) => ({ starting }),
     }),
     loaders(({ values }) => ({
         dataWarehouseSavedQueries: [
@@ -72,11 +51,16 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     return savedQueries.results
                 },
                 createDataWarehouseSavedQuery: async (
-                    view: Partial<DatabaseSchemaViewTable> & { types: string[][] }
+                    view: Partial<DataWarehouseSavedQuery> & {
+                        types: string[][]
+                        folder_id?: string | null
+                        dag_id?: string
+                    }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.create(view)
 
                     lemonToast.success(`${newView.name ?? 'View'} successfully created`)
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSavedView)
 
                     return [...values.dataWarehouseSavedQueries, newView]
                 },
@@ -85,13 +69,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     return values.dataWarehouseSavedQueries.filter((view) => view.id !== viewId)
                 },
                 updateDataWarehouseSavedQuery: async (
-                    view: Partial<DatabaseSchemaViewTable> & {
+                    view: Partial<DataWarehouseSavedQuery> & {
                         id: string
-                        types: string[][]
+                        types?: string[][]
                         sync_frequency?: string
                         lifecycle?: string
                         shouldRematerialize?: boolean
                         edited_history_id?: string
+                        folder_id?: string | null
+                        soft_update?: boolean
                     }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
@@ -104,47 +90,44 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 },
             },
         ],
-        dataModelingJobs: [
-            null as PaginatedResponse<DataModelingJob> | null,
+        dataWarehouseSavedQueryFolders: [
+            [] as DataWarehouseSavedQueryFolder[],
             {
-                loadDataModelingJobs: async (savedQueryId: string) => {
-                    return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
-                        savedQueryId,
-                        values.dataModelingJobs?.results.length
-                            ? Math.max(values.dataModelingJobs?.results.length, DEFAULT_JOBS_PAGE_SIZE)
-                            : DEFAULT_JOBS_PAGE_SIZE,
-                        0
+                loadDataWarehouseSavedQueryFolders: async () => {
+                    return await api.dataWarehouseSavedQueryFolders.list()
+                },
+                createDataWarehouseSavedQueryFolder: async (name: string) => {
+                    const folder = await api.dataWarehouseSavedQueryFolders.create({ name })
+                    lemonToast.success('Folder created')
+                    return [...values.dataWarehouseSavedQueryFolders, folder].sort((a, b) =>
+                        a.name.localeCompare(b.name)
                     )
                 },
-                loadOlderDataModelingJobs: async () => {
-                    const nextUrl = values.dataModelingJobs?.next
-
-                    if (!nextUrl) {
-                        return values.dataModelingJobs
-                    }
-
-                    const res = await api.get<PaginatedResponse<DataModelingJob>>(nextUrl)
-                    res.results = [...(values.dataModelingJobs?.results ?? []), ...res.results]
-
-                    return res
+                updateDataWarehouseSavedQueryFolder: async ({ id, name }: { id: string; name: string }) => {
+                    const updatedFolder = await api.dataWarehouseSavedQueryFolders.update(id, { name })
+                    return values.dataWarehouseSavedQueryFolders
+                        .map((folder) => (folder.id === id ? updatedFolder : folder))
+                        .sort((a, b) => a.name.localeCompare(b.name))
                 },
-                resetDataModelingJobs: () => null,
+                deleteDataWarehouseSavedQueryFolder: async (folderId: string) => {
+                    await api.dataWarehouseSavedQueryFolders.delete(folderId)
+                    return values.dataWarehouseSavedQueryFolders.filter((folder) => folder.id !== folderId)
+                },
             },
         ],
     })),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
         },
-        loadDataModelingJobsSuccess: ({ payload }) => {
-            cache.disposables.add(() => {
-                const timeoutId = setTimeout(() => {
-                    if (payload) {
-                        actions.loadDataModelingJobs(payload)
-                    }
-                }, REFRESH_INTERVAL)
-                return () => clearTimeout(timeoutId)
-            }, 'dataModelingJobsRefreshTimeout')
+        createDataWarehouseSavedQueryFolderSuccess: () => {
+            actions.loadDataWarehouseSavedQueries()
+        },
+        updateDataWarehouseSavedQueryFolderSuccess: () => {
+            lemonToast.success('Folder renamed')
+        },
+        updateDataWarehouseSavedQueryFolderFailure: () => {
+            lemonToast.error('Failed to rename folder')
         },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             // in the case where we are scheduling a materialized view, send an event
@@ -159,15 +142,20 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.runDataWarehouseSavedQuery(payload.id)
             }
 
+            actions.loadDataWarehouseSavedQueries()
             actions.loadDatabase()
-
-            // Toast is handled by dataWarehouseSettingsSceneLogic when needed
         },
         updateDataWarehouseSavedQueryError: () => {
             lemonToast.error('Failed to update view')
+            actions.loadDataWarehouseSavedQueries()
         },
         deleteDataWarehouseSavedQuerySuccess: () => {
             lemonToast.success('View deleted')
+        },
+        deleteDataWarehouseSavedQueryFolderSuccess: () => {
+            lemonToast.success('Folder deleted')
+            actions.loadDataWarehouseSavedQueries()
+            actions.loadDatabase()
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
             try {
@@ -185,6 +173,19 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.loadDataWarehouseSavedQueries()
             } catch {
                 lemonToast.error(`Failed to cancel materialization`)
+            }
+        },
+        materializeDataWarehouseSavedQuery: async ({ viewId }) => {
+            try {
+                await api.dataWarehouseSavedQueries.materialize(viewId)
+                lemonToast.success('View materialized successfully')
+                posthog.capture('materialized view created', {
+                    sync_frequency: '24hour',
+                })
+                actions.loadDataWarehouseSavedQueries()
+                actions.loadDatabase()
+            } catch {
+                lemonToast.error(`Failed to materialize view`)
             }
         },
         revertMaterialization: async ({ viewId }) => {
@@ -248,11 +249,23 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 )
             },
         ],
-        hasMoreJobsToLoad: [(s) => [s.dataModelingJobs], (dataModelingJobs) => !!dataModelingJobs?.next],
+        dataWarehouseSavedQueryFoldersById: [
+            (s) => [s.dataWarehouseSavedQueryFolders],
+            (folders) => {
+                return folders.reduce(
+                    (acc, folder) => {
+                        acc[folder.id] = folder
+                        return acc
+                    },
+                    {} as Record<string, DataWarehouseSavedQueryFolder>
+                )
+            },
+        ],
     }),
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
+            actions.loadDataWarehouseSavedQueryFolders()
         },
     })),
 ])

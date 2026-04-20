@@ -1,6 +1,7 @@
 # Make tasks ready for celery autoimport
 
 from . import (
+    activity_log,
     async_migrations,
     calculate_cohort,
     demo_create_data,
@@ -10,8 +11,10 @@ from . import (
     exporter,
     feature_flags,
     heatmap_screenshot,
+    hog_flows,
     hog_functions,
     integrations,
+    llm_prompt_cache,
     plugin_server,
     process_scheduled_changes,
     remote_config,
@@ -20,6 +23,7 @@ from . import (
     sync_all_organization_available_product_features,
     sync_billing,
     tasks,
+    team_access_cache_tasks,
     usage_report,
     user_identify,
     verify_persons_data_in_sync,
@@ -27,6 +31,7 @@ from . import (
 )
 
 __all__ = [
+    "activity_log",
     "async_migrations",
     "calculate_cohort",
     "demo_create_data",
@@ -36,8 +41,10 @@ __all__ = [
     "exporter",
     "feature_flags",
     "heatmap_screenshot",
+    "hog_flows",
     "hog_functions",
     "integrations",
+    "llm_prompt_cache",
     "plugin_server",
     "process_scheduled_changes",
     "remote_config",
@@ -46,6 +53,7 @@ __all__ = [
     "sync_all_organization_available_product_features",
     "sync_billing",
     "tasks",
+    "team_access_cache_tasks",
     "usage_report",
     "user_identify",
     "verify_persons_data_in_sync",

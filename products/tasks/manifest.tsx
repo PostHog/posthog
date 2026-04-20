@@ -1,6 +1,8 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -10,13 +12,12 @@ export const manifest: ProductManifest = {
             name: 'Tasks',
             import: () => import('./frontend/TaskTracker'),
             projectBased: true,
-            defaultDocsPath: '/docs/tasks',
             activityScope: 'TaskTracker',
-            description: 'Tasks are a way to track your work and get things done.',
+            description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
             iconType: 'task',
         },
         TaskDetail: {
-            name: 'Task Detail',
+            name: 'Task',
             import: () => import('./frontend/TaskDetailScene'),
             projectBased: true,
             activityScope: 'TaskDetail',
@@ -45,7 +46,8 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Tasks',
-            category: 'Unreleased',
+            intents: [ProductKey.TASKS],
+            category: ProductItemCategory.UNRELEASED,
             type: 'task',
             href: urls.taskTracker(),
             flag: FEATURE_FLAGS.TASKS,

@@ -1,9 +1,8 @@
 from datetime import datetime
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_action, _create_event, _create_person
 
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.action import Action
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_strict import ClickhouseFunnelStrict
@@ -13,14 +12,6 @@ from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 class TestFunnelStrictStepsBreakdown(

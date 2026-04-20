@@ -6,6 +6,8 @@ Just create a new pull request if you want to make an update.
 
 We recommend you create an issue if one doesn't already exist, and continue the conversation on the issue to get more info/alignment on what to build.
 
+We don't assign issues to individuals. If you want to work on something, just create a pull request and link the issue.
+
 For more information on how we review PRs, please refer to our [handbook](https://posthog.com/handbook/engineering/how-we-review).
 
 # External PRs: what to expect
@@ -23,6 +25,7 @@ Before we do a full review, please:
 - Respond to automated review feedback (e.g. Greptile comments) where applicable.
 - Keep the change focused; add tests and docs where it meaningfully improves clarity.
 - Follow existing patterns and conventions in the areas you touch.
+- If AI helped write your contribution, read our [AI contributions policy](AI_POLICY.md) — we expect disclosure and full understanding of the code you submit.
 
 Escalation/deferral can happen for security-sensitive or critical paths, unclear product impact, or when support load is high—another engineer may pick it up later. We sometimes reward helpful contributions with merch even if a PR doesn’t merge.
 

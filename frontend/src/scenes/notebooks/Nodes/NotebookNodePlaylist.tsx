@@ -1,6 +1,7 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { PostHogErrorBoundary } from 'posthog-js/react'
 import { useEffect, useMemo } from 'react'
+
+import { PostHogErrorBoundary } from '@posthog/react'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -19,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { FilterType, RecordingUniversalFilters, ReplayTabs } from '~/types'
 
+import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
@@ -28,11 +30,13 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element => {
     const { pinned, nodeId, universalFilters } = attributes
     const playerKey = `notebook-${nodeId}`
+    const { personUUIDFromCanvasOverride } = useValues(notebookLogic)
 
     const recordingPlaylistLogicProps: SessionRecordingPlaylistLogicProps = useMemo(
         () => ({
             logicKey: playerKey,
             filters: universalFilters,
+            ...(personUUIDFromCanvasOverride ? { personUUID: personUUIDFromCanvasOverride } : {}),
             updateSearchParams: false,
             autoPlay: false,
             onFiltersChange: (newFilters) => updateAttributes({ universalFilters: newFilters }),

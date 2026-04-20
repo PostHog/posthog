@@ -8,22 +8,28 @@ import (
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/posthog/posthog/livestream/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Subscription struct {
 	SubID uint64
 
 	// Filters
-	TeamId     int
-	Token      string
-	DistinctId string
-	EventTypes []string
+	TeamId          int
+	Token           string
+	DistinctId      string
+	EventTypes      []string
+	PropertyFilters map[string][]string
 
-	Geo bool
+	Geo     bool
+	Columns []string
 
 	// Channels
 	EventChan   chan interface{}
 	ShouldClose *atomic.Bool
+
+	// Stats
+	DroppedEvents *atomic.Uint64
 }
 
 //easyjson:json
@@ -38,9 +44,11 @@ type ResponsePostHogEvent struct {
 
 //easyjson:json
 type ResponseGeoEvent struct {
-	Lat   float64 `json:"lat"`
-	Lng   float64 `json:"lng"`
-	Count uint    `json:"count"`
+	Lat         float64 `json:"lat"`
+	Lng         float64 `json:"lng"`
+	CountryCode string  `json:"country_code"`
+	DistinctId  string  `json:"distinct_id"`
+	Count       uint    `json:"count"`
 }
 
 type Filter struct {
@@ -56,20 +64,34 @@ func NewFilter(subChan chan Subscription, unSubChan chan Subscription, inboundCh
 
 func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 	return &ResponseGeoEvent{
-		Lat:   event.Lat,
-		Lng:   event.Lng,
-		Count: 1,
+		Lat:         event.Lat,
+		Lng:         event.Lng,
+		CountryCode: event.CountryCode,
+		DistinctId:  event.DistinctId,
+		Count:       1,
 	}
 }
 
-func convertToResponsePostHogEvent(event PostHogEvent, teamId int) *ResponsePostHogEvent {
+func convertToResponsePostHogEvent(event PostHogEvent, teamId int, columns []string) *ResponsePostHogEvent {
+	var properties map[string]interface{}
+	if columns == nil {
+		properties = event.Properties
+	} else {
+		properties = make(map[string]interface{})
+		for _, key := range columns {
+			if val, ok := event.Properties[key]; ok {
+				properties[key] = val
+			}
+		}
+	}
+
 	return &ResponsePostHogEvent{
 		Uuid:       event.Uuid,
 		Timestamp:  event.Timestamp,
 		DistinctId: event.DistinctId,
 		PersonId:   uuidFromDistinctId(teamId, event.DistinctId),
 		Event:      event.Event,
-		Properties: event.Properties,
+		Properties: properties,
 	}
 }
 
@@ -84,10 +106,17 @@ func uuidFromDistinctId(teamId int, distinctId string) string {
 	return uuid.NewV5(personUUIDV5Namespace, input).String()
 }
 
+func logUnsubscribe(sub Subscription) {
+	if dropped := sub.DroppedEvents.Load(); dropped > 0 {
+		log.Printf("Team %d dropped %d events", sub.TeamId, dropped)
+	}
+	metrics.SubTotal.Dec()
+}
+
 func removeSubscription(subID uint64, subs []Subscription) []Subscription {
 	for i, sub := range subs {
 		if subID == sub.SubID {
-			metrics.SubTotal.Dec()
+			logUnsubscribe(sub)
 			return slices.Delete(subs, i, i+1)
 		}
 	}
@@ -103,53 +132,77 @@ func (c *Filter) Run() {
 		case unSub := <-c.UnSubChan:
 			c.subs = removeSubscription(unSub.SubID, c.subs)
 		case event := <-c.inboundChan:
-			var responseEvent *ResponsePostHogEvent
-			var responseGeoEvent *ResponseGeoEvent
-
+			matching := make([]Subscription, 0, len(c.subs))
 			for _, sub := range c.subs {
-				if sub.ShouldClose.Load() {
-					log.Println("User has unsubscribed, but not been removed from the slice of subs")
-					continue
-				}
-
-				// log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
 				if sub.Token != "" && event.Token != sub.Token {
 					continue
 				}
-
-				if sub.DistinctId != "" && event.DistinctId != sub.DistinctId {
-					continue
-				}
-
-				if len(sub.EventTypes) > 0 && !slices.Contains(sub.EventTypes, event.Event) {
-					continue
-				}
-
-				if sub.Geo {
-					if event.Lat != 0.0 {
-						if responseGeoEvent == nil {
-							responseGeoEvent = convertToResponseGeoEvent(event)
-						}
-
-						select {
-						case sub.EventChan <- *responseGeoEvent:
-						default:
-							// Don't block
-						}
-					}
-				} else {
-					if responseEvent == nil {
-						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
-					}
-
-					select {
-					case sub.EventChan <- *responseEvent:
-					default:
-						// Don't block
-					}
-				}
+				matching = append(matching, sub)
 			}
-
+			deliverEvent(event, matching)
 		}
 	}
 }
+
+func matchesPropertyFilters(props map[string]interface{}, filters map[string][]string) bool {
+	for key, allowed := range filters {
+		raw, ok := props[key]
+		if !ok {
+			return false
+		}
+		actual := fmt.Sprint(raw)
+		if !slices.Contains(allowed, actual) {
+			return false
+		}
+	}
+	return true
+}
+
+// Routes a single event to all matching subscriptions.
+// Used by both Filter (in-memory path) and TokenRouter (Redis pub/sub path).
+func deliverEvent(event PostHogEvent, subs []Subscription) {
+	var responseGeoEvent *ResponseGeoEvent
+
+	for _, sub := range subs {
+		if sub.ShouldClose.Load() {
+			continue
+		}
+
+		if sub.DistinctId != "" && event.DistinctId != sub.DistinctId {
+			continue
+		}
+
+		if len(sub.EventTypes) > 0 && !slices.Contains(sub.EventTypes, event.Event) {
+			continue
+		}
+
+		if len(sub.PropertyFilters) > 0 && !matchesPropertyFilters(event.Properties, sub.PropertyFilters) {
+			continue
+		}
+
+		if sub.Geo {
+			if event.Lat != 0.0 {
+				if responseGeoEvent == nil {
+					responseGeoEvent = convertToResponseGeoEvent(event)
+				}
+
+				select {
+				case sub.EventChan <- *responseGeoEvent:
+				default:
+					sub.DroppedEvents.Add(1)
+					metrics.DroppedEvents.With(prometheus.Labels{"channel": "geo"}).Inc()
+				}
+			}
+		} else {
+			responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns)
+
+			select {
+			case sub.EventChan <- *responseEvent:
+			default:
+				sub.DroppedEvents.Add(1)
+				metrics.DroppedEvents.With(prometheus.Labels{"channel": "events"}).Inc()
+			}
+		}
+	}
+}
+

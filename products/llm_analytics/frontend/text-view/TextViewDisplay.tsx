@@ -72,6 +72,7 @@ export function TextViewDisplay({
                 document.removeEventListener('mousedown', handleClickOutside)
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- setPopoutSegment is a stable Kea action
     }, [popoutSegment])
 
     const segments = useMemo(() => parseTextSegments(textRepr || ''), [textRepr])
@@ -118,7 +119,7 @@ export function TextViewDisplay({
     if (textReprLoading) {
         return (
             <div className="flex items-center justify-center p-8 bg-bg-light rounded border border-border">
-                <Spinner className="text-2xl" />
+                <Spinner className="text-2xl" captureTime />
                 <span className="ml-2">Loading text representation...</span>
             </div>
         )
@@ -162,6 +163,7 @@ export function TextViewDisplay({
                                     activeLineNumber={lineNumber}
                                     lineNumberPadding={lineNumberPadding}
                                     onCopyPermalink={onCopyPermalink}
+                                    enableLineActions
                                 />
                             </span>
                         )
@@ -184,6 +186,7 @@ export function TextViewDisplay({
                             setPopoutSegment={setPopoutSegment}
                             activeLineNumber={lineNumber}
                             lineNumberPadding={lineNumberPadding}
+                            enableLineActions
                         />
                     )
                 })}

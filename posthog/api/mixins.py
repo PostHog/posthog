@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, TypeVar, cast
+from typing import Any, Generic, TypeVar, cast
 
 from django.conf import settings
 
@@ -22,11 +22,31 @@ T = TypeVar("T", bound=BaseModel)
 
 class ValidatedRequest(Request):
     """
-    Request with validated_data attribute.
-    This is set by the @validated_request decorator when request_serializer is provided.
+    Request with validated_data and validated_query_data attributes.
+    These are set by the @validated_request decorator when serializers are provided.
     """
 
     validated_data: dict[str, Any]
+    validated_query_data: dict[str, Any]
+
+
+_VT = TypeVar("_VT")
+
+
+class TypedRequest(ValidatedRequest, Generic[_VT]):
+    """ValidatedRequest with a typed validated_data field.
+
+    DataclassSerializer.validated_data returns a dataclass instance, but
+    ValidatedRequest annotates it as dict[str, Any].  This subclass lets
+    view methods declare the actual type so the type checker can follow along.
+
+    Usage::
+
+        def create(self, request: TypedRequest[CreateRepoInput], **kwargs) -> Response:
+            data = request.validated_data  # type checker knows this is CreateRepoInput
+    """
+
+    validated_data: _VT  # type: ignore[assignment]
 
 
 # Generic Pydantic model mixin for validating the response data
@@ -64,9 +84,11 @@ def validated_request(
             },
             summary="Do something"
         )
-        def my_action(self, request: Request, **kwargs):
+        def my_action(self, request: ValidatedRequest, **kwargs):
             # request.validated_data contains validated body data (if request_serializer provided)
-            # Query params are validated but not mutated
+            # request.validated_query_data contains validated query params (if query_serializer provided)
+            body_field = request.validated_data["field"]
+            query_param = request.validated_query_data["param"]
     """
 
     def decorator(view_func: Callable) -> Callable:
@@ -86,9 +108,13 @@ def validated_request(
         )
         @wraps(view_func)
         def wrapper(self, request: Request, *args, **kwargs) -> Response:
+            validated_request = cast(ValidatedRequest, request)
+            validated_request.validated_query_data = {}
+
             if query_serializer is not None:
                 query_serializer_instance = query_serializer(data=request.query_params)
                 query_serializer_instance.is_valid(raise_exception=True)
+                validated_request.validated_query_data = query_serializer_instance.validated_data
 
             if request_serializer is not None:
                 serializer = request_serializer(data=request.data)
@@ -102,7 +128,6 @@ def validated_request(
                         validation_errors=serializer.errors,
                     )
 
-                validated_request = cast(ValidatedRequest, request)
                 validated_request.validated_data = serializer.validated_data
 
             result = view_func(self, request, *args, **kwargs)
@@ -179,9 +204,27 @@ def validated_request(
             if strict_response_validation or settings.DEBUG:
                 if response_config is None:
                     return result
-                serializer_class = response_config.response
+                response_serializer = response_config.response
+                if response_serializer is None:
+                    return result
+
                 context: dict[str, Any] = getattr(self, "get_serializer_context", lambda: {})()
-                serialized = serializer_class(data=data, context=context)
+                serialized: serializers.BaseSerializer[Any]
+
+                serializer_class: type[serializers.BaseSerializer[Any]]
+
+                # Handle both class and instance to match DRF Spectacular's behavior
+                if isinstance(response_serializer, serializers.ListSerializer):
+                    # ListSerializer wraps the real serializer - reconstruct with child
+                    child = cast(serializers.Serializer, response_serializer.child)
+                    serializer_class = type(response_serializer)
+                    serialized = type(response_serializer)(data=data, child=type(child)(), context=context)
+                elif isinstance(response_serializer, serializers.Serializer):
+                    serializer_class = type(response_serializer)
+                    serialized = type(response_serializer)(data=data, context=context)
+                else:
+                    serializer_class = response_serializer
+                    serialized = response_serializer(data=data, context=context)
 
                 if not serialized.is_valid(raise_exception=strict_response_validation):
                     logger.warning(

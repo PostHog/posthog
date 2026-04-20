@@ -1,19 +1,27 @@
+import { useValues } from 'kea'
+import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
-import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
     isMobile,
     isOperatorCohort,
+    isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
     isOperatorRange,
     isOperatorRegex,
+    isOperatorSemver,
 } from 'lib/utils'
+import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
 import {
     GroupTypeIndex,
@@ -40,6 +48,7 @@ export interface OperatorValueSelectProps {
     propertyDefinitions: PropertyDefinition[]
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
+    groupKeyNames?: Record<string, string>
     size?: 'xsmall' | 'small' | 'medium'
     startVisible?: LemonDropdownProps['startVisible']
     /**
@@ -48,6 +57,10 @@ export interface OperatorValueSelectProps {
      * i.e. it limits the options shown from the options that would have been shown
      * **/
     operatorAllowlist?: Array<PropertyOperator>
+    /**
+     * Force single-select mode regardless of operator type
+     * **/
+    forceSingleSelect?: boolean
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -60,9 +73,9 @@ interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
 function getRegexValidationError(operator: PropertyOperator, value: any): string | null {
     if (isOperatorRegex(operator)) {
         try {
-            new RegExp(value)
-        } catch (e: any) {
-            return e.message
+            RE2JS.compile(value)
+        } catch (error) {
+            return formatRE2Error(error as Error, value)
         }
     }
     return null
@@ -97,11 +110,15 @@ export function OperatorValueSelect({
     eventNames = [],
     addRelativeDateTimeOptions,
     groupTypeIndex = undefined,
+    groupKeyNames,
     size,
     editable,
     startVisible,
     operatorAllowlist,
+    forceSingleSelect,
 }: OperatorValueSelectProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const semverTargetingEnabled = !!featureFlags[FEATURE_FLAGS.SEMVER_TARGETING]
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
 
@@ -118,11 +135,12 @@ export function OperatorValueSelect({
             startingOperator = PropertyOperator.IsDateExact
         } else if (isCohortProperty) {
             startingOperator = PropertyOperator.In
+        } else if (propertyKey === 'message' && type === PropertyFilterType.Log) {
+            startingOperator = PropertyOperator.IContains
         }
     }
 
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
-    const [validationError, setValidationError] = useState<string | null>(null)
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
@@ -149,9 +167,46 @@ export function OperatorValueSelect({
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
-        const operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
+        let operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
+            // Filter out semver operators if feature flag is not enabled
+            if (!semverTargetingEnabled && isOperatorSemver(op)) {
+                return false
+            }
             return !operatorAllowlist || operatorAllowlist.includes(op)
         })
+
+        // Restrict message log property to only allow exact, is_not, contains, not contains, regex, and not regex operators
+        if (propertyKey === 'message' && type === PropertyFilterType.Log) {
+            operators = operators.filter((op) =>
+                [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IsNot,
+                    PropertyOperator.IContains,
+                    PropertyOperator.NotIContains,
+                    PropertyOperator.Regex,
+                    PropertyOperator.NotRegex,
+                ].includes(op)
+            )
+        }
+
+        // Restrict trace_id and span_id to only equals/not equals
+        if ((propertyKey === 'trace_id' || propertyKey === 'span_id') && type === PropertyFilterType.Span) {
+            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
+        }
+
+        // Restrict duration to equals, not equals, and numeric comparisons
+        if (propertyKey === 'duration' && type === PropertyFilterType.Span) {
+            operators = operators.filter((op) =>
+                [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IsNot,
+                    PropertyOperator.GreaterThan,
+                    PropertyOperator.GreaterThanOrEqual,
+                    PropertyOperator.LessThan,
+                    PropertyOperator.LessThanOrEqual,
+                ].includes(op)
+            )
+        }
 
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
@@ -164,10 +219,15 @@ export function OperatorValueSelect({
                 defaultProperty = PropertyOperator.IsDateExact
             } else if (propertyType === PropertyType.Cohort) {
                 defaultProperty = PropertyOperator.In
+            } else if (propertyKey === 'message' && type === PropertyFilterType.Log) {
+                defaultProperty = PropertyOperator.IContains
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator, operatorAllowlist]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [propertyDefinition, propertyKey, operator, operatorAllowlist, semverTargetingEnabled]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const validationError = currentOperator && value ? getValidationError(currentOperator, value, propertyKey) : null
+
     return (
         <>
             <div data-attr="taxonomic-operator">
@@ -176,19 +236,17 @@ export function OperatorValueSelect({
                         operator={currentOperator || PropertyOperator.Exact}
                         operators={operators}
                         onChange={(newOperator: PropertyOperator) => {
-                            const tentativeValidationError =
-                                newOperator && value ? getRegexValidationError(newOperator, value) : null
-                            if (tentativeValidationError) {
-                                setValidationError(tentativeValidationError)
-                                return
-                            }
-                            setValidationError(null)
-
                             setCurrentOperator(newOperator)
                             if (isOperatorCohort(newOperator)) {
                                 onChange(newOperator, value || null)
                             } else if (isOperatorRange(newOperator) && isNaN(value as any)) {
                                 // If the new operator is range and the value is not a number, we want to set the new value to null
+                                onChange(newOperator, null)
+                            } else if (
+                                isOperatorDate(newOperator) &&
+                                (Array.isArray(value) || !dayjs(value as string).isValid())
+                            ) {
+                                // If the new operator is date and the value is not a valid date, clear it
                                 onChange(newOperator, null)
                             } else if (isOperatorFlag(newOperator)) {
                                 onChange(newOperator, newOperator)
@@ -215,7 +273,7 @@ export function OperatorValueSelect({
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
                     // High flex-grow for proper sizing within TaxonomicPropertyFilter
-                    className="shrink grow-[1000] min-w-[10rem]"
+                    className="shrink grow-[1000] min-w-[10rem] overflow-hidden"
                     data-attr="taxonomic-value-select"
                 >
                     <PropertyValue
@@ -228,30 +286,44 @@ export function OperatorValueSelect({
                         value={value}
                         eventNames={eventNames}
                         onSet={(newValue: string | number | string[] | null) => {
-                            const tentativeValidationError =
-                                currentOperator && newValue
-                                    ? getValidationError(currentOperator, newValue, propertyKey)
-                                    : null
-                            if (tentativeValidationError) {
-                                setValidationError(tentativeValidationError)
-                                return
-                            }
-                            setValidationError(null)
-
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
                         // open automatically only if new filter
                         autoFocus={!isMobile() && value === null}
                         addRelativeDateTimeOptions={addRelativeDateTimeOptions}
                         groupTypeIndex={groupTypeIndex}
+                        groupKeyNames={groupKeyNames}
                         editable={editable}
                         size={size}
+                        forceSingleSelect={forceSingleSelect}
+                        validationError={validationError}
                     />
                 </div>
             )}
-            {validationError && <span className="taxonomic-validation-error">{validationError}</span>}
+            {validationError && (
+                <div className="basis-full w-full">
+                    <LemonBanner type="warning" hideIcon>
+                        {validationError}
+                        {isOperatorRegex(currentOperator) && (
+                            <>
+                                {' '}
+                                <Link to={RE2_DOCS_LINK} target="_blank">
+                                    Learn more
+                                </Link>
+                            </>
+                        )}
+                    </LemonBanner>
+                </div>
+            )}
         </>
     )
+}
+
+function toOption(op: PropertyOperator): { label: JSX.Element; value: PropertyOperator } {
+    return {
+        label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
+        value: op || PropertyOperator.Exact,
+    }
 }
 
 export function OperatorSelect({
@@ -262,16 +334,38 @@ export function OperatorSelect({
     size,
     startVisible,
 }: OperatorSelectProps): JSX.Element {
-    const operatorOptions = operators.map((op) => ({
-        label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
-        value: op || PropertyOperator.Exact,
-    }))
+    const hasSemver = operators.some(isOperatorSemver)
+    const options: LemonSelectSection<PropertyOperator>[] | { label: JSX.Element; value: PropertyOperator }[] =
+        hasSemver
+            ? [
+                  ...(operators.some((op) => !isOperatorSemver(op))
+                      ? [{ options: operators.filter((op) => !isOperatorSemver(op)).map(toOption) }]
+                      : []),
+                  {
+                      title: 'Semver operators',
+                      footer: (
+                          <div className="mx-2 my-1">
+                              <Link
+                                  to="https://posthog.com/docs/data/property-filters#semver-operators"
+                                  target="_blank"
+                                  className="text-xs"
+                              >
+                                  Learn more
+                              </Link>
+                          </div>
+                      ),
+                      options: operators.filter(isOperatorSemver).map(toOption),
+                  },
+              ]
+            : operators.map(toOption)
+
     return (
         <LemonSelect
-            options={operatorOptions}
+            options={options}
             value={operator || '='}
             placeholder="Property key"
             dropdownMatchSelectWidth={false}
+            dropdownPlacement="bottom-start"
             fullWidth
             onChange={(op) => {
                 op && onChange(op)
@@ -280,6 +374,7 @@ export function OperatorSelect({
             size={size}
             menu={{
                 closeParentPopoverOnClickInside: false,
+                ...(hasSemver ? { className: '!max-h-[400px]' } : {}),
             }}
             startVisible={startVisible}
         />

@@ -4,14 +4,17 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { base64Encode } from 'lib/utils'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
@@ -19,6 +22,7 @@ import { NotebooksTable } from './NotebooksTable/NotebooksTable'
 export const scene: SceneExport = {
     component: NotebooksScene,
     logic: notebooksTableLogic,
+    productKey: ProductKey.NOTEBOOKS,
 }
 
 export function NotebooksScene(): JSX.Element {
@@ -74,9 +78,23 @@ export function NotebooksScene(): JSX.Element {
                             resourceType={AccessControlResourceType.Notebook}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton size="small" data-attr="new-notebook" to={urls.notebook('new')} type="primary">
-                                New notebook
-                            </LemonButton>
+                            <AppShortcut
+                                name="NewNotebook"
+                                keybind={[keyBinds.new]}
+                                intent="New notebook"
+                                interaction="click"
+                                scope={Scene.Notebooks}
+                            >
+                                <LemonButton
+                                    size="small"
+                                    data-attr="new-notebook"
+                                    to={urls.notebook('new')}
+                                    type="primary"
+                                    tooltip="New notebook"
+                                >
+                                    New notebook
+                                </LemonButton>
+                            </AppShortcut>
                         </AccessControlAction>
                     </>
                 }

@@ -4,8 +4,10 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelContextLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelContextLogic'
+import { sidePanelContextLogic } from '~/layout/navigation-3000/sidepanel/sidePanelContextLogic'
 import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { hogql } from '~/queries/utils'
 
@@ -14,7 +16,14 @@ import type { metalyticsLogicType } from './metalyticsLogicType'
 export const metalyticsLogic = kea<metalyticsLogicType>([
     path(['lib', 'components', 'metalytics', 'metalyticsLogic']),
     connect(() => ({
-        values: [sidePanelContextLogic, ['sceneSidePanelContext'], membersLogic, ['members']],
+        values: [
+            sidePanelContextLogic,
+            ['sceneSidePanelContext'],
+            membersLogic,
+            ['members'],
+            teamLogic,
+            ['currentProjectId'],
+        ],
     })),
 
     loaders(({ values }) => ({
@@ -28,12 +37,16 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                         WHERE app_source = 'metalytics'
                         AND instance_id = ${values.instanceId}`
 
-                    // NOTE: I think this gets cached heavily - how to correctly invalidate?
-                    const response = await api.queryHogQL(query, { refresh: 'force_blocking' })
-                    const result = response.results as number[][]
+                    const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Metalytics'
+                    const response = await api.queryHogQL(
+                        query,
+                        { scene: currentScene, productKey: 'platform_and_support' },
+                        { refresh: 'async' }
+                    )
+                    const result = response.results as number[][] | undefined
                     return {
-                        views: result[0][0],
-                        users: result[0][1],
+                        views: result?.[0]?.[0] ?? 0,
+                        users: result?.[0]?.[1] ?? 0,
                     }
                 },
             },
@@ -50,8 +63,13 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                         AND timestamp >= NOW() - INTERVAL 30 DAY
                         ORDER BY timestamp DESC`
 
-                    const response = await api.queryHogQL(query, { refresh: 'force_blocking' })
-                    return response.results.map((result) => result[0]) as string[]
+                    const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Metalytics'
+                    const response = await api.queryHogQL(
+                        query,
+                        { scene: currentScene, productKey: 'platform_and_support' },
+                        { refresh: 'async' }
+                    )
+                    return (response.results?.map((result) => result[0]) ?? []) as string[]
                 },
             },
         ],
@@ -83,13 +101,13 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
         ],
     }),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         instanceId: async (instanceId) => {
             if (instanceId) {
                 actions.loadViewCount()
                 actions.loadUsersLast30days()
 
-                await api.create('/api/projects/@current/metalytics/', {
+                void api.create(`/api/projects/${values.currentProjectId}/metalytics/`, {
                     metric_name: 'viewed',
                     instance_id: instanceId,
                 })

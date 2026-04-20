@@ -1,16 +1,45 @@
+import { useValues } from 'kea'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { isOperatorSemver } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { groupsModel } from '~/models/groupsModel'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { FilterType } from '~/types'
+import { FilterType, PropertyOperator } from '~/types'
 
+import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
 
+export const WORKFLOW_OPERATOR_ALLOWLIST = Object.values(PropertyOperator).filter((op) => !isOperatorSemver(op))
+
+function useSampleGlobals(): Record<string, any> {
+    const { workflow } = useValues(workflowLogic)
+    const workflowVariables: Record<string, any> = {}
+    if (workflow?.variables) {
+        for (const variable of workflow.variables) {
+            if (variable.type === 'string') {
+                workflowVariables[variable.key] = 'example_value'
+            } else if (variable.type === 'number') {
+                workflowVariables[variable.key] = 123
+            } else if (variable.type === 'boolean') {
+                workflowVariables[variable.key] = true
+            } else if (variable.type === 'dictionary' || variable.type === 'json') {
+                workflowVariables[variable.key] = {}
+            } else {
+                workflowVariables[variable.key] = null
+            }
+        }
+    }
+    return { variables: workflowVariables }
+}
+
 export type HogFlowFiltersProps = {
-    actionId?: HogFlowAction['id']
+    filtersKey: string
     filters: HogFlowAction['filters']
     setFilters: (filters: HogFlowAction['filters']) => void
     typeKey?: string
@@ -22,6 +51,8 @@ export type HogFlowFiltersProps = {
  */
 export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }: HogFlowFiltersProps): JSX.Element {
     const shouldShowInternalEvents = useFeatureFlag('WORKFLOWS_INTERNAL_EVENT_FILTERS')
+    const sampleGlobals = useSampleGlobals()
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
     if (shouldShowInternalEvents) {
@@ -33,7 +64,9 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.PersonProperties,
+        ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.HogQLExpression,
+        TaxonomicFilterGroupType.WorkflowVariables,
     ]
     if (shouldShowInternalEvents) {
         propertyTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEventProperties)
@@ -54,35 +87,43 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
             actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
             propertiesTaxonomicGroupTypes={propertyTaxonomicGroupTypes}
             propertyFiltersPopover
-            addFilterDefaultOptions={{
-                id: '$pageview',
-                name: '$pageview',
-                type: 'events',
-            }}
             buttonProps={{
                 type: 'secondary',
             }}
             buttonCopy={buttonCopy ?? 'Add filter'}
+            allowNonCapturedEvents
+            hogQLGlobals={sampleGlobals}
+            operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
         />
     )
 }
 
-export function HogFlowPropertyFilters({ actionId, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
+export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
+    const sampleGlobals = useSampleGlobals()
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
             onChange={(properties: FilterType['properties']): void => {
                 setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
             }}
-            pageKey={`HogFlowPropertyFilters.${actionId}`}
+            pageKey={`HogFlowPropertyFilters.${filtersKey}`}
             taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.WorkflowVariables,
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Cohorts,
+                ...groupsTaxonomicTypes,
                 TaxonomicFilterGroupType.HogQLExpression,
+                TaxonomicFilterGroupType.EventMetadata,
             ]}
-            metadataSource={{ kind: NodeKind.ActorsQuery }}
+            metadataSource={{
+                kind: NodeKind.EventsQuery,
+                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                after: '-30d',
+            }}
+            hogQLGlobals={sampleGlobals}
+            operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
         />
     )
 }

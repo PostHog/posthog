@@ -1,8 +1,23 @@
 debug: true
-kafka:
-    brokers: 'localhost:9092,localhost:9093'
-    topic: 'topic'
-    group_id: 'livestream-dev'
+consumers:
+    event:
+        enabled: true
+        brokers: 'localhost:9092,localhost:9093'
+        topic: 'events_topic'
+        security_protocol: 'PLAINTEXT'
+        group_id: 'livestream-dev'
+    session_recording:
+        enabled: true
+        brokers: 'localhost:9092,localhost:9093'
+        topic: 'session_recording_snapshot_item_events'
+        security_protocol: 'SSL'
+        group_id: 'livestream-dev-session-recordings'
+    notification:
+        enabled: false
+        brokers: 'localhost:9092,localhost:9093'
+        topic: 'notification_events'
+        security_protocol: 'PLAINTEXT'
+        group_id: 'livestream-dev-notifications'
 mmdb:
     path: 'mmdb.db'
 jwt:

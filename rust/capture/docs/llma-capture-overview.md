@@ -36,6 +36,7 @@ A generation represents a single call to an LLM (e.g., a chat completion request
 - `$ai_span_name` (optional) - Name given to this generation
 - `$ai_parent_id` (optional) - Parent span ID for tree view grouping
 - `$ai_latency` (optional) - LLM call latency in seconds
+- `$ai_time_to_first_token` (optional) - Time to first token in seconds (streaming only)
 - `$ai_http_status` (optional) - HTTP status code of the response
 - `$ai_base_url` (optional) - Base URL of the LLM provider
 - `$ai_request_url` (optional) - Full URL of the request

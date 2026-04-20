@@ -27,14 +27,16 @@ class TestSummarizationAPI(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/summarization/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.llm_analytics.backend.api.summarization.async_to_sync")
-    def test_event_summarization_includes_title(self, mock_async_to_sync, mock_feature_enabled):
+    @patch("products.llm_analytics.backend.api.summarization.summarize")
+    def test_event_summarization_includes_title(self, mock_summarize):
         """Should include title field in summarization response."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
         # Mock the summarize function to return a SummarizationResponse with title
         mock_summary = SummarizationResponse(
             title="Test Event Summary",
-            flow_diagram="User Input\n    ↓\nLLM Processing\n    ↓\nResponse",
+            flow_diagram="User Input\n    |\nLLM Processing\n    |\nResponse",
             summary_bullets=[
                 SummaryBullet(text="User sent a test message", line_refs="L1"),
                 SummaryBullet(text="LLM processed the request", line_refs="L5"),
@@ -45,8 +47,7 @@ class TestSummarizationAPI(APIBaseTest):
             ],
         )
 
-        # Configure mock to return our summary
-        mock_async_to_sync.return_value = lambda *args, **kwargs: mock_summary
+        mock_summarize.return_value = mock_summary
 
         request_data = {
             "summarize_type": "event",
@@ -86,14 +87,16 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertIn("summary_bullets", data["summary"])
         self.assertIn("interesting_notes", data["summary"])
 
-    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.llm_analytics.backend.api.summarization.async_to_sync")
-    def test_trace_summarization_includes_title(self, mock_async_to_sync, mock_feature_enabled):
+    @patch("products.llm_analytics.backend.api.summarization.summarize")
+    def test_trace_summarization_includes_title(self, mock_summarize):
         """Should include title field in trace summarization response."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
         # Mock the summarize function
         mock_summary = SummarizationResponse(
             title="Multi-step Trace Execution",
-            flow_diagram="Start\n    ↓\nProcess\n    ↓\nComplete",
+            flow_diagram="Start\n    |\nProcess\n    |\nComplete",
             summary_bullets=[
                 SummaryBullet(text="Trace started", line_refs="L1"),
                 SummaryBullet(text="Multiple steps executed", line_refs="L15"),
@@ -101,7 +104,7 @@ class TestSummarizationAPI(APIBaseTest):
             interesting_notes=[],
         )
 
-        mock_async_to_sync.return_value = lambda *args, **kwargs: mock_summary
+        mock_summarize.return_value = mock_summary
 
         request_data = {
             "summarize_type": "trace",
@@ -137,9 +140,11 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertIn("title", data["summary"])
         self.assertEqual(data["summary"]["title"], "Multi-step Trace Execution")
 
-    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
-    def test_missing_summarize_type(self, mock_feature_enabled):
+    def test_missing_summarize_type(self):
         """Should return 400 for missing summarize_type."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
         request_data: dict[str, Any] = {"data": {"event": {}}}
 
         response = self.client.post(
@@ -151,9 +156,11 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("summarize_type", str(response.data).lower())
 
-    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
-    def test_missing_data(self, mock_feature_enabled):
+    def test_missing_data(self):
         """Should return 400 for missing data."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
         request_data = {"summarize_type": "event"}
 
         response = self.client.post(
@@ -165,9 +172,11 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("data", str(response.data).lower())
 
-    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
-    def test_invalid_summarize_type(self, mock_feature_enabled):
+    def test_invalid_summarize_type(self):
         """Should return 400 for invalid summarize_type."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
         request_data = {
             "summarize_type": "invalid",
             "data": {"event": {}},
@@ -181,15 +190,16 @@ class TestSummarizationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.llm_analytics.backend.api.summarization.async_to_sync")
-    def test_events_in_same_trace_have_separate_cache(self, mock_async_to_sync, mock_feature_enabled):
+    @patch("products.llm_analytics.backend.api.summarization.summarize")
+    def test_events_in_same_trace_have_separate_cache(self, mock_summarize):
         """Should cache event summaries by event ID, not trace ID, to avoid collisions."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
 
         # Mock the summarize function to return different summaries
-        def mock_summarize(*args, **kwargs):
+        def mock_summarize_fn(*args, **kwargs):
             # Return different title based on which event we're summarizing
-            text = args[0] if args else kwargs.get("text_repr", "")
+            text = kwargs.get("text_repr", "")
             if "Event A" in text:
                 return SummarizationResponse(
                     title="Event A Summary",
@@ -205,7 +215,7 @@ class TestSummarizationAPI(APIBaseTest):
                     interesting_notes=[],
                 )
 
-        mock_async_to_sync.return_value = mock_summarize
+        mock_summarize.side_effect = mock_summarize_fn
 
         # Create two events in the same trace with different IDs
         trace_id = "trace_123"
@@ -259,3 +269,89 @@ class TestSummarizationAPI(APIBaseTest):
 
         # Verify they're different
         self.assertNotEqual(response_a.data["summary"]["title"], response_b.data["summary"]["title"])
+
+    def test_batch_check_unauthenticated(self):
+        """Should require authentication to access batch_check endpoint."""
+        self.client.logout()
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_batch_check_empty_traces(self):
+        """Should return empty list when no traces have cached summaries."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/",
+            {"trace_ids": ["trace1", "trace2"], "mode": "minimal"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["summaries"], [])
+
+    @patch("products.llm_analytics.backend.api.summarization.summarize")
+    def test_batch_check_returns_cached_summaries(self, mock_summarize):
+        """Should return cached summaries for traces that have been summarized."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        mock_summary = SummarizationResponse(
+            title="Cached Summary",
+            flow_diagram="Flow",
+            summary_bullets=[SummaryBullet(text="Step", line_refs="L1")],
+            interesting_notes=[],
+        )
+        mock_summarize.return_value = mock_summary
+
+        # First, summarize a trace to populate the cache
+        summarize_request = {
+            "summarize_type": "trace",
+            "mode": "minimal",
+            "data": {
+                "trace": {"id": "cached_trace", "properties": {"$ai_span_name": "test"}},
+                "hierarchy": [],
+            },
+        }
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            summarize_request,
+            format="json",
+        )
+
+        # Now check batch - should return the cached summary
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/",
+            {"trace_ids": ["cached_trace", "not_cached"], "mode": "minimal"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["summaries"]), 1)
+        self.assertEqual(response.data["summaries"][0]["trace_id"], "cached_trace")
+        self.assertEqual(response.data["summaries"][0]["title"], "Cached Summary")
+
+    def test_batch_check_requires_trace_ids(self):
+        """Should return 400 when trace_ids is missing."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/",
+            {"mode": "minimal"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("trace_ids", str(response.data).lower())
+
+    def test_summarization_denied_when_ai_consent_not_approved(self):
+        """Should return 403 when AI data processing is not approved."""
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {"summarize_type": "event", "mode": "minimal", "data": {"event": {"id": "test"}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("AI data processing must be approved", response.data["detail"])

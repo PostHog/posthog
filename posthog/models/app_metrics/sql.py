@@ -1,5 +1,5 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_APP_METRICS, KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
 
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS {KAFKA_APP_METRICS_TABLE}
     error_type String,
     error_details String CODEC(ZSTD(3))
 )
-ENGINE={kafka_engine(topic=KAFKA_APP_METRICS)}
+ENGINE={kafka_engine(topic=KAFKA_APP_METRICS, group=CONSUMER_GROUP_APP_METRICS)}
 """
 )
 

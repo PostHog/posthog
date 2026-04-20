@@ -1,22 +1,17 @@
 import os
 
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.utils import get_from_env
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
-TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "127.0.0.1")
+TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "temporal")
+TEMPORAL_UI_HOST: str = os.getenv("TEMPORAL_UI_HOST", "http://localhost:8081" if DEBUG else "https://cloud.temporal.io")
 TEMPORAL_PORT: str = os.getenv("TEMPORAL_PORT", "7233")
 TEMPORAL_CLIENT_ROOT_CA: str | None = os.getenv("TEMPORAL_CLIENT_ROOT_CA", None)
 TEMPORAL_CLIENT_CERT: str | None = os.getenv("TEMPORAL_CLIENT_CERT", None)
 TEMPORAL_CLIENT_KEY: str | None = os.getenv("TEMPORAL_CLIENT_KEY", None)
 TEMPORAL_WORKFLOW_MAX_ATTEMPTS: str = os.getenv("TEMPORAL_WORKFLOW_MAX_ATTEMPTS", "3")
-TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONVERTER", "0").lower() in [
-    "1",
-    "true",
-    "t",
-    "y",
-    "yes",
-]
+TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONVERTER", False, type_cast=str_to_bool)
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(
     "GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", None, optional=True, type_cast=int
 )
@@ -27,7 +22,25 @@ MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES"
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
 
+TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
+TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(
+    "TEMPORAL_HEALTH_MAX_IDLE_SECONDS", None, optional=True, type_cast=float
+)
+TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
+    "TEMPORAL_COMBINED_METRICS_SERVER_ENABLED", True, type_cast=str_to_bool
+)
+
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
+TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
+TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))
+
+SANDBOX_PROVIDER: str | None = get_from_env(
+    "SANDBOX_PROVIDER", None, optional=True
+)  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
+SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
+SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
+SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
+
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
 
@@ -55,11 +68,14 @@ def _set_temporal_task_queue(task_queue: str) -> str:
 default_task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
 TEMPORAL_TASK_QUEUE: str = _set_temporal_task_queue(default_task_queue)
 DATA_WAREHOUSE_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-task-queue")
+DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-cdp-producer-task-queue")
 MAX_AI_TASK_QUEUE = _set_temporal_task_queue("max-ai-task-queue")
 BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
 SYNC_BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("no-sandbox-python-django")
 GENERAL_PURPOSE_TASK_QUEUE = _set_temporal_task_queue("general-purpose-task-queue")
+HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
+DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
@@ -68,3 +84,9 @@ MESSAGING_TASK_QUEUE = _set_temporal_task_queue("messaging-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
+LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
+LLMA_SENTIMENT_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-sentiment-task-queue")
+LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
+EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
+LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
+RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process

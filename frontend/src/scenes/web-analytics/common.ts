@@ -16,6 +16,11 @@ import {
 import { hogql } from '~/queries/utils'
 import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types'
 
+/** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
+export const BREAKDOWN_NULL_DISPLAY = '(none)'
+/** Matches BREAKDOWN_REFERRER_PREFIX in posthog/hogql_queries/web_analytics/stats_table.py */
+export const BREAKDOWN_REFERRER_PREFIX = 'referrer:'
+
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
@@ -66,10 +71,25 @@ export enum TileId {
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
     PAGE_REPORTS_PREVIOUS_PAGE = 'PR_PREVIOUS_PAGE',
+    PAGE_REPORTS_UTM_SOURCE = 'PR_UTM_SOURCE',
+    PAGE_REPORTS_UTM_MEDIUM = 'PR_UTM_MEDIUM',
+    PAGE_REPORTS_UTM_CAMPAIGN = 'PR_UTM_CAMPAIGN',
+    PAGE_REPORTS_UTM_CONTENT = 'PR_UTM_CONTENT',
+    PAGE_REPORTS_UTM_TERM = 'PR_UTM_TERM',
+    PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND = 'PR_AVG_TIME_ON_PAGE_TREND',
 
     // Marketing Tiles
     MARKETING = 'MARKETING',
     MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
+    MARKETING_NON_INTEGRATED_CONVERSIONS = 'MARKETING_NON_INTEGRATED_CONVERSIONS',
+
+    // Bot Analytics Tiles
+    BOT_OVERVIEW = 'BOT_OVERVIEW',
+    BOT_TRENDS = 'BOT_TRENDS',
+    BOT_PATHS = 'BOT_PATHS',
+    BOT_SOURCES = 'BOT_SOURCES',
+    BOT_AI_REFERRALS = 'BOT_AI_REFERRALS',
+    BOT_AI_ENGAGEMENT = 'BOT_AI_ENGAGEMENT',
 }
 
 export enum ProductTab {
@@ -78,11 +98,20 @@ export enum ProductTab {
     PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
     MARKETING = 'marketing',
+    HEALTH = 'health',
+    LIVE = 'live',
+    BOT_ANALYTICS = 'bot-analytics',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
 
+export type BotTrafficFilter = 'regular' | 'bot' | 'all'
+
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
+
+export const tabSplitIndicesMap: Partial<Record<TileId, number[]>> = {
+    [TileId.SOURCES]: [1, 3], // [Channel] [Referring Domain ▼ Referring URL] [UTM Source ▼ ...]
+}
 
 export const loadPriorityMap: Record<TileId, number> = {
     [TileId.OVERVIEW]: 1,
@@ -125,11 +154,26 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 14,
     [TileId.PAGE_REPORTS_LANGUAGES]: 15,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 16,
+    [TileId.PAGE_REPORTS_UTM_SOURCE]: 17,
+    [TileId.PAGE_REPORTS_UTM_MEDIUM]: 18,
+    [TileId.PAGE_REPORTS_UTM_CAMPAIGN]: 19,
+    [TileId.PAGE_REPORTS_UTM_CONTENT]: 20,
+    [TileId.PAGE_REPORTS_UTM_TERM]: 21,
+    [TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND]: 22,
 
     // Marketing Tiles
     [TileId.MARKETING_OVERVIEW]: 1,
     [TileId.MARKETING]: 2,
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 3,
+    [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 4,
+
+    // Bot Analytics Tiles
+    [TileId.BOT_OVERVIEW]: 1,
+    [TileId.BOT_TRENDS]: 2,
+    [TileId.BOT_PATHS]: 3,
+    [TileId.BOT_SOURCES]: 4,
+    [TileId.BOT_AI_REFERRALS]: 5,
+    [TileId.BOT_AI_ENGAGEMENT]: 6,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -186,8 +230,21 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.PAGE_REPORTS_LANGUAGES]: 'Languages',
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 'Top events',
     [TileId.PAGE_REPORTS_PREVIOUS_PAGE]: 'Previous page',
+    [TileId.PAGE_REPORTS_UTM_SOURCE]: 'UTM source',
+    [TileId.PAGE_REPORTS_UTM_MEDIUM]: 'UTM medium',
+    [TileId.PAGE_REPORTS_UTM_CAMPAIGN]: 'UTM campaign',
+    [TileId.PAGE_REPORTS_UTM_CONTENT]: 'UTM content',
+    [TileId.PAGE_REPORTS_UTM_TERM]: 'UTM term',
+    [TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND]: 'Time on page',
     [TileId.MARKETING]: 'Marketing',
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 'Campaign breakdown',
+    [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 'Non-integrated conversions',
+    [TileId.BOT_OVERVIEW]: 'Bot traffic overview',
+    [TileId.BOT_TRENDS]: 'Bot requests over time',
+    [TileId.BOT_PATHS]: 'Most crawled paths',
+    [TileId.BOT_SOURCES]: 'Bot referrer domains',
+    [TileId.BOT_AI_REFERRALS]: 'AI referral traffic',
+    [TileId.BOT_AI_ENGAGEMENT]: 'AI referral engagement',
 }
 
 export interface BaseTile {
@@ -231,6 +288,7 @@ export interface TabsTile extends BaseTile {
     activeTabId: string
     setTabId: (id: string) => void
     tabs: TabsTileTab[]
+    splitIndices?: number[]
 }
 
 export interface ReplayTile extends BaseTile {
@@ -254,16 +312,17 @@ export enum GraphsTab {
     UNIQUE_USERS = 'UNIQUE_USERS',
     PAGE_VIEWS = 'PAGE_VIEWS',
     NUM_SESSION = 'NUM_SESSION',
+    SESSION_DURATION = 'SESSION_DURATION',
+    BOUNCE_RATE = 'BOUNCE_RATE',
     UNIQUE_CONVERSIONS = 'UNIQUE_CONVERSIONS',
     TOTAL_CONVERSIONS = 'TOTAL_CONVERSIONS',
     CONVERSION_RATE = 'CONVERSION_RATE',
-    REVENUE_EVENTS = 'REVENUE_EVENTS',
-    CONVERSION_REVENUE = 'CONVERSION_REVENUE',
 }
 
 export enum SourceTab {
     CHANNEL = 'CHANNEL',
     REFERRING_DOMAIN = 'REFERRING_DOMAIN',
+    REFERRING_URL = 'REFERRING_URL',
     UTM_SOURCE = 'UTM_SOURCE',
     UTM_MEDIUM = 'UTM_MEDIUM',
     UTM_CAMPAIGN = 'UTM_CAMPAIGN',
@@ -291,6 +350,7 @@ export enum PathTab {
 
 export enum GeographyTab {
     MAP = 'MAP',
+    REGIONS_MAP = 'REGIONS_MAP',
     COUNTRIES = 'COUNTRIES',
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
@@ -314,6 +374,27 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
     hasAuthorizedUrls: boolean
+}
+
+export const SOURCE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, SourceTab>> = {
+    [WebStatsBreakdown.InitialChannelType]: SourceTab.REFERRING_DOMAIN,
+    [WebStatsBreakdown.InitialReferringDomain]: SourceTab.REFERRING_URL,
+    [WebStatsBreakdown.InitialUTMSource]: SourceTab.UTM_MEDIUM,
+    [WebStatsBreakdown.InitialUTMMedium]: SourceTab.UTM_CAMPAIGN,
+    [WebStatsBreakdown.InitialUTMCampaign]: SourceTab.UTM_CONTENT,
+    [WebStatsBreakdown.InitialUTMContent]: SourceTab.UTM_TERM,
+    [WebStatsBreakdown.InitialUTMSourceMediumCampaign]: SourceTab.UTM_CONTENT,
+}
+
+export const GEOGRAPHY_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, GeographyTab>> = {
+    [WebStatsBreakdown.Country]: GeographyTab.REGIONS,
+    [WebStatsBreakdown.Region]: GeographyTab.CITIES,
+}
+
+export const DEVICE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, DeviceTab>> = {
+    [WebStatsBreakdown.DeviceType]: DeviceTab.BROWSER,
+    [WebStatsBreakdown.Browser]: DeviceTab.OS,
+    [WebStatsBreakdown.OS]: DeviceTab.VIEWPORT,
 }
 
 export type TileVisualizationOption = 'table' | 'graph'
@@ -340,6 +421,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$channel_type', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialReferringDomain:
             return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialReferringURL:
+            return { key: '$session_entry_referrer', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSource:
             return { key: '$entry_utm_source', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialUTMCampaign:
@@ -482,6 +565,8 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
                 return 'Channel Type'
             case WebStatsBreakdown.InitialReferringDomain:
                 return 'Referring Domain'
+            case WebStatsBreakdown.InitialReferringURL:
+                return 'Referring URL'
             case WebStatsBreakdown.InitialUTMSource:
                 return 'UTM Source'
             case WebStatsBreakdown.InitialUTMCampaign:
@@ -519,4 +604,39 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
 
     // Return base column name if no mapping found
     return baseColumn
+}
+
+export interface ParsedURL {
+    host: string | null
+    pathname: string | null
+    isValid: boolean
+}
+
+export const faviconUrl = (domain: string): string => `${window.JS_URL}/favicons/${domain}`
+
+export const parseWebAnalyticsURL = (urlString: string): ParsedURL => {
+    try {
+        const trimmed = urlString.trim()
+        if (!trimmed) {
+            return { host: null, pathname: null, isValid: false }
+        }
+
+        // If no protocol, add https://
+        const urlWithProtocol = trimmed.match(/^https?:\/\//i) ? trimmed : `https://${trimmed}`
+
+        const url = new URL(urlWithProtocol)
+        const port = url.port ? `:${url.port}` : ''
+
+        return {
+            host: url.hostname + port,
+            pathname: url.pathname,
+            isValid: true,
+        }
+    } catch {
+        return {
+            host: null,
+            pathname: null,
+            isValid: false,
+        }
+    }
 }

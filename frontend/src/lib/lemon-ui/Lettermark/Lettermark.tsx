@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import React from 'react'
 
 // This is the number of known --lettermark-* variables in `globals.scss`
-const NUM_LETTERMARK_STYLES = 8
+export const NUM_LETTERMARK_STYLES = 16
 
 export enum LettermarkColor {
     Gray = 'gray',

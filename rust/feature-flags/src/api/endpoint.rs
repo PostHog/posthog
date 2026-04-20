@@ -1,16 +1,22 @@
 use crate::{
     api::{
         errors::{ClientFacingError, FlagError},
+        flags_rate_limiter::RateLimitResult,
         types::{
             ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
-    handler::{decoding, process_request, RequestContext},
+    handler::{
+        decoding, process_request, run_with_canonical_log, with_canonical_log,
+        FlagsCanonicalLogLine, RequestContext,
+    },
+    metrics::consts::FLAG_QUEUE_TIME_MS,
     router,
+    utils::user_agent::UserAgentInfo,
 };
 // TODO: stream this instead
 use axum::extract::{MatchedPath, Query, State};
-use axum::http::{HeaderMap, Method, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
@@ -20,18 +26,6 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use tracing::Instrument;
 use uuid::Uuid;
-
-struct LogContext<'a> {
-    headers: &'a HeaderMap,
-    query_params: &'a FlagsQueryParams,
-    method: &'a Method,
-    path: &'a MatchedPath,
-    ip: &'a str,
-    request_id: Uuid,
-    is_from_decide: bool,
-    query_version: Option<i32>,
-    response_format: &'a str,
-}
 
 /// Extracts request ID from X-REQUEST-ID header, falling back to generating a new UUID if not present or invalid
 /// Good for tracing logs from the Contour layer all the way to the property evaluation
@@ -98,6 +92,15 @@ fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
     fallback_ip
 }
 
+/// Updates the canonical log with rate limit info and returns the error for early return.
+fn rate_limit_error(error: FlagError) -> FlagError {
+    with_canonical_log(|l| {
+        l.rate_limited = true;
+        l.set_error(&error);
+    });
+    error
+}
+
 fn get_minimal_flags_response(
     headers: &HeaderMap,
     version: Option<&str>,
@@ -108,14 +111,18 @@ fn get_minimal_flags_response(
     let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
 
     // Create minimal config response
-    let config = ConfigResponse {
-        supported_compression: vec!["gzip".to_string(), "gzip-js".to_string()],
-        config: Some(serde_json::json!({"enable_collect_everything": true})),
-        toolbar_params: Some(serde_json::json!({})),
-        is_authenticated: Some(false),
-        session_recording: Some(crate::api::types::SessionRecordingField::Disabled(false)),
-        ..Default::default()
-    };
+    let mut config = ConfigResponse::new();
+    config.set(
+        "supportedCompression",
+        serde_json::json!(["gzip", "gzip-js"]),
+    );
+    config.set(
+        "config",
+        serde_json::json!({"enable_collect_everything": true}),
+    );
+    config.set("toolbarParams", serde_json::json!({}));
+    config.set("isAuthenticated", serde_json::json!(false));
+    config.set("sessionRecording", serde_json::json!(false));
 
     // Create empty flags response with minimal config
     let mut response = FlagsResponse::new(false, HashMap::new(), None, request_id);
@@ -206,7 +213,7 @@ pub async fn flags(
     // Extract client IP, checking X-Forwarded-For header first
     let ip = extract_client_ip(&headers, direct_ip);
 
-    // Handle different HTTP methods
+    // Handle different HTTP methods (these don't need canonical logging)
     match method {
         Method::GET => {
             // GET requests return minimal flags response
@@ -248,6 +255,38 @@ pub async fn flags(
         }
     }
 
+    // Convert IP to string once and reuse throughout the request
+    let ip_string = ip.to_string();
+
+    // Parse User-Agent and extract SDK info for logging
+    let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
+    let ua_info = UserAgentInfo::parse(user_agent);
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    // Contour sets X-Request-Start, so the timestamp is from trusted infrastructure.
+    // We only filter out negative deltas (minor clock skew).
+    let queue_time_ms: Option<i64> = headers
+        .get("X-Request-Start")
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_request_start_ms)
+        .map(|start_ms| now_ms - start_ms)
+        .filter(|&delta| delta >= 0);
+
+    // Initialize canonical log with all upfront request metadata.
+    // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
+    let canonical_log = FlagsCanonicalLogLine {
+        request_id,
+        ip: ip_string.clone(),
+        user_agent: user_agent.map(|s| s.to_string()),
+        lib: ua_info.lib_for_logging(),
+        // Browser SDK sends ver= query param, server SDKs send version in User-Agent
+        lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
+        api_version: query_params.version.clone(),
+        queue_time_ms,
+        ..Default::default()
+    };
+
     // Check if this request came through the decide proxy
     let is_from_decide = headers
         .get("X-Original-Endpoint")
@@ -268,6 +307,12 @@ pub async fn flags(
         modified_query_params.config = Some(true);
     }
 
+    // Parse version from query params (needed for response formatting)
+    let query_version = modified_query_params
+        .version
+        .as_deref()
+        .map(|v| v.parse::<i32>().unwrap_or(1));
+
     let context = RequestContext {
         request_id,
         state: state.clone(),
@@ -277,99 +322,97 @@ pub async fn flags(
         body,
     };
 
-    // Rate limiting strategy (order matters for security):
-    // 1. IP-based rate limiting first - prevents DDoS with rotating tokens
-    // 2. Token-based rate limiting second - enforces per-project limits
-    //
-    // This order ensures that an attacker cannot bypass rate limiting by
-    // simply rotating through fake tokens from the same IP address.
-
-    // Check IP-based rate limit first
-    if !state.ip_rate_limiter.allow_request(&ip.to_string()) {
-        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
-    }
-
-    // Check token-based rate limit
-    // Extract token from body, use IP as fallback if extraction fails
-    let rate_limit_key = decoding::extract_token(&context.body).unwrap_or_else(|| ip.to_string());
-    if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
-        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
-    }
-
-    // Parse version from query params
-    let query_version = context
-        .meta
-        .version
-        .clone()
-        .as_deref()
-        .map(|v| v.parse::<i32>().unwrap_or(1));
-
     // Create debug span for detailed tracing when debugging
     let _span = create_request_span(
         &headers,
         &query_params,
         &method,
         &path,
-        &ip.to_string(),
+        &ip_string,
         request_id,
     );
 
-    let response = async move { process_request(context).await }
-        .instrument(_span)
-        .await?;
+    // Run the request within a canonical log scope.
+    // All code within can use with_canonical_log() to update the log.
+    let (result, mut log) = run_with_canonical_log(canonical_log, async {
+        // Rate limiting strategy (order matters for security):
+        // 1. IP-based rate limiting first - prevents DDoS with rotating tokens
+        // 2. Token-based rate limiting second - enforces per-project limits
+        //
+        // This order ensures that an attacker cannot bypass rate limiting by
+        // simply rotating through fake tokens from the same IP address.
 
-    // Determine the response format based on whether request is from decide and version
-    let (versioned_response, response_format) =
-        get_versioned_response(is_from_decide, query_version, response)?;
+        let mut rate_limit_warned = false;
 
-    let log_context = LogContext {
-        headers: &headers,
-        query_params: &query_params,
-        method: &method,
-        path: &path,
-        ip: &ip.to_string(),
-        request_id,
-        is_from_decide,
-        query_version,
-        response_format,
-    };
-    log_request_info(log_context);
+        // Check IP-based rate limit first
+        match state.ip_rate_limiter.allow_request(&ip_string) {
+            RateLimitResult::Blocked => {
+                return Err(rate_limit_error(FlagError::ClientFacing(
+                    ClientFacingError::IpRateLimited,
+                )));
+            }
+            RateLimitResult::Warned => rate_limit_warned = true,
+            RateLimitResult::Allowed => {}
+        }
 
-    Ok(Json(versioned_response).into_response())
-}
+        // Check token-based rate limit
+        // Extract token from body, use IP as fallback if extraction fails
+        let rate_limit_key =
+            decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
+        match state.flags_rate_limiter.allow_request(&rate_limit_key) {
+            RateLimitResult::Blocked => {
+                return Err(rate_limit_error(FlagError::ClientFacing(
+                    ClientFacingError::TokenRateLimited,
+                )));
+            }
+            RateLimitResult::Warned => rate_limit_warned = true,
+            RateLimitResult::Allowed => {}
+        }
 
-fn log_request_info(ctx: LogContext) {
-    let user_agent = ctx
-        .headers
-        .get("user-agent")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let content_encoding = ctx
-        .query_params
-        .compression
-        .as_ref()
-        .map_or("none", |c| c.as_str());
-    let content_type = ctx
-        .headers
-        .get("content-type")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+        if rate_limit_warned {
+            with_canonical_log(|l| l.rate_limit_warned = true);
+        }
 
-    tracing::info!(
-        user_agent = %user_agent,
-        content_encoding = %content_encoding,
-        content_type = %content_type,
-        version = %ctx.query_params.version.as_deref().unwrap_or("unknown"),
-        lib_version = %ctx.query_params.lib_version.as_deref().unwrap_or("unknown"),
-        compression = %ctx.query_params.compression.as_ref().map_or("none", |c| c.as_str()),
-        method = %ctx.method.as_str(),
-        path = %ctx.path.as_str().trim_end_matches('/'),
-        ip = %ctx.ip,
-        sent_at = %ctx.query_params.sent_at.unwrap_or(0).to_string(),
-        request_id = %ctx.request_id,
-        is_from_decide = %ctx.is_from_decide,
-        query_version = ?ctx.query_version,
-        response_format = %ctx.response_format,
-        "Processing request"
-    );
+        process_request(context).await
+    })
+    .instrument(_span)
+    .await;
+
+    // Emit DB operations metrics before the canonical log
+    log.emit_db_operations_metrics();
+
+    // Emit queue time histogram for proxy-to-app latency dashboards
+    if let Some(delta) = log.queue_time_ms {
+        common_metrics::histogram(FLAG_QUEUE_TIME_MS, &[], delta as f64);
+    }
+
+    match result {
+        Ok(response) => {
+            // Determine the response format based on whether request is from decide and version
+            match get_versioned_response(is_from_decide, query_version, response) {
+                Ok((versioned_response, _response_format)) => {
+                    log.http_status = 200;
+                    log.emit();
+                    let mut response = Json(versioned_response).into_response();
+                    if log.rate_limit_warned {
+                        response.headers_mut().insert(
+                            "X-PostHog-Rate-Limit-Warning",
+                            HeaderValue::from_static("true"),
+                        );
+                    }
+                    Ok(response)
+                }
+                Err(e) => {
+                    log.emit_for_error(&e);
+                    Err(e)
+                }
+            }
+        }
+        Err(e) => {
+            log.emit_for_error(&e);
+            Err(e)
+        }
+    }
 }
 
 fn create_request_span(
@@ -407,9 +450,62 @@ fn create_request_span(
     )
 }
 
+/// Parse the `X-Request-Start` header value into epoch milliseconds.
+/// Contour sets this as `t=<epoch_seconds>.<fractional>` (e.g., `t=1774859827.782`).
+/// Also accepts the bare numeric form without the `t=` prefix.
+///
+/// Parsing is intentionally strict: no whitespace trimming, no comma-splitting for
+/// multi-value headers. This header is set exclusively by Contour in our infrastructure
+/// with a well-defined format, and malformed values are silently dropped (returns `None`)
+/// since this is metrics-only — strict rejection is the right tradeoff over accepting
+/// ambiguous input.
+///
+/// Uses integer arithmetic to avoid f64 precision loss when converting seconds to ms.
+fn parse_request_start_ms(value: &str) -> Option<i64> {
+    let stripped = value.strip_prefix("t=").unwrap_or(value);
+    if stripped.is_empty() {
+        return None;
+    }
+
+    let (secs_str, frac_str) = match stripped.split_once('.') {
+        Some((s, f)) => (s, Some(f)),
+        None => (stripped, None),
+    };
+
+    let secs: i64 = secs_str.parse().ok()?;
+    if secs < 0 {
+        return None;
+    }
+
+    // Convert whole seconds to ms, guarding against overflow from extreme values.
+    let mut ms = secs.checked_mul(1_000)?;
+
+    // Parse up to 3 fractional digits as milliseconds, zero-padding on the right.
+    // Reject if the fractional part is empty (trailing dot), contains non-digit characters,
+    // or contains trailing garbage / multi-value separators.
+    if let Some(frac) = frac_str {
+        if frac.is_empty() || !frac.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        let bytes = frac.as_bytes();
+        // Compute ms from up to 3 fractional digits using integer arithmetic,
+        // equivalent to right-padding with zeros and parsing as a 3-digit integer.
+        let mut frac_ms: i64 = 0;
+        let mut scale: i64 = 100; // hundreds, tens, ones
+        for &b in bytes.iter().take(3) {
+            frac_ms += (b - b'0') as i64 * scale;
+            scale /= 10;
+        }
+        ms = ms.checked_add(frac_ms)?;
+    }
+
+    Some(ms)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::api::types::Compression;
+    use rstest::rstest;
 
     use super::*;
     use axum::{
@@ -645,5 +741,28 @@ mod tests {
         // Two calls without header should generate different UUIDs
         let extracted_id_empty2 = extract_request_id(&empty_headers);
         assert_ne!(extracted_id_empty, extracted_id_empty2);
+    }
+
+    #[rstest]
+    #[case("t=1774859827.782", Some(1774859827782))]
+    #[case("1774859827.782", Some(1774859827782))]
+    #[case("t=1774859827", Some(1774859827000))]
+    #[case("t=", None)]
+    #[case("t=abc", None)]
+    #[case("", None)]
+    #[case("not-a-number", None)]
+    #[case("t=-1.0", None)]
+    #[case("-100", None)]
+    #[case("NaN", None)]
+    #[case("inf", None)]
+    #[case("t=Infinity", None)]
+    #[case("t=-inf", None)]
+    #[case(" t=1774859827.782", None)]
+    #[case("t=1774859827.782 ", None)]
+    #[case("t=1774859827.782, t=1774859828.000", None)]
+    #[case("t=1774859827.", None)] // trailing dot with empty fractional part
+    #[case("1774859827.7821", Some(1774859827782))] // extra digits beyond ms are truncated
+    fn test_parse_request_start_ms(#[case] input: &str, #[case] expected: Option<i64>) {
+        assert_eq!(parse_request_start_ms(input), expected);
     }
 }

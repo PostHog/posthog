@@ -1,4 +1,5 @@
 import enum
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
@@ -8,9 +9,11 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 
 import structlog
+from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import is_cohort_recalculation_only_save
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.hog_function_template import HogFunctionTemplate
@@ -32,6 +35,11 @@ DEFAULT_STATE = {"state": 0, "tokens": 0}
 
 logger = structlog.get_logger(__name__)
 
+GEOIP_TRANSFORMATION_CREATION_FAILED_COUNTER = Counter(
+    "posthog_geoip_transformation_creation_failed_total",
+    "Number of times GeoIP transformation creation failed for new teams",
+)
+
 
 class HogFunctionState(enum.Enum):
     UNKNOWN = 0
@@ -47,6 +55,7 @@ class HogFunctionType(models.TextChoices):
     SITE_DESTINATION = "site_destination"
     INTERNAL_DESTINATION = "internal_destination"
     SOURCE_WEBHOOK = "source_webhook"
+    WAREHOUSE_SOURCE_WEBHOOK = "warehouse_source_webhook"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
 
@@ -56,6 +65,7 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.SOURCE_WEBHOOK,
+    HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK,
 )
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
@@ -105,6 +115,13 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         related_name="hog_functions",
     )
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    batch_export = models.ForeignKey(
+        "posthog.BatchExport",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["HogFunction"]:
@@ -253,6 +270,26 @@ def team_saved(sender, instance: Team, created, **kwargs):
     refresh_affected_hog_functions.delay(team_id=instance.id)
 
 
+@receiver(post_save, sender="posthog.Cohort")
+def cohort_saved(sender, instance, **kwargs):
+    if is_cohort_recalculation_only_save(kwargs):
+        return
+
+    # When a cohort changes, recompile hog functions for any team that uses
+    # this cohort in their test_account_filters (cohorts are inlined into bytecode).
+    # Deletion is handled separately: the cohort API prevents deleting cohorts
+    # that are referenced in test_account_filters.
+    team = instance.team
+    if team.test_account_filters and any(
+        f.get("type") == "cohort" and f.get("value") == instance.id
+        for f in team.test_account_filters
+        if isinstance(f, dict)
+    ):
+        from posthog.tasks.hog_functions import refresh_affected_hog_functions
+
+        refresh_affected_hog_functions.delay(cohort_id=instance.id)
+
+
 @mutable_receiver([post_save, post_delete], sender=HogFunction)
 def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
     try:
@@ -266,23 +303,72 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
 
 @receiver(models.signals.post_save, sender=Team)
 def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: bool, **kwargs):
+    from posthog.api.hog_function import HogFunctionSerializer
+    from posthog.cdp.templates.hog_function_template import sync_template_to_db
+    from posthog.models.hog_function_template import HogFunctionTemplate
+    from posthog.plugins.plugin_server_api import get_hog_function_templates
+
     if settings.DISABLE_MMDB or not created:
         return
 
-    # New way: Create GeoIP transformation
-    from posthog.models.hog_functions.hog_function import HogFunction
+    # try and get the geoip template from db (might not exist yet, e.g. for local dev & hobby deploy)
+    template = HogFunctionTemplate.get_template("template-geoip")
 
-    # NOTE: This is hardcoded to simplify the creation
-    HogFunction.objects.create(
-        team=instance,
-        created_by=kwargs.get("initiating_user"),
-        template_id="plugin-posthog-plugin-geoip",
-        type="transformation",
-        name="GeoIP",
-        description="Enrich events with GeoIP data",
-        icon_url="/static/transformations/geoip.png",
-        hog="return event",
-        inputs_schema=[],
-        enabled=True,
-        execution_order=1,
-    )
+    # if it does not exist sync it to the db
+    if not template:
+        logger.info("GeoIP template not found in DB, attempting to sync")
+        try:
+            # gets templates from node-land (including geo-ip)
+            response = get_hog_function_templates()
+            if response.status_code == 200:
+                templates = response.json()
+                for template_data in templates:
+                    if template_data.get("id") == "template-geoip":
+                        # sync template to db, which returns the created template
+                        template = sync_template_to_db(template_data)
+                        break
+        except Exception as e:
+            logger.exception(
+                "Failed to sync GeoIP template from Node.js",
+                team_id=instance.id,
+                error=str(e),
+            )
+
+    if template:
+        # Create a serializer data dictionary from the template
+        serializer_data = {
+            "template_id": template.template_id,
+            "type": "transformation",
+            "name": template.name,
+            "description": template.description or "Adds geoip data to the event",
+            "icon_url": template.icon_url or "/static/transformations/geoip.png",
+            "hog": template.code,
+            "inputs_schema": template.inputs_schema,
+            "enabled": True,
+            "execution_order": 1,
+        }
+        # Create a mock request with the user
+        mock_request = SimpleNamespace(user=kwargs.get("initiating_user"))
+
+        # Use the serializer to create the HogFunction
+        serializer = HogFunctionSerializer(
+            data=serializer_data,
+            context={
+                "get_team": lambda: instance,
+                "is_create": True,
+                "request": mock_request,
+            },
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+        else:
+            logger.error(
+                "Failed to create default GeoIP transformation during team creation",
+                team_id=instance.id,
+                errors=serializer.errors,
+            )
+            GEOIP_TRANSFORMATION_CREATION_FAILED_COUNTER.inc()
+    else:
+        logger.error("GeoIP template not found, transformation not created", team_id=instance.id)
+        GEOIP_TRANSFORMATION_CREATION_FAILED_COUNTER.inc()

@@ -145,7 +145,7 @@ class TestSyncHogFunctionTemplates:
         output = stdout.getvalue()
 
         # Just check that the command ran successfully
-        assert "Sync completed" in output
+        assert "Hog function template sync complete" in output
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_template_contents(self, mock_get_hog_function_templates):
@@ -160,9 +160,9 @@ class TestSyncHogFunctionTemplates:
 
         # Find the slack template in HOG_FUNCTION_TEMPLATES
         slack_template = next((t for t in HOG_FUNCTION_TEMPLATES if t.id == TEST_INCLUDE_PYTHON_TEMPLATE_IDS[0]), None)
-        assert (
-            slack_template is not None
-        ), f"Template {TEST_INCLUDE_PYTHON_TEMPLATE_IDS[0]} not found in HOG_FUNCTION_TEMPLATES"
+        assert slack_template is not None, (
+            f"Template {TEST_INCLUDE_PYTHON_TEMPLATE_IDS[0]} not found in HOG_FUNCTION_TEMPLATES"
+        )
 
         # Check that the template was stored correctly
         db_template = HogFunctionTemplate.objects.get(template_id=slack_template.id)

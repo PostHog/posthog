@@ -129,7 +129,7 @@ class SourceConfigGenerator:
 
         field_parts = []
 
-        converter = self._get_input_converter(field.type)
+        converter = self._get_input_converter(field.type, is_optional=is_optional)
         if converter:
             field_parts.append(f"converter={converter}")
 
@@ -339,12 +339,12 @@ class SourceConfigGenerator:
 
         return type_mapping.get(field_type, "str")
 
-    def _get_input_converter(self, field_type: SourceFieldInputConfigType) -> Optional[str]:
-        converter_mapping = {
-            SourceFieldInputConfigType.NUMBER: "int",
-        }
+    def _get_input_converter(self, field_type: SourceFieldInputConfigType, is_optional: bool = False) -> Optional[str]:
+        if field_type == SourceFieldInputConfigType.NUMBER:
+            # Use str_to_optional_int for optional NUMBER fields to handle empty strings from the frontend
+            return "config.str_to_optional_int" if is_optional else "int"
 
-        return converter_mapping.get(field_type)
+        return None
 
     def _get_select_literal_type(self, field: SourceFieldSelectConfig) -> str:
         if not field.converter:

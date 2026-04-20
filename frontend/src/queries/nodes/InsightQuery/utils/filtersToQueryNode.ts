@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { objectCleanWithEmpty } from 'lib/utils'
+import { isKeyOf, objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
@@ -12,9 +12,11 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 
+import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
     ActionsNode,
     AnalyticsQueryResponseBase,
+    AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
     DataWarehouseNode,
@@ -22,18 +24,21 @@ import {
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelPathsFilter,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
-    InsightNodeKind,
+    GroupNode,
     InsightQueryNode,
     InsightsQueryBase,
     LifecycleFilter,
+    LifecycleDataWarehouseNode,
     MathType,
     NodeKind,
     PathsFilter,
     RetentionFilter,
     StickinessFilter,
     TrendsFilter,
+    AnyDataWarehouseNode,
 } from '~/queries/schema/schema-general'
 import {
     isFunnelsQuery,
@@ -51,8 +56,11 @@ import {
     ActionFilter,
     BaseMathType,
     CalendarHeatmapMathType,
-    DataWarehouseFilter,
+    AnyDataWarehouseFilter,
+    EntityTypes,
     FilterType,
+    FunnelDatawarehouseFilter,
+    LifecycleDatawarehouseFilter,
     FunnelExclusionLegacy,
     FunnelMathType,
     FunnelsFilterType,
@@ -62,15 +70,17 @@ import {
     PathsFilterType,
     RetentionEntity,
     RetentionFilterType,
+    TrendsDataWarehouseFilter,
     TrendsFilterType,
     isDataWarehouseFilter,
+    isGroupFilter,
 } from '~/types'
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 
 const insightTypeToNodeKind: Record<
-    Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG>,
-    InsightNodeKind
+    Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG | InsightType.WEB_ANALYTICS>,
+    ProductAnalyticsInsightNodeKind
 > = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
     [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
@@ -95,16 +105,25 @@ const calendarHeatmapMathTypes = [CalendarHeatmapMathType.TotalCount, CalendarHe
 export type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
     actions?: ActionFilter[]
-    data_warehouse?: DataWarehouseFilter[]
+    data_warehouse?: AnyDataWarehouseFilter[]
     new_entity?: ActionFilter[]
+    groups?: ActionFilter[]
 }
 
+type DataWarehouseNodeKind =
+    | NodeKind.DataWarehouseNode
+    | NodeKind.FunnelsDataWarehouseNode
+    | NodeKind.LifecycleDataWarehouseNode
+
 export const legacyEntityToNode = (
-    entity: ActionFilter | DataWarehouseFilter,
+    entity: ActionFilter | AnyDataWarehouseFilter,
     includeProperties: boolean,
-    mathAvailability: MathAvailability
-): EventsNode | ActionsNode | DataWarehouseNode => {
-    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
+    mathAvailability: MathAvailability,
+    dataWarehouseNodeKind: DataWarehouseNodeKind = NodeKind.DataWarehouseNode
+): AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode> => {
+    let shared: Partial<
+        EventsNode | ActionsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | GroupNode
+    > = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
     }
@@ -112,11 +131,39 @@ export const legacyEntityToNode = (
     if (isDataWarehouseFilter(entity)) {
         shared = {
             ...shared,
-            id_field: entity.id_field || undefined,
             timestamp_field: entity.timestamp_field || undefined,
-            distinct_id_field: entity.distinct_id_field || undefined,
             table_name: entity.table_name || undefined,
-        } as DataWarehouseNode
+            ...(dataWarehouseNodeKind === NodeKind.LifecycleDataWarehouseNode
+                ? {
+                      aggregation_target_field: (entity as LifecycleDatawarehouseFilter).aggregation_target_field,
+                      created_at_field: (entity as LifecycleDatawarehouseFilter).created_at_field,
+                  }
+                : dataWarehouseNodeKind === NodeKind.FunnelsDataWarehouseNode
+                  ? {
+                        id_field: (entity as FunnelDatawarehouseFilter).id_field || undefined,
+                        aggregation_target_field:
+                            (entity as FunnelDatawarehouseFilter).aggregation_target_field || undefined,
+                    }
+                  : {
+                        id_field: (entity as TrendsDataWarehouseFilter).id_field || undefined,
+                        distinct_id_field: (entity as TrendsDataWarehouseFilter).distinct_id_field || undefined,
+                    }),
+        } as DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode
+    }
+
+    if (isGroupFilter(entity)) {
+        shared = {
+            ...shared,
+            operator: entity.operator || undefined,
+            nodes: (entity.nestedFilters || []).map((v) =>
+                legacyEntityToNode(
+                    v as ActionFilter | AnyDataWarehouseFilter,
+                    includeProperties,
+                    mathAvailability,
+                    dataWarehouseNodeKind
+                )
+            ),
+        } as GroupNode
     }
 
     if (includeProperties) {
@@ -174,8 +221,15 @@ export const legacyEntityToNode = (
     } else if (entity.type === 'data_warehouse') {
         return setLatestVersionsOnQuery(
             objectCleanWithEmpty({
-                kind: NodeKind.DataWarehouseNode,
+                kind: dataWarehouseNodeKind,
                 id: entity.id,
+                ...shared,
+            })
+        ) as any
+    } else if (entity.type === EntityTypes.GROUPS) {
+        return setLatestVersionsOnQuery(
+            objectCleanWithEmpty({
+                kind: NodeKind.GroupNode,
                 ...shared,
             })
         ) as any
@@ -202,14 +256,48 @@ export const exlusionEntityToNode = (
     }
 }
 
-export const actionsAndEventsToSeries = (
-    { actions, events, data_warehouse, new_entity }: FilterTypeActionsAndEvents,
+type FilterTypeActionsAndEventsWithGroups = FilterTypeActionsAndEvents & { groups: ActionFilter[] }
+type FilterTypeActionsAndEventsWithoutGroups = Omit<FilterTypeActionsAndEvents, 'groups'> & { groups?: undefined }
+
+export function actionsAndEventsToSeries(
+    filters: FilterTypeActionsAndEventsWithGroups,
     includeProperties: boolean,
-    includeMath: MathAvailability
-): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
-    const series: any = [...(actions || []), ...(events || []), ...(data_warehouse || []), ...(new_entity || [])]
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode
+): (AnyEntityNode | GroupNode)[]
+export function actionsAndEventsToSeries(
+    filters: FilterTypeActionsAndEventsWithoutGroups,
+    includeProperties: boolean,
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind: NodeKind.LifecycleDataWarehouseNode
+): AnyEntityNode<LifecycleDataWarehouseNode>[]
+export function actionsAndEventsToSeries(
+    filters: FilterTypeActionsAndEventsWithoutGroups,
+    includeProperties: boolean,
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind: NodeKind.FunnelsDataWarehouseNode
+): AnyEntityNode<FunnelsDataWarehouseNode>[]
+export function actionsAndEventsToSeries(
+    filters: FilterTypeActionsAndEventsWithoutGroups,
+    includeProperties: boolean,
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode
+): AnyEntityNode[]
+export function actionsAndEventsToSeries(
+    { actions, events, data_warehouse, new_entity, groups }: FilterTypeActionsAndEvents,
+    includeProperties: boolean,
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind: DataWarehouseNodeKind = NodeKind.DataWarehouseNode
+): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] {
+    const series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] = [
+        ...(actions || []),
+        ...(events || []),
+        ...(data_warehouse || []),
+        ...(new_entity || []),
+        ...(groups || []),
+    ]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
-        .map((f) => legacyEntityToNode(f, includeProperties, includeMath))
+        .map((f) => legacyEntityToNode(f, includeProperties, includeMath, dataWarehouseNodeKind))
 
     return series
 }
@@ -253,16 +341,17 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
     if (!entity) {
         return undefined
     }
-    const record = { ...entity }
-    for (const key of Object.keys(record)) {
-        if (!['id', 'kind', 'name', 'type', 'order', 'uuid', 'custom_name'].includes(key)) {
-            delete record[key]
-        }
+
+    const { id, kind, name, type, order, uuid, custom_name } = entity
+    return {
+        ...('id' in entity ? { id } : {}),
+        ...('kind' in entity ? { kind } : {}),
+        ...('name' in entity ? { name } : {}),
+        ...('type' in entity ? { type } : {}),
+        ...('order' in entity ? { order } : {}),
+        ...('uuid' in entity ? { uuid } : {}),
+        ...('custom_name' in entity ? { custom_name } : {}),
     }
-    if ('id' in record && record.type === 'actions') {
-        record.id = Number(record.id)
-    }
-    return record
 }
 
 const processBool = (value: string | boolean | null | undefined): boolean | undefined => {
@@ -283,13 +372,29 @@ const strToBool = (value: any): boolean | undefined => {
     return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
 }
 
-export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
+export type FiltersToQueryNodeTrackingContext = {
+    source: string
+}
+
+export const filtersToQueryNode = (
+    filters: Partial<FilterType>,
+    trackingContext?: FiltersToQueryNodeTrackingContext
+): InsightQueryNode => {
     const captureException = (message: string): void => {
         posthog.captureException(new Error(message), { filters, DataExploration: true })
+    }
+    if (trackingContext) {
+        posthog.capture('legacy_filters_to_query_node_called', {
+            source: trackingContext.source,
+            insight: filters.insight,
+        })
     }
 
     if (!filters.insight) {
         throw new Error('filtersToQueryNode expects "insight"')
+    }
+    if (!isKeyOf(filters.insight, insightTypeToNodeKind)) {
+        throw new Error(`insightTypeToNodeKind has no key ${filters.insight}`)
     }
 
     const query: InsightsQueryBase<AnalyticsQueryResponseBase> = {
@@ -320,12 +425,29 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             includeMath = MathAvailability.FunnelsOnly
         }
 
-        const { events, actions, data_warehouse } = filters
-        query.series = actionsAndEventsToSeries(
-            { actions, events, data_warehouse } as any,
-            includeProperties,
-            includeMath
-        )
+        const { events, actions, data_warehouse, groups } = filters
+        if (isLifecycleQuery(query)) {
+            query.series = actionsAndEventsToSeries(
+                { actions, events, data_warehouse, groups } as any,
+                includeProperties,
+                includeMath,
+                NodeKind.LifecycleDataWarehouseNode
+            )
+        } else if (isFunnelsQuery(query)) {
+            query.series = actionsAndEventsToSeries(
+                { actions, events, data_warehouse, groups } as any,
+                includeProperties,
+                includeMath,
+                NodeKind.FunnelsDataWarehouseNode
+            )
+        } else {
+            query.series = actionsAndEventsToSeries(
+                { actions, events, data_warehouse, groups } as any,
+                includeProperties,
+                includeMath,
+                NodeKind.DataWarehouseNode
+            )
+        }
         query.interval = filters.interval
     }
 
@@ -371,7 +493,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     }
 
     // group aggregation
-    if (filters.aggregation_group_type_index !== undefined) {
+    if (filters.aggregation_group_type_index != null) {
         query.aggregation_group_type_index = filters.aggregation_group_type_index
     }
 
@@ -535,4 +657,13 @@ export const compareFilterToQuery = (filters: Record<string, any>): CompareFilte
         compare: filters.compare,
         compare_to: filters.compare_to,
     })
+}
+
+/** Expand GroupNodes into individual EventsNode/ActionsNode for insight types that don't support GroupNode */
+export const expandGroupNodes = (
+    series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[]
+): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
+    return series.flatMap((item) =>
+        item.kind === NodeKind.GroupNode ? (item.nodes as (EventsNode | ActionsNode | DataWarehouseNode)[]) : [item]
+    )
 }

@@ -6,7 +6,6 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = logging.getLogger(__name__)
@@ -27,5 +26,6 @@ def cleanup_sandbox(input: CleanupSandboxInput) -> None:
         try:
             sandbox = Sandbox.get_by_id(input.sandbox_id)
             sandbox.destroy()
-        except SandboxNotFoundError:
+        except Exception:
+            # The sandbox has a timeout, and it will eventually terminate if we failed to cleanup
             pass

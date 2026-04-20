@@ -4,13 +4,25 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-trait = { workspace = true }
 anyhow = { workspace = true }
 common-redis = { path = "../redis" }
 dashmap = "6.1"
+futures = { workspace = true }
 governor = { workspace = true }
 metrics = { workspace = true }
+moka = { workspace = true, features = ["sync"] }
 rand = { workspace = true }
 strum = { version = "0.26", features = ["derive"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+metrics-util = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[[bench]]
+name = "global_rate_limiter"
+harness = false

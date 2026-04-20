@@ -6,8 +6,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { twoFactorLogicType } from './twoFactorLogicType'
@@ -20,6 +20,9 @@ export interface TwoFactorStatus {
     is_enabled: boolean
     backup_codes: string[]
     method: string | null
+    has_passkeys?: boolean
+    has_totp?: boolean
+    passkeys_enabled_for_2fa?: boolean
 }
 
 export interface TwoFactorLogicProps {

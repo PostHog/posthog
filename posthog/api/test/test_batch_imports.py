@@ -1,6 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest
+
+from parameterized import parameterized
 
 from posthog.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
 
@@ -69,6 +71,19 @@ class TestBatchImportConfigBuilder(BaseTest):
             "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
             "source": {"type": "url_list", "urls_key": "urls", "allow_internal_ips": False, "timeout_seconds": 30},
             "sink": {"type": "kafka", "topic": "events_topic", "send_rate": 1000, "transaction_timeout_seconds": 60},
+        }
+        self.assertEqual(self.batch_import.import_config, expected_config)
+        self.assertEqual(self.batch_import.secrets["urls"], urls)
+
+    def test_to_capture_configuration(self):
+        urls = ["http://example.com/data.json"]
+
+        self.batch_import.config.json_lines(ContentType.AMPLITUDE).from_urls(urls).to_capture(send_rate=1000)
+
+        expected_config = {
+            "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
+            "source": {"type": "url_list", "urls_key": "urls", "allow_internal_ips": False, "timeout_seconds": 30},
+            "sink": {"type": "capture", "send_rate": 1000},
         }
         self.assertEqual(self.batch_import.import_config, expected_config)
         self.assertEqual(self.batch_import.secrets["urls"], urls)
@@ -234,6 +249,10 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertNotIn("import_events", batch_import.import_config)
         self.assertNotIn("generate_identify_events", batch_import.import_config)
         self.assertNotIn("generate_group_identify_events", batch_import.import_config)
+
+        # Verify sink defaults to capture
+        self.assertEqual(batch_import.import_config["sink"]["type"], "capture")
+        self.assertEqual(batch_import.import_config["sink"]["send_rate"], 1000)
 
     def test_amplitude_migration_includes_amplitude_specific_fields(self):
         """Test that Amplitude migrations include import_events and generate_identify_events in config"""
@@ -470,3 +489,78 @@ class TestBatchImportAPI(APIBaseTest):
         # Verify the batch import was created
         batch_import = BatchImport.objects.get(id=response.json()["id"])
         self.assertIsNotNone(batch_import)
+
+    def test_s3_gzip_migration_creates_correct_import_config(self):
+        """Test that s3_gzip source type creates import_config with type s3_gzip"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3_gzip",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "exports/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["source"]["type"], "s3_gzip")
+        self.assertEqual(batch_import.import_config["source"]["bucket"], "test-bucket")
+        self.assertEqual(batch_import.import_config["source"]["prefix"], "exports/")
+        self.assertEqual(batch_import.import_config["source"]["region"], "us-east-1")
+        self.assertIn("aws_access_key_id", batch_import.secrets)
+        self.assertIn("aws_secret_access_key", batch_import.secrets)
+
+    @parameterized.expand(
+        [
+            ("running_unclaimed", BatchImport.Status.RUNNING, None, "waiting_to_start"),
+            ("running_claimed", BatchImport.Status.RUNNING, "worker-uuid-123", "running"),
+            ("paused", BatchImport.Status.PAUSED, None, "paused"),
+            ("completed", BatchImport.Status.COMPLETED, None, "completed"),
+            ("failed", BatchImport.Status.FAILED, None, "failed"),
+        ]
+    )
+    def test_display_status(self, _name, status, lease_id, expected_display_status):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test"},
+            status=status,
+            lease_id=lease_id,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations")
+
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], str(batch_import.id))
+        self.assertEqual(results[0]["display_status"], expected_display_status)
+
+    def test_resume_clears_lease_and_backoff(self):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test"},
+            status=BatchImport.Status.PAUSED,
+            lease_id="old-lease-uuid",
+            leased_until=datetime.now(tz=UTC) + timedelta(hours=1),
+            backoff_attempt=5,
+            backoff_until=datetime.now(tz=UTC) + timedelta(hours=1),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/resume")
+
+        self.assertEqual(response.status_code, 200)
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
+        self.assertIsNone(batch_import.lease_id)
+        self.assertIsNone(batch_import.leased_until)
+        self.assertEqual(batch_import.backoff_attempt, 0)
+        self.assertIsNone(batch_import.backoff_until)
+        self.assertEqual(batch_import.status_message, "Resumed by user")

@@ -11,13 +11,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
 import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
-import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
+import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
+
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { disableRevenueSourceModalLogic } from './disableRevenueSourceModalLogic'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
@@ -78,7 +79,7 @@ export function ExternalDataSourceConfiguration({
     return (
         <SceneSection
             title="Data warehouse sources configuration"
-            description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_revenue_last_30_days virtual fields."
+            description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_mrr virtual fields."
         >
             <div className={cn('flex flex-col items-end w-full')}>
                 <AccessControlAction
@@ -114,7 +115,7 @@ export function ExternalDataSourceConfiguration({
                                 return <Spinner size="medium" />
                             }
 
-                            return <DataWarehouseSourceIcon type={source.source_type} />
+                            return <SourceIcon type={source.source_type} />
                         },
                     },
                     {

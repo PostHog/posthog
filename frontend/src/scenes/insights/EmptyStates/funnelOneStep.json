@@ -1,7 +1,7 @@
 {
     "id": 52,
     "short_id": "bfuAVPN3",
-    "name": "",
+    "name": null,
     "derived_name": "Pageview user conversion rate",
     "filters": {
         "events": [

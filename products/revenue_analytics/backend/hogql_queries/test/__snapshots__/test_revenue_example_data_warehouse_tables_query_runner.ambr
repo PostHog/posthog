@@ -35,7 +35,7 @@
               if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
               divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
               'GBP' AS currency,
-              divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+              divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
      FROM
        (SELECT posthog_test_stripe_invoice.id AS id,
                parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -58,16 +58,17 @@
         WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.revenue_item_revenue_view`
   ORDER BY timestamp DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS format_csv_allow_double_quotes=1,
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueExampleDataWarehouseTablesQueryRunner.test_database_query_with_managed_viewsets_ff
@@ -106,7 +107,7 @@
               if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
               divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
               'GBP' AS currency,
-              divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+              divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
      FROM
        (SELECT posthog_test_stripe_invoice.id AS id,
                parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -129,16 +130,17 @@
         WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.revenue_item_revenue_view`
   ORDER BY timestamp DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS format_csv_allow_double_quotes=1,
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueExampleDataWarehouseTablesQueryRunner.test_no_crash_when_no_data
@@ -180,15 +182,16 @@
      WHERE 0) AS `stripe.posthog_test.revenue_item_revenue_view`
   ORDER BY timestamp DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS format_csv_allow_double_quotes=1,
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=1,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---

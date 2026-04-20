@@ -452,8 +452,10 @@ class TestEdgeCases(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_very_long_content(self):
-        """Should handle very long content."""
-        very_long = "a" * 100000
+        """Should handle very long multi-line content via uniform sampling."""
+        # Create realistic multi-line content (like a long conversation)
+        lines = [f"Line {i}: " + "x" * 100 for i in range(1000)]
+        very_long = "\n".join(lines)  # ~110KB of multi-line content
         request_data = {
             "event_type": "$ai_generation",
             "data": {
@@ -463,7 +465,7 @@ class TestEdgeCases(APIBaseTest):
                     "$ai_input": very_long,
                 },
             },
-            "options": {"max_length": 50000},
+            "options": {"max_length": 50000, "truncated": False},
         }
 
         response = self.client.post(
@@ -474,14 +476,17 @@ class TestEdgeCases(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.data
-        # Should be truncated to max_length
-        self.assertLessEqual(data["metadata"]["char_count"], 50000 + 100)  # Allow for truncation message
+        # Should be truncated to approximately max_length via uniform sampling
+        self.assertLessEqual(data["metadata"]["char_count"], 55000)  # Allow some overhead
         self.assertEqual(data["metadata"]["truncated"], True)
 
     def test_default_max_length(self):
-        """Should use 4MB default max_length when not specified."""
-        # Test content under 4MB - should NOT truncate at max_length level
-        under_limit = "a" * 3500000  # 3.5MB
+        """Should use 2MB default max_length when not specified."""
+        # Create realistic multi-line content (like a long conversation)
+        # Each line is ~150 chars, so 10000 lines = ~1.5MB
+        under_limit_lines = [f"Message {i}: " + "x" * 140 for i in range(10000)]
+        under_limit = "\n".join(under_limit_lines)
+
         request_data = {
             "event_type": "$ai_generation",
             "data": {
@@ -503,10 +508,12 @@ class TestEdgeCases(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.data
         self.assertEqual(data["metadata"]["truncated"], False)
-        self.assertGreater(data["metadata"]["char_count"], 3500000)
+        self.assertGreater(data["metadata"]["char_count"], 1500000)
 
-        # Test content over 4MB - should truncate at max_length level
-        over_limit = "a" * 4500000  # 4.5MB
+        # Test content over 2MB - should truncate at max_length level
+        # Each line is ~150 chars, so 17000 lines = ~2.5MB
+        over_limit_lines = [f"Message {i}: " + "x" * 140 for i in range(17000)]
+        over_limit = "\n".join(over_limit_lines)
         request_data["data"]["id"] = "gen_over_limit"  # type: ignore[index]  # Use different ID to avoid cache
         request_data["data"]["properties"]["$ai_input"] = over_limit  # type: ignore[index]
         request_data["options"] = {"truncated": False}  # Disable internal truncation to test max_length
@@ -520,7 +527,7 @@ class TestEdgeCases(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.data
         self.assertEqual(data["metadata"]["truncated"], True)
-        self.assertLessEqual(data["metadata"]["char_count"], 4000000 + 200)
+        self.assertLessEqual(data["metadata"]["char_count"], 2100000)  # Allow some overhead for sampling
 
     def test_unicode_content(self):
         """Should handle Unicode content correctly."""

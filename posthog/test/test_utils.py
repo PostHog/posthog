@@ -1,6 +1,7 @@
 import json
 import base64
 from datetime import datetime
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -13,6 +14,7 @@ from django.http import HttpRequest
 from django.test import TestCase
 from django.test.client import RequestFactory
 
+from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
@@ -22,15 +24,21 @@ from posthog.utils import (
     PotentialSecurityProblemException,
     absolute_uri,
     base64_decode,
+    filters_override_requested_by_client,
     flatten,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
     get_compare_period_dates,
+    get_default_event_info,
     get_default_event_name,
+    get_ip_address,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
+    str_to_int_set,
+    tile_filters_override_requested_by_client,
+    variables_override_requested_by_client,
 )
 
 
@@ -276,6 +284,22 @@ class TestRelativeDateParse(TestCase):
             "2019-01-01",
         )
 
+    @parameterized.expand(
+        [
+            # 2020-01-31 is a Friday
+            # Sunday week start (default): week started on Sunday Jan 26
+            ("sunday_start", 0, "2020-01-26"),
+            # Monday week start: week started on Monday Jan 27
+            ("monday_start", 1, "2020-01-27"),
+        ]
+    )
+    @freeze_time("2020-01-31")
+    def test_week_start(self, _name, week_start_day, expected_date):
+        self.assertEqual(
+            relative_date_parse("wStart", ZoneInfo("UTC"), team_week_start_day=week_start_day).strftime("%Y-%m-%d"),
+            expected_date,
+        )
+
     @freeze_time("2020-01-31")
     def test_normal_date(self):
         self.assertEqual(
@@ -285,17 +309,58 @@ class TestRelativeDateParse(TestCase):
 
 
 class TestDefaultEventName(BaseTest):
-    def test_no_events(self):
+    def test_no_events_returns_pageview_default(self):
+        # When team has no events at all, default to $pageview (most common for new teams)
         self.assertEqual(get_default_event_name(self.team), "$pageview")
+
+    def test_other_events_but_no_pageview_or_screen_returns_none(self):
+        # When team has events but no $pageview or $screen, return None for "all events"
+        EventDefinition.objects.create(name="custom_event", team=self.team)
+        self.assertIsNone(get_default_event_name(self.team))
 
     def test_take_screen(self):
         EventDefinition.objects.create(name="$screen", team=self.team)
         self.assertEqual(get_default_event_name(self.team), "$screen")
 
-    def test_prefer_pageview(self):
-        EventDefinition.objects.create(name="$pageview", team=self.team)
-        EventDefinition.objects.create(name="$screen", team=self.team)
-        self.assertEqual(get_default_event_name(self.team), "$pageview")
+    @parameterized.expand(
+        [
+            (
+                "no_events",
+                False,
+                False,
+                {"default_event_name": "$pageview", "has_pageview": False, "has_screen": False},
+            ),
+            ("only_screen", False, True, {"default_event_name": "$screen", "has_pageview": False, "has_screen": True}),
+            (
+                "only_pageview",
+                True,
+                False,
+                {"default_event_name": "$pageview", "has_pageview": True, "has_screen": False},
+            ),
+            ("both", True, True, {"default_event_name": "$pageview", "has_pageview": True, "has_screen": True}),
+        ]
+    )
+    def test_get_default_event_info(self, _name, create_pageview, create_screen, expected):
+        if create_pageview:
+            EventDefinition.objects.create(name="$pageview", team=self.team)
+        if create_screen:
+            EventDefinition.objects.create(name="$screen", team=self.team)
+        self.assertEqual(get_default_event_info(self.team), expected)
+
+    @parameterized.expand(
+        [
+            ("no_events", False, False, "$pageview"),
+            ("only_screen", False, True, "$screen"),
+            ("only_pageview", True, False, "$pageview"),
+            ("both", True, True, "$pageview"),
+        ]
+    )
+    def test_get_default_event_name(self, _name, create_pageview, create_screen, expected):
+        if create_pageview:
+            EventDefinition.objects.create(name="$pageview", team=self.team)
+        if create_screen:
+            EventDefinition.objects.create(name="$screen", team=self.team)
+        self.assertEqual(get_default_event_name(self.team), expected)
 
 
 class TestLoadDataFromRequest(TestCase):
@@ -303,8 +368,14 @@ class TestLoadDataFromRequest(TestCase):
         rf = RequestFactory()
         # the server presents any http headers in upper case with http_ as a prefix
         # see https://docs.djangoproject.com/en/4.0/ref/request-response/#django.http.HttpRequest.META
-        headers = {"HTTP_ORIGIN": origin, "HTTP_REFERER": referer}
-        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain", False, **headers)
+        post_request = rf.post(
+            "/e/?ver=1.20.0",
+            data="content",
+            content_type="text/plain",
+            secure=False,
+            HTTP_ORIGIN=origin,
+            HTTP_REFERER=referer,
+        )
         return post_request
 
     @patch("posthoganalytics.tag")
@@ -588,3 +659,166 @@ def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping"
     GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
     instance.refresh_from_db()
     return instance
+
+
+class TestStrToIntSet(TestCase):
+    @parameterized.expand(
+        [
+            (None, set()),
+            ("", set()),
+            ("[]", set()),
+            ("[1, 2, 3]", {1, 2, 3}),
+            ("[1, 1, 2]", {1, 2}),
+            ('["1", "2"]', {1, 2}),
+            ("invalid", set()),
+            ("123", set()),
+        ]
+    )
+    def test_str_to_int_set(self, value, expected):
+        assert str_to_int_set(value) == expected
+
+
+class TestGetIpAddress(TestCase):
+    @parameterized.expand(
+        [
+            # Valid IPv4
+            ("192.168.1.1", None, "192.168.1.1"),
+            ("8.8.8.8", None, "8.8.8.8"),
+            # Valid IPv4 via X-Forwarded-For
+            (None, "192.168.1.1", "192.168.1.1"),
+            (None, "192.168.1.1, 10.0.0.1", "192.168.1.1"),
+            (None, " 192.168.1.1 , 10.0.0.1", "192.168.1.1"),
+            # Valid IPv4 with port (Azure gateway format)
+            (None, "192.168.1.1:8080", "192.168.1.1"),
+            # Valid IPv6
+            ("::1", None, "::1"),
+            ("2001:db8::1", None, "2001:db8::1"),
+            # Valid IPv6 with port (bracketed format)
+            (None, "[2001:db8::1]:8080", "2001:db8::1"),
+            (None, "[::1]:443", "::1"),
+            # IPv6 with brackets but no port
+            (None, "[2001:db8::1]", "2001:db8::1"),
+            # Invalid/malformed - should return empty string
+            (None, "not-an-ip", ""),
+            (None, "192.168.1", ""),
+            (None, "malicious.payload.here", ""),
+            # Empty cases
+            (None, None, ""),
+            (None, "", ""),
+            ("", None, ""),
+        ]
+    )
+    def test_get_ip_address(self, remote_addr, x_forwarded_for, expected):
+        request = HttpRequest()
+        request.META = {}
+        if remote_addr is not None:
+            request.META["REMOTE_ADDR"] = remote_addr
+        if x_forwarded_for is not None:
+            request.META["HTTP_X_FORWARDED_FOR"] = x_forwarded_for
+        assert get_ip_address(request) == expected
+
+
+class TestSharingOverrideProtection(TestCase):
+    """Sharing token authenticators must block query param overrides on shared dashboards."""
+
+    def _make_request(self, authenticator, query_params=None):
+        factory = RequestFactory()
+        django_request = factory.get("/", data=query_params or {})
+        request = Request(django_request)
+        cast(Any, request)._authenticator = authenticator
+        return request
+
+    @parameterized.expand(
+        [
+            ("access_token_auth",),
+            ("password_protected_auth",),
+        ]
+    )
+    def test_filters_override_blocked_for_sharing_authenticators(self, auth_type):
+        from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+        authenticator = (
+            SharingAccessTokenAuthentication()
+            if auth_type == "access_token_auth"
+            else SharingPasswordProtectedAuthentication()
+        )
+        request = self._make_request(authenticator, query_params={"filters_override": json.dumps({"date_from": "-7d"})})
+        dashboard = type("Dashboard", (), {"filters": {"date_from": "-30d"}})()
+
+        result = filters_override_requested_by_client(request, dashboard)
+
+        assert result == {"date_from": "-30d"}
+
+    def test_filters_override_allowed_for_normal_auth(self):
+        request = self._make_request(None, query_params={"filters_override": json.dumps({"date_from": "-7d"})})
+        dashboard = type("Dashboard", (), {"filters": {"date_from": "-30d"}})()
+
+        result = filters_override_requested_by_client(request, dashboard)
+
+        assert result == {"date_from": "-7d"}
+
+    @parameterized.expand(
+        [
+            ("access_token_auth",),
+            ("password_protected_auth",),
+        ]
+    )
+    @patch("posthog.api.insight_variable.map_stale_to_latest", side_effect=lambda variables, _: variables)
+    def test_variables_override_blocked_for_sharing_authenticators(self, auth_type, _mock):
+        from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+        authenticator = (
+            SharingAccessTokenAuthentication()
+            if auth_type == "access_token_auth"
+            else SharingPasswordProtectedAuthentication()
+        )
+        request = self._make_request(
+            authenticator, query_params={"variables_override": json.dumps({"injected": {"value": "evil"}})}
+        )
+        dashboard = type("Dashboard", (), {"variables": {"var1": {"value": "safe"}}})()
+
+        result = variables_override_requested_by_client(request, dashboard, variables=[])
+
+        assert result == {"var1": {"value": "safe"}}
+
+    @patch("posthog.api.insight_variable.map_stale_to_latest", side_effect=lambda variables, _: variables)
+    def test_variables_override_allowed_for_normal_auth(self, _mock):
+        request = self._make_request(
+            None, query_params={"variables_override": json.dumps({"var1": {"value": "custom"}})}
+        )
+        dashboard = type("Dashboard", (), {"variables": {"var1": {"value": "default"}}})()
+
+        result = variables_override_requested_by_client(request, dashboard, variables=[])
+
+        assert result == {"var1": {"value": "custom"}}
+
+    @parameterized.expand(
+        [
+            ("access_token_auth",),
+            ("password_protected_auth",),
+        ]
+    )
+    def test_tile_filters_override_blocked_for_sharing_authenticators(self, auth_type):
+        from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+        authenticator = (
+            SharingAccessTokenAuthentication()
+            if auth_type == "access_token_auth"
+            else SharingPasswordProtectedAuthentication()
+        )
+        request = self._make_request(
+            authenticator, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})}
+        )
+        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
+
+        result = tile_filters_override_requested_by_client(request, tile)
+
+        assert result == {"breakdown": "country"}
+
+    def test_tile_filters_override_allowed_for_normal_auth(self):
+        request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
+        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
+
+        result = tile_filters_override_requested_by_client(request, tile)
+
+        assert result == {"breakdown": "region"}

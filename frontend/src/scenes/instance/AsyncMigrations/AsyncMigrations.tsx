@@ -4,6 +4,8 @@ import { useEffect } from 'react'
 import { IconDatabase, IconRefresh } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { IconPlayCircle, IconReplay } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -13,7 +15,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconPlayCircle, IconReplay } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -24,7 +25,6 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AsyncMigrationDetails } from './AsyncMigrationDetails'
-import { SettingUpdateField } from './SettingUpdateField'
 import {
     AsyncMigration,
     AsyncMigrationStatus,
@@ -32,6 +32,7 @@ import {
     asyncMigrationsLogic,
     migrationStatusNumberToMessage,
 } from './asyncMigrationsLogic'
+import { SettingUpdateField } from './SettingUpdateField'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -64,12 +65,14 @@ export function AsyncMigrations(): JSX.Element {
         setActiveTab,
     } = useActions(asyncMigrationsLogic)
 
+    const { isVisible: isPageVisible } = usePageVisibility()
+
     useEffect(() => {
-        if (isAnyMigrationRunning) {
+        if (isAnyMigrationRunning && isPageVisible) {
             const interval = setInterval(() => loadAsyncMigrations(), STATUS_RELOAD_INTERVAL_MS)
             return () => clearInterval(interval)
         }
-    }, [isAnyMigrationRunning]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [isAnyMigrationRunning, isPageVisible]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const nameColumn: AsyncMigrationColumnType = {
         title: 'Migration',
@@ -217,21 +220,26 @@ export function AsyncMigrations(): JSX.Element {
         },
     }
 
-    const columns = {}
-    columns[AsyncMigrationsTab.FutureMigrations] = [nameColumn, statusColumn, minVersionColumn, maxVersionColumn]
-    columns[AsyncMigrationsTab.Management] = [
-        nameColumn,
-        progressColumn,
-        statusColumn,
-        lastOpColumn,
-        queryIdColumn,
-        startedAtColumn,
-        finishedAtColumn,
-        ActionsColumn,
-    ]
-    const migrations = {}
-    migrations[AsyncMigrationsTab.FutureMigrations] = futureMigrations
-    migrations[AsyncMigrationsTab.Management] = actionableMigrations
+    const columns = {
+        [AsyncMigrationsTab.FutureMigrations]: [nameColumn, statusColumn, minVersionColumn, maxVersionColumn],
+        [AsyncMigrationsTab.Management]: [
+            nameColumn,
+            progressColumn,
+            statusColumn,
+            lastOpColumn,
+            queryIdColumn,
+            startedAtColumn,
+            finishedAtColumn,
+            ActionsColumn,
+        ],
+        [AsyncMigrationsTab.Settings]: [],
+    }
+
+    const migrations = {
+        [AsyncMigrationsTab.FutureMigrations]: futureMigrations,
+        [AsyncMigrationsTab.Management]: actionableMigrations,
+        [AsyncMigrationsTab.Settings]: [],
+    }
 
     const rowExpansion = {
         expandedRowRender: function renderExpand(asyncMigration: AsyncMigration) {

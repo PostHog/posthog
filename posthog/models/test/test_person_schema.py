@@ -1,17 +1,17 @@
-"""Smoke test that Rust sqlx migrations ran and created posthog_person_new table."""
+"""Smoke test that Rust sqlx migrations ran and created person tables."""
 
 import pytest
 
 from django.conf import settings
-from django.db import connection
+from django.db import connections
 from django.test import TestCase
 
 from posthog.models.person import Person
 
 
-def table_exists(table_name: str) -> bool:
-    """Check if a table exists."""
-    with connection.cursor() as cursor:
+def table_exists(table_name: str, database: str = "persons_db_writer") -> bool:
+    """Check if a table exists in the specified database."""
+    with connections[database].cursor() as cursor:
         cursor.execute(
             """
             SELECT EXISTS (
@@ -27,12 +27,14 @@ def table_exists(table_name: str) -> bool:
 class TestPersonSchemaConsistency(TestCase):
     """Smoke test that Rust sqlx migrations ran successfully."""
 
-    def test_posthog_person_new_exists(self):
-        """Verify posthog_person_new table was created by sqlx migrations."""
+    databases = {"default", "persons_db_writer"}
+
+    def test_posthog_person_exists(self):
+        """Verify posthog_person table exists in persons_db after Rust sqlx migrations."""
         self.assertTrue(
-            table_exists("posthog_person_new"),
-            "posthog_person_new table does not exist. "
-            "Rust sqlx migrations from rust/persons_migrations/ should have created it.",
+            table_exists("posthog_person"),
+            "posthog_person table does not exist in persons_db. "
+            "Rust sqlx migrations from rust/persons_migrations/ should have created and renamed it.",
         )
 
     def test_person_table_configuration(self):

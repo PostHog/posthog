@@ -14,8 +14,8 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time
+               step_1_conversion_time,
+               step_2_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -48,9 +48,9 @@
                                                           step_1,
                                                           min(latest_1) over (PARTITION by aggregation_target
                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                                                             step_2,
-                                                                             min(latest_2) over (PARTITION by aggregation_target
-                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                                          step_2,
+                                                          min(latest_2) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
@@ -74,7 +74,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-10 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-10 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
@@ -103,8 +103,8 @@
                               AND (NOT has([''], "$group_0")))
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))

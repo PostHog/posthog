@@ -96,6 +96,28 @@ class TestAssistantDispatcher(BaseTest):
         self.assertEqual(event.node_name, AssistantNodeName.TRENDS_GENERATOR)
         self.assertEqual(event.node_run_id, "test_run_789")
 
+    def test_dispatch_update_action_with_tool_call(self):
+        """Test dispatching an update with an AssistantToolCall content."""
+        dispatcher = AssistantDispatcher(
+            writer=self.writer,
+            node_path=self.node_path,
+            node_name=AssistantNodeName.TRENDS_GENERATOR,
+            node_run_id="test_run_tool_call",
+        )
+
+        tool_call = AssistantToolCall(id="tc_1", name="some_tool", args={"key": "value"})
+        dispatcher.update(content=tool_call)
+
+        self.assertEqual(len(self.dispatched_events), 1)
+        event = self.dispatched_events[0]
+
+        self.assertIsInstance(event, AssistantDispatcherEvent)
+        self.assertIsInstance(event.action, UpdateAction)
+        assert isinstance(event.action, UpdateAction)
+        self.assertEqual(event.action.content, tool_call)
+        self.assertEqual(event.node_name, AssistantNodeName.TRENDS_GENERATOR)
+        self.assertEqual(event.node_run_id, "test_run_tool_call")
+
     def test_dispatch_multiple_messages(self):
         """Test dispatching multiple messages in sequence."""
         dispatcher = AssistantDispatcher(

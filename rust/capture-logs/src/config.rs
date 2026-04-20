@@ -1,9 +1,13 @@
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
 use capture::config::KafkaConfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     // management endpoint serves _readiness/_liveness/metrics
     #[envconfig(from = "MANAGEMENT_BIND_HOST", default = "::")]
     pub management_host: String,
@@ -21,6 +25,9 @@ pub struct Config {
     pub kafka: KafkaConfig,
 
     pub drop_events_by_token: Option<String>, // "<token>,<token>..."
+
+    #[envconfig(from = "MAX_REQUEST_BODY_SIZE_BYTES", default = "2097152")] // 2MB (Axum default)
+    pub max_request_body_size_bytes: usize,
 }
 
 impl Config {

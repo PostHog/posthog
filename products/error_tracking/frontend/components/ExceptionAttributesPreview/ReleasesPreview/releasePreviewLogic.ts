@@ -1,8 +1,6 @@
 import { connect, kea, path, props, selectors } from 'kea'
 
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import 'lib/components/Errors/stackFrameLogic'
-import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
 
@@ -22,7 +20,7 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
     props({} as ErrorPropertiesLogicProps),
 
     connect((props: ErrorPropertiesLogicProps) => ({
-        values: [errorPropertiesLogic(props), ['frames'], stackFrameLogic, ['stackFrameRecords']],
+        values: [errorPropertiesLogic(props), ['frames', 'stackFrameRecords']],
     })),
 
     selectors(() => ({

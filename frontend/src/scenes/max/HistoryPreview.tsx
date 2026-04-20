@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { ConversationStatus, ConversationType } from '~/types'
 
 import { maxLogic } from './maxLogic'
-import { formatConversationDate } from './utils'
+import { formatConversationDate, getSlackThreadUrl } from './utils'
 
 interface HistoryPreviewProps {
     sidePanel?: boolean
@@ -22,12 +24,13 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
     }
 
     return (
-        <div className="max-w-120 w-full self-center flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2 -mr-2">
+        <div className={cn('max-w-120 w-full self-center flex flex-col gap-2', sidePanel && 'px-3')}>
+            <div className={cn('flex items-center justify-between gap-2', !sidePanel && '-mr-2')}>
                 <h3 className="text-sm font-medium text-secondary mb-0">Recent chats</h3>
                 <LemonButton
                     size="small"
                     onClick={() => toggleConversationHistory()}
+                    data-attr="max-view-all-chat-history"
                     tooltip="Open chat history"
                     tooltipPlacement="bottom"
                 >
@@ -42,27 +45,49 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                 </>
             ) : (
                 conversationHistory.slice(0, 3).map((conversation) => (
-                    <Link
-                        key={conversation.id}
-                        className="text-sm flex items-center gap-2 text-primary hover:text-accent-hover active:text-accent-active justify-between"
-                        to={urls.ai(conversation.id)}
-                        onClick={(e) => {
-                            if (sidePanel) {
-                                e.preventDefault()
-                                openConversation(conversation.id)
-                            }
-                        }}
-                    >
-                        <div className="flex items-center gap-2">
-                            <span className="flex-1 line-clamp-1">{conversation.title}</span>
-                            {conversation.type === ConversationType.DeepResearch && <LemonTag>Deep research</LemonTag>}
-                        </div>
+                    <span key={conversation.id} className="flex items-center gap-2">
+                        <Link
+                            className="grow text-sm text-primary hover:text-accent-hover active:text-accent-active"
+                            data-attr="max-open-conversation"
+                            to={urls.ai(conversation.id)}
+                            onClick={(e) => {
+                                if (sidePanel) {
+                                    e.preventDefault()
+                                    openConversation(conversation.id)
+                                }
+                            }}
+                        >
+                            <div className="flex items-center gap-2">
+                                <span className="flex-1 line-clamp-1">{conversation.title}</span>
+                                {conversation.is_internal && <LemonTag type="muted">Impersonated</LemonTag>}
+                                {conversation.type === ConversationType.DeepResearch && <LemonTag>Research</LemonTag>}
+                            </div>
+                        </Link>
+
+                        {conversation.slack_thread_key && (
+                            <LemonTag>
+                                <Link
+                                    to={getSlackThreadUrl(
+                                        conversation.slack_thread_key,
+                                        conversation.slack_workspace_domain
+                                    )}
+                                    target="_blank"
+                                    className="flex items-center gap-1 text-primary hover:text-accent-hover active:text-accent-active"
+                                    onClick={(e) => e.stopPropagation()}
+                                    tooltip="This chat was started in Slack"
+                                >
+                                    Slack thread <IconExternal />
+                                </Link>
+                            </LemonTag>
+                        )}
                         {conversation.status === ConversationStatus.InProgress ? (
                             <Spinner className="h-4 w-4" />
                         ) : (
-                            <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
+                            <span className="text-right text-secondary whitespace-nowrap cursor-default">
+                                {formatConversationDate(conversation.updated_at)}
+                            </span>
                         )}
-                    </Link>
+                    </span>
                 ))
             )}
         </div>

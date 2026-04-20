@@ -27,7 +27,8 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
             })}
         >
             <div className="grid grid-cols-1">
-                {indexedResults && indexedResults.map((item, index) => <InsightLegendRow key={index} item={item} />)}
+                {indexedResults &&
+                    indexedResults.map((item) => <InsightLegendRow key={item.id} item={item} readOnly={readOnly} />)}
             </div>
         </div>
     ) : null

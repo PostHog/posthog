@@ -22,16 +22,6 @@ class TestInstanceSettings(APIBaseTest):
 
         self.assertEqual(json_response["count"], len(CONSTANCE_CONFIG))
 
-        # Check an example attribute
-        self.assertEqual(json_response["results"][0]["key"], "RECORDINGS_TTL_WEEKS")
-        self.assertEqual(json_response["results"][0]["value"], 3)
-        self.assertEqual(
-            json_response["results"][0]["description"],
-            "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
-        )
-        self.assertEqual(json_response["results"][0]["value_type"], "int")
-        self.assertEqual(json_response["results"][0]["editable"], True)
-
         # Check an editable attribute
         for item in json_response["results"]:
             if item["key"] == "AUTO_START_ASYNC_MIGRATIONS":

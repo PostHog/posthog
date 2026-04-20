@@ -1,45 +1,52 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
-
-import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
-import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
-import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
-import { OnboardingStep } from '../OnboardingStep'
-import { onboardingLogic } from '../onboardingLogic'
+import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import { InlineSourceSetup } from 'products/data_warehouse/frontend/shared/components/InlineSourceSetup'
 
-export function OnboardingDataWarehouseSourcesStep({
-    stepKey = OnboardingStepKey.INSTALL,
-}: {
-    stepKey?: OnboardingStepKey
-}): JSX.Element {
+import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
+import { OnboardingStep } from '../OnboardingStep'
+import { DataWarehouseQueryVariant } from './DataWarehouseQueryVariant'
+import { DataWarehouseValuePropVariant } from './DataWarehouseValuePropVariant'
+
+export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = () => {
     const { goToNextStep } = useActions(onboardingLogic)
-    const { currentStep } = useValues(sourceWizardLogic)
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
+    const { availableSourcesLoading } = useValues(availableSourcesLogic)
+    const isTableVariant = useFeatureFlag('ONBOARDING_DATA_WAREHOUSE_VALUE_PROP', 'table')
+    const isQueryVariant = useFeatureFlag('ONBOARDING_DATA_WAREHOUSE_VALUE_PROP', 'query')
+
+    if (isTableVariant) {
+        return <DataWarehouseValuePropVariant />
+    }
+
+    if (isQueryVariant) {
+        return <DataWarehouseQueryVariant />
+    }
 
     return (
         <OnboardingStep
-            title="Link data"
-            stepKey={stepKey}
-            continueOverride={<></>}
-            showSkip={currentStep == 1}
-            subtitle={
-                currentStep == 1
-                    ? `Link all your important data from your CRM, payment processor, 
-                or database and query across them seamlessly.`
-                    : undefined
-            }
+            title="Connect your data for better insights"
+            stepKey={OnboardingStepKey.LINK_DATA}
+            showContinue={false}
+            showSkip={!availableSourcesLoading}
+            subtitle="Link sources like Stripe and Hubspot so you can query them alongside product data to find correlations."
         >
-            {availableSourcesLoading || availableSources === null ? (
-                <LemonSkeleton />
-            ) : (
-                <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
-                    <NewSourcesWizard onComplete={() => goToNextStep()} />
-                </BindLogic>
-            )}
+            <InlineSourceSetup
+                onComplete={() => {
+                    reportOnboardingStepCompleted(OnboardingStepKey.LINK_DATA)
+                    goToNextStep()
+                }}
+                featured
+                title="Choose from 20+ sources"
+                subtitle="You can always connect more sources later."
+            />
         </OnboardingStep>
     )
 }
+
+OnboardingDataWarehouseSourcesStep.stepKey = OnboardingStepKey.LINK_DATA

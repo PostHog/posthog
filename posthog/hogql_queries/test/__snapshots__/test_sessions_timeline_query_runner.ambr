@@ -10,7 +10,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -20,7 +20,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -43,7 +42,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 12:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-01 17:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -61,13 +60,13 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_before_and_after_defaults
@@ -81,7 +80,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -91,7 +90,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -114,7 +112,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-09-30 16:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-01 16:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -132,13 +130,13 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_event_limit_and_has_more
@@ -152,7 +150,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -162,7 +160,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -185,7 +182,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 3)) AS e
   LEFT JOIN
@@ -203,13 +200,13 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_and_informal_sessions_global
@@ -223,7 +220,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -233,7 +230,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -256,7 +252,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -274,13 +270,13 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_session_with_recording
@@ -294,7 +290,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -304,7 +300,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -327,7 +322,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -345,13 +340,13 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_for_person
@@ -365,7 +360,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -375,7 +370,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -398,7 +392,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -416,13 +410,13 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_global
@@ -436,7 +430,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -446,7 +440,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -469,7 +462,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -487,12 +480,12 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---

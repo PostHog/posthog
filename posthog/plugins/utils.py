@@ -314,7 +314,7 @@ def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None
 
 
 def extract_plugin_code(
-    archive: bytes, plugin_json_parsed: Optional[dict[str, Any]] = None
+    archive: bytes | None, plugin_json_parsed: Optional[dict[str, Any]] = None
 ) -> tuple[str, Optional[str], Optional[str], Optional[str]]:
     """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
 

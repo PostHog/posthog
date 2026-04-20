@@ -1355,8 +1355,8 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s2 = str(uuid7("2025-01-03"))
         self._create_purchase_events(
             [
-                ("p1", [("2024-12-25", s1, 42, "USD", "Prod A", "coupon_x", None)]),
-                ("p2", [("2025-01-03", s2, 43, "BRL", "Prod B", "coupon_y", None)]),
+                ("p1", [("2024-12-25", s1, 42, "USD", "Prod A", "coupon_x", "sub_1")]),
+                ("p2", [("2025-01-03", s2, 43, "BRL", "Prod B", "coupon_y", "sub_2")]),
             ]
         )
 
@@ -1377,7 +1377,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "label": "revenue_analytics.events.purchase",
                 "days": LAST_7_MONTHS_DAYS,
                 "labels": LAST_7_MONTHS_LABELS,
-                "data": [0, 0, 0, 0, 0, 0, 0],  # No MRR data because events aren"t recurring/got no subscription
+                "data": [0, Decimal("0.33474"), Decimal("0.3903693217"), 0, 0, 0, 0],
                 "breakdown": {"property": "revenue_analytics.events.purchase", "kind": None},
                 "action": {
                     "days": LAST_7_MONTHS_FAKEDATETIMES,

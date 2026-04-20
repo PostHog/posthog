@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import Organization
@@ -27,7 +28,7 @@ class TestLicenseAPI(APILicensedTest):
         response_data = response.json()
         self.assertEqual(response_data["count"], 1)
         self.assertEqual(response_data["results"][0]["plan"], "enterprise")
-        self.assertEqual(response_data["results"][0]["key"], "12345::67890")
+        self.assertNotIn("key", response_data["results"][0])
         self.assertEqual(
             response_data["results"][0]["valid_until"],
             datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")).isoformat().replace("+00:00", "Z"),
@@ -36,6 +37,26 @@ class TestLicenseAPI(APILicensedTest):
         retrieve_response = self.client.get(f"/api/license/{response_data['results'][0]['id']}")
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
         self.assertEqual(retrieve_response.json(), response_data["results"][0])
+
+    @parameterized.expand(["list", "retrieve", "create"])
+    @patch("ee.api.license.requests.post")
+    @pytest.mark.skip_on_multitenancy
+    def test_license_key_is_write_only(self, method, patch_post):
+        mock = Mock()
+        mock.json.return_value = {
+            "plan": "enterprise",
+            "valid_until": (timezone.now() + datetime.timedelta(days=10)).isoformat().replace("+00:00", "Z"),
+        }
+        patch_post.return_value = mock
+
+        if method == "list":
+            response_data = self.client.get("/api/license").json()["results"][0]
+        elif method == "retrieve":
+            response_data = self.client.get(f"/api/license/{self.license.pk}").json()
+        else:
+            response_data = self.client.post("/api/license", {"key": "test_key"}).json()
+
+        self.assertNotIn("key", response_data)
 
     @patch("ee.api.license.requests.post")
     @pytest.mark.skip_on_multitenancy
@@ -53,7 +74,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
         self.assertEqual(response_data["plan"], "enterprise")
-        self.assertEqual(response_data["key"], "newer_license_1")
+        self.assertNotIn("key", response_data)
 
         self.assertEqual(License.objects.count(), count + 1)
         license = License.objects.get(id=response_data["id"])

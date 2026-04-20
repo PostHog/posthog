@@ -1,39 +1,57 @@
 from datetime import datetime
-from typing import cast
+from typing import Optional
 
 from posthog.test.base import APIBaseTest
 
-from posthog.schema import FunnelsQuery
+from posthog.schema import DateRange, EventsNode, FunnelConversionWindowTimeUnit, FunnelsFilter, FunnelsQuery
 
-from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
+from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.filters import Filter
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.test.test_journeys import journeys_for
 
 
-def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, FunnelPerson):
+def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelConversionTime(APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+        def _get_actor_ids_at_step(
+            self,
+            query: FunnelsQuery,
+            funnel_step: int,
+            breakdown_value: Optional[str | float | list[str | float]] = None,
+        ) -> list[str]:
+            actors = get_actors(
+                query,
+                self.team,
+                funnel_step=funnel_step,
+                funnel_step_breakdown=breakdown_value,
+            )
+            return [actor[0] for actor in actors]
 
         def test_funnel_with_multiple_incomplete_tries(self):
-            filters = {
-                "insight": INSIGHT_FUNNELS,
-                "funnel_order_type": funnel_order_type,
-                "events": [
-                    {"id": "user signed up", "type": "events", "order": 0},
-                    {"id": "$pageview", "type": "events", "order": 1},
-                    {"id": "something else", "type": "events", "order": 2},
+            query = FunnelsQuery(
+                dateRange=DateRange(
+                    date_from="2021-05-01 00:00:00",
+                    date_to="2021-05-14 00:00:00",
+                ),
+                funnelsFilter=FunnelsFilter(
+                    funnelOrderType=funnel_order_type,
+                    funnelWindowInterval=1,
+                ),
+                series=[
+                    EventsNode(
+                        event="user signed up",
+                        name="user signed up",
+                    ),
+                    EventsNode(
+                        event="$pageview",
+                        name="$pageview",
+                    ),
+                    EventsNode(
+                        event="something else",
+                        name="something else",
+                    ),
                 ],
-                "funnel_window_interval": 1,
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-14 00:00:00",
-            }
+            )
 
             people = journeys_for(
                 {
@@ -65,7 +83,6 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
                 self.team,
             )
 
-            query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertEqual(results[0]["count"], 1)
@@ -75,21 +92,32 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
             self.assertEqual(results[1]["median_conversion_time"], 3600)
 
             # check ordering of people in every step
-            self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [people["person1"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [people["person1"].uuid])
 
         def test_funnel_step_conversion_times(self):
-            filters = {
-                "insight": INSIGHT_FUNNELS,
-                "funnel_order_type": funnel_order_type,
-                "events": [
-                    {"id": "sign up", "order": 0},
-                    {"id": "play movie", "order": 1},
-                    {"id": "buy", "order": 2},
+            query = FunnelsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-08",
+                ),
+                funnelsFilter=FunnelsFilter(
+                    funnelOrderType=funnel_order_type,
+                ),
+                series=[
+                    EventsNode(
+                        event="sign up",
+                        name="sign up",
+                    ),
+                    EventsNode(
+                        event="play movie",
+                        name="play movie",
+                    ),
+                    EventsNode(
+                        event="buy",
+                        name="buy",
+                    ),
                 ],
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-08",
-                "funnel_window_days": 7,
-            }
+            )
 
             journeys_for(
                 {
@@ -111,7 +139,6 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
                 self.team,
             )
 
-            query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertEqual(results[0]["average_conversion_time"], None)
@@ -123,18 +150,25 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
             self.assertEqual(results[2]["median_conversion_time"], 5400)
 
         def test_funnel_times_with_different_conversion_windows(self):
-            filters = {
-                "insight": INSIGHT_FUNNELS,
-                "funnel_order_type": funnel_order_type,
-                "events": [
-                    {"id": "user signed up", "type": "events", "order": 0},
-                    {"id": "pageview", "type": "events", "order": 1},
+            query = FunnelsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-14",
+                ),
+                funnelsFilter=FunnelsFilter(
+                    funnelOrderType=funnel_order_type,
+                ),
+                series=[
+                    EventsNode(
+                        event="user signed up",
+                        name="user signed up",
+                    ),
+                    EventsNode(
+                        event="pageview",
+                        name="pageview",
+                    ),
                 ],
-                "funnel_window_interval": 14,
-                "funnel_window_interval_unit": "day",
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-14",
-            }
+            )
 
             # event
             people = journeys_for(
@@ -166,7 +200,6 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
                 self.team,
             )
 
-            query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertEqual(results[0]["count"], 3)
@@ -174,7 +207,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
             self.assertEqual(results[1]["average_conversion_time"], 600)
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 1),
+                self._get_actor_ids_at_step(query, 1),
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup2"].uuid,
@@ -183,16 +216,35 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
             )
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 2),
+                self._get_actor_ids_at_step(query, 2),
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup3"].uuid,
                 ],
             )
 
-            filters = {**filters, "funnel_window_interval": 5, "funnel_window_interval_unit": "minute"}
+            query = FunnelsQuery(
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-14",
+                ),
+                funnelsFilter=FunnelsFilter(
+                    funnelOrderType=funnel_order_type,
+                    funnelWindowInterval=5,
+                    funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.MINUTE,
+                ),
+                series=[
+                    EventsNode(
+                        event="user signed up",
+                        name="user signed up",
+                    ),
+                    EventsNode(
+                        event="pageview",
+                        name="pageview",
+                    ),
+                ],
+            )
 
-            query = cast(FunnelsQuery, filter_to_query(filters))
             result4 = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertNotEqual(results, result4)
@@ -201,7 +253,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
             self.assertEqual(result4[1]["average_conversion_time"], 300)
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 1),
+                self._get_actor_ids_at_step(query, 1),
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup2"].uuid,
@@ -210,7 +262,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
             )
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 2),
+                self._get_actor_ids_at_step(query, 2),
                 [people["stopped_after_signup1"].uuid],
             )
 

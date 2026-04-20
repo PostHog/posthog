@@ -103,6 +103,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     "$host",
     "$pathname",
     "$referrer",
+    "$search_engine",
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
@@ -376,6 +377,28 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "used_for_debug": True,
         },
+        "$sdk_debug_replay_full_snapshots": {
+            "label": "Replay full snapshots debug info",
+            "description": "Debug information about full snapshots in the replay session.",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_recording_script_not_loaded": {
+            "label": "Recording script not loaded",
+            "description": "Recording script not loaded. This can be caused by ad blockers.",
+            "used_for_debug": True,
+        },
+        "$debug_first_full_snapshot_timestamp": {
+            "label": "First full snapshot timestamp",
+            "description": "The timestamp of the first full snapshot in the replay session.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$product_tours_enabled_server_side": {
+            "label": "Product tours enabled server side",
+            "description": "Whether product tours are enabled server-side.",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
         "$sess_rec_flush_size": {
             "label": "Estimated bytes flushed",
             "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
@@ -429,6 +452,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "ignored_in_assistant": True,
         },
+        "$go_version": {
+            "label": "Go version",
+            "description": "The Go version that was used to capture the event.",
+            "examples": ["go1.23.0"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "label": "Replay internal buffer length",
             "description": "Useful for debugging. The internal buffer length for replay.",
@@ -445,16 +475,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,
             "used_for_debug": True,
         },
-        "sdk_debug_extensions_init_method": {
+        "$sdk_debug_extensions_init_method": {
             "label": "PostHog.js extensions init method",
             "description": "The method used to initialize PostHog.js extensions.",
             "examples": ["deferred", "synchronous"],
+            "type": "String",
             "used_for_debug": True,
         },
-        "sdk_debug_extensions_init_time_ms": {
+        "$sdk_debug_extensions_init_time_ms": {
             "label": "PostHog.js extensions init time (ms)",
             "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
             "examples": ["150"],
+            "type": "Numeric",
             "used_for_debug": True,
         },
         "$sdk_debug_retry_queue_size": {
@@ -901,10 +933,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "used_for_debug": True,
         },
-        "$cymbal_errors": {
-            "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions.",
+        "$has_recording": {
+            "label": "Has recording",
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
             "system": True,
+            "used_for_debug": True,
         },
         "$geoip_city_name": {
             "label": "City name",
@@ -1076,6 +1109,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "OS version",
             "description": "The Operating System version.",
             "examples": ["15.5"],
+        },
+        "$os_distro": {
+            "label": "OS distro",
+            "description": "The distribution name in case of Linux.",
+            "examples": ["Ubuntu", "Debian", "Fedora"],
         },
         "$timezone": {
             "label": "Timezone",
@@ -1250,6 +1288,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 "ja",
             ],
         },
+        "$conversations_ticket_id": {
+            "label": "Conversations ticket ID",
+            "description": "The ticket ID from the conversations widget associated with this event.",
+        },
+        "$conversations_widget_session_id": {
+            "label": "Conversations widget session ID",
+            "description": "The session ID from the conversations widget.",
+        },
         "$current_url": {
             "label": "Current URL",
             "description": "The URL visited at the time of the event.",
@@ -1341,6 +1387,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ip": {
             "label": "IP address",
             "description": "IP address for this user when the event was sent.",
+            "examples": ["203.0.113.0"],
+        },
+        "$ip_address": {
+            "label": "IP address",
+            "description": "The IP address of the client that sent this event. Used by server-side SDKs.",
             "examples": ["203.0.113.0"],
         },
         "$host": {
@@ -1745,9 +1796,19 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Surveys activated",
             "description": "The surveys that were activated for this event.",
         },
+        "$process_person": {
+            "label": "Person processing flag",
+            "description": "Controls whether person data should be processed for this event.",
+            "system": True,
+        },
         "$process_person_profile": {
             "label": "Person profile processing flag",
             "description": "The setting from an SDK to control whether an event has person processing enabled",
+            "system": True,
+        },
+        "$update_person_last_seen_at": {
+            "label": "Update last seen at",
+            "description": "When set to false, the event will not update the person's last_seen_at timestamp",
             "system": True,
         },
         "$dead_clicks_enabled_server_side": {
@@ -1847,6 +1908,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23],
         },
+        "$ai_cache_reporting_exclusive": {
+            "label": "AI cache reporting exclusive (LLM)",
+            "description": "Whether cache tokens are excluded from the input token count. When true, cache tokens are separate from input tokens (Anthropic-style). When false, input tokens already include cache tokens. Auto-detected from provider when not set explicitly.",
+            "examples": [True],
+        },
         "$ai_reasoning_tokens": {
             "label": "AI reasoning tokens (LLM)",
             "description": "The number of tokens in the reasoning output from the LLM API.",
@@ -1867,10 +1933,40 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The total cost in USD of the request made to the LLM API (input + output costs).",
             "examples": [0.0041],
         },
+        "$ai_request_cost_usd": {
+            "label": "AI request cost USD (LLM)",
+            "description": "The per-request cost in USD charged by the LLM API, independent of token usage.",
+            "examples": [0.005],
+        },
+        "$ai_web_search_cost_usd": {
+            "label": "AI web search cost USD (LLM)",
+            "description": "The cost in USD of web searches performed during the LLM API request.",
+            "examples": [0.005],
+        },
+        "$ai_model_cost_used": {
+            "label": "AI model cost used (LLM)",
+            "description": "The model identifier used for cost calculation. May differ from the requested model when a variant or alias is resolved.",
+            "examples": ["openai/gpt-4o-mini"],
+        },
+        "$ai_cost_model_source": {
+            "label": "AI cost model source (LLM)",
+            "description": "Where the cost data for this model was sourced from.",
+            "examples": ["openrouter", "manual", "custom", "passthrough"],
+        },
+        "$ai_cost_model_provider": {
+            "label": "AI cost model provider (LLM)",
+            "description": "The provider used to look up the cost for this model.",
+            "examples": ["openai", "anthropic", "custom"],
+        },
         "$ai_latency": {
             "label": "AI latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361],
+        },
+        "$ai_time_to_first_token": {
+            "label": "AI time to first token (LLM)",
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [0.125, 0.5],
         },
         "$ai_model": {
             "label": "AI model (LLM)",
@@ -1957,6 +2053,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The LLM's explanation for why the evaluation passed or failed.",
             "examples": ["The response accurately addresses the query", "The output contains factual inaccuracies"],
         },
+        "$ai_evaluation_provider": {
+            "label": "AI Evaluation Provider (LLM)",
+            "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
+            "examples": ["openai", "anthropic", "gemini"],
+        },
+        "$ai_evaluation_allows_na": {
+            "label": "AI Evaluation Allows N/A (LLM)",
+            "description": "Whether the evaluation allows N/A responses when the criteria doesn't apply.",
+            "examples": [True, False],
+        },
+        "$ai_evaluation_key_type": {
+            "label": "AI Evaluation Key Type (LLM)",
+            "description": "The type of API key used for the evaluation (byok = user's own key, posthog = PostHog default).",
+            "examples": ["byok", "posthog"],
+        },
+        "$ai_evaluation_key_id": {
+            "label": "AI Evaluation Key ID (LLM)",
+            "description": "The ID of the LLM provider key used for the evaluation.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_evaluation_applicable": {
+            "label": "AI Evaluation Applicable (LLM)",
+            "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
+            "examples": [True, False],
+        },
+        "$ai_evaluation_runtime": {
+            "label": "AI Evaluation Runtime (LLM)",
+            "description": "The runtime used to execute the evaluation (e.g., llm_judge for LLM-based, hog for code-based).",
+            "examples": ["llm_judge", "hog"],
+        },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",
             "description": "The unique identifier of the event being evaluated.",
@@ -1996,6 +2122,175 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Span Name (LLM)",
             "description": "The name given to this LLM trace, generation, or span.",
             "examples": ["summarize_text"],
+        },
+        "$ai_tools_called": {
+            "label": "AI Tools Called (LLM)",
+            "description": "The names of tools called by the LLM in this generation.",
+            "examples": ["get_weather,search_docs"],
+        },
+        "$ai_tool_call_count": {
+            "label": "AI Tool Call Count (LLM)",
+            "description": "The number of tool calls made by the LLM in this generation.",
+            "examples": ["2"],
+        },
+        "$ai_is_error": {
+            "label": "AI Is Error (LLM)",
+            "description": "Whether this AI event resulted in an error.",
+            "examples": ["true", "false"],
+        },
+        "$ai_error": {
+            "label": "AI Error (LLM)",
+            "description": "The error message from a failed AI event.",
+            "examples": ["Rate limit exceeded", "Invalid API key"],
+        },
+        "$ai_error_type": {
+            "label": "AI Error Type (LLM)",
+            "description": "The type or class of the error from a failed AI event.",
+            "examples": ["RateLimitError", "AuthenticationError"],
+        },
+        "$ai_error_normalized": {
+            "label": "AI Error Normalized (LLM)",
+            "description": "A normalized version of the AI error message for grouping similar errors.",
+            "examples": ["rate_limit_exceeded", "invalid_api_key"],
+        },
+        "$ai_trace_name": {
+            "label": "AI Trace Name (LLM)",
+            "description": "The name given to this AI trace. Deprecated in favor of $ai_span_name.",
+            "examples": ["summarize_text", "chat_completion"],
+        },
+        "$ai_agent_name": {
+            "label": "AI agent name (LLM)",
+            "description": "The name of the AI agent that produced this event.",
+            "examples": ["research_agent", "support_bot"],
+        },
+        "$ai_billable": {
+            "label": "AI billable (LLM)",
+            "description": "Whether this generation counts towards billable usage.",
+            "system": True,
+        },
+        "$ai_eval_source": {
+            "label": "AI eval source (LLM)",
+            "description": "The source that triggered this evaluation.",
+            "examples": ["signals-grouping", "sandboxed-agent"],
+        },
+        "$ai_evaluation_type": {
+            "label": "AI evaluation type (LLM)",
+            "description": "The type of evaluation that was run.",
+            "examples": ["llm_judge", "hog"],
+        },
+        "$ai_expected": {
+            "label": "AI expected output (LLM)",
+            "description": "The expected output for comparison in this evaluation.",
+        },
+        "$ai_experiment_id": {
+            "label": "AI experiment ID (LLM)",
+            "description": "The unique identifier of the experiment this event belongs to.",
+        },
+        "$ai_experiment_item_id": {
+            "label": "AI experiment item ID (LLM)",
+            "description": "The unique identifier of the individual item being evaluated in an experiment.",
+        },
+        "$ai_experiment_item_name": {
+            "label": "AI experiment item name (LLM)",
+            "description": "The name of the individual item being evaluated in an experiment.",
+        },
+        "$ai_experiment_name": {
+            "label": "AI experiment name (LLM)",
+            "description": "The name of the experiment this event belongs to.",
+        },
+        "$ai_framework": {
+            "label": "AI framework (LLM)",
+            "description": "The AI framework used to produce this event.",
+            "examples": ["langchain", "llamaindex", "openai"],
+        },
+        "$ai_lib": {
+            "label": "AI library (LLM)",
+            "description": "The name of the SDK or library that sent this AI event.",
+            "examples": ["posthog-python"],
+            "system": True,
+        },
+        "$ai_lib_version": {
+            "label": "AI library version (LLM)",
+            "description": "The version of the SDK or library that sent this AI event.",
+            "system": True,
+        },
+        "$ai_max_tokens": {
+            "label": "AI max tokens (LLM)",
+            "description": "The maximum number of tokens the model was allowed to generate.",
+            "examples": [1024, 4096],
+            "type": "Numeric",
+        },
+        "$ai_metric_version": {
+            "label": "AI metric version (LLM)",
+            "description": "The version of the metric used for evaluation.",
+        },
+        "$ai_output": {
+            "label": "AI output (LLM)",
+            "description": "The output text from a generation or the text being evaluated.",
+        },
+        "$ai_project_name": {
+            "label": "AI project name (LLM)",
+            "description": "The project name associated with this AI event.",
+        },
+        "$ai_result_type": {
+            "label": "AI result type (LLM)",
+            "description": "The type of result for this evaluation metric.",
+            "examples": ["binary", "numeric", "categorical"],
+        },
+        "$ai_score": {
+            "label": "AI score (LLM)",
+            "description": "The numeric score assigned by this evaluation metric.",
+            "type": "Numeric",
+        },
+        "$ai_score_max": {
+            "label": "AI score max (LLM)",
+            "description": "The maximum possible score for this evaluation metric.",
+            "type": "Numeric",
+        },
+        "$ai_score_min": {
+            "label": "AI score min (LLM)",
+            "description": "The minimum possible score for this evaluation metric.",
+            "type": "Numeric",
+        },
+        "$ai_span_type": {
+            "label": "AI span type (LLM)",
+            "description": "The type of this span in the AI trace tree.",
+            "examples": ["agent", "tool", "chain", "retriever"],
+        },
+        "$ai_status": {
+            "label": "AI status (LLM)",
+            "description": "The status of this evaluation.",
+            "examples": ["ok", "error"],
+        },
+        "$ai_stop_reason": {
+            "label": "AI stop reason (LLM)",
+            "description": "The reason the LLM stopped generating tokens.",
+            "examples": ["end_turn", "max_tokens", "stop_sequence"],
+        },
+        "$ai_tokens_source": {
+            "label": "AI tokens source (LLM)",
+            "description": "The source of the token count data for this generation.",
+            "examples": ["api_response", "estimated"],
+            "system": True,
+        },
+        "$ai_total_input_tokens": {
+            "label": "AI total input tokens (LLM)",
+            "description": "The aggregate number of input tokens across all generations in this trace.",
+            "type": "Numeric",
+        },
+        "$ai_total_output_tokens": {
+            "label": "AI total output tokens (LLM)",
+            "description": "The aggregate number of output tokens across all generations in this trace.",
+            "type": "Numeric",
+        },
+        "$ai_total_tokens": {
+            "label": "AI total tokens (LLM)",
+            "description": "The total number of tokens used (input + output) in this generation.",
+            "type": "Numeric",
+        },
+        "$ai_user_prompt": {
+            "label": "AI user prompt (LLM)",
+            "description": "The user prompt text sent to the LLM.",
         },
         "$csp_document_url": {
             "label": "Document URL",
@@ -2070,6 +2365,33 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The version of the CSP policy. Must be provided in the report URL.",
             "examples": ["1.0"],
         },
+        "$virt_is_bot": {
+            "label": "Is bot",
+            "description": "Whether the event was generated by a bot, crawler, or automation tool.",
+            "type": "Boolean",
+            "virtual": True,
+        },
+        "$virt_traffic_type": {
+            "label": "Traffic type",
+            "description": "Classification of traffic: Regular, Bot, AI Agent, or Automation.",
+            "examples": ["Regular", "Bot", "AI Agent", "Automation"],
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_traffic_category": {
+            "label": "Traffic category",
+            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc.",
+            "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_bot_name": {
+            "label": "Bot name",
+            "description": "Name of the detected bot or crawler.",
+            "examples": ["Googlebot", "ChatGPT", "Claude", "curl"],
+            "type": "String",
+            "virtual": True,
+        },
     },
     "numerical_event_properties": {},
     "person_properties": {
@@ -2099,9 +2421,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this person in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_mrr": {
+            "description": "The current MRR for this person.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": True,
         },
@@ -2213,9 +2535,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this group in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_mrr": {
+            "description": "The current MRR for this group.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": True,
         },
@@ -2413,6 +2735,11 @@ def decapitalize_first_word(text: str) -> str:
 
 
 for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
+    # Virtual event properties (e.g. $virt_is_bot) are computed from event-level
+    # data and don't exist on the persons table — skip them entirely.
+    if value.get("virtual", False):
+        continue
+
     if key in PERSON_PROPERTIES_ADAPTED_FROM_EVENT or key.startswith("$geoip_"):
         CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][key] = {
             **value,
@@ -2465,3 +2792,35 @@ PROPERTY_NAME_ALIASES = {
     for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
     if "label" in value and "deprecated" not in value["label"]
 }
+
+_PROP_TYPE_TO_TAXONOMY_GROUP = {
+    "event": "event_properties",
+    "person": "person_properties",
+    "group": "groups",
+    "session": "session_properties",
+}
+
+PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
+    prop_type: {
+        key: value["label"]
+        for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group_name, {}).items()
+        if "label" in value and "deprecated" not in value["label"]
+    }
+    for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
+}
+
+IGNORED_EVENT_NAMES: list[str] = [
+    name
+    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
+    if defn.get("system") or defn.get("ignored_in_assistant")
+]
+
+# Core PostHog events, derived from the taxonomy. Used to determine which events
+# are treated as verified in the Data Management UI and included in typed code generation.
+CORE_EVENTS: list[str] = [name for name in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}) if name != "All events"]
+
+WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
+    name
+    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
+    if name not in IGNORED_EVENT_NAMES and name != "All events"
+)

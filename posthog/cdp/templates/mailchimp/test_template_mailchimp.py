@@ -1,5 +1,3 @@
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.mailchimp.template_mailchimp import template as template_mailchimp
 
@@ -30,17 +28,15 @@ class TestTemplateMailchimp(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://us1.api.mailchimp.com/3.0/lists/a1b2c3/members/12d91149f17f7ac265e833ea05ef6249",
-                {
-                    "method": "GET",
-                    "headers": {
-                        "Authorization": "Bearer abcdef",
-                        "Content-Type": "application/json",
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://us1.api.mailchimp.com/3.0/lists/a1b2c3/members/12d91149f17f7ac265e833ea05ef6249",
+            {
+                "method": "GET",
+                "headers": {
+                    "Authorization": "Bearer abcdef",
+                    "Content-Type": "application/json",
                 },
-            )
+            },
         )
 
     def test_body_includes_all_properties_if_set(self):
@@ -51,9 +47,11 @@ class TestTemplateMailchimp(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[1][1]["body"]["merge_fields"] == snapshot(
-            {"FNAME": "Max", "LNAME": "AI", "COMPANY": "PostHog"}
-        )
+        assert self.get_mock_fetch_calls()[1][1]["body"]["merge_fields"] == {
+            "FNAME": "Max",
+            "LNAME": "AI",
+            "COMPANY": "PostHog",
+        }
 
         self.run_function(
             inputs=create_inputs(include_all_properties=True),
@@ -62,33 +60,31 @@ class TestTemplateMailchimp(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[1][1]["body"]["merge_fields"] == snapshot(
-            {
-                "FNAME": "Max",
-                "LNAME": "AI",
-                "COMPANY": "PostHog",
-                "PHONE": "+1415000000",
-            }
-        )
+        assert self.get_mock_fetch_calls()[1][1]["body"]["merge_fields"] == {
+            "FNAME": "Max",
+            "LNAME": "AI",
+            "COMPANY": "PostHog",
+            "PHONE": "+1415000000",
+        }
 
     def test_double_opt_in(self):
         self.run_function(
             inputs=create_inputs(doubleOptIn=False),
         )
 
-        assert self.get_mock_fetch_calls()[1][1]["body"]["status_if_new"] == snapshot("subscribed")
+        assert self.get_mock_fetch_calls()[1][1]["body"]["status_if_new"] == "subscribed"
 
         self.run_function(
             inputs=create_inputs(doubleOptIn=True),
         )
 
-        assert self.get_mock_fetch_calls()[1][1]["body"]["status_if_new"] == snapshot("pending")
+        assert self.get_mock_fetch_calls()[1][1]["body"]["status_if_new"] == "pending"
 
     def test_function_requires_identifier(self):
         self.run_function(inputs=create_inputs(email=""))
 
         assert not self.get_mock_fetch_calls()
-        assert self.get_mock_print_calls() == snapshot([("No email set. Skipping...",)])
+        assert self.get_mock_print_calls() == [("No email set. Skipping...",)]
 
     def test_email_case_normalization(self):
         # Test with lowercase email

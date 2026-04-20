@@ -1,3 +1,35 @@
+.SessionRecordingPreview {
+    container-type: inline-size;
+    container-name: preview;
+}
+
+.SessionRecordingPreview__property-label,
+.SessionRecordingPreview__activity-label {
+    display: none;
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition:
+        max-width 0.2s ease,
+        opacity 0.2s ease;
+}
+
+@container preview (min-width: 30rem) {
+    .SessionRecordingPreview__property-label {
+        display: inline;
+        max-width: 6rem;
+        opacity: 1;
+    }
+}
+
+@container preview (min-width: 35rem) {
+    .SessionRecordingPreview__activity-label {
+        display: inline;
+        max-width: 6rem;
+        opacity: 1;
+    }
+}
+
 .UnwatchedIndicator {
     &.UnwatchedIndicator--primary {
         background: var(--danger);

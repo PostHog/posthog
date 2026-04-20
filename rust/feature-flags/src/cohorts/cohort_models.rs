@@ -1,8 +1,24 @@
 use crate::properties::property_models::PropertyFilter;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+pub enum CohortType {
+    Static,
+    PersonProperty,
+    Behavioral,
+    Realtime,
+    Analytical,
+}
+
+/// HYPERCACHE CONTRACT: These fields are deserialized from JSON written by Python's
+/// `_serialize_cohort()` in posthog/models/feature_flag/flags_cache.py. Field changes
+/// must follow the expand-and-contract pattern. Golden fixture contract test:
+///   cargo test -p feature-flags test_hypercache_contract
+#[derive(Debug, Clone, Default, Serialize, Deserialize, FromRow)]
 pub struct Cohort {
     pub id: i32,
     pub name: Option<String>,
@@ -19,6 +35,97 @@ pub struct Cohort {
     pub errors_calculating: i32,
     pub groups: serde_json::Value,
     pub created_by_id: Option<i32>,
+    pub cohort_type: Option<CohortType>,
+    pub last_backfill_person_properties_at: Option<DateTime<Utc>>,
+}
+
+impl Cohort {
+    /// Returns true if this cohort's membership should be resolved via the
+    /// realtime cohort_membership table rather than the static cohortpeople table.
+    /// Requires both a realtime/behavioral cohort type AND a populated backfill
+    /// timestamp, which indicates that the membership table has been written to.
+    /// Without the timestamp, the cohort falls through to dynamic filter evaluation.
+    pub fn uses_realtime_membership(&self) -> bool {
+        matches!(
+            self.cohort_type,
+            Some(CohortType::Realtime) | Some(CohortType::Behavioral)
+        ) && self.last_backfill_person_properties_at.is_some()
+    }
+
+    /// Estimates the memory size of this cohort in bytes.
+    ///
+    /// This approximation accounts for the variable-size JSON fields (`filters`, `query`, `groups`)
+    /// which can be arbitrarily large depending on cohort complexity. The estimate is used by the
+    /// cache weigher to enforce memory-based eviction rather than count-based eviction.
+    ///
+    /// **Accuracy note**: This measures serialized JSON size, not actual heap allocations.
+    /// `serde_json::Value` stores JSON in a tree structure with per-node overhead not counted here.
+    /// Deeply nested structures may use 2-3x more memory than estimated. This is acceptable because:
+    /// 1. The estimate is consistent and proportional to actual usage
+    /// 2. It correctly identifies large cohorts as heavier than small ones
+    /// 3. Operators can tune the cache limit based on observed memory usage
+    pub fn estimated_size_bytes(&self) -> usize {
+        // Base struct size (fixed-size fields like i32, bool, Option overhead)
+        let base_size = std::mem::size_of::<Self>();
+
+        // Variable-size string fields
+        let name_size = self.name.as_ref().map_or(0, |s| s.len());
+        let desc_size = self.description.as_ref().map_or(0, |s| s.len());
+
+        // JSON fields - estimate size by traversing the structure without allocation
+        let filters_size = self.filters.as_ref().map_or(0, estimate_json_size);
+        let query_size = self.query.as_ref().map_or(0, estimate_json_size);
+        let groups_size = estimate_json_size(&self.groups);
+
+        base_size + name_size + desc_size + filters_size + query_size + groups_size
+    }
+}
+
+/// Estimates the serialized size of a JSON value with minimal allocation.
+///
+/// This walks the JSON tree and estimates the byte length of the serialized form.
+/// The estimate is close to `value.to_string().len()` but avoids the large allocation
+/// of serializing the entire structure. Numbers still allocate a small temporary string
+/// for simplicity, as they're typically only a few bytes.
+fn estimate_json_size(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Null => 4, // "null"
+        serde_json::Value::Bool(b) => {
+            if *b {
+                4
+            } else {
+                5
+            }
+        } // "true" or "false"
+        serde_json::Value::Number(n) => {
+            // For accuracy, just convert to string - numbers are small and this is fast
+            n.to_string().len()
+        }
+        serde_json::Value::String(s) => s.len() + 2, // quotes + content (ignoring escapes)
+        serde_json::Value::Array(arr) => {
+            if arr.is_empty() {
+                2 // "[]"
+            } else {
+                // "[" + elements + commas + "]"
+                2 + arr.iter().map(estimate_json_size).sum::<usize>() + arr.len().saturating_sub(1)
+            }
+        }
+        serde_json::Value::Object(map) => {
+            if map.is_empty() {
+                2 // "{}"
+            } else {
+                // "{" + entries + commas + "}"
+                // Each entry serialized as "key":value
+                2 + map
+                    .iter()
+                    .map(|(k, v)| {
+                        k.len() + 3 + estimate_json_size(v) // key + 2 quotes + colon + value
+                    })
+                    .sum::<usize>()
+                    + map.len().saturating_sub(1)
+            }
+        }
+    }
 }
 
 pub type CohortId = i32;
@@ -47,4 +154,267 @@ pub struct CohortValues {
     #[serde(rename = "type")]
     pub prop_type: String,
     pub values: Vec<PropertyFilter>,
+}
+
+#[cfg(test)]
+#[allow(clippy::needless_update)]
+mod mock_impls {
+    use super::*;
+    use crate::utils::mock::Mock;
+
+    impl Mock for Cohort {
+        fn mock() -> Self {
+            Cohort {
+                id: 1,
+                name: Some("Test Cohort".to_string()),
+                description: Some("Test cohort description".to_string()),
+                team_id: 1,
+                version: Some(1),
+                groups: serde_json::json!({}),
+                ..Default::default()
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_cohort(
+        filters: Option<serde_json::Value>,
+        query: Option<serde_json::Value>,
+        groups: serde_json::Value,
+    ) -> Cohort {
+        Cohort {
+            id: 1,
+            name: Some("Test Cohort".to_string()),
+            description: Some("A test cohort".to_string()),
+            team_id: 1,
+            deleted: false,
+            filters,
+            query,
+            version: Some(1),
+            pending_version: None,
+            count: Some(100),
+            is_calculating: false,
+            is_static: false,
+            errors_calculating: 0,
+            groups,
+            created_by_id: Some(1),
+            cohort_type: None,
+            last_backfill_person_properties_at: None,
+        }
+    }
+
+    #[test]
+    fn test_estimated_size_bytes_minimal_cohort() {
+        let cohort = create_test_cohort(None, None, serde_json::json!({}));
+
+        let size = cohort.estimated_size_bytes();
+
+        // Should include at least the base struct size
+        assert!(
+            size >= std::mem::size_of::<Cohort>(),
+            "Size should be at least the base struct size"
+        );
+    }
+
+    #[test]
+    fn test_estimated_size_bytes_with_large_filters() {
+        let small_cohort = create_test_cohort(
+            Some(serde_json::json!({"type": "AND", "values": []})),
+            None,
+            serde_json::json!({}),
+        );
+
+        let large_filters = serde_json::json!({
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {"type": "OR", "values": [
+                        {"key": "property_1", "type": "person", "value": ["value1", "value2", "value3", "value4", "value5"], "negation": false, "operator": "exact"},
+                        {"key": "property_2", "type": "person", "value": ["value6", "value7", "value8", "value9", "value10"], "negation": false, "operator": "exact"}
+                    ]},
+                    {"type": "AND", "values": [
+                        {"key": "property_3", "type": "person", "value": ["value11", "value12"], "negation": true, "operator": "is_not"}
+                    ]}
+                ]
+            }
+        });
+        let large_cohort = create_test_cohort(Some(large_filters), None, serde_json::json!({}));
+
+        let small_size = small_cohort.estimated_size_bytes();
+        let large_size = large_cohort.estimated_size_bytes();
+
+        assert!(
+            large_size > small_size,
+            "Large filter cohort ({large_size} bytes) should be larger than small filter cohort ({small_size} bytes)"
+        );
+    }
+
+    #[test]
+    fn test_estimated_size_bytes_includes_all_json_fields() {
+        let base_cohort = create_test_cohort(None, None, serde_json::json!({}));
+
+        let with_filters = create_test_cohort(
+            Some(serde_json::json!({"key": "value", "nested": {"deep": "data"}})),
+            None,
+            serde_json::json!({}),
+        );
+
+        let with_query = create_test_cohort(
+            None,
+            Some(serde_json::json!({"query": "SELECT * FROM events WHERE large_query_here"})),
+            serde_json::json!({}),
+        );
+
+        let with_groups = create_test_cohort(
+            None,
+            None,
+            serde_json::json!({"group1": "value1", "group2": "value2", "group3": "value3"}),
+        );
+
+        let base_size = base_cohort.estimated_size_bytes();
+        let filters_size = with_filters.estimated_size_bytes();
+        let query_size = with_query.estimated_size_bytes();
+        let groups_size = with_groups.estimated_size_bytes();
+
+        // Each field should contribute to the size
+        assert!(
+            filters_size > base_size,
+            "Adding filters should increase size"
+        );
+        assert!(query_size > base_size, "Adding query should increase size");
+        assert!(
+            groups_size > base_size,
+            "Adding groups should increase size"
+        );
+    }
+
+    #[test]
+    fn test_estimate_json_size_accuracy() {
+        // Test that estimate_json_size produces reasonable approximations
+        // compared to actual serialization
+        let test_cases = vec![
+            serde_json::json!(null),
+            serde_json::json!(true),
+            serde_json::json!(false),
+            serde_json::json!(42),
+            serde_json::json!(-123),
+            serde_json::json!(1.5),
+            serde_json::json!("hello"),
+            serde_json::json!([1, 2, 3]),
+            serde_json::json!({"key": "value"}),
+            serde_json::json!({
+                "nested": {
+                    "array": [1, 2, {"deep": true}],
+                    "string": "test"
+                }
+            }),
+        ];
+
+        for value in test_cases {
+            let estimated = estimate_json_size(&value);
+            let actual = value.to_string().len();
+
+            // Allow up to 20% deviation - the estimate doesn't need to be exact,
+            // just proportional and reasonable
+            let deviation = (estimated as f64 - actual as f64).abs() / actual as f64;
+            assert!(
+                deviation < 0.20,
+                "Estimate {estimated} deviates too much from actual {actual} for {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_uses_realtime_membership() {
+        let backfill_ts = Some(Utc::now());
+
+        let cases: Vec<(Option<CohortType>, Option<DateTime<Utc>>, bool)> = vec![
+            (None, None, false),
+            (None, backfill_ts, false),
+            (Some(CohortType::Static), None, false),
+            (Some(CohortType::Static), backfill_ts, false),
+            (Some(CohortType::PersonProperty), None, false),
+            (Some(CohortType::PersonProperty), backfill_ts, false),
+            (Some(CohortType::Analytical), None, false),
+            (Some(CohortType::Analytical), backfill_ts, false),
+            (Some(CohortType::Realtime), None, false),
+            (Some(CohortType::Realtime), backfill_ts, true),
+            (Some(CohortType::Behavioral), None, false),
+            (Some(CohortType::Behavioral), backfill_ts, true),
+        ];
+
+        for (cohort_type, ts, expected) in cases {
+            let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
+            cohort.cohort_type = cohort_type;
+            cohort.last_backfill_person_properties_at = ts;
+            assert_eq!(
+                cohort.uses_realtime_membership(),
+                expected,
+                "cohort_type={cohort_type:?}, backfill_ts={} should return {expected}",
+                ts.is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn test_realtime_cohort_filtering_mirrors_flag_matching() {
+        // Verifies that filtering cohorts by `uses_realtime_membership()` correctly
+        // selects only Realtime/Behavioral cohorts with a backfill timestamp, which
+        // is the same filter applied in flag_matching::prepare_flag_evaluation_data.
+        let backfill_ts = Some(Utc::now());
+
+        let make_cohort = |id: i32, cohort_type: Option<CohortType>, ts: Option<DateTime<Utc>>| {
+            let mut c = create_test_cohort(None, None, serde_json::json!({}));
+            c.id = id;
+            c.cohort_type = cohort_type;
+            c.last_backfill_person_properties_at = ts;
+            c
+        };
+
+        let cohorts = [
+            make_cohort(1, Some(CohortType::Static), None),
+            make_cohort(2, Some(CohortType::PersonProperty), backfill_ts),
+            make_cohort(3, Some(CohortType::Realtime), None), // no backfill
+            make_cohort(4, Some(CohortType::Realtime), backfill_ts), // should be selected
+            make_cohort(5, Some(CohortType::Behavioral), None), // no backfill
+            make_cohort(6, Some(CohortType::Behavioral), backfill_ts), // should be selected
+            make_cohort(7, Some(CohortType::Analytical), backfill_ts),
+            make_cohort(8, None, backfill_ts),
+        ];
+
+        let realtime_ids: Vec<i32> = cohorts
+            .iter()
+            .filter(|c| c.uses_realtime_membership())
+            .map(|c| c.id)
+            .collect();
+
+        assert_eq!(realtime_ids, vec![4, 6]);
+    }
+
+    #[test]
+    fn test_estimate_json_size_minimal_allocation() {
+        // This test verifies the function works correctly. The "minimal allocation" property
+        // is structural (only numbers allocate via to_string()) rather than something we can directly test.
+        let large_value = serde_json::json!({
+            "properties": {
+                "type": "OR",
+                "values": (0..100).map(|i| {
+                    serde_json::json!({
+                        "key": format!("property_{}", i),
+                        "value": format!("value_{}", i)
+                    })
+                }).collect::<Vec<_>>()
+            }
+        });
+
+        let size = estimate_json_size(&large_value);
+        assert!(
+            size > 1000,
+            "Large JSON should have significant estimated size"
+        );
+    }
 }

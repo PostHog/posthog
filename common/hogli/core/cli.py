@@ -7,20 +7,56 @@ Help output is dynamically generated from the manifest with category grouping.
 from __future__ import annotations
 
 import os
+import sys
+import time as _time
+import shutil
+import platform
+import subprocess
+import configparser
 from collections import defaultdict
+from pathlib import Path
+from typing import Any
 
 import click
-from hogli.core.command_types import BinScriptCommand, CompositeCommand, DirectCommand
-from hogli.core.manifest import REPO_ROOT, load_manifest
+from hogli import hints, telemetry
+from hogli.core.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
+from hogli.core.manifest import REPO_ROOT, get_category_for_command, load_manifest
+from hogli.telemetry import _load_config, _save_config
 
 BIN_DIR = REPO_ROOT / "bin"
 
 
 class CategorizedGroup(click.Group):
-    """Custom Click group that formats help output like git help with categories."""
+    """Custom Click group that formats help output like git help with categories.
+
+    Overrides ``invoke`` to wrap every subcommand execution with telemetry
+    tracking (timing, exit code) using ``ctx.meta`` for state instead of a
+    module-level singleton.
+    """
+
+    def invoke(self, ctx: click.Context) -> Any:
+        ctx.meta["hogli.start_time"] = _time.monotonic()
+        ctx.meta["hogli.has_extra_argv"] = len(sys.argv) > 2
+        exit_code = 0
+        try:
+            return super().invoke(ctx)
+        except SystemExit as e:
+            exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
+            raise
+        except KeyboardInterrupt:
+            exit_code = 130
+            raise
+        except Exception:
+            exit_code = 1
+            raise
+        finally:
+            _fire_telemetry(ctx, exit_code)
+            telemetry.flush()
+            if exit_code == 0:
+                hints.maybe_show_hint(ctx.invoked_subcommand)
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        """Format commands grouped by category, git-style."""
+        """Format commands grouped by category, git-style with extends tree."""
         from hogli.core.manifest import (
             get_category_for_command as get_cat_for_cmd,
             get_manifest,
@@ -32,12 +68,19 @@ class CategorizedGroup(click.Group):
         # Build a mapping from category key to title
         category_key_to_title = {cat.get("key"): cat.get("title") for cat in categories_list}
 
+        # Set of commands that extend others (will be rendered under their parent)
+        child_commands = {child for parent in self.commands for child in manifest_obj.get_children_for_command(parent)}
+
         # Group commands by category, storing (key, title) tuple
         grouped: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
         for cmd_name, cmd in self.commands.items():
             # Skip hidden commands (they're still callable, just not shown in help)
             hogli_config = getattr(cmd, "hogli_config", {})
             if hogli_config.get("hidden", False):
+                continue
+
+            # Skip child commands - they'll be rendered under their parent
+            if cmd_name in child_commands:
                 continue
 
             category_title = get_cat_for_cmd(cmd_name)
@@ -63,7 +106,13 @@ class CategorizedGroup(click.Group):
 
         # Format each category section
         for (_category_key, category_title), commands in sorted_categories:
-            rows = [(cmd_name, help_text) for cmd_name, help_text in sorted(commands, key=lambda x: x[0])]
+            rows: list[tuple[str, str]] = []
+            for cmd_name, help_text in sorted(commands, key=lambda x: x[0]):
+                rows.append((cmd_name, help_text))
+                # Render children indented under parent
+                for child in manifest_obj.get_children_for_command(cmd_name):
+                    suffix = child.removeprefix(cmd_name)  # e.g., ":minimal"
+                    rows.append((f"  └─ {suffix}", ""))
             if rows:
                 with formatter.section(category_title):
                     formatter.write_dl(rows)
@@ -82,7 +131,11 @@ def _auto_update_manifest() -> None:
         )
 
 
-@click.group(cls=CategorizedGroup, help="Unified developer experience for the PostHog monorepo.")
+@click.group(
+    cls=CategorizedGroup,
+    help="Unified developer experience for the PostHog monorepo.",
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - Developer CLI for PostHog."""
@@ -91,6 +144,15 @@ def cli(ctx: click.Context) -> None:
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
     if ctx.invoked_subcommand not in {"meta:check", "help"} and not in_git_hook:
         _auto_update_manifest()
+        if ctx.invoked_subcommand not in {"telemetry:off", "telemetry:status"}:
+            telemetry.show_first_run_notice_if_needed()
+
+    # Fire early so long-running commands (e.g. hogli start) are always counted
+    # even if the process is killed without a clean exit.
+    if ctx.invoked_subcommand and ctx.invoked_subcommand != "telemetry:off":
+        telemetry.track(
+            "command_started", {"command": ctx.invoked_subcommand, **_env_properties(ctx.invoked_subcommand)}
+        )
 
 
 @cli.command(name="quickstart", help="Show getting started with PostHog development")
@@ -107,7 +169,7 @@ def quickstart() -> None:
     click.echo("  Opens http://localhost:8010 when ready.")
     click.echo("")
     click.echo("Optional:")
-    click.echo("  hogli start --minimal         fewer services, faster")
+    click.echo("  hogli dev:setup               configure which services to run")
     click.echo("  hogli dev:demo-data           generate test data")
     click.echo("  hogli dev:reset               full reset & reload")
     click.echo("")
@@ -211,8 +273,9 @@ def _register_script_commands() -> None:
             bin_script = config.get("bin_script")
             steps = config.get("steps")
             cmd = config.get("cmd")
+            hogli = config.get("hogli")
 
-            if not (bin_script or steps or cmd):
+            if not (bin_script or steps or cmd or hogli):
                 continue
 
             # Handle composition (steps field)
@@ -224,6 +287,12 @@ def _register_script_commands() -> None:
             # Handle direct commands (cmd field)
             if cmd:
                 command = DirectCommand(cli_name, config)
+                command.register(cli)
+                continue
+
+            # Handle hogli wrapper commands (hogli field)
+            if hogli:
+                command = HogliCommand(cli_name, config)
                 command.register(cli)
                 continue
 
@@ -245,6 +314,112 @@ try:
     import hogli.commands  # noqa: F401
 except ImportError:
     pass  # No developer commands yet
+
+
+def _infer_process_manager(command: str | None) -> str | None:
+    """Infer the active process manager for telemetry."""
+    pm = os.environ.get("HOGLI_PROCESS_MANAGER")
+    if pm:
+        return os.path.basename(pm)
+
+    if command == "start":
+        return "mprocs" if "--mprocs" in sys.argv[2:] else "phrocs"
+
+    return None
+
+
+_POSTHOG_DEV_CACHE_TTL_SECONDS = 30 * 86400  # 30 days
+
+
+def _check_email_domain() -> bool:
+    """Fallback: check if git user.email ends with @posthog.com."""
+    parser = configparser.RawConfigParser()
+    try:
+        parser.read([Path.home() / ".gitconfig", REPO_ROOT / ".git" / "config"])
+        email = parser.get("user", "email", fallback="")
+        return email.endswith("@posthog.com")
+    except Exception:
+        return False
+
+
+def _check_github_org_membership() -> bool | None:
+    """Use ``gh api`` to check PostHog org membership. Returns None if gh is unavailable."""
+    try:
+        result = subprocess.run(
+            ["gh", "api", "/user/memberships/orgs/PostHog", "--silent"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return None
+
+
+def _is_posthog_dev() -> bool:
+    """Check if the user is a PostHog GitHub org member.
+
+    Uses ``gh api`` to check org membership, caching the boolean result in
+    the telemetry config for 30 days.  Falls back to a git email domain
+    check when ``gh`` is unavailable or unauthenticated.
+    """
+    config = _load_config()
+    cached = config.get("is_posthog_org_member")
+    checked_at = config.get("org_check_timestamp", 0.0)
+
+    if cached is not None and (_time.time() - checked_at) < _POSTHOG_DEV_CACHE_TTL_SECONDS:
+        return cached
+
+    is_member = _check_github_org_membership()
+    if is_member is None:
+        is_member = _check_email_domain()
+
+    config["is_posthog_org_member"] = is_member
+    config["org_check_timestamp"] = _time.time()
+    _save_config(config)
+    return is_member
+
+
+def _env_properties(command: str | None = None) -> dict[str, Any]:
+    """Static environment properties shared across telemetry events."""
+    ci_env_vars = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
+    return {
+        "terminal_width": shutil.get_terminal_size().columns,
+        "os": platform.system(),
+        "arch": platform.machine(),
+        "python_version": platform.python_version(),
+        "is_ci": any(os.environ.get(v) for v in ci_env_vars),
+        "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
+        "in_flox": os.environ.get("FLOX_ENV") is not None,
+        "is_worktree": (REPO_ROOT / ".git").is_file(),
+        "is_posthog_dev": _is_posthog_dev(),
+        "process_manager": _infer_process_manager(command),
+    }
+
+
+def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
+    """Send a command_completed telemetry event. Never raises."""
+    command = ctx.invoked_subcommand
+    # Skip when CLI itself errors before reaching a subcommand (e.g. bad flag)
+    if command is None and exit_code != 0:
+        return
+    try:
+        start_time: float = ctx.meta.get("hogli.start_time", 0.0)
+        duration_s = _time.monotonic() - start_time
+        props: dict[str, Any] = {
+            "command": command,
+            "command_category": get_category_for_command(command) if command else None,
+            "duration_s": round(duration_s, 3),
+            "exit_code": exit_code,
+            "has_extra_argv": ctx.meta.get("hogli.has_extra_argv", False),
+            **_env_properties(command),
+        }
+        # Merge devenv-specific properties (set by dev:generate)
+        devenv = ctx.meta.get("hogli.devenv")
+        if devenv:
+            props.update(devenv)
+        telemetry.track("command_completed", props)
+    except Exception:
+        pass
 
 
 def main() -> None:

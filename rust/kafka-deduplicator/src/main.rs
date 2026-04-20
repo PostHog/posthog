@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
-use common_profiler::router::apply_pprof_routes;
 use futures::future::ready;
 use health::HealthRegistry;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
@@ -21,9 +20,42 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
+/// Install a panic hook that logs panics through the structured tracing logger.
+///
+/// Without this, panics write to stderr using the default formatter, which
+/// bypasses the JSON log layer and makes them invisible in Loki/Grafana.
+fn install_tracing_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let thread = std::thread::current();
+        let thread_name = thread.name().unwrap_or("<unnamed>");
+        let location = panic_info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown".to_string());
+        let payload = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "unknown panic payload".to_string()
+        };
+
+        error!(
+            thread = %thread_name,
+            location = %location,
+            payload = %payload,
+            "Thread panicked"
+        );
+
+        // Still call the default hook so the process aborts/unwinds as expected
+        default_hook(panic_info);
+    }));
+}
+
 use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 
-common_profiler::used_with_profiling!();
+common_alloc::used!();
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
@@ -57,7 +89,9 @@ pub async fn index() -> &'static str {
 /// Setup metrics recorder with optimized histogram buckets for kafka-deduplicator
 /// Using fewer buckets to reduce cardinality
 fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
-    const BUCKETS: &[f64] = &[0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 100.0, 500.0, 5000.0];
+    const BUCKETS: &[f64] = &[
+        0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
+    ];
     // similarity scores are all in the range [0.0, 1.0] so we want
     // granular bucket ranges for higher fidelity metrics
     const SIMILARITY_BUCKETS: &[f64] = &[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
@@ -80,6 +114,11 @@ fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
         100.0 * 1024.0 * 1024.0 * 1024.0,
     ];
 
+    // Buckets for counting unique items (UUIDs, timestamps)
+    const COUNT_BUCKETS: &[f64] = &[
+        1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0,
+    ];
+
     PrometheusBuilder::new()
         .set_buckets(BUCKETS)
         .unwrap()
@@ -96,6 +135,13 @@ fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
         .set_buckets_for_metric(
             Matcher::Suffix("checkpoint_size_bytes".to_string()),
             CHECKPOINT_SIZE_BYTES_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(Matcher::Suffix("unique_uuids".to_string()), COUNT_BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Suffix("unique_timestamps".to_string()),
+            COUNT_BUCKETS,
         )
         .unwrap()
         .install_recorder()
@@ -126,12 +172,6 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
             }),
         );
 
-    let router = if config.enable_pprof {
-        apply_pprof_routes(router)
-    } else {
-        router
-    };
-
     // Don't install metrics unless asked to
     // Installing a global recorder when capture is used as a library (during tests etc)
     // does not work well.
@@ -151,12 +191,21 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
     })
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Load configuration first to get OTEL settings
+fn main() -> Result<()> {
+    // Load configuration first (sync) so we can use worker_threads to size the runtime
     let config = Config::init_with_defaults()
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
 
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(config.worker_threads)
+        .enable_all()
+        .build()
+        .context("Failed to build tokio runtime")?;
+
+    runtime.block_on(async_main(config))
+}
+
+async fn async_main(config: Config) -> Result<()> {
     // Initialize tracing with structured output similar to feature-flags
     let log_layer = {
         let base = fmt::layer()
@@ -170,12 +219,25 @@ async fn main() -> Result<()> {
                 FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
             )
             .with_ansi(true)
-            .with_filter(EnvFilter::from_default_env())
+            .with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy()
+                    .add_directive("pyroscope=warn".parse().unwrap()),
+            )
             .boxed()
         } else {
             // production: use JSON format Loki/Grafana can extract useful filter tags from
             base.json()
-                .with_filter(EnvFilter::from_default_env())
+                .flatten_event(true)
+                .with_span_list(true)
+                .with_current_span(true)
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env_lossy()
+                        .add_directive("pyroscope=warn".parse().unwrap()),
+                )
                 .boxed()
         }
     };
@@ -198,6 +260,28 @@ async fn main() -> Result<()> {
         .with(log_layer)
         .with(otel_layer)
         .init();
+
+    // Install panic hook after tracing is initialized so panics are logged
+    // through the structured JSON logger, making them visible in Loki/Grafana.
+    install_tracing_panic_hook();
+
+    // Create a root span with pod hostname for all logs
+    // This adds "pod" field to every log line for Loki/Grafana filtering
+    let pod = config
+        .pod_hostname
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+    let _root_span = tracing::info_span!("service", pod = %pod).entered();
+
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    // NOTE: Must be after tracing is initialized so logs are visible
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            tracing::warn!("Failed to start continuous profiling agent: {e:#}");
+            None
+        }
+    };
 
     info!("Starting Kafka Deduplicator service");
 

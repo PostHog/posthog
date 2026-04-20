@@ -23,6 +23,7 @@ const meta: Meta = {
         // API is set up so that everything except the call to load session recording metadata succeeds
         mswDecorator({
             get: {
+                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [
@@ -119,14 +120,14 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
+                '/api/environments/:team_id/query/:kind': recordingEventsJson,
             },
         }),
     ],
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const NotFound: Story = {
     parameters: {
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="not-found-recording"]' },

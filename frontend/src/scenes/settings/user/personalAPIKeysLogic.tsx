@@ -7,15 +7,16 @@ import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { APIScope, API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
-import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
@@ -30,10 +31,11 @@ export type EditingKeyFormValues = Pick<
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user', 'hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         loadKeys: true,
         createKeySuccess: (key: PersonalAPIKeyType) => ({ key }),
         showRollKeySuccessDialog: (key: PersonalAPIKeyType, prevMaskedValue?: string | null) => ({
@@ -53,6 +55,12 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             null as PersonalAPIKeyType['id'] | null,
             {
                 setEditingKeyId: (_, { id }) => id,
+            },
+        ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
     }),
@@ -136,6 +144,38 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         },
     })),
     selectors(() => ({
+        filteredScopes: [
+            (s) => [s.searchTerm, s.featureFlags, s.hasAvailableFeature],
+            (searchTerm, featureFlags, hasAvailableFeature): APIScope[] => {
+                let scopes = API_SCOPES
+
+                // Filter out llm_gateway scope if feature flag is disabled
+                if (!featureFlags[FEATURE_FLAGS.GATEWAY_PERSONAL_API_KEY]) {
+                    scopes = scopes.filter((scope) => scope.key !== 'llm_gateway')
+                }
+
+                // Hide approvals scope unless the org has the APPROVALS feature
+                if (!hasAvailableFeature(AvailableFeature.APPROVALS)) {
+                    scopes = scopes.filter((scope) => scope.key !== 'approvals')
+                }
+
+                if (!searchTerm.trim()) {
+                    return scopes
+                }
+                const lowerSearch = searchTerm.toLowerCase().trim()
+                return scopes.filter((scope) => {
+                    // Search in key (e.g., "feature_flag")
+                    if (scope.key.toLowerCase().includes(lowerSearch)) {
+                        return true
+                    }
+                    // Search in objectPlural (e.g., "feature flags")
+                    if (scope.objectPlural.toLowerCase().includes(lowerSearch)) {
+                        return true
+                    }
+                    return false
+                })
+            },
+        ],
         formScopeRadioValues: [
             (s) => [s.editingKey],
             (editingKey): Record<string, string> => {
@@ -146,6 +186,17 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             (s) => [s.editingKey],
             (editingKey): boolean => {
                 return editingKey.scopes.includes('*')
+            },
+        ],
+
+        isEditingKeyLegacy: [
+            (s) => [s.editingKeyId, s.keys],
+            (editingKeyId, keys): boolean => {
+                if (!editingKeyId || editingKeyId === 'new') {
+                    return false
+                }
+                const key = keys.find((k) => k.id === editingKeyId)
+                return key?.is_legacy_hashing ?? false
             },
         ],
 
@@ -175,11 +226,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         isPersonalApiKeyIdDisabled: [
             (s) => [s.allOrganizations, s.allTeams, s.keys, s.getRestrictedOrganizationsForKey],
             (
-                    allOrganizations: OrganizationBasicType[],
-                    allTeams: TeamBasicType[] | null,
-                    keys: PersonalAPIKeyType[],
-                    getRestrictedOrganizationsForKey: (keyId: PersonalAPIKeyType['id']) => OrganizationBasicType[]
-                ) =>
+                allOrganizations: OrganizationBasicType[],
+                allTeams: TeamBasicType[] | null,
+                keys: PersonalAPIKeyType[],
+                getRestrictedOrganizationsForKey: (keyId: PersonalAPIKeyType['id']) => OrganizationBasicType[]
+            ) =>
                 (keyId: PersonalAPIKeyType['id']): boolean => {
                     const key = keys.find((k) => k.id === keyId)
                     if (!key) {
@@ -217,10 +268,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         getRestrictedOrganizationsForKey: [
             (s) => [s.allOrganizations, s.keys, s.getRestrictedTeamsForKey],
             (
-                    allOrganizations: OrganizationBasicType[],
-                    keys: PersonalAPIKeyType[],
-                    getRestrictedTeamsForKey: (keyId: PersonalAPIKeyType['id']) => TeamBasicType[]
-                ) =>
+                allOrganizations: OrganizationBasicType[],
+                keys: PersonalAPIKeyType[],
+                getRestrictedTeamsForKey: (keyId: PersonalAPIKeyType['id']) => TeamBasicType[]
+            ) =>
                 (keyId: PersonalAPIKeyType['id']): OrganizationBasicType[] => {
                     let restrictedOrgs: OrganizationBasicType[] = []
                     const key = keys.find((k) => k.id === keyId)
@@ -310,9 +361,13 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     listeners(({ actions, values }) => ({
         touchEditingKeyField: ({ key }) => {
             if (key === 'label') {
-                if (values.editingKey.label.toLowerCase().includes('zapier') && !values.editingKey.preset) {
-                    actions.setEditingKeyValue('preset', 'zapier')
-                    actions.setEditingKeyValue('access_type', 'all')
+                // If the label contains a prefillable preset, set the preset and access type
+                const prefillablePresets = ['zapier', 'n8n']
+                for (const preset of prefillablePresets) {
+                    if (values.editingKey.label.toLowerCase().includes(preset) && !values.editingKey.preset) {
+                        actions.setEditingKeyValue('preset', preset)
+                        actions.setEditingKeyValue('access_type', 'all')
+                    }
                 }
             }
         },
@@ -360,6 +415,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 }
 
                 actions.resetEditingKey(formValues)
+                actions.setSearchTerm('')
+            } else {
+                actions.setSearchTerm('')
             }
         },
 

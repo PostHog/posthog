@@ -1,5 +1,7 @@
 from datetime import datetime
-from typing import cast
+from typing import Optional, cast
+
+import structlog
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -17,6 +19,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     delete_all_temp_destination_tables,
     delete_table,
     filter_incremental_fields as filter_bigquery_incremental_fields,
+    get_primary_keys_for_schemas as get_bigquery_primary_keys_for_schemas,
     get_schemas as get_bigquery_schemas,
     validate_credentials as validate_bigquery_credentials,
 )
@@ -44,11 +47,20 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
         }
 
-    def get_schemas(self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
             config,
             logger=None,
+            names=names,
         )
+
+        try:
+            detected_pks = get_bigquery_primary_keys_for_schemas(config, bq_schemas)
+        except Exception as e:
+            structlog.get_logger().warning("Failed to detect primary keys for BigQuery schemas", exc_info=e)
+            detected_pks = {}
 
         filtered_results = [
             (table_name, filter_bigquery_incremental_fields(columns)) for table_name, columns in bq_schemas.items()
@@ -60,15 +72,25 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                 supports_incremental=len(columns) > 0,
                 supports_append=len(columns) > 0,
                 incremental_fields=[
-                    {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
-                    for column_name, column_type in columns
+                    {
+                        "label": column_name,
+                        "type": column_type,
+                        "field": column_name,
+                        "field_type": column_type,
+                        "nullable": nullable,
+                    }
+                    for column_name, column_type, nullable in columns
                 ],
+                columns=bq_schemas[table_name],
+                detected_primary_keys=detected_pks.get(table_name),
             )
             for table_name, columns in filtered_results
             if not table_name.startswith(build_destination_table_prefix(None))
         ]
 
-    def validate_credentials(self, config: BigQuerySourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: BigQuerySourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         region: str | None = None
         if (
             config.use_custom_region

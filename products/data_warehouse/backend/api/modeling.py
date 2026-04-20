@@ -11,6 +11,7 @@ class DataWarehouseModelPathSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseModelPath
+        fields = ["id", "path", "team", "table", "saved_query", "created_at", "created_by", "updated_at"]
 
 
 class DataWarehouseModelPathViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):

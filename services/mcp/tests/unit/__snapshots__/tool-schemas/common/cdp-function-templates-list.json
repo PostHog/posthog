@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "template_id": {
+            "description": "Filter to a specific template by its template_id. Deprecated templates are excluded from list results; use the retrieve endpoint to look up a template by ID regardless of status.",
+            "type": "string"
+        },
+        "type": {
+            "description": "Filter by template type (e.g. destination, email, sms_provider, broadcast). Defaults to destination if neither type nor types is provided.",
+            "type": "string"
+        },
+        "types": {
+            "description": "Comma-separated list of template types to include (e.g. destination,email,sms_provider).",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

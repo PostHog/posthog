@@ -1,13 +1,17 @@
+import { IconLlmAnalytics } from '@posthog/icons'
+
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { ErrorPropertyTabEvent, EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { SurveyResponseDisplay } from 'lib/components/SurveyResponseDisplay/SurveyResponseDisplay'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType } from '~/types'
@@ -21,6 +25,16 @@ interface EventDetailsProps {
 }
 
 export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
+    const getEventId = (event: ErrorPropertyTabEvent): string => {
+        if ('uuid' in event && event.uuid) {
+            return event.uuid
+        }
+        if ('id' in event && event.id) {
+            return event.id
+        }
+        return ''
+    }
+
     return (
         <EventPropertyTabs
             barClassName="px-2"
@@ -32,20 +46,37 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     case 'conversation':
                         return (
                             <div className="mx-3 -mt-2 mb-2 gap-y-2">
-                                {properties.$session_id ? (
+                                {properties.$ai_trace_id || properties.$session_id ? (
                                     <div className="flex flex-row items-center gap-2">
-                                        <ViewRecordingButton
-                                            sessionId={properties.$session_id}
-                                            recordingStatus={properties.$recording_status}
-                                            timestamp={event.timestamp}
-                                            inModal={false}
-                                            size="small"
-                                            type="secondary"
-                                            data-attr="conversation-view-session-recording-button"
-                                        />
+                                        {properties.$ai_trace_id ? (
+                                            <LemonButton
+                                                to={urls.llmAnalyticsTrace(
+                                                    properties.$ai_trace_id,
+                                                    event.event !== '$ai_trace' ? { event: getEventId(event) } : {}
+                                                )}
+                                                size="small"
+                                                type="secondary"
+                                                sideIcon={<IconLlmAnalytics />}
+                                                data-attr="conversation-view-trace-button"
+                                            >
+                                                View LLM trace
+                                            </LemonButton>
+                                        ) : null}
+                                        {properties.$session_id ? (
+                                            <ViewRecordingButton
+                                                sessionId={properties.$session_id}
+                                                recordingStatus={properties.$recording_status}
+                                                timestamp={event.timestamp}
+                                                hasRecording={properties.$has_recording as boolean | undefined}
+                                                size="small"
+                                                type="secondary"
+                                                openPlayerIn={RecordingPlayerType.NewTab}
+                                                data-attr="conversation-view-session-recording-button"
+                                            />
+                                        ) : null}
                                     </div>
                                 ) : null}
-                                <ConversationDisplay eventProperties={properties} />
+                                <ConversationDisplay eventProperties={properties} eventId={getEventId(event)} />
                             </div>
                         )
                     case 'evaluation':
@@ -65,7 +96,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                             <div className="mx-3">
                                 <SurveyResponseDisplay
                                     eventProperties={properties}
-                                    eventUuid={'uuid' in event ? event.uuid : undefined}
+                                    eventUuid={'uuid' in event && event.uuid ? event.uuid : undefined}
                                 />
                             </div>
                         )

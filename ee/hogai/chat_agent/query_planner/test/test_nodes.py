@@ -10,12 +10,14 @@ from langchain_core.messages import (
 from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate
 
 from posthog.schema import (
+    ArtifactContentType,
+    ArtifactSource,
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
-    VisualizationMessage,
+    VisualizationArtifactContent,
 )
 
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -23,6 +25,8 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from ee.hogai.chat_agent.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import ArtifactRefMessage
+from ee.models import AgentArtifact, Conversation
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -35,6 +39,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.schema = AssistantTrendsQuery(series=[])
+        self.conversation = Conversation.objects.create(user=self.user, team=self.team)
 
     def _get_node(self):
         return QueryPlannerNode(self.team, self.user)
@@ -85,21 +90,47 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_reconstructs_typical_conversation(self):
         node = self._get_node()
+        artifact1 = AgentArtifact.objects.create(
+            name="test insight",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(
+                query=AssistantTrendsQuery(series=[]), name="Question 1", description="Plan 1"
+            ).model_dump(),
+            conversation=self.conversation,
+            team=self.team,
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact1.short_id,
+            id="123",
+        )
+        artifact2 = AgentArtifact.objects.create(
+            name="test insight",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(
+                query=AssistantTrendsQuery(series=[]), name="Question 2", description="Plan 2"
+            ).model_dump(),
+            conversation=self.conversation,
+            team=self.team,
+        )
+        artifact_message2 = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact2.short_id,
+            id="124",
+        )
         history = node._construct_messages(
             AssistantState(
                 messages=[
                     HumanMessage(content="General Question 1", id="0"),
-                    VisualizationMessage(
-                        answer=AssistantTrendsQuery(series=[]), plan="Plan 1", id="2", initiator="0", query="Question 1"
-                    ),
+                    artifact_message,
                     AssistantMessage(content="Summary 1", id="3"),
                     HumanMessage(content="General Question 2", id="4"),
                     AssistantToolCallMessage(content="funnel", id="5", tool_call_id="5"),
                     AssistantMessage(content="Loop 1", id="6"),
                     HumanMessage(content="Loop Answer 1", id="7"),
-                    VisualizationMessage(
-                        answer=AssistantTrendsQuery(series=[]), plan="Plan 2", id="8", initiator="4", query="Question 2"
-                    ),
+                    artifact_message2,
                     AssistantMessage(content="Summary 2", id="9"),
                     HumanMessage(content="General Question 3", id="10"),
                 ],
@@ -157,13 +188,21 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         # Create 15 visualization messages
         messages = []
         for i in range(15):
+            artifact = AgentArtifact.objects.create(
+                name=f"Test Artifact {i}",
+                type=AgentArtifact.Type.VISUALIZATION,
+                data=VisualizationArtifactContent(
+                    query=AssistantTrendsQuery(series=[]), name=f"Question {i}", description=f"Plan {i}"
+                ).model_dump(),
+                conversation=self.conversation,
+                team=self.team,
+            )
             messages.append(
-                VisualizationMessage(
-                    answer=AssistantTrendsQuery(series=[]),
-                    plan=f"Plan {i}",
+                ArtifactRefMessage(
+                    content_type=ArtifactContentType.VISUALIZATION,
+                    source=ArtifactSource.ARTIFACT,
+                    artifact_id=artifact.short_id,
                     id=str(i),
-                    initiator=str(i),
-                    query=f"Question {i}",
                 )
             )
 

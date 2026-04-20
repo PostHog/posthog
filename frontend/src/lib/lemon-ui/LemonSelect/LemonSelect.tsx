@@ -51,23 +51,24 @@ export interface LemonSelectSection<T> {
 
 export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<T>[]
 
-export interface LemonSelectPropsBase<T>
-    extends Pick<
-        LemonButtonProps,
-        | 'id'
-        | 'className'
-        | 'loading'
-        | 'fullWidth'
-        | 'disabled'
-        | 'disabledReason'
-        | 'data-attr'
-        | 'aria-label'
-        | 'onClick'
-        | 'tabIndex'
-        | 'type'
-        | 'tooltip'
-        | 'icon'
-    > {
+export interface LemonSelectPropsBase<T> extends Pick<
+    LemonButtonProps,
+    | 'id'
+    | 'className'
+    | 'loading'
+    | 'fullWidth'
+    | 'disabled'
+    | 'disabledReason'
+    | 'data-attr'
+    | 'aria-label'
+    | 'onClick'
+    | 'tabIndex'
+    | 'type'
+    | 'status'
+    | 'active'
+    | 'tooltip'
+    | 'icon'
+> {
     options: LemonSelectOptions<T>
     /** Callback fired when a value is selected, even if it already is set. */
     onSelect?: (newValue: T) => void
@@ -162,7 +163,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                               icon: <IconX />,
                               divider: false,
                               onClick: () => {
-                                  onChange?.(null as T)
+                                  onChange?.(null as unknown as T)
                               },
                           }
                         : null
@@ -186,7 +187,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                         ? renderButtonContent(activeLeaf)
                         : activeLeaf
                           ? activeLeaf.label
-                          : (value ?? placeholder)}
+                          : ((value ?? placeholder) as React.ReactNode)}
                 </span>
             </LemonButton>
         </LemonMenu>

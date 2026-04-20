@@ -1,29 +1,53 @@
+import { getAppContext } from 'lib/utils/getAppContext'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     EventPropertyFilter,
+    FeatureFlagFilters,
+    PropertyOperator,
     PropertyFilterType,
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
+    SurveyEventName,
+    SurveyEventProperties,
+    SurveyQuestion,
     SurveyQuestionType,
     SurveyType,
     SurveyWidgetType,
 } from '~/types'
 
 import {
+    buildSurveyExampleInvocationGlobals,
+    buildPartialResponsesFilter,
+    buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
+    getSurveyNotificationFilters,
+    getResolvedSurveyDateRange,
+    getSurveyAudienceSummaryValue,
+    getSurveyDisplayConditionsSummary,
     getSurveyEndDateForQuery,
     getSurveyResponse,
     getSurveyStartDateForQuery,
+    isSimpleSurveyAudienceTargeting,
     sanitizeColor,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
     validateCSSProperty,
 } from './utils'
+
+jest.mock('lib/utils/getAppContext', () => ({
+    getAppContext: jest.fn(() => undefined),
+}))
+
+const mockedGetAppContext = getAppContext as jest.MockedFunction<typeof getAppContext>
+
+afterEach(() => {
+    mockedGetAppContext.mockReturnValue(undefined)
+})
 
 describe('survey utils', () => {
     beforeAll(() => {
@@ -131,6 +155,132 @@ describe('survey utils', () => {
             expect(sanitizeColor('#ff0000')).toBe('#ff0000')
             expect(sanitizeColor('rgb(255, 0, 0)')).toBe('rgb(255, 0, 0)')
             expect(sanitizeColor('red')).toBe('red')
+        })
+    })
+
+    describe('getSurveyNotificationFilters', () => {
+        it('builds survey-specific notification filters', () => {
+            expect(getSurveyNotificationFilters('survey-123')).toEqual({
+                events: [
+                    {
+                        id: SurveyEventName.SENT,
+                        type: 'events',
+                        properties: [
+                            {
+                                key: SurveyEventProperties.SURVEY_ID,
+                                type: PropertyFilterType.Event,
+                                value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: SurveyEventProperties.SURVEY_COMPLETED,
+                                type: PropertyFilterType.Event,
+                                value: true,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('can include partial responses when requested', () => {
+            expect(getSurveyNotificationFilters('survey-123', false)).toEqual({
+                events: [
+                    {
+                        id: SurveyEventName.SENT,
+                        type: 'events',
+                        properties: [
+                            {
+                                key: SurveyEventProperties.SURVEY_ID,
+                                type: PropertyFilterType.Event,
+                                value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+    })
+
+    describe('buildSurveyExampleInvocationGlobals', () => {
+        it('builds a survey sent example payload with question response properties', () => {
+            const globals = buildSurveyExampleInvocationGlobals({
+                survey: {
+                    id: 'survey-123',
+                    name: 'Onboarding survey',
+                    questions: [
+                        { id: 'q1', type: SurveyQuestionType.Open, question: 'Tell us more' },
+                        {
+                            id: 'q2',
+                            type: SurveyQuestionType.SingleChoice,
+                            question: 'How did you hear about us?',
+                            choices: ['Twitter', 'Word of mouth'],
+                        },
+                        {
+                            id: 'q3',
+                            type: SurveyQuestionType.MultipleChoice,
+                            question: 'What do you use most?',
+                            choices: ['Funnels', 'Session replay', 'Feature flags'],
+                        },
+                        {
+                            id: 'q4',
+                            type: SurveyQuestionType.Rating,
+                            question: 'How satisfied are you?',
+                            scale: 10,
+                            display: 'number',
+                            lowerBoundLabel: 'Low',
+                            upperBoundLabel: 'High',
+                        },
+                    ],
+                } as Survey,
+                projectId: 1,
+                projectName: 'Project',
+                projectUrl: 'https://app.posthog.com/project/1',
+                timestamp: '2026-04-13T12:00:00.000Z',
+                eventUuid: 'event-uuid',
+                distinctId: 'person-distinct-id',
+            })
+
+            expect(globals.event.event).toEqual(SurveyEventName.SENT)
+            expect(globals.event.properties).toEqual({
+                $survey_id: 'survey-123',
+                $survey_name: 'Onboarding survey',
+                $survey_completed: true,
+                $survey_submission_id: 'survey-submission-id',
+                $survey_response_q1: 'Tell us more',
+                $survey_response_q2: 'Twitter',
+                $survey_response_q3: ['Funnels', 'Session replay'],
+                $survey_response_q4: '9',
+            })
+        })
+    })
+
+    describe('getSurveyResponse', () => {
+        it('uses the backend HogQL helper for single-value questions', () => {
+            const question = {
+                id: 'question-123',
+                type: SurveyQuestionType.Rating,
+                question: 'How satisfied are you?',
+                scale: 10,
+                display: 'number',
+                lowerBoundLabel: 'Low',
+                upperBoundLabel: 'High',
+            } as SurveyQuestion
+
+            expect(getSurveyResponse(question, 0)).toBe("getSurveyResponse(0, 'question-123')")
+        })
+
+        it('uses the backend HogQL helper for multiple choice questions', () => {
+            const question = {
+                id: 'question-456',
+                type: SurveyQuestionType.MultipleChoice,
+                question: 'Which features do you use?',
+                choices: ['Insights', 'Session replay'],
+            } as SurveyQuestion
+
+            expect(getSurveyResponse(question, 1)).toBe("getSurveyResponse(1, 'question-456', true)")
         })
     })
 
@@ -395,6 +545,125 @@ describe('survey utils', () => {
         })
     })
 
+    describe('audience targeting summaries', () => {
+        const baseSurvey = {
+            id: 'survey-id',
+            created_at: '2024-01-01T00:00:00Z',
+            end_date: null,
+            conditions: null,
+            linked_flag: null,
+            linked_flag_id: null,
+            targeting_flag: null,
+            targeting_flag_filters: undefined,
+        } as unknown as Survey
+
+        it('summarizes simple person-property audience rules', () => {
+            const survey = {
+                ...baseSurvey,
+                targeting_flag_filters: {
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'email',
+                                    value: ['@posthog.com'],
+                                    operator: 'icontains',
+                                    type: PropertyFilterType.Person,
+                                },
+                                {
+                                    key: 'plan',
+                                    value: ['paid'],
+                                    operator: 'exact',
+                                    type: PropertyFilterType.Person,
+                                },
+                            ],
+                            rollout_percentage: 100,
+                            variant: null,
+                        },
+                    ],
+                },
+            } as Survey
+
+            expect(getSurveyAudienceSummaryValue(survey)).toBe('2 audience rules')
+            expect(getSurveyDisplayConditionsSummary(survey)).toContainEqual({
+                type: 'targeting',
+                label: 'Targeting',
+                value: '2 audience rules',
+            })
+        })
+
+        it('supports simple cohort targeting with rollout', () => {
+            const survey = {
+                ...baseSurvey,
+                targeting_flag_filters: {
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'id',
+                                    value: 17,
+                                    type: PropertyFilterType.Cohort,
+                                },
+                            ],
+                            rollout_percentage: 50,
+                            variant: null,
+                        },
+                    ],
+                },
+            } as Survey
+
+            expect(getSurveyAudienceSummaryValue(survey)).toBe('1 audience rule · 50% shown')
+            expect(isSimpleSurveyAudienceTargeting(survey.targeting_flag_filters)).toBe(true)
+        })
+
+        it('summarizes rollout-only targeting', () => {
+            const survey = {
+                ...baseSurvey,
+                targeting_flag_filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 50,
+                            variant: null,
+                        },
+                    ],
+                },
+            } as Survey
+
+            expect(getSurveyAudienceSummaryValue(survey)).toBe('50% of matching users')
+        })
+
+        it('detects advanced audience targeting', () => {
+            const filters: FeatureFlagFilters = {
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: 'email',
+                                value: ['@posthog.com'],
+                                operator: PropertyOperator.IContains,
+                                type: PropertyFilterType.Person,
+                            },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        properties: [],
+                        rollout_percentage: 100,
+                    },
+                ],
+            }
+
+            expect(isSimpleSurveyAudienceTargeting(filters)).toBe(false)
+            expect(
+                getSurveyAudienceSummaryValue({
+                    ...baseSurvey,
+                    targeting_flag_filters: filters,
+                } as Survey)
+            ).toBe('Advanced audience targeting')
+        })
+    })
+
     describe('calculateNpsBreakdown', () => {
         it('returns all zeros when surveyRatingResults is empty', () => {
             const surveyResults: SurveyRatingResults[number] = {
@@ -550,7 +819,7 @@ describe('survey utils', () => {
             const result = buildSurveyTimestampFilter(survey)
 
             expect(result).toBe(`AND timestamp >= '2024-08-27T00:00:00'
-        AND timestamp <= '2024-08-30T23:59:59'`)
+    AND timestamp <= '2024-08-30T23:59:59'`)
         })
 
         it('respects user date range when provided', () => {
@@ -562,33 +831,147 @@ describe('survey utils', () => {
     AND timestamp <= '2024-08-29T23:59:59'`)
         })
 
-        it('enforces survey creation date as minimum even with earlier user date', () => {
+        it('uses user dates even when before survey creation (no clamping)', () => {
             const survey = { created_at: '2024-08-27T15:30:00Z', end_date: null }
             const dateRange = { date_from: '2024-08-25', date_to: '2024-08-29' } // Earlier than survey creation
             const result = buildSurveyTimestampFilter(survey, dateRange)
 
-            expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`) // Should use survey start, not user's earlier date
+            // User's dates are used directly - query will return empty results if no data exists
+            expect(result).toContain(`timestamp >= '2024-08-25T00:00:00'`)
+            expect(result).toContain(`timestamp <= '2024-08-29T23:59:59'`)
         })
 
-        it('handles timezone consistency across different user timezones', () => {
-            const timezones = [0, 180, -480] // UTC, GMT-3, GMT+8
+        it('uses team timezone for date boundaries', () => {
+            mockedGetAppContext.mockReturnValue({
+                current_team: { timezone: 'America/New_York' },
+            } as any)
 
-            timezones.forEach((offset) => {
-                const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset
-                Date.prototype.getTimezoneOffset = jest.fn(() => offset)
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            const dateRange = { date_from: '2024-08-28T12:00:00Z', date_to: '2024-08-29T12:00:00Z' }
+            const result = buildSurveyTimestampFilter(survey, dateRange)
 
-                try {
-                    const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
-                    const dateRange = { date_from: '2024-08-28T12:00:00Z', date_to: '2024-08-29T12:00:00Z' }
-                    const result = buildSurveyTimestampFilter(survey, dateRange)
-
-                    // All timezones should produce the same result
-                    expect(result).toBe(`AND timestamp >= '2024-08-28T00:00:00'
+            expect(result).toBe(`AND timestamp >= '2024-08-28T00:00:00'
     AND timestamp <= '2024-08-29T23:59:59'`)
-                } finally {
-                    Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
-                }
-            })
+        })
+
+        it('defaults to UTC when no team timezone is set', () => {
+            mockedGetAppContext.mockReturnValue(undefined)
+
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            const result = buildSurveyTimestampFilter(survey)
+
+            expect(result).toBe(`AND timestamp >= '2024-08-27T00:00:00'
+    AND timestamp <= '2024-08-30T23:59:59'`)
+        })
+
+        it('handles date_to with time component from date picker', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            // Date picker provides date_to with T23:59:59
+            const dateRange = { date_from: '2024-08-28', date_to: '2024-08-28T23:59:59' }
+            const result = buildSurveyTimestampFilter(survey, dateRange)
+
+            expect(result).toContain(`timestamp >= '2024-08-28T00:00:00'`)
+            expect(result).toContain(`timestamp <= '2024-08-28T23:59:59'`)
+        })
+
+        it('uses survey defaults when only date_from provided', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            const dateRange = { date_from: '2024-08-28', date_to: null }
+            const result = buildSurveyTimestampFilter(survey, dateRange)
+
+            expect(result).toContain(`timestamp >= '2024-08-28T00:00:00'`)
+            expect(result).toContain(`timestamp <= '2024-08-30T23:59:59'`) // Survey end date
+        })
+
+        it('ignores date_to when date_from not provided (avoids impossible ranges)', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            const dateRange = { date_from: null, date_to: '2024-08-29' }
+            const result = buildSurveyTimestampFilter(survey, dateRange)
+
+            // Uses survey defaults since date_to only could create impossible range
+            expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`) // Survey start date
+            expect(result).toContain(`timestamp <= '2024-08-30T23:59:59'`) // Survey end date
+        })
+
+        it('prefers survey start_date over created_at for the lower bound', () => {
+            const survey = {
+                created_at: '2024-08-20T15:30:00Z',
+                start_date: '2024-08-27T09:00:00Z',
+                end_date: '2024-08-30T10:00:00Z',
+            }
+            const result = buildSurveyTimestampFilter(survey)
+
+            expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`)
+        })
+    })
+
+    describe('getResolvedSurveyDateRange', () => {
+        it('does not shift dates due to timezone conversion', () => {
+            const survey = { created_at: '2024-11-19T00:00:00Z', end_date: '2024-11-25T00:00:00Z' }
+            // This datetime should NOT be shifted to Nov 21 due to local timezone conversion
+            const dateRange = { date_from: '2024-11-20', date_to: '2024-11-20T23:59:59' }
+
+            const result = getResolvedSurveyDateRange(survey, dateRange)
+
+            expect(result.fromDate).toBe('2024-11-20T00:00:00')
+            expect(result.toDate).toBe('2024-11-20T23:59:59')
+        })
+    })
+
+    describe('buildPartialResponsesFilter', () => {
+        it('keeps missing survey_completed values eligible for complete-response queries', () => {
+            const survey = {
+                id: 'test-survey-id',
+                created_at: '2024-11-19T00:00:00Z',
+                end_date: null,
+                enable_partial_responses: false,
+            } as Survey
+
+            expect(buildPartialResponsesFilter(survey)).toBe(
+                `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
+            )
+        })
+
+        it('uses same date bounds as buildSurveyTimestampFilter', () => {
+            const survey = {
+                id: 'test-survey-id',
+                created_at: '2024-11-19T00:00:00Z',
+                end_date: '2024-11-25T00:00:00Z',
+                enable_partial_responses: true,
+            } as Survey
+            const dateRange = { date_from: '2024-11-20', date_to: '2024-11-22' }
+
+            const timestampFilter = buildSurveyTimestampFilter(survey, dateRange)
+            const partialFilter = buildPartialResponsesFilter(survey, dateRange)
+
+            const fromMatch = timestampFilter.match(/timestamp >= '([^']+)'/)
+            const toMatch = timestampFilter.match(/timestamp <= '([^']+)'/)
+
+            expect(partialFilter).toContain(`greaterOrEquals(timestamp, '${fromMatch?.[1]}')`)
+            expect(partialFilter).toContain(`lessOrEquals(timestamp, '${toMatch?.[1]}')`)
+        })
+
+        it('uses direct property access for fixed survey properties', () => {
+            const survey = {
+                id: 'test-survey-id',
+                created_at: '2024-11-19T00:00:00Z',
+                end_date: null,
+                enable_partial_responses: true,
+            } as Survey
+
+            const partialFilter = buildPartialResponsesFilter(survey)
+
+            expect(partialFilter).toContain('properties.`$survey_id`')
+            expect(partialFilter).toContain('properties.`$survey_submission_id`')
+            expect(partialFilter).not.toContain('JSONExtractString')
+        })
+    })
+
+    describe('buildSurveyOptionalBooleanPropertyFilter', () => {
+        it('builds a null-safe comparison for optional survey booleans', () => {
+            expect(
+                buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED, 'true')
+            ).toBe(`coalesce(JSONExtractString(properties, '$survey_partially_completed'), '') != 'true'`)
         })
     })
 })
@@ -944,52 +1327,56 @@ describe('createAnswerFilterHogQLExpression', () => {
 })
 
 describe('timezone handling in survey date queries', () => {
-    const createMockSurvey = (createdAt: string, endDate?: string): Pick<Survey, 'created_at' | 'end_date'> => ({
+    const createMockSurvey = (
+        createdAt: string,
+        endDate?: string,
+        startDate?: string
+    ): Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>> => ({
         created_at: createdAt,
         end_date: endDate || null,
+        start_date: startDate,
     })
 
-    describe('regression test for timezone parsing bug', () => {
-        it('parses UTC dates correctly regardless of user timezone', () => {
-            // Mock different timezones to ensure our fix works
-            const timezones = [
-                { name: 'UTC', offset: 0 },
-                { name: 'GMT-3', offset: 180 },
-                { name: 'GMT+8', offset: -480 },
-            ]
+    afterEach(() => {
+        mockedGetAppContext.mockReset()
+    })
 
-            timezones.forEach(({ offset }) => {
-                const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset
-                Date.prototype.getTimezoneOffset = jest.fn(() => offset)
+    it('uses team timezone to compute date boundaries', () => {
+        mockedGetAppContext.mockReturnValue({
+            current_team: { timezone: 'Asia/Tokyo' },
+        } as any)
 
-                try {
-                    const survey = createMockSurvey('2024-08-27T15:30:00Z', '2024-08-30T10:00:00Z')
+        // 2024-08-27T15:30:00Z = 2024-08-28T00:30:00 JST
+        const survey = createMockSurvey('2024-08-27T15:30:00Z', '2024-08-30T10:00:00Z')
 
-                    const startDate = getSurveyStartDateForQuery(survey)
-                    const endDate = getSurveyEndDateForQuery(survey)
+        const startDate = getSurveyStartDateForQuery(survey)
+        const endDate = getSurveyEndDateForQuery(survey)
 
-                    // All timezones should produce the same UTC results
-                    expect(startDate).toBe('2024-08-27T00:00:00')
-                    expect(endDate).toBe('2024-08-30T23:59:59')
-                } finally {
-                    Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
-                }
-            })
-        })
+        // In JST (UTC+9), the created_at falls on Aug 28, not Aug 27
+        expect(startDate).toBe('2024-08-28T00:00:00')
+        expect(endDate).toBe('2024-08-30T23:59:59')
+    })
 
-        it('handles null end_date correctly', () => {
-            const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset
-            Date.prototype.getTimezoneOffset = jest.fn(() => 180) // GMT-3
+    it('defaults to UTC when no team context', () => {
+        mockedGetAppContext.mockReturnValue(undefined)
 
-            try {
-                const survey = createMockSurvey('2024-08-27T15:30:00Z')
-                const result = getSurveyEndDateForQuery(survey)
+        const survey = createMockSurvey('2024-08-27T15:30:00Z', '2024-08-30T10:00:00Z')
 
-                // Should use current day end, format should be consistent
-                expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T23:59:59$/)
-            } finally {
-                Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
-            }
-        })
+        const startDate = getSurveyStartDateForQuery(survey)
+        const endDate = getSurveyEndDateForQuery(survey)
+
+        expect(startDate).toBe('2024-08-27T00:00:00')
+        expect(endDate).toBe('2024-08-30T23:59:59')
+    })
+
+    it('handles null end_date correctly', () => {
+        mockedGetAppContext.mockReturnValue({
+            current_team: { timezone: 'America/Chicago' },
+        } as any)
+
+        const survey = createMockSurvey('2024-08-27T15:30:00Z')
+        const result = getSurveyEndDateForQuery(survey)
+
+        expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T23:59:59$/)
     })
 })

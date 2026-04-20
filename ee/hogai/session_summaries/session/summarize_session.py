@@ -54,7 +54,6 @@ class SingleSessionSummaryData:
     user_id: int
     prompt_data: _SessionSummaryPromptData | None
     prompt: SessionSummaryPrompt | None
-    error_msg: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -63,6 +62,7 @@ class SingleSessionSummaryLlmInputs:
 
     session_id: str
     user_id: int
+    user_distinct_id_to_log: str | None = None
     summary_prompt: str
     system_prompt: str
     simplified_events_mapping: dict[str, list[str | int | None | list[str]]]
@@ -74,6 +74,7 @@ class SingleSessionSummaryLlmInputs:
     session_duration: int
     distinct_id: str | None
     model_to_use: str
+    trigger_session_id: str | None = None
 
 
 async def get_session_data_from_db(session_id: str, team_id: int, local_reads_prod: bool) -> SessionSummaryDBData:
@@ -100,7 +101,13 @@ async def get_session_data_from_db(session_id: str, team_id: int, local_reads_pr
             )
         # Raise any unexpected errors
         raise
-    session_events_columns, session_events = add_context_and_filter_events(session_events_columns, session_events)
+    session_events_columns, session_events = add_context_and_filter_events(
+        session_events_columns=session_events_columns,
+        session_events=session_events,
+        session_id=session_id,
+        session_start_time=session_metadata["start_time"],
+        session_end_time=session_metadata["end_time"],
+    )
 
     # TODO Get web analytics data on URLs to better understand what the user was doing
     # related to average visitors of the same pages (left the page too fast, unexpected bounce, etc.).
@@ -133,7 +140,9 @@ def prepare_prompt_data(
         session_id=session_id,
     )
     if not prompt_data.metadata.start_time:
-        raise ValueError(f"No start time found for session_id {session_id} when generating the prompt")
+        msg = f"No start time found for session_id {session_id} when generating the prompt"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     # Reverse mappings for easier reference in the prompt.
     url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
     window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
@@ -188,15 +197,8 @@ async def prepare_data_for_single_session_summary(
     session_db_data: SessionSummaryDBData,
     extra_summary_context: ExtraSummaryContext | None,
 ) -> SingleSessionSummaryData:
-    if not session_db_data.session_events or not session_db_data.session_events_columns:
-        # Real-time replays could have no events yet, so we need to handle that case and show users a meaningful message
-        return SingleSessionSummaryData(
-            session_id=session_id,
-            user_id=user_id,
-            prompt_data=None,
-            prompt=None,
-            error_msg="No events found for this replay yet. Please try again in a few minutes.",
-        )
+    assert session_db_data.session_events is not None  # Must be verified by caller
+    assert session_db_data.session_events_columns is not None  # Must be verified by caller
     prompt_data = prepare_prompt_data(
         session_id=session_id,
         # Convert to a dict, so that we can amend its values freely
@@ -214,21 +216,36 @@ async def prepare_data_for_single_session_summary(
 
 
 def prepare_single_session_summary_input(
-    session_id: str, user_id: int, summary_data: SingleSessionSummaryData, model_to_use: str
+    session_id: str,
+    user_id: int,
+    summary_data: SingleSessionSummaryData,
+    model_to_use: str,
+    *,
+    user_distinct_id_to_log: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> SingleSessionSummaryLlmInputs:
     # Checking here instead of in the preparation function to keep mypy happy
     if summary_data.prompt_data is None:
-        raise ValueError(f"Prompt data is missing for session_id {session_id}")
+        msg = f"Prompt data is missing for session_id {session_id}"
+        logger.error(msg, session_id=session_id, user_id=user_id, signals_type="session-summaries")
+        raise ValueError(msg)
     if summary_data.prompt_data.prompt_data.metadata.start_time is None:
-        raise ValueError(f"Session start time is missing in the session metadata for session_id {session_id}")
+        msg = f"Session start time is missing in the session metadata for session_id {session_id}"
+        logger.error(msg, session_id=session_id, user_id=user_id, signals_type="session-summaries")
+        raise ValueError(msg)
     if summary_data.prompt_data.prompt_data.metadata.duration is None:
-        raise ValueError(f"Session duration is missing in the session metadata for session_id {session_id}")
+        msg = f"Session duration is missing in the session metadata for session_id {session_id}"
+        logger.error(msg, session_id=session_id, user_id=user_id, signals_type="session-summaries")
+        raise ValueError(msg)
     if summary_data.prompt is None:
-        raise ValueError(f"Prompt is missing for session_id {session_id}")
+        msg = f"Prompt is missing for session_id {session_id}"
+        logger.error(msg, session_id=session_id, user_id=user_id, signals_type="session-summaries")
+        raise ValueError(msg)
     # Prepare the input
     input_data = SingleSessionSummaryLlmInputs(
         session_id=session_id,
         user_id=user_id,
+        user_distinct_id_to_log=user_distinct_id_to_log,
         summary_prompt=summary_data.prompt.summary_prompt,
         system_prompt=summary_data.prompt.system_prompt,
         simplified_events_mapping=summary_data.prompt_data.simplified_events_mapping,
@@ -240,5 +257,6 @@ def prepare_single_session_summary_input(
         session_duration=summary_data.prompt_data.prompt_data.metadata.duration,
         distinct_id=summary_data.prompt_data.prompt_data.metadata.distinct_id,
         model_to_use=model_to_use,
+        trigger_session_id=trigger_session_id,
     )
     return input_data

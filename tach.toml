@@ -1,82 +1,521 @@
-interfaces = []
-exclude = [".*__pycache__", ".*egg-info", "docs", "tests"]
-source_roots = ["."]
+layers = [
+    "modules",
+]
+exclude = [
+    "**/*__pycache__",
+    "**/*egg-info",
+    "docs",
+    "tests",
+]
+source_roots = [
+    ".",
+]
 
 [[modules]]
 path = "<root>"
-depends_on = ["posthog"]
-
-[[modules]]
-path = "ee"
-depends_on = ["common.hogvm.python", "posthog"]
+depends_on = [
+    "ee",
+    "posthog",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.llm_analytics",
+    "products.logs",
+]
+layer = "modules"
 
 [[modules]]
 path = "common.hogql_parser"
 depends_on = []
+layer = "modules"
+utility = true
 
 [[modules]]
 path = "common.hogvm.python"
-depends_on = ["posthog"]
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+utility = true
+
+[[modules]]
+path = "ee"
+depends_on = [
+    "<root>",
+    "posthog",
+    "products.alerts",
+    "products.dashboards",
+    "products.data_warehouse",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.experiments",
+    "products.feature_flags",
+    "products.llm_analytics",
+    "products.mcp_store",
+    "products.notebooks",
+    "products.posthog_ai",
+    "products.product_tours",
+    "products.replay",
+    "products.revenue_analytics",
+    "products.surveys",
+    "products.tasks",
+]
+layer = "modules"
 
 [[modules]]
 path = "posthog"
 depends_on = [
     "<root>",
     "ee",
-    "common.hogql_parser",
-    "common.hogvm.python",
-    # NOTE: Add new product dependencies here and in settings/web.py PRODUCTS_APPS
+    "products.analytics_platform",
+    "products.batch_exports",
+    "products.conversations",
+    "products.customer_analytics",
+    "products.dashboards",
+    "products.data_modeling",
+    "products.data_warehouse",
+    "products.desktop_recordings",
     "products.early_access_features",
-    "products.tasks",
-    "products.links",
-    "products.revenue_analytics",
-    "products.user_interviews",
-    "products.llm_analytics",
-    "products.marketing_analytics",
     "products.endpoints",
     "products.error_tracking",
-    "products.notebooks",
+    "products.event_definitions",
+    "products.experiments",
+    "products.feature_flags",
+    "products.growth",
+    "products.links",
     "products.live_debugger",
-    "products.desktop_recordings",
-    "products.customer_analytics",
+    "products.llm_analytics",
+    "products.logs",
+    "products.marketing_analytics",
+    "products.mcp_store",
+    "products.messaging",
+    "products.notebooks",
+    "products.notifications",
+    "products.posthog_ai",
+    "products.product_tours",
+    "products.revenue_analytics",
+    "products.signals",
+    "products.slack_app",
+    "products.surveys",
+    "products.streamlit_apps",
+    "products.tasks",
+    "products.tracing",
+    "products.user_interviews",
+    "products.visual_review",
+    "products.web_analytics",
+    "products.workflows",
 ]
+layer = "modules"
 
 [[modules]]
-path = "products.early_access_features"
-depends_on = ["posthog"]
+path = "products.alerts"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
 
 [[modules]]
-path = "products.tasks"
-depends_on = ["posthog"]
+path = "products.analytics_platform"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
 
 [[modules]]
-path = "products.links"
-depends_on = ["posthog"]
+path = "products.batch_exports"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
 
 [[modules]]
-path = "products.revenue_analytics"
-depends_on = ["posthog"]
+path = "products.cdp"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
 
 [[modules]]
-path = "products.endpoints"
-depends_on = ["posthog"]
+path = "products.conversations"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
 
 [[modules]]
-path = "products.marketing_analytics"
-depends_on = ["posthog"]
+path = "products.customer_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
 
 [[modules]]
-path = "products.error_tracking"
-depends_on = ["posthog"]
+path = "products.dashboards"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.llm_analytics",
+]
+layer = "modules"
 
 [[modules]]
-path = "products.notebooks"
-depends_on = ["posthog"]
+path = "products.data_modeling"
+depends_on = [
+    "posthog",
+    "products.data_warehouse",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.data_warehouse"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.dashboards",
+    "products.data_modeling",
+    "products.revenue_analytics",
+]
+layer = "modules"
 
 [[modules]]
 path = "products.desktop_recordings"
-depends_on = ["posthog"]
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.early_access_features"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.endpoints"
+depends_on = [
+    "posthog",
+    "products.data_modeling",
+    "products.data_warehouse",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.error_tracking"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.logs",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.event_definitions"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.experiments"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.event_definitions",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.feature_flags"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.growth"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.links"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
 
 [[modules]]
 path = "products.live_debugger"
-depends_on = ["posthog"]
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.llm_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.dashboards",
+    "products.workflows",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.logs"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.managed_migrations"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.marketing_analytics"
+depends_on = [
+    "posthog",
+    "products.data_warehouse",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.mcp_analytics"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.mcp_store"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.messaging"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.metrics"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.notebooks"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.tasks",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.streamlit_apps"
+depends_on = [
+    "posthog",
+    "products.tasks",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.notifications"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.platform_features"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.posthog_ai"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.llm_analytics",
+    "products.logs",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.product_analytics"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.product_tours"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.surveys",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.replay"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.revenue_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.data_warehouse",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.signals"
+depends_on = [
+    "posthog",
+    "products.data_warehouse",
+    "products.error_tracking",
+    "products.tasks",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.slack_app"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.dashboards",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.surveys"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.product_tours",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.tasks"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.llm_analytics",
+    "products.mcp_store",
+    "products.posthog_ai",
+    "products.signals",
+    "products.slack_app",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.tracing"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.user_interviews"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.visual_review"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.web_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.workflows"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+
+# Facade + views: the canonical public surface for all isolated products.
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
+]
+
+# Legacy leaks — core (posthog/ee) imports these internals directly.
+# Each block below should shrink as imports migrate to the facade.
+# These products have had backend:contract-check removed from package.json
+# so CI treats them as non-isolated until the leaks are cleaned up.
+
+[[interfaces]]
+expose = [
+    "backend\\.experiment_saved_metric_service.*",
+    "backend\\.experiment_service.*",
+    "backend\\.max_tools.*",
+    "backend\\.metric_utils.*",
+    "backend\\.models.*",
+    "stats\\..*",
+]
+from = [
+    "products.experiments",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+    "backend\\.oauth.*",
+]
+from = [
+    "products.mcp_store",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.logic.*",
+]
+from = [
+    "products.tracing",
+]

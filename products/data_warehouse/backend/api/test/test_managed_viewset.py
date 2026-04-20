@@ -8,51 +8,42 @@ from products.data_warehouse.backend.models import DataWarehouseManagedViewSet, 
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
 
-class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
-    def setUp(self):
-        super().setUp()
+# Define child classes for each managed viewset kind
+# and define the special `kind`, `endpoint` and `expected_count` attributes
+class TestDataWarehouseManagedViewSetAPIBase(APIBaseTest):
+    __test__ = False
 
-        # Set up revenue analytics events configuration
-        self.team.revenue_analytics_config.events = [
-            RevenueAnalyticsEventItem(
-                eventName="purchase",
-                revenueProperty="amount",
-                currencyAwareDecimal=True,
-                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
-            ),
-            RevenueAnalyticsEventItem(
-                eventName="subscription_charge",
-                revenueProperty="price",
-                currencyAwareDecimal=False,
-                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
-                productProperty="product_id",
-            ),
-        ]
-        self.team.revenue_analytics_config.save()
+    kind: DataWarehouseManagedViewSetKind
+    endpoint: str
+    expected_count: int
 
     def test_enable_managed_viewset(self):
         response = self.client.put(
-            f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/",
+            f"/api/environments/{self.team.id}/managed_viewsets/{self.endpoint}/",
             {"enabled": True},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["enabled"], True)
-        self.assertEqual(response.json()["kind"], "revenue_analytics")
+        self.assertEqual(response.json()["kind"], self.endpoint)
 
-        self.assertTrue(
-            DataWarehouseManagedViewSet.objects.filter(
-                team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
-            ).exists()
+        self.assertEqual(
+            DataWarehouseManagedViewSet.objects.filter(team=self.team, kind=self.kind).count(),
+            1,
+        )
+
+        self.assertEqual(
+            DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset__kind=self.kind).count(),
+            self.expected_count,
         )
 
     def test_enable_managed_viewset_idempotent(self):
         response1 = self.client.put(
-            f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/",
+            f"/api/environments/{self.team.id}/managed_viewsets/{self.endpoint}/",
             {"enabled": True},
         )
         response2 = self.client.put(
-            f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/",
+            f"/api/environments/{self.team.id}/managed_viewsets/{self.endpoint}/",
             {"enabled": True},
         )
 
@@ -64,7 +55,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
     def test_disable_managed_viewset(self):
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+            kind=self.kind,
         )
 
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -75,7 +66,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
         )
 
         response = self.client.put(
-            f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/",
+            f"/api/environments/{self.team.id}/managed_viewsets/{self.endpoint}/",
             {"enabled": False},
         )
 
@@ -89,27 +80,19 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
 
     def test_disable_already_disabled_viewset(self):
         response = self.client.put(
-            f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/",
+            f"/api/environments/{self.team.id}/managed_viewsets/{self.endpoint}/",
             {"enabled": False},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["enabled"], False)
 
-    def test_invalid_kind(self):
-        response = self.client.put(
-            f"/api/environments/{self.team.id}/managed_viewsets/invalid_kind/",
-            {"enabled": True},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
     def test_retrieve_managed_viewset_with_views(self):
         """Test retrieving a managed viewset that exists with views"""
         # Create a managed viewset
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+            kind=self.kind,
         )
 
         # Create some saved queries associated with the managed viewset
@@ -128,7 +111,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/")
+        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/{self.endpoint}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
@@ -154,10 +137,10 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
         # Create a managed viewset but no associated views
         DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+            kind=self.kind,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/")
+        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/{self.endpoint}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
@@ -169,7 +152,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
 
     def test_retrieve_managed_viewset_does_not_exist(self):
         """Test retrieving a managed viewset that doesn't exist"""
-        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/")
+        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/{self.endpoint}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
@@ -184,7 +167,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
         # Create a managed viewset
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+            kind=self.kind,
         )
 
         # Create a non-deleted view
@@ -206,7 +189,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
             deleted=True,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/")
+        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/{self.endpoint}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
@@ -216,7 +199,46 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
         self.assertEqual(data["views"][0]["name"], "active_view")
         self.assertEqual(str(data["views"][0]["id"]), str(active_view.id))
 
-    def test_retrieve_managed_viewset_invalid_kind(self):
+
+class TestDataWarehouseManagedViewSetAPIBaseRevenueAnalytics(TestDataWarehouseManagedViewSetAPIBase):
+    __test__ = True
+
+    kind = DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+    endpoint = "revenue_analytics"
+    expected_count = 12
+
+    def setUp(self):
+        super().setUp()
+
+        # Set up revenue analytics events configuration
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName="purchase",
+                revenueProperty="amount",
+                currencyAwareDecimal=True,
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+            ),
+            RevenueAnalyticsEventItem(
+                eventName="subscription_charge",
+                revenueProperty="price",
+                currencyAwareDecimal=False,
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
+                productProperty="product_id",
+            ),
+        ]
+        self.team.revenue_analytics_config.save()
+
+
+class TestDataWarehouseManagedViewSetAPIInvalid(APIBaseTest):
+    def test_enable_invalid_kind(self):
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/managed_viewsets/invalid_kind/",
+            {"enabled": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retrieve_invalid_kind(self):
         """Test retrieving with an invalid kind returns 400"""
         response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/invalid_kind/")
 

@@ -1,0 +1,63 @@
+/*
+ * Storybook runs as the authoring environment for @posthog/quill, NOT
+ * a downstream-consumer sanity check. That distinction drives every
+ * decision in this file:
+ *
+ *   - Tokens come from `@posthog/quill-tokens` directly (workspace
+ *     package), not from `@posthog/quill/tokens.css`. The tokens CSS
+ *     files are watched by vite, and `quillTokensWatcher` in main.ts
+ *     regenerates them whenever a `.ts` in packages/tokens/src edits.
+ *
+ *   - `@source` points at primitives/components/blocks *source*, not
+ *     the compiled `@posthog/quill/dist/*.js`. Editing any `.tsx` in
+ *     those packages hot-reloads instantly — no intermediate build.
+ *
+ *   - The base reset (`* { border-border outline-ring/50 }`) is
+ *     inlined rather than imported from `@posthog/quill/base.css`,
+ *     again so the tsx → render loop has zero build dependency.
+ *
+ *   - Pure Tailwind v4 (no `@config`), so native defaults like
+ *     `--leading-relaxed`, `--tracking-tight`, etc. are available
+ *     automatically. The downstream-compat shims quill ships for
+ *     consumers that still use `@config` legacy mode aren't needed
+ *     here.
+ *
+ * Downstream consumers (real apps pinning `@posthog/quill` from npm)
+ * should instead follow the README and import:
+ *     @import "@posthog/quill/tokens.css";
+ *     @import "@posthog/quill/base.css";
+ *     @import "@posthog/quill/tailwind.css";
+ */
+
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+/* Design tokens — CSS custom property values + the @theme inline block. */
+@import '@posthog/quill-tokens/color-system.css';
+@import '@posthog/quill-tokens/tailwind-lib.css';
+
+/*
+ * Scan sources, not dist. Vite HMR forwards any .tsx change in these
+ * trees to Tailwind's scanner and we get new utilities emitted on the
+ * next tick.
+ */
+@source "../stories/**/*.{ts,tsx}";
+@source "../../../packages/primitives/src/**/*.{ts,tsx}";
+@source "../../../packages/components/src/**/*.{ts,tsx}";
+@source "../../../packages/blocks/src/**/*.{ts,tsx}";
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+}
+
+/* Disable animations during visual regression tests */
+body.storybook-test-runner *,
+body.storybook-test-runner *::before,
+body.storybook-test-runner *::after {
+    transition-delay: 0s !important;
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+}

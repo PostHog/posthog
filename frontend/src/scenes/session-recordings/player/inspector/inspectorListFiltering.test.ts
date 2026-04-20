@@ -115,19 +115,19 @@ describe('filtering inspector list items', () => {
                 allItems: [
                     {
                         type: 'events',
-                        windowId: 'this window',
+                        windowId: 1,
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                     {
                         type: 'events',
-                        windowId: 'a different window',
+                        windowId: 2,
                         data: { event: '$exception' } as unknown as PerformanceEvent,
                     } as unknown as InspectorListItemEvent,
                 ],
                 miniFiltersByKey: { 'events-exceptions': { enabled: true } as unknown as SharedListMiniFilter },
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
-                trackedWindow: 'a different window',
+                trackedWindow: 2,
                 hasEventsToDisplay: true,
             })
         ).toHaveLength(1)

@@ -11,6 +11,10 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.models import Person, PersonOverride, PersonOverrideMapping, Team
 
+# PersonOverride model is not actively used (see PR #23616)
+# Skip all tests in this module
+pytestmark = pytest.mark.skip(reason="PersonOverride model is not used (see PR #23616)")
+
 
 @pytest.fixture
 def organization():

@@ -68,14 +68,14 @@ impl CustomFrame {
             .iter()
             .take(10)
             .enumerate()
-            .map(|(i, line)| ContextLine::new(lineno - i as u32 - 1, line.clone()))
+            .map(|(i, line)| ContextLine::new_rel(lineno, -(i as i32) - 1, line.clone()))
             .collect();
         let after = self
             .post_context
             .iter()
             .take(10)
             .enumerate()
-            .map(|(i, line)| ContextLine::new(lineno + i as u32 + 1, line.clone()))
+            .map(|(i, line)| ContextLine::new_rel(lineno, i as i32 + 1, line.clone()))
             .collect();
         Some(Context {
             before,
@@ -98,13 +98,13 @@ impl From<&CustomFrame> for Frame {
             lang: value.lang.clone(),
             resolved: value.resolved,
             resolve_failure: None,
+
             junk_drawer: None,
             context: value.get_context(),
             release: None,
             synthetic: value.meta.synthetic,
             suspicious: false,
             module: value.module.clone(),
-            exception_type: None,
             code_variables: None,
         }
     }

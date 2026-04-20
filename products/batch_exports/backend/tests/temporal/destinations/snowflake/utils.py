@@ -2,9 +2,11 @@ import os
 import re
 import gzip
 import json
+import typing
 import typing as t
 import datetime as dt
 import operator
+import collections.abc
 from collections import deque
 from uuid import uuid4
 
@@ -14,9 +16,9 @@ import responses
 import snowflake.connector
 from requests.models import PreparedRequest
 
-from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
+from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import snowflake_default_fields
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
@@ -89,6 +91,12 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 ]
 
 
+class FakeMetadata(typing.NamedTuple):
+    name: str
+    type_code: int
+    is_nullable: bool
+
+
 class FakeSnowflakeCursor:
     """A fake Snowflake cursor that can fail on PUT and COPY queries."""
 
@@ -149,8 +157,9 @@ class FakeSnowflakeCursor:
         else:
             return [("test", "LOADED", 100, 99, 1, 1, "Some error on copy", 3)]
 
+    @property
     def description(self):
-        return []
+        return [FakeMetadata("uuid", 2, False)]
 
 
 class FakeSnowflakeConnection:
@@ -370,7 +379,10 @@ async def assert_clickhouse_records_in_snowflake(
     expected_fields: list[str] | None = None,
     expect_duplicates: bool = False,
     primary_key: list[str] | None = None,
+    timestamp_columns: collections.abc.Sequence[str] = (),
     uppercase_columns: list[str] | None = None,
+    extra_fields: dict[str, t.Any] | None = None,
+    min_ingested_timestamp: dt.datetime | None = None,
 ):
     """Assert ClickHouse records are written to Snowflake table.
 
@@ -386,6 +398,8 @@ async def assert_clickhouse_records_in_snowflake(
         batch_export_model: The model, or custom schema, used in the batch export.
         expected_fields: List of fields expected to be in the destination table.
         expect_duplicates: Whether duplicates are expected (e.g. when testing retrying logic).
+        extra_fields: Additional fields present in the Snowflake table (that are not present in the ClickHouse table).
+        min_ingested_timestamp: If set, assert all `snowflake_ingested_timestamp` values are >= this.
     """
     snowflake_cursor.execute(f'SELECT * FROM "{table_name}"')
 
@@ -397,15 +411,23 @@ async def assert_clickhouse_records_in_snowflake(
     # Rows are tuples, so we construct a dictionary using the metadata from cursor.description.
     # We rely on the order of the columns in each row matching the order set in cursor.description.
     # This seems to be the case, at least for now.
-    inserted_records = [
-        {
-            columns[index]: json.loads(row[index])
-            if columns[index] in json_columns and row[index] is not None
-            else row[index]
-            for index in columns.keys()
-        }
-        for row in rows
-    ]
+    inserted_records = []
+    inserted_snowflake_ingested_timestamps = []
+    for row in rows:
+        record = {}
+
+        for index in columns.keys():
+            if columns[index] == "snowflake_ingested_timestamp":
+                inserted_snowflake_ingested_timestamps.append(row[index])
+                continue
+
+            if columns[index] in json_columns and row[index] is not None:
+                record[columns[index]] = json.loads(row[index])
+            elif isinstance(row[index], int) and columns[index] in timestamp_columns:
+                record[columns[index]] = dt.datetime.fromtimestamp(row[index])
+            else:
+                record[columns[index]] = row[index]
+        inserted_records.append(record)
 
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
@@ -462,8 +484,9 @@ async def assert_clickhouse_records_in_snowflake(
             expected_record = {}
 
             for k, v in record.items():
-                if k == "_inserted_at":
+                if k == "_inserted_at" or k == "snowflake_ingested_timestamp":
                     # _inserted_at is not exported, only used for tracking progress.
+                    # snowflake_ingested_timestamp cannot be compared as it comes from an unstable function.
                     continue
 
                 if k in json_columns and isinstance(v, str):
@@ -480,6 +503,10 @@ async def assert_clickhouse_records_in_snowflake(
                 if uppercase_columns and k in uppercase_columns:
                     expected_record[k.upper()] = expected_record[k]
                     del expected_record[k]
+
+            if extra_fields:
+                for field, value in extra_fields.items():
+                    expected_record[field] = value
 
             expected_records.append(expected_record)
 
@@ -501,3 +528,10 @@ async def assert_clickhouse_records_in_snowflake(
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
     assert len(inserted_column_names) > 0
+
+    if len(inserted_snowflake_ingested_timestamps) > 0:
+        assert min_ingested_timestamp is not None, (
+            "Must set `min_ingested_timestamp` for comparison with exported value"
+        )
+        assert all(ts is not None for ts in inserted_snowflake_ingested_timestamps)
+        assert all(ts >= min_ingested_timestamp for ts in inserted_snowflake_ingested_timestamps)

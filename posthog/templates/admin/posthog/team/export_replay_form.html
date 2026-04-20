@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<p>Prepares an export of an individual session so that you can test locally.</p>
+<p><strong>With great power comes great responsibility.</strong></p>
+
+<form method="post">
+    {% csrf_token %}
+    <div style="margin: 20px 0;">
+        <label for="session_id" style="display: block; margin-bottom: 5px; font-weight: bold;">Session ID:</label>
+        <input type="text" id="session_id" name="session_id" style="width: 400px; padding: 8px;" required />
+    </div>
+    <div style="margin: 20px 0;">
+        <label for="reason" style="display: block; margin-bottom: 5px; font-weight: bold;">Reason:</label>
+        <input type="text" id="reason" name="reason" style="width: 400px; padding: 8px;" placeholder="e.g. Customer support ticket #1234" required />
+    </div>
+    <div style="margin-top: 20px;">
+        <input type="submit" class="default" value="Generate export" style="padding: 10px 20px;" />
+        <a href="{% url 'admin:posthog_team_change' team.pk %}" style="margin-left: 10px;">Cancel</a>
+    </div>
+</form>
+{% endblock %}

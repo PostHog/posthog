@@ -1,16 +1,20 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { IconGear, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
-import { Query } from '~/queries/Query/Query'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
+import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
-    MarketingAnalyticsColumnsSchemaNames,
+    MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
@@ -20,12 +24,12 @@ import { InsightLogicProps } from '~/types'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
+import { rowMatchesSearch } from '../../logic/utils'
 import { MarketingAnalyticsCell } from '../../shared'
 import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
-import { DraftConversionGoalControls } from './DraftConversionGoalControls'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 export type MarketingAnalyticsTableProps = {
@@ -40,69 +44,128 @@ export const MarketingAnalyticsTable = ({
     attachTo,
 }: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
-    const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
+    const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
+    const { drillDownLevel } = useValues(marketingAnalyticsLogic)
+    const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
+    const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
+
+    const [searchTerm, setSearchTerm] = useState('')
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
-    const handleIncludeAllConversionsChange = (checked: boolean): void => {
-        const sourceQuery = query.source as MarketingAnalyticsTableQuery
-        setQuery({
-            ...query,
-            source: {
-                ...sourceQuery,
-                includeAllConversions: checked,
-            },
-        })
-    }
-
-    // Create custom context with sortable headers for marketing analytics
-    const marketingAnalyticsContext: QueryContext = {
-        ...webAnalyticsDataTableQueryContext,
-        insightProps,
-        columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
-        columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
-            (acc, column) => {
-                acc[column] = {
-                    title: column,
-                    render: (props) => (
-                        <MarketingAnalyticsCell
-                            {...props}
-                            style={{
-                                maxWidth:
-                                    column.toLocaleLowerCase() ===
-                                    MarketingAnalyticsColumnsSchemaNames.Campaign.toLocaleLowerCase()
-                                        ? '200px'
-                                        : undefined,
-                            }}
-                        />
-                    ),
+    const marketingAnalyticsContext: QueryContext = useMemo(
+        () => ({
+            ...webAnalyticsDataTableQueryContext,
+            insightProps,
+            columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
+            rowProps: (record: unknown) => {
+                if (!rowMatchesSearch(record, searchTerm)) {
+                    return { style: { display: 'none' } }
                 }
-                return acc
+                return {}
             },
-            {} as Record<string, QueryContextColumn>
-        ),
-    }
+            columns: (() => {
+                const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
+                    (c) => c.columnAlias
+                )
+                // Include every column the backend could ever return, not just the current select.
+                // When drill-down level changes, stale response data lingers briefly; without a
+                // render fn for those columns, cells fall through to the raw JSON viewer.
+                const allKnownColumns = new Set<string>([
+                    ...Object.values(MarketingAnalyticsBaseColumns),
+                    ...allGroupingAliases,
+                    ...((query.source as MarketingAnalyticsTableQuery).select ?? []),
+                ])
+                return Array.from(allKnownColumns).reduce(
+                    (acc, column) => {
+                        const isGroupingColumn = allGroupingAliases.includes(column)
+                        acc[column] = {
+                            render: (props) => (
+                                <MarketingAnalyticsCell
+                                    {...props}
+                                    style={{
+                                        maxWidth: isGroupingColumn ? '200px' : undefined,
+                                    }}
+                                />
+                            ),
+                        }
+                        return acc
+                    },
+                    {} as Record<string, QueryContextColumn>
+                )
+            })(),
+        }),
+        [insightProps, query.source, searchTerm]
+    )
 
     return (
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
-                <div className="flex gap-4">
-                    <div className="flex-1">
-                        <DraftConversionGoalControls />
-                    </div>
-                    <div className="self-start flex flex-col gap-2">
-                        <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
-                            Configure columns
-                        </LemonButton>
-                        <LemonSwitch
-                            checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
-                            onChange={handleIncludeAllConversionsChange}
-                            label="Non-integrated conversions"
-                            tooltip="Include conversion goal rows even when they don't match any campaign data from integrations. This will be based on the utm campaign and source"
-                            size="small"
+                <div className="flex gap-4 justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search..."
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            className="w-64"
+                            data-attr="marketing-analytics-search"
                         />
+                        {hasDrillDown && (
+                            <LemonSelect
+                                value={drillDownLevel}
+                                onChange={(value) => value && setDrillDownLevel(value)}
+                                options={[
+                                    {
+                                        title: 'Platform',
+                                        options: [
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Channel,
+                                                label: 'Channel',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Source,
+                                                label: 'Source',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Campaign,
+                                                label: 'Campaign',
+                                            },
+                                        ],
+                                    },
+                                    ...(hasExtendedDrillDown
+                                        ? [
+                                              {
+                                                  title: 'UTM',
+                                                  options: [
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Medium,
+                                                          label: 'Medium',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Content,
+                                                          label: 'Content',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Term,
+                                                          label: 'Term',
+                                                      },
+                                                  ],
+                                              },
+                                          ]
+                                        : []),
+                                ]}
+                                size="small"
+                            />
+                        )}
+                        <Tooltip title="Filters the currently loaded results" delayMs={0}>
+                            <IconInfo className="text-xl text-secondary" />
+                        </Tooltip>
                     </div>
+                    <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
+                        Configure columns
+                    </LemonButton>
                 </div>
             </div>
             {validationWarnings && validationWarnings.length > 0 && (

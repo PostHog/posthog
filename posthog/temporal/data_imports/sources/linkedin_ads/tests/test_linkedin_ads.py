@@ -1,5 +1,6 @@
 import typing
 import datetime as dt
+from collections.abc import Iterable
 
 import pytest
 from unittest import mock
@@ -121,13 +122,20 @@ class TestFlattenLinkedinRecord:
         assert result["impressions"] == 1000
         assert result["clicks"] == 50
 
-    def test_flatten_float_fields(self):
-        """Test conversion of float fields."""
-        record = {"costInUsd": "25.50"}
+    @pytest.mark.parametrize(
+        "field_name, raw_value, expected",
+        [
+            ("costInUsd", "25.50", 25.50),
+            ("costInLocalCurrency", "30.75", 30.75),
+            ("conversionValueInLocalCurrency", "12.34", 12.34),
+        ],
+    )
+    def test_flatten_float_fields(self, field_name: str, raw_value: str, expected: float):
+        record = {field_name: raw_value}
         schema = LinkedinAdsSchema(
             name="test",
             primary_keys=[],
-            field_names=["costInUsd"],
+            field_names=[field_name],
             partition_keys=[],
             partition_mode=None,
             partition_format=None,
@@ -137,7 +145,7 @@ class TestFlattenLinkedinRecord:
 
         result = _flatten_linkedin_record(record, schema)
 
-        assert result["costInUsd"] == 25.50
+        assert result[field_name] == expected
 
     def test_flatten_change_audit_stamps(self):
         """Test flattening changeAuditStamps field."""
@@ -257,7 +265,9 @@ class TestLinkedinAdsSource:
         )
 
         # Process the rows to trigger the client call
-        rows = list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        rows = list(items)
         assert len(rows) == 1
 
         # Verify client was called with correct date parameters

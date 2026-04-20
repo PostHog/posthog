@@ -13,6 +13,7 @@ export const themeLogic = kea<themeLogicType>([
     connect(() => ({
         logic: [sceneLogic],
         values: [userLogic, ['themeMode'], featureFlagLogic, ['featureFlags']],
+        actions: [userLogic, ['updateUser']],
     })),
 
     actions({
@@ -21,6 +22,7 @@ export const themeLogic = kea<themeLogicType>([
         saveCustomCss: true,
         setPersistedCustomCss: (css: string | null) => ({ css }),
         setPreviewingCustomCss: (css: string | null) => ({ css }),
+        toggleTheme: true,
     }),
     reducers({
         darkModeSystemPreference: [
@@ -55,7 +57,7 @@ export const themeLogic = kea<themeLogicType>([
         theme: [
             (s) => [s.selectedTheme, s.featureFlags],
             (selectedTheme, featureFlags): Theme | null => {
-                const flagVariant = featureFlags[FEATURE_FLAGS.THEME]
+                const flagVariant = featureFlags[FEATURE_FLAGS.THEME_OVERRIDE]
                 return (
                     (selectedTheme ? themes.find((theme) => theme.id === selectedTheme) : null) ??
                     (typeof flagVariant === 'string' ? themes.find((theme) => theme.id === flagVariant) : null) ??
@@ -98,6 +100,9 @@ export const themeLogic = kea<themeLogicType>([
         saveCustomCss() {
             actions.setPersistedCustomCss(values.previewingCustomCss)
             actions.setPreviewingCustomCss(null)
+        },
+        toggleTheme() {
+            actions.updateUser({ theme_mode: values.isDarkModeOn ? 'light' : 'dark' })
         },
     })),
     events(({ cache, actions }) => ({

@@ -2,12 +2,13 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 
 class DashboardTemplateAdmin(admin.ModelAdmin):
     list_display = (
         "template_name",
+        "is_featured",
         "deleted",
         "created_at",
         "created_by",
@@ -16,6 +17,7 @@ class DashboardTemplateAdmin(admin.ModelAdmin):
     )
     list_display_links = ("template_name",)
     list_select_related = ("team", "team__organization")
+    list_filter = ("is_featured", "scope", "deleted")
     search_fields = ("id", "template_name", "team__name", "team__organization__name")
     readonly_fields = ("team",)
     autocomplete_fields = ("team", "created_by")

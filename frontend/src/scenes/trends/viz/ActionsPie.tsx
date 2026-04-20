@@ -7,6 +7,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { teamLogic } from 'scenes/teamLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -24,6 +25,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps } = useValues(insightLogic)
+    const { baseCurrency } = useValues(teamLogic)
     const {
         indexedResults,
         labelGroupType,
@@ -118,7 +120,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         data[0] && data[0].labels ? (
             <div className="ActionsPie">
                 <div className="ActionsPie__component">
-                    <div className="ActionsPie__chart">
+                    <div className={`ActionsPie__chart ${!showAggregation ? 'ActionsPie__chart--full-height' : ''}`}>
                         <PieChart
                             data-attr="trend-pie-graph"
                             type={GraphType.Pie}
@@ -139,7 +141,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                     </div>
                     {showAggregation && (
                         <div className="text-7xl text-center font-bold m-0">
-                            {formatAggregationAxisValue(trendsFilter, total)}
+                            {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
                         </div>
                     )}
                 </div>

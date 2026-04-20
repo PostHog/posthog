@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest
 
+from posthog.constants import AvailableFeature
+
 from ee.models.license import License, LicenseManager
 
 
@@ -14,7 +16,9 @@ class LicensedTestMixin:
 
     CONFIG_LICENSE_KEY: Optional[str] = "12345::67890"
     CONFIG_LICENSE_PLAN: Optional[str] = "enterprise"
-    license: License = None
+    CONFIG_SYNC_ORGANIZATION_FEATURES_ON_SETUP: bool = True
+    CONFIG_FORCE_ADVANCED_PERMISSIONS_ON_SETUP: bool = False
+    license: License = cast(License, None)
 
     def license_required_response(
         self,
@@ -28,8 +32,10 @@ class LicensedTestMixin:
         }
 
     @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
+    def setUpTestData(cls) -> None:
+        parent_set_up_test_data = getattr(super(), "setUpTestData", None)
+        if parent_set_up_test_data is not None:
+            parent_set_up_test_data()
         if cls.CONFIG_LICENSE_PLAN:
             cls.license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key=cls.CONFIG_LICENSE_KEY,
@@ -42,4 +48,22 @@ class LicensedTestMixin:
 
 
 class APILicensedTest(LicensedTestMixin, APIBaseTest):
-    pass
+    def setUp(self):
+        super().setUp()
+
+        if not hasattr(self, "organization") or not self.organization:
+            return
+
+        if self.CONFIG_SYNC_ORGANIZATION_FEATURES_ON_SETUP:
+            self.organization.update_available_product_features()
+            self.organization.save()
+
+        if self.CONFIG_FORCE_ADVANCED_PERMISSIONS_ON_SETUP and not self.organization.is_feature_available(
+            AvailableFeature.ADVANCED_PERMISSIONS
+        ):
+            features = self.organization.available_product_features or []
+            features.append(
+                {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            )
+            self.organization.available_product_features = features
+            self.organization.save()

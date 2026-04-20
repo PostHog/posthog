@@ -26,10 +26,24 @@ const LennyHero: React.FC = () => {
 
 export const lennyCampaign: CampaignConfig = {
     name: "Lenny's Newsletter",
-    heroTitle: 'Get FREE PostHog Scale for 12 months (worth $9,000)',
-    heroSubtitle: "We like Lenny's Newsletter so much we made this exclusive off for annual subscribers",
+    heroTitle: 'DOUBLE free tier limits + FREE Scale for 12 months',
+    heroSubtitle: "We like Lenny's Newsletter so much we made this exclusive offer for annual subscribers",
     HeroImage: LennyHero,
     benefits: [
+        {
+            title: '2x free tier limits',
+            description: (
+                <>
+                    Double the free allowance on all products, e.g.:
+                    <ul className="mt-1 ml-4 list-disc text-muted text-sm">
+                        <li>2M events (product analytics)</li>
+                        <li>10K recordings (session replay)</li>
+                        <li>2M flag requests (feature flags)</li>
+                    </ul>
+                    ... and more!
+                </>
+            ),
+        },
         {
             title: 'Priority support',
             description: "Get help from our team. You'll speak to an actual engineer too!",
@@ -43,17 +57,13 @@ export const lennyCampaign: CampaignConfig = {
             description: '2 months of retention so you can track changes in your organization',
         },
         {
-            title: 'Extended session replay retention',
-            description: 'Keep your session replay data for 12 months instead of the standard 3',
-        },
-        {
             title: 'Managed reverse proxy',
             description: 'Up to 2 proxies to improve data collection and bypass ad blockers',
         },
     ],
     eligibilityCriteria: [
         "Active Lenny's Newsletter annual subscriber",
-        'PostHog organization created after December 2, 2025',
+        'No paid invoices before December 1, 2025',
         'Active paid subscription to PostHog',
     ],
     footerNote: (
@@ -62,7 +72,8 @@ export const lennyCampaign: CampaignConfig = {
             <Link to="https://posthog.com/platform-packages" target="_blank">
                 many more
             </Link>
-            ! All features are available for 12 months from the date you redeem your coupon.
+            ! Special plans and features are available for 12 months from the date you redeem your coupon. After that
+            we'll switch you back to the default paid plans.
         </>
     ),
 }

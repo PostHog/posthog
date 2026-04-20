@@ -3,11 +3,38 @@
 set -e
 
 export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
+export LOCK_FILE="$REPOSITORY_ROOT/bin/start.lock"
+
+cleanup_lock() {
+    rm -f "$LOCK_FILE"
+}
+
+# Acquire exclusive lock using flock (atomic, no race condition)
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "⚠️  Another instance of bin/start is already running (lock file: $LOCK_FILE)"
+    echo "   To skip this check, delete the lock file: rm $LOCK_FILE"
+    exit 1
+fi
+
+trap cleanup_lock EXIT INT TERM
+
+export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://seaweedfs:8333}
+
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 
+# Use sccache for Rust compilation caching (if available via flox or homebrew)
+if [[ -z "${RUSTC_WRAPPER:-}" ]] && command -v sccache &>/dev/null; then
+    export RUSTC_WRAPPER="sccache"
+fi
+
+# Use lld linker on macOS for faster Rust linking (if available via flox or homebrew)
+if [[ "$(uname -s)" == "Darwin" ]] && [[ -z "${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:-}" ]] && command -v lld &>/dev/null; then
+    export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="-C link-arg=-fuse-ld=lld"
+fi
+
 export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
-export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
 export API_QUERIES_PER_TEAM='{"1": 100}'
 
 # Dagster
@@ -26,18 +53,16 @@ export OTEL_LOGS_EXPORTER="none"    # Explicitly disable if not used
 export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
 export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
 
-# Check for minimal mode - disable OpenTelemetry for minimal mode
-if [[ "$*" == *"--minimal"* ]]; then
-    export OTEL_SDK_DISABLED="true"
-else
+# Tracing is disabled by default - requires 'tracing' intent for Jaeger/otel-collector
+# Note: otel-collector uses significant CPU/memory resources
+# Use --tracing flag to enable if you have the intent configured
+if [[ "$*" == *"--tracing"* ]]; then
     export OTEL_SDK_DISABLED="false"
     export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
     export OTEL_TRACES_SAMPLER_ARG="1"
     echo "👉 Tracing enabled, see http://localhost:16686 for Jaeger UI"
-fi
-
-if [[ "$*" == *"--skip-typegen"* ]]; then
-    export SKIP_TYPEGEN="1"
+else
+    export OTEL_SDK_DISABLED="true"
 fi
 
 if [ -f .env ]; then
@@ -46,39 +71,75 @@ if [ -f .env ]; then
     set +o allexport
 fi
 
+if [ -f .env.local ]; then
+    set -o allexport
+    source .env.local
+    set +o allexport
+fi
+
 # Ducklake
-export DUCKLAKE_CATALOG_DSN=${DUCKLAKE_CATALOG_DSN:-"ducklake:postgres:dbname=ducklake_catalog host=localhost user=posthog password=posthog"}
-export DUCKLAKE_DATA_BUCKET=${DUCKLAKE_DATA_BUCKET:-ducklake-dev}
-export DUCKLAKE_DATA_ENDPOINT=${DUCKLAKE_DATA_ENDPOINT:-"http://localhost:19000"}
+export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-db}
+export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}
+export DUCKLAKE_RDS_DATABASE=${DUCKLAKE_RDS_DATABASE:-ducklake}
+export DUCKLAKE_RDS_USERNAME=${DUCKLAKE_RDS_USERNAME:-posthog}
+export DUCKLAKE_RDS_PASSWORD=${DUCKLAKE_RDS_PASSWORD:-posthog}
+export DUCKLAKE_BUCKET=${DUCKLAKE_BUCKET:-ducklake-dev}
+export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
 export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
 export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
+export POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET=${POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET:-1}
 
-if ! python3 - <<'PY' >/dev/null 2>&1
-import duckdb  # noqa: F401
-PY
-then
-    echo "DuckLake requires the duckdb Python package."
-    echo "Run 'uv sync --active' (or activate Flox) before executing hogli start."
-    exit 1
-fi
+# These default to localhost/127.0.0.1 in Node.js/Rust configs
+export CDP_REDIS_HOST=${CDP_REDIS_HOST:-redis7}
+export SESSION_RECORDING_API_REDIS_HOST=${SESSION_RECORDING_API_REDIS_HOST:-redis7}
+export COOKIELESS_REDIS_HOST=${COOKIELESS_REDIS_HOST:-redis7}
+export TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
+# Persons DB — Node.js and Rust use different env var names for the same connection
+export PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
+export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
+export PERSONS_WRITE_DATABASE_URL=${PERSONS_WRITE_DATABASE_URL:-$PERSONS_DATABASE_URL}
+export PERSONS_READ_DATABASE_URL=${PERSONS_READ_DATABASE_URL:-$PERSONS_READONLY_DATABASE_URL}
+# Error tracking — Node.js ingestion consumer needs to reach Cymbal (Rust) on the host
+# Using lvh.me instead of localhost for cross-platform compatibility
+export ERROR_TRACKING_CYMBAL_BASE_URL=${ERROR_TRACKING_CYMBAL_BASE_URL:-http://lvh.me:3302}
+export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
+export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
+export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
+
+# Duckgres
+export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 
 # Geo files
 ./bin/download-mmdb
 
-if ! command -v mprocs &>/dev/null; then
-    if command -v brew &>/dev/null; then
-        echo "🔁 Installing mprocs via Homebrew..."
-        brew install mprocs
-    else
-        echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
-        exit 1
+PROCESS_MANAGER="phrocs"
+
+# Only use mprocs when --mprocs is explicitly passed
+if [[ " $* " == *" --mprocs "* ]]; then
+    # Ensure mprocs is available
+    if ! command -v mprocs &>/dev/null; then
+        if command -v brew &>/dev/null; then
+            echo "🔁 Installing mprocs via Homebrew..."
+            brew install mprocs
+        else
+            echo "👉 To use --mprocs, install mprocs: https://github.com/pvolok/mprocs#installation"
+            exit 1
+        fi
     fi
+    PROCESS_MANAGER="mprocs"
 fi
 
-# Check for conflicting flags
-if [[ "$*" == *"--custom"* ]] && ([[ "$*" == *"--minimal"* ]] || [[ "$*" == *"--vite"* ]]); then
-    echo "Error: Cannot use --custom with --minimal or --vite"
-    exit 1
+if [[ "$PROCESS_MANAGER" == "phrocs" ]]; then
+    if ! command -v phrocs &>/dev/null; then
+        if command -v brew &>/dev/null; then
+            echo "🔁 Installing phrocs via Homebrew..."
+            brew tap posthog/tap && brew install phrocs
+        else
+            echo "👉 To run bin/start, install phrocs: brew tap posthog/tap && brew install phrocs"
+            exit 1
+        fi
+    fi
+    PROCESS_MANAGER="phrocs"
 fi
 
 # Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)
@@ -100,10 +161,20 @@ if [[ "$*" == *"--custom"* ]]; then
         echo "Error: --custom requires a config path"
         exit 1
     fi
-    exec mprocs --config "$config_path"
-# Use minimal config
-elif [[ "$*" == *"--minimal"* ]]; then
-    exec mprocs --config bin/mprocs-minimal.yaml
+    "$PROCESS_MANAGER" --config "$config_path"
 else
-    exec mprocs --config bin/mprocs.yaml
+    GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
+
+    # Generate/regenerate config using hogli (defaults to product_analytics if no config exists)
+    # HOGLI_PROCESS_MANAGER is picked up by dev:generate for telemetry
+    if command -v hogli &>/dev/null; then
+        HOGLI_PROCESS_MANAGER="$PROCESS_MANAGER" hogli dev:generate 2>/dev/null || true
+    fi
+
+    if [[ -f "$GENERATED_CONFIG" ]]; then
+        "$PROCESS_MANAGER" --config "$GENERATED_CONFIG"
+    else
+        # Fallback if hogli not available
+        "$PROCESS_MANAGER" --config "$REPOSITORY_ROOT/bin/mprocs.yaml"
+    fi
 fi

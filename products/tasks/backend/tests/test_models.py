@@ -1,9 +1,13 @@
 import json
 import uuid
+import secrets
+from typing import ClassVar
 
 from unittest.mock import patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -12,13 +16,17 @@ from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import CodeInvite, SandboxEnvironment, SandboxSnapshot, Task, TaskRun
 
 
 class TestTask(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
 
     @parameterized.expand(
         [
@@ -40,111 +48,6 @@ class TestTask(TestCase):
         self.assertEqual(task.title, "Test Task")
         self.assertEqual(task.description, "Test Description")
         self.assertEqual(task.origin_product, origin_product)
-        self.assertEqual(task.position, 0)
-
-    def test_repository_list_with_config(self):
-        integration = Integration.objects.create(team=self.team, kind="github", config={})
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=integration,
-            repository_config={
-                "organization": "PostHog",
-                "repository": "posthog",
-            },
-        )
-
-        repo_list = task.repository_list
-        self.assertEqual(len(repo_list), 1)
-        self.assertEqual(repo_list[0]["org"], "PostHog")
-        self.assertEqual(repo_list[0]["repo"], "posthog")
-        self.assertEqual(repo_list[0]["integration_id"], integration.id)
-        self.assertEqual(repo_list[0]["full_name"], "posthog/posthog")
-
-    def test_repository_list_empty(self):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-        self.assertEqual(task.repository_list, [])
-
-    @parameterized.expand(
-        [
-            ("PostHog", "posthog", True),
-            ("PostHog", "other-repo", False),
-            ("OtherOrg", "posthog", False),
-        ]
-    )
-    def test_can_access_repository(self, org, repo, expected):
-        integration = Integration.objects.create(team=self.team, kind="github", config={})
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=integration,
-            repository_config={
-                "organization": "PostHog",
-                "repository": "posthog",
-            },
-        )
-
-        self.assertEqual(task.can_access_repository(org, repo), expected)
-
-    def test_primary_repository(self):
-        integration = Integration.objects.create(team=self.team, kind="github", config={})
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=integration,
-            repository_config={
-                "organization": "PostHog",
-                "repository": "posthog",
-            },
-        )
-
-        primary_repo = task.primary_repository
-        assert primary_repo is not None
-        self.assertEqual(primary_repo["org"], "PostHog")
-        self.assertEqual(primary_repo["repo"], "posthog")
-
-    def test_primary_repository_none(self):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-        self.assertIsNone(task.primary_repository)
-
-    def test_legacy_github_integration_from_task(self):
-        integration = Integration.objects.create(team=self.team, kind="github", config={})
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=integration,
-        )
-
-        self.assertEqual(task.legacy_github_integration, integration)
-
-    def test_legacy_github_integration_from_team(self):
-        integration = Integration.objects.create(team=self.team, kind="github", config={})
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-
-        self.assertEqual(task.legacy_github_integration, integration)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_minimal(self, mock_execute_workflow):
@@ -166,13 +69,17 @@ class TestTask(TestCase):
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
         self.assertEqual(task.team, self.team)
         self.assertEqual(task.created_by, user)
-        self.assertEqual(task.repository_config, {"organization": "posthog", "repository": "posthog"})
+        self.assertEqual(task.repository, "posthog/posthog")
 
-        mock_execute_workflow.assert_called_once_with(
-            task_id=str(task.id),
-            team_id=self.team.id,
-            user_id=user.id,
-        )
+        mock_execute_workflow.assert_called_once()
+        call_args = mock_execute_workflow.call_args
+        self.assertEqual(call_args.kwargs["task_id"], str(task.id))
+        self.assertEqual(call_args.kwargs["team_id"], self.team.id)
+        self.assertEqual(call_args.kwargs["user_id"], user.id)
+        self.assertIsNotNone(call_args.kwargs["run_id"])
+        task_run = TaskRun.objects.get(id=call_args.kwargs["run_id"])
+        self.assertEqual(task_run.task, task)
+        self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_with_repository(self, mock_execute_workflow):
@@ -188,8 +95,7 @@ class TestTask(TestCase):
             repository="posthog/posthog-js",
         )
 
-        self.assertEqual(task.repository_config["organization"], "posthog")
-        self.assertEqual(task.repository_config["repository"], "posthog-js")
+        self.assertEqual(task.repository, "posthog/posthog-js")
 
         mock_execute_workflow.assert_called_once()
 
@@ -198,7 +104,7 @@ class TestTask(TestCase):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(ValidationError) as cm:
             Task.create_and_run(
                 team=self.team,
                 title="Test Task",
@@ -208,7 +114,41 @@ class TestTask(TestCase):
                 repository="invalid-format",
             )
 
-        self.assertIn("Repository must be in format 'organization/repository'", str(cm.exception))
+        self.assertIn("Format for repository is organization/repo", str(cm.exception))
+        mock_execute_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_public_repo_without_integration(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/hedgebox",
+        )
+
+        self.assertEqual(task.repository, "posthog/hedgebox")
+        self.assertIsNone(task.github_integration)
+        mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_non_public_repo_without_integration_raises(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+
+        with self.assertRaises(ValueError) as cm:
+            Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
+
+        self.assertIn("does not have a GitHub integration", str(cm.exception))
         mock_execute_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -228,11 +168,121 @@ class TestTask(TestCase):
         self.assertEqual(task.github_integration, integration)
         mock_execute_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("posthog-repo",),
+            ("noslashhere",),
+        ]
+    )
+    def test_repository_validation_fails_without_slash(self, repository):
+        with self.assertRaises(ValidationError) as cm:
+            Task.objects.create(
+                team=self.team,
+                title="Test Task",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                repository=repository,
+            )
+
+        self.assertIn("Format for repository is organization/repo", str(cm.exception))
+
+    @parameterized.expand(
+        [
+            ("PostHog/posthog", "posthog/posthog"),
+            ("posthog/PostHog-JS", "posthog/posthog-js"),
+            ("PostHog/PostHog", "posthog/posthog"),
+            ("POSTHOG/POSTHOG-JS", "posthog/posthog-js"),
+            ("posthog/posthog-js", "posthog/posthog-js"),
+        ]
+    )
+    def test_repository_converts_to_lowercase(self, input_repo, expected_repo):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository=input_repo,
+        )
+
+        self.assertEqual(task.repository, expected_repo)
+
+    def test_soft_delete(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        self.assertFalse(task.deleted)
+        self.assertIsNone(task.deleted_at)
+
+        task.soft_delete()
+
+        task.refresh_from_db()
+        self.assertTrue(task.deleted)
+        self.assertIsNotNone(task.deleted_at)
+
+    def test_hard_delete_blocked(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        with self.assertRaises(Exception) as cm:
+            task.delete()
+
+        self.assertIn("Cannot hard delete Task", str(cm.exception))
+        self.assertIn("Use soft_delete() instead", str(cm.exception))
+
+        task.refresh_from_db()
+        self.assertIsNotNone(task.id)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_internal_defaults_to_false(self, mock_execute_workflow):
+        user = User.objects.create(email="internal_default@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Non-internal Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+        )
+
+        self.assertFalse(task.internal)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_with_internal_true(self, mock_execute_workflow):
+        user = User.objects.create(email="internal_true@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Internal Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+            internal=True,
+        )
+
+        task.refresh_from_db()
+        self.assertTrue(task.internal)
+
 
 class TestTaskSlug(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
 
     @parameterized.expand(
         [
@@ -315,11 +365,16 @@ class TestTaskSlug(TestCase):
 
 
 class TestTaskRun(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.task = Task.objects.create(
-            team=self.team,
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    task: ClassVar[Task]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.task = Task.objects.create(
+            team=cls.team,
             title="Test Task",
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
@@ -327,7 +382,7 @@ class TestTaskRun(TestCase):
 
     @parameterized.expand(
         [
-            (TaskRun.Status.STARTED,),
+            (TaskRun.Status.QUEUED,),
             (TaskRun.Status.IN_PROGRESS,),
             (TaskRun.Status.COMPLETED,),
             (TaskRun.Status.FAILED,),
@@ -351,6 +406,17 @@ class TestTaskRun(TestCase):
         )
         self.assertEqual(str(run), "Run for Test Task - In Progress")
 
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    def test_create_run_seeds_stream_state_event(self, mock_publish_stream_event):
+        run = self.task.create_run(branch="main")
+
+        mock_publish_stream_event.assert_called_once()
+        call_args = mock_publish_stream_event.call_args
+        self.assertEqual(call_args.args[0], str(run.id))
+        self.assertEqual(call_args.args[1]["type"], "task_run_state")
+        self.assertEqual(call_args.args[1]["status"], TaskRun.Status.QUEUED)
+        self.assertEqual(call_args.args[1]["branch"], "main")
+
     def test_append_log_to_empty(self):
         run = TaskRun.objects.create(
             task=self.task,
@@ -361,9 +427,8 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        assert run.log_storage_path is not None
-        self.assertTrue(run.has_s3_logs)
-        log_content = object_storage.read(run.log_storage_path)
+        assert run.log_url is not None
+        log_content = object_storage.read(run.log_url)
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -385,10 +450,8 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        assert run.log_storage_path is not None
-        self.assertTrue(run.has_s3_logs)
-
-        log_content = object_storage.read(run.log_storage_path)
+        assert run.log_url is not None
+        log_content = object_storage.read(run.log_url)
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -413,10 +476,8 @@ class TestTaskRun(TestCase):
         run.append_log(new_entries)
         run.refresh_from_db()
 
-        assert run.log_storage_path is not None
-        self.assertTrue(run.has_s3_logs)
-
-        log_content = object_storage.read(run.log_storage_path)
+        assert run.log_url is not None
+        log_content = object_storage.read(run.log_url)
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -435,7 +496,7 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        self.assertIsNotNone(run.log_storage_path)
+        self.assertIsNotNone(run.log_url)
 
         # Verify S3 object has TTL tags
         from botocore.exceptions import ClientError
@@ -445,9 +506,7 @@ class TestTaskRun(TestCase):
         try:
             client = object_storage_client()
             if isinstance(client, ObjectStorage):
-                response = client.aws_client.get_object_tagging(
-                    Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_storage_path
-                )
+                response = client.aws_client.get_object_tagging(Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_url)
                 tags = {tag["Key"]: tag["Value"] for tag in response.get("TagSet", [])}
                 self.assertEqual(tags.get("ttl_days"), "30")
                 self.assertEqual(tags.get("team_id"), str(self.team.id))
@@ -518,12 +577,160 @@ class TestTaskRun(TestCase):
         run.refresh_from_db()
         self.assertEqual(len(run.state["completed_checkpoints"]), 3)
 
+    def test_delete_blocked(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        with self.assertRaises(Exception) as cm:
+            run.delete()
+
+        self.assertIn("Cannot delete TaskRun", str(cm.exception))
+        self.assertIn("immutable", str(cm.exception))
+
+        run.refresh_from_db()
+        self.assertIsNotNone(run.id)
+
+    def test_emit_console_event_acp_format(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_console_event("info", "Test message")
+
+        log_content = object_storage.read(run.log_url)
+        assert log_content is not None
+        entry = json.loads(log_content.strip())
+
+        self.assertEqual(entry["type"], "notification")
+        self.assertIn("timestamp", entry)
+        self.assertEqual(entry["notification"]["jsonrpc"], "2.0")
+        self.assertEqual(entry["notification"]["method"], "_posthog/console")
+        self.assertEqual(entry["notification"]["params"]["sessionId"], str(run.id))
+        self.assertEqual(entry["notification"]["params"]["level"], "info")
+        self.assertEqual(entry["notification"]["params"]["message"], "Test message")
+
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    def test_emit_console_event_publishes_to_stream(self, mock_publish_stream_event):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_console_event("info", "Test message")
+
+        mock_publish_stream_event.assert_called_once()
+        call_args = mock_publish_stream_event.call_args
+        self.assertEqual(call_args.args[0], str(run.id))
+        self.assertEqual(call_args.args[1]["notification"]["method"], "_posthog/console")
+
+    @parameterized.expand(
+        [
+            (0, "stdout output", "stderr output"),
+            (1, "failed stdout", "error message"),
+            (137, "", "killed by signal"),
+        ]
+    )
+    def test_emit_sandbox_output_acp_format(self, exit_code, stdout, stderr):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_sandbox_output(stdout, stderr, exit_code)
+
+        log_content = object_storage.read(run.log_url)
+        assert log_content is not None
+        entry = json.loads(log_content.strip())
+
+        self.assertEqual(entry["type"], "notification")
+        self.assertIn("timestamp", entry)
+        self.assertEqual(entry["notification"]["jsonrpc"], "2.0")
+        self.assertEqual(entry["notification"]["method"], "_posthog/sandbox_output")
+        self.assertEqual(entry["notification"]["params"]["sessionId"], str(run.id))
+        self.assertEqual(entry["notification"]["params"]["stdout"], stdout)
+        self.assertEqual(entry["notification"]["params"]["stderr"], stderr)
+        self.assertEqual(entry["notification"]["params"]["exitCode"], exit_code)
+
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    def test_emit_sandbox_output_publishes_to_stream(self, mock_publish_stream_event):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_sandbox_output("stdout output", "stderr output", 0)
+
+        mock_publish_stream_event.assert_called_once()
+        call_args = mock_publish_stream_event.call_args
+        self.assertEqual(call_args.args[0], str(run.id))
+        self.assertEqual(call_args.args[1]["notification"]["method"], "_posthog/sandbox_output")
+
+    @parameterized.expand(
+        [
+            ("background_mode", {"mode": "background"}, True),
+            ("default_mode_is_background", {}, True),
+            ("interactive_mode", {"mode": "interactive"}, True),
+        ]
+    )
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_heartbeat_workflow_mode_filtering(self, _name, state, expect_signal, mock_connect):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state=state,
+        )
+
+        from django.core.cache import cache
+
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}")
+
+        run.heartbeat_workflow()
+
+        if expect_signal:
+            mock_connect.assert_called_once()
+        else:
+            mock_connect.assert_not_called()
+
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}")
+
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_heartbeat_workflow_rate_limited_by_cache(self, mock_connect):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"mode": "background"},
+        )
+
+        from django.core.cache import cache
+
+        cache_key = f"tasks:task_run:heartbeat:{run.id}"
+        cache.delete(cache_key)
+
+        run.heartbeat_workflow()
+        mock_connect.assert_called_once()
+
+        mock_connect.reset_mock()
+        run.heartbeat_workflow()
+        mock_connect.assert_not_called()
+
+        cache.delete(cache_key)
+
 
 class TestSandboxSnapshot(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.integration = Integration.objects.create(team=self.team, kind="github", config={})
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    integration: ClassVar[Integration]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.integration = Integration.objects.create(team=cls.team, kind="github", config={})
 
     @parameterized.expand(
         [
@@ -765,3 +972,282 @@ class TestSandboxSnapshot(TestCase):
         snapshot.delete()
 
         self.assertEqual(SandboxSnapshot.objects.filter(id=snapshot.id).count(), 0)
+
+
+class TestSandboxEnvironment(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="test@posthog.com")
+
+    def test_default_values(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+        )
+        self.assertEqual(env.network_access_level, SandboxEnvironment.NetworkAccessLevel.FULL)
+        self.assertEqual(env.allowed_domains, [])
+        self.assertFalse(env.include_default_domains)
+        self.assertEqual(env.repositories, [])
+        self.assertTrue(env.private)
+        self.assertEqual(env.environment_variables, {})
+
+    def test_environment_variables_encrypted_roundtrip(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+            environment_variables={
+                "API_KEY": "sk-live-123456",
+                "SECRET_TOKEN": "super-secret-token",
+            },
+        )
+
+        env.refresh_from_db()
+        self.assertEqual(env.environment_variables["API_KEY"], "sk-live-123456")
+        self.assertEqual(env.environment_variables["SECRET_TOKEN"], "super-secret-token")
+
+    def test_environment_variables_stored_encrypted(self):
+        secret_value = "my-super-secret-api-key-12345"
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+            environment_variables={"SECRET": secret_value},
+        )
+
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT environment_variables FROM posthog_sandbox_environment WHERE id = %s",
+                [str(env.id)],
+            )
+            raw_value = cursor.fetchone()[0]
+
+        self.assertNotIn(secret_value, raw_value)
+
+    def test_created_by_set_null_on_user_delete(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+        )
+
+        self.user.delete()
+        env.refresh_from_db()
+        self.assertIsNone(env.created_by)
+
+    def test_cascade_delete_on_team_delete(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+        )
+        env_id = env.id
+
+        self.team.delete()
+        self.assertEqual(SandboxEnvironment.objects.filter(id=env_id).count(), 0)
+
+    @parameterized.expand(
+        [
+            ("API_KEY", True),
+            ("_PRIVATE_VAR", True),
+            ("lowercase_var", True),
+            ("123_INVALID", False),
+            ("INVALID-VAR", False),
+            ("", False),
+        ]
+    )
+    def test_is_valid_env_var_key(self, key, expected_valid):
+        self.assertEqual(SandboxEnvironment.is_valid_env_var_key(key), expected_valid)
+
+    @parameterized.expand(
+        [
+            (SandboxEnvironment.NetworkAccessLevel.FULL, [], False, []),
+            (SandboxEnvironment.NetworkAccessLevel.TRUSTED, [], False, ["github.com", "api.github.com"]),
+            (SandboxEnvironment.NetworkAccessLevel.CUSTOM, ["custom.com"], False, ["custom.com"]),
+            (SandboxEnvironment.NetworkAccessLevel.CUSTOM, ["custom.com"], True, ["custom.com", "github.com"]),
+        ]
+    )
+    def test_get_effective_domains(self, access_level, allowed_domains, include_defaults, expected_contains):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+            network_access_level=access_level,
+            allowed_domains=allowed_domains,
+            include_default_domains=include_defaults,
+        )
+        domains = env.get_effective_domains()
+        for expected in expected_contains:
+            self.assertIn(expected, domains)
+
+    def test_full_access_returns_empty_list(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Full Access",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+        )
+        self.assertEqual(env.get_effective_domains(), [])
+
+    def test_custom_with_defaults_does_not_duplicate(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Custom + Defaults",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=["github.com", "custom.io"],
+            include_default_domains=True,
+        )
+        domains = env.get_effective_domains()
+        self.assertEqual(domains.count("github.com"), 1)
+        self.assertIn("custom.io", domains)
+
+    def test_custom_without_defaults_returns_only_custom(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Custom Only",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=["only-this.com"],
+            include_default_domains=False,
+        )
+        self.assertEqual(env.get_effective_domains(), ["only-this.com"])
+
+    def test_trusted_includes_all_default_domains(self):
+        from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Trusted",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.TRUSTED,
+        )
+        self.assertEqual(env.get_effective_domains(), DEFAULT_TRUSTED_DOMAINS)
+
+
+class TestTaskRunGetSandboxEnvironment(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    other_team: ClassVar[Team]
+    user: ClassVar[User]
+    other_user: ClassVar[User]
+    integration: ClassVar[Integration]
+    task: ClassVar[Task]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.other_team = Team.objects.create(organization=cls.organization, name="Other Team")
+        cls.user = User.objects.create(email="creator@posthog.com")
+        cls.other_user = User.objects.create(email="other@posthog.com")
+        cls.integration = Integration.objects.create(team=cls.team, kind="github")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            created_by=cls.user,
+            title="Test Task",
+            github_integration=cls.integration,
+            repository="org/repo",
+        )
+
+    def _create_run(self, sandbox_environment_id=None):
+        state = {}
+        if sandbox_environment_id:
+            state["sandbox_environment_id"] = str(sandbox_environment_id)
+        return TaskRun.objects.create(task=self.task, team=self.team, state=state)
+
+    def test_returns_none_when_no_environment_id(self):
+        run = self._create_run()
+        self.assertIsNone(run.get_sandbox_environment())
+
+    def test_returns_public_environment_on_same_team(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="Public", private=False, created_by=self.other_user
+        )
+        run = self._create_run(env.id)
+        self.assertEqual(run.get_sandbox_environment(), env)
+
+    def test_returns_none_for_environment_on_different_team(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.other_team, name="Other Team Env", private=False, created_by=self.other_user
+        )
+        run = self._create_run(env.id)
+        self.assertIsNone(run.get_sandbox_environment())
+
+    def test_returns_private_environment_when_creator_matches(self):
+        env = SandboxEnvironment.objects.create(team=self.team, name="My Private", private=True, created_by=self.user)
+        run = self._create_run(env.id)
+        self.assertEqual(run.get_sandbox_environment(), env)
+
+    def test_returns_none_for_private_environment_when_creator_differs(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="Others Private", private=True, created_by=self.other_user
+        )
+        run = self._create_run(env.id)
+        self.assertIsNone(run.get_sandbox_environment())
+
+    def test_returns_none_for_private_environment_when_task_creator_is_null(self):
+        self.task.created_by = None
+        self.task.save()
+        env = SandboxEnvironment.objects.create(team=self.team, name="Private", private=True, created_by=self.user)
+        run = self._create_run(env.id)
+        self.assertIsNone(run.get_sandbox_environment())
+
+    def test_returns_none_for_private_environment_when_env_creator_is_null(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="Private No Creator", private=True, created_by=None
+        )
+        run = self._create_run(env.id)
+        self.assertIsNone(run.get_sandbox_environment())
+
+    def test_returns_none_for_nonexistent_environment_id(self):
+        run = self._create_run(uuid.uuid4())
+        self.assertIsNone(run.get_sandbox_environment())
+
+
+class TestCodeInvite(TestCase):
+    def test_auto_generates_code_on_save(self):
+        invite = CodeInvite.objects.create()
+        self.assertEqual(len(invite.code), 8)
+        self.assertTrue(all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" for c in invite.code))
+
+    def test_preserves_explicit_code(self):
+        invite = CodeInvite.objects.create(code="MYCODE42")
+        self.assertEqual(invite.code, "MYCODE42")
+
+    def test_retries_on_code_collision(self):
+        existing = CodeInvite.objects.create(code="AAAAAAAA")
+        self.assertEqual(existing.code, "AAAAAAAA")
+
+        call_count = 0
+        original_choice = secrets.choice
+
+        def mock_choice(alphabet):
+            nonlocal call_count
+            call_count += 1
+            # First 8 calls (first attempt) return "A" to collide, rest are random
+            if call_count <= 8:
+                return "A"
+            return original_choice(alphabet)
+
+        with patch("products.tasks.backend.models.secrets.choice", side_effect=mock_choice):
+            invite = CodeInvite.objects.create()
+
+        self.assertNotEqual(invite.code, "AAAAAAAA")
+        self.assertEqual(len(invite.code), 8)
+
+    def test_raises_after_max_retries(self):
+        CodeInvite.objects.create(code="BBBBBBBB")
+
+        with patch("products.tasks.backend.models.secrets.choice", return_value="B"):
+            with self.assertRaises(IntegrityError):
+                CodeInvite.objects.create()

@@ -1,33 +1,30 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { Query } from '~/queries/Query/Query'
+import { DataTableNode, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { createSessionsRowTransformer, getSessionsColumns } from './sessionsColumns'
 import { sessionsSceneLogic } from './sessionsSceneLogic'
-import { useActivityTabs } from './utils'
 
 export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(sessionsSceneLogic)
     const { setQuery } = useActions(sessionsSceneLogic)
-    const tabs = useActivityTabs()
 
     // Create the row transformer based on the current query
     const dataTableRowsTransformer = useMemo(() => createSessionsRowTransformer(query as DataTableNode), [query])
 
     return (
         <SceneContent>
-            <LemonTabs activeKey={ActivityTab.ExploreSessions} tabs={tabs} sceneInset className="mb-3" />
+            <ActivitySceneTabs activeKey={ActivityTab.ExploreSessions} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.ExploreSessions].name}
                 description={sceneConfigurations[Scene.ExploreSessions].description}
@@ -35,7 +32,6 @@ export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type: sceneConfigurations[Scene.ExploreSessions].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <Query
                 attachTo={sessionsSceneLogic({ tabId })}
                 uniqueKey={`sessions-scene-${tabId}`}
@@ -56,4 +52,5 @@ export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 export const scene: SceneExport = {
     component: SessionsScene,
     logic: sessionsSceneLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }

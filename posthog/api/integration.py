@@ -1,6 +1,7 @@
 import os
+import re
 import json
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -18,32 +20,86 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
+    AzureBlobIntegration,
+    AzureBlobIntegrationError,
     ClickUpIntegration,
     DatabricksIntegration,
     DatabricksIntegrationError,
     EmailIntegration,
+    FirebaseIntegration,
     GitHubIntegration,
     GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
+    GoogleCloudServiceAccountIntegration,
     Integration,
+    JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
     SlackIntegration,
+    StripeIntegration,
     TwilioIntegration,
 )
+from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField()
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
+    mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
 
 
-class IntegrationSerializer(serializers.ModelSerializer):
+class GitHubRepoSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    full_name = serializers.CharField()
+
+
+class GitHubReposQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of repositories to return per request (max 500).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of repositories to skip before returning results.",
+    )
+
+
+class GitHubReposResponseSerializer(serializers.Serializer):
+    repositories = GitHubRepoSerializer(many=True)
+    has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
+
+
+class GitHubBranchesQuerySerializer(serializers.Serializer):
+    repo = serializers.CharField(help_text="Repository in owner/repo format")
+    limit = serializers.IntegerField(
+        required=False, default=100, min_value=1, max_value=1000, help_text="Maximum number of branches to return"
+    )
+    offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of branches to skip")
+
+
+class GitHubBranchesResponseSerializer(serializers.Serializer):
+    branches = serializers.ListField(child=serializers.CharField(), help_text="List of branch names")
+    default_branch = serializers.CharField(
+        help_text="The default branch of the repository", required=False, allow_null=True
+    )
+    has_more = serializers.BooleanField(help_text="Whether more branches exist beyond the returned page")
+
+
+class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
@@ -65,6 +121,14 @@ class IntegrationSerializer(serializers.ModelSerializer):
             instance = GoogleCloudIntegration.integration_from_key(
                 validated_data["kind"], key_info, team_id, request.user
             )
+            return instance
+
+        elif validated_data["kind"] == "firebase":
+            key_file = request.FILES.get("key")
+            if not key_file:
+                raise ValidationError("Firebase service account key file not provided")
+            key_info = json.loads(key_file.read().decode("utf-8"))
+            instance = FirebaseIntegration.integration_from_key(key_info, team_id, request.user)
             return instance
 
         elif validated_data["kind"] == "email":
@@ -89,11 +153,31 @@ class IntegrationSerializer(serializers.ModelSerializer):
         elif validated_data["kind"] == "github":
             config = validated_data.get("config", {})
             installation_id = config.get("installation_id")
+            state = config.get("state")
 
             if not installation_id:
                 raise ValidationError("An installation_id must be provided")
 
+            if not state:
+                raise ValidationError("A state token must be provided")
+
+            cache_key = f"github_state:{request.user.id}"
+            expected_state = cache.get(cache_key)
+            if not expected_state or expected_state != state:
+                raise ValidationError("Invalid or expired state token")
+            cache.delete(cache_key)
+
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+
+            # If the frontend forwarded an OAuth code from "Request user authorization during installation",
+            # exchange it for the connecting user's GitHub login and store it on the integration.
+            code = config.get("code")
+            if code:
+                github_login = GitHubIntegration.github_login_from_code(code)
+                if github_login:
+                    instance.config["connecting_user_github_login"] = github_login
+                    instance.save(update_fields=["config"])
+
             return instance
 
         elif validated_data["kind"] == "gitlab":
@@ -157,6 +241,52 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "google-cloud-service-account":
+            config = validated_data.get("config", {})
+            service_account_email = config.get("service_account_email")
+            project_id = config.get("project_id")
+            if not (service_account_email and project_id):
+                raise ValidationError("Service account email and project ID must be provided")
+
+            if not all(isinstance(value, str) for value in (service_account_email, project_id)):
+                raise ValidationError("Service account email and project ID must be strings")
+
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
+            instance = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+                team_id=team_id,
+                organization_id=organization_id,
+                service_account_email=service_account_email,
+                project_id=project_id,
+                private_key=config.get("private_key", None),
+                private_key_id=config.get("private_key_id", None),
+                token_uri=config.get("token_uri", None),
+                created_by=request.user,
+            )
+            return instance
+
+        elif validated_data["kind"] == "azure-blob":
+            config = validated_data.get("config", {})
+            connection_string = config.get("connection_string")
+            if not connection_string:
+                raise ValidationError("Connection string must be provided")
+
+            if not isinstance(connection_string, str):
+                raise ValidationError("Connection string must be a string")
+
+            try:
+                instance = AzureBlobIntegration.integration_from_config(
+                    team_id=team_id,
+                    connection_string=connection_string,
+                    created_by=request.user,
+                )
+            except AzureBlobIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
@@ -164,11 +294,20 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 )
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
+
+            if validated_data["kind"] == "stripe":
+                try:
+                    stripe_integration = StripeIntegration(instance)
+                    stripe_integration.write_posthog_secrets(team_id, request.user)
+                except Exception as e:
+                    capture_exception(e)
+
             return instance
 
         raise ValidationError("Kind not supported")
 
 
+@extend_schema(tags=["integrations"])
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -178,9 +317,20 @@ class IntegrationViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "integration"
-    scope_object_read_actions = ["list", "retrieve", "github_repos"]
+    scope_object_read_actions = ["list", "retrieve", "github_repos", "github_branches"]
+    permission_classes = [TeamMemberStrictManagementPermission]
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
+
+    def perform_destroy(self, instance) -> None:
+        if instance.kind == "stripe":
+            try:
+                stripe_integration = StripeIntegration(instance)
+                stripe_integration.clear_posthog_secrets()
+            except Exception as e:
+                capture_exception(e)
+
+        super().perform_destroy(instance)
 
     def safely_get_queryset(self, queryset):
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
@@ -199,17 +349,22 @@ class IntegrationViewSet(
             try:
                 auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
                 response = redirect(auth_url)
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
 
                 return response
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
         elif kind == "github":
-            query_params = urlencode({"state": token})
+            query_params = urlencode({"state": urlencode({"next": next, "token": token})})
             app_slug = get_instance_setting("GITHUB_APP_SLUG")
             installation_url = f"https://github.com/apps/{app_slug}/installations/new?{query_params}"
             response = redirect(installation_url)
+            # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
             response.set_cookie("ph_github_state", token, max_age=60 * 5)
+            # Store server-side so the backend can enforce that the same user who
+            # initiated the flow is the one completing it (not just cookie-validated).
+            cache.set(f"github_state:{request.user.id}", token, timeout=60 * 5)
 
             return response
 
@@ -221,7 +376,7 @@ class IntegrationViewSet(
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
         force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
-        authed_user: str = instance.config.get("authed_user", {}).get("id") if instance.config else None
+        authed_user = cast(str | None, instance.config.get("authed_user", {}).get("id")) if instance.config else None
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
 
@@ -435,13 +590,186 @@ class IntegrationViewSet(
         linear = LinearIntegration(self.get_object())
         return Response({"teams": linear.list_teams()})
 
+    @extend_schema(
+        parameters=[GitHubReposQuerySerializer],
+        responses={200: GitHubReposResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, url_path="github_repos")
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitHubReposQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
         github = GitHubIntegration(self.get_object())
-        return Response({"repositories": github.list_repositories()})
+        repositories, has_more = github.list_repositories(limit=limit, offset=offset)
+
+        return Response({"repositories": repositories, "has_more": has_more})
+
+    @extend_schema(
+        parameters=[GitHubBranchesQuerySerializer],
+        responses={200: GitHubBranchesResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_branches")
+    def github_branches(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        params = GitHubBranchesQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        repo: str = params.validated_data["repo"]
+        limit: int = params.validated_data["limit"]
+        offset: int = params.validated_data["offset"]
+
+        parts = repo.split("/")
+        if (
+            len(parts) != 2
+            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[0])
+            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[1])
+            or parts[0] in (".", "..")
+            or parts[1] in (".", "..")
+        ):
+            raise ValidationError("repo must be in owner/repo format")
+
+        github = GitHubIntegration(self.get_object())
+        branches, has_more = github.list_branches(repo, limit=limit, offset=offset)
+
+        try:
+            default_branch = github.get_default_branch(repo)
+        except Exception:
+            default_branch = None
+
+        # The default branch is always shown first on page 1 and removed
+        # from all other pages to avoid duplicates.
+        if default_branch:
+            if default_branch in branches:
+                branches.remove(default_branch)
+            if offset == 0:
+                branches.insert(0, default_branch)
+
+        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+
+    @action(methods=["GET"], detail=True, url_path="jira_projects")
+    def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        jira = JiraIntegration(self.get_object())
+        return Response({"projects": jira.list_projects()})
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         email = EmailIntegration(self.get_object())
         verification_result = email.verify()
         return Response(verification_result)
+
+    @extend_schema(responses={200: IntegrationSerializer})
+    @action(methods=["PATCH"], detail=True, url_path="email")
+    def email_update(self, request, **kwargs) -> Response:
+        instance = self.get_object()
+        config = request.data.get("config", {})
+
+        serializer = NativeEmailIntegrationSerializer(data=config)
+        serializer.is_valid(raise_exception=True)
+
+        email = EmailIntegration(instance)
+        email.update_native_integration(serializer.validated_data, instance.team_id)
+
+        return Response(IntegrationSerializer(email.integration).data)
+
+    @action(methods=["GET"], detail=False, url_path="domain-connect/check")
+    def domain_connect_check(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        domain = request.query_params.get("domain", "")
+        if not domain:
+            raise ValidationError("domain query parameter is required")
+
+        # Extract root domain so subdomains (e.g. ph.example.com) resolve correctly
+        root_domain, _ = extract_root_domain_and_host(domain)
+        result = discover_domain_connect(root_domain)
+        return Response(
+            {
+                "supported": result is not None,
+                "provider_name": result["provider_name"] if result else None,
+                "available_providers": get_available_providers() if result is None else [],
+            }
+        )
+
+    @action(methods=["POST"], detail=False, url_path="domain-connect/apply-url")
+    def domain_connect_apply_url(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Unified endpoint for generating Domain Connect apply URLs.
+
+        Accepts a context ("email" or "proxy") and the relevant resource ID.
+        The backend resolves the domain, template variables, and service ID
+        based on context, then builds the signed apply URL.
+        """
+        from posthog.domain_connect import (
+            DOMAIN_CONNECT_PROVIDERS,
+            DomainConnectSigningKeyMissing,
+            generate_apply_url,
+            resolve_email_context,
+            resolve_proxy_context,
+        )
+
+        context = request.data.get("context")
+        redirect_uri = request.data.get("redirect_uri")
+        provider_endpoint = request.data.get("provider_endpoint")
+
+        if provider_endpoint and provider_endpoint not in DOMAIN_CONNECT_PROVIDERS:
+            raise ValidationError("Unsupported provider endpoint")
+
+        host: str | None = None
+
+        if context == "email":
+            integration_id = request.data.get("integration_id")
+            if not integration_id:
+                raise ValidationError("integration_id is required for email context")
+            try:
+                domain, service_id, variables = resolve_email_context(integration_id, self.team_id)
+            except ValueError as e:
+                capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
+                raise ValidationError(
+                    "Validation error resolving email context. Please try again later or contact support."
+                )
+
+        elif context == "proxy":
+            proxy_record_id = request.data.get("proxy_record_id")
+            if not proxy_record_id:
+                raise ValidationError("proxy_record_id is required for proxy context")
+            organization = self.organization
+            try:
+                domain, service_id, host, variables = resolve_proxy_context(proxy_record_id, str(organization.id))
+            except ValueError as e:
+                capture_exception(
+                    e, {"proxy_record_id": proxy_record_id, "organization_id": organization.id, "context": context}
+                )
+                raise ValidationError(
+                    "Validation error resolving proxy context. Please try again later or contact support."
+                )
+        else:
+            raise ValidationError("context must be 'email' or 'proxy'")
+
+        try:
+            url = generate_apply_url(
+                domain=domain,
+                service_id=service_id,
+                variables=variables,
+                host=host,
+                provider_endpoint=provider_endpoint,
+                redirect_uri=redirect_uri,
+            )
+        except DomainConnectSigningKeyMissing as e:
+            capture_exception(e, {"context": context, "domain": domain, "provider_endpoint": provider_endpoint})
+            raise ValidationError(
+                "Automatic DNS configuration is temporarily unavailable for this provider. "
+                "Please configure your DNS records manually."
+            )
+        except ValueError as e:
+            capture_exception(
+                e,
+                {
+                    "context": context,
+                    "domain": domain,
+                    "service_id": service_id,
+                    "host": host,
+                    "provider_endpoint": provider_endpoint,
+                    "redirect_uri": redirect_uri,
+                },
+            )
+            raise ValidationError("Error generating apply URL. Please try again later or contact support.")
+
+        return Response({"url": url})

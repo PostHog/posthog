@@ -1,5 +1,103 @@
 # posthog-cli
 
+# 0.7.8
+
+- feat: add `--build` flag to all upload commands (hermes, dsym, proguard, sourcemap) via shared ReleaseArgs
+- feat: build number packed into version string (`"1.0+42"`) for release uniqueness; UI splits on `+` to display version and build separately
+
+# 0.7.7
+
+- fix: align `dsym upload` release flags with other upload commands by using `--release-name` / `--release-version` (with backward-compatible aliases)
+- fix: reuse shared release args in `dsym upload` so release fallback behavior matches other upload commands
+
+# 0.7.5
+
+- fix: stable source bundle for dSYM uploads — CU-anchored prefix filter prevents framework sources from changing the content hash
+- fix: thin fat dSYM binaries per arch before zipping so sibling arch rebuilds don't cause content_hash_mismatch
+- fix: add `--force` flag to allow overwriting symbol sets whose content has changed
+
+# 0.7.4
+
+- fix: create per-UUID ZIP for dSYM uploads
+
+# 0.7.3
+
+- feat: enable symbol set compression
+- fix: fix process command reading from stdin
+
+# 0.7.2
+
+- feat: allow reading files and directories from stdin
+
+# 0.7.1
+
+- feat: track upload started and upload finished events
+
+# 0.7.0
+
+- feat: promote dsym, hermes, and proguard commands from experimental to top-level
+- feat: keep backward-compat aliases under `exp` (hidden from help)
+
+# 0.6.2
+
+- fix: endpoints now save to YAML with proper newlines
+
+# 0.6.1
+
+- chore: bump `cargo-dist` version
+
+# 0.6.0
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
+
+# 0.5.30
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
+
+# 0.5.29
+
+- chore: introduce env variable `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` (backwards compatible)
+
+# 0.5.28
+
+- chore: introduce `--release-name` and `--release-version` options (backwards compatible)
+
+# 0.5.27
+
+- fix: only warns on release id mismatch errors
+
+# 0.5.26
+
+- feat: use env variables provided by github actions when available
+
+# 0.5.24
+
+- chore: add endpoints use case to cli auth flow
+
+# 0.5.23
+
+- feat: add experimental commands for endpoints management
+
+# 0.5.22
+
+- feat: add `--project` and `--version` to upload command to define release
+
+# 0.5.20
+
+- chore: add global `--rate-limit` option for Posthog client
+
+# 0.5.19
+
+- chore: upgrade cargo-dist to 0.30.3
+
+# 0.5.18
+
+- fix: fix git info parsing in vercel environment
+
+# 0.5.17
+
+- feat: add --file option to target built files directly
+
 # 0.5.16
 
 - fix: cut a new version for fixing compromised package

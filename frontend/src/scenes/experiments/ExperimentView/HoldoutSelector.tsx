@@ -26,9 +26,7 @@ export function HoldoutSelector(): JSX.Element {
             <div className="mt-1">
                 <LemonSelect
                     disabledReason={
-                        isExperimentRunning &&
-                        !experiment.end_date &&
-                        'The holdout group cannot be changed once the experiment is launched.'
+                        isExperimentRunning && 'The holdout group cannot be changed once the experiment is launched.'
                     }
                     size="xsmall"
                     options={holdoutOptions}

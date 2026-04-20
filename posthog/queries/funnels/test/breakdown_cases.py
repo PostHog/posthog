@@ -50,7 +50,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     **(
                         {
                             "action_id": None,
-                            "name": f"Completed {order+1} step{'s' if order > 0 else ''}",
+                            "name": f"Completed {order + 1} step{'s' if order > 0 else ''}",
                         }
                         if Funnel == ClickhouseFunnelUnordered
                         else {}

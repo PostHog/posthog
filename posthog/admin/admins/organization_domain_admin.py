@@ -20,6 +20,8 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
     search_fields = ("domain", "organization__name")
     readonly_fields = (
         "id",
+        "domain",
+        "verified_at",
         "verification_challenge",
         "last_verification_retry",
     )

@@ -11,11 +11,12 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-# PostHog OpenTelemetry Initialization
+from posthog.continuous_profiling import start_continuous_profiling
 from posthog.otel_instrumentation import initialize_otel
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 os.environ.setdefault("SERVER_GATEWAY_INTERFACE", "WSGI")
 
+start_continuous_profiling()
 initialize_otel()
 application = get_wsgi_application()

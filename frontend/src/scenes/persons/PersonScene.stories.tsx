@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -77,7 +77,6 @@ const meta: Meta = {
                                         created_at: '2025-05-08T22:53:38.784000Z',
                                         uuid: 'carrot-1234-parsnip-5678',
                                     },
-                                    storage: 'object_storage',
                                     snapshot_source: 'web',
                                     ongoing: false,
                                     activity_score: 11.62,
@@ -90,7 +89,7 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/': (req) => {
+                '/api/environments/:team_id/query/:kind/': (req) => {
                     const query = (req.body as any)?.query
                     // Check if it's a DataTableNode query, which is used for Events/Exceptions tabs
                     if (
@@ -134,22 +133,20 @@ const meta: Meta = {
 }
 export default meta
 
-export const PersonNotFound: StoryFn = () => {
-    useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('not-found')))
+type Story = StoryObj<{}>
 
-    return <App />
+export const PersonNotFound: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('not-found')))
+
+        return <App />
+    },
 }
 
-export const Person: StoryFn = () => {
-    useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')))
+export const Person: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')))
 
-    return <App />
-}
-
-export const PersonRecordingTab: StoryFn = () => {
-    useDelayedOnMountEffect(() =>
-        router.actions.push(`${urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')}#activeTab=sessionRecordings`)
-    )
-
-    return <App />
+        return <App />
+    },
 }

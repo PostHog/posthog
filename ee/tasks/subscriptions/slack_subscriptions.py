@@ -12,9 +12,16 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription
 
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, _has_asset_failed
+
 logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
+
+
+def _next_delivery_date_display(subscription: Subscription) -> str:
+    next_delivery_date = subscription.next_delivery_date
+    return next_delivery_date.strftime("%A %B %d, %Y") if next_delivery_date is not None else "an upcoming date"
 
 
 @dataclass
@@ -40,23 +47,26 @@ class SlackDeliveryResult:
         return self.main_message_sent and len(self.failed_thread_message_indices) == 0
 
 
-def _block_for_asset(asset: ExportedAsset) -> dict:
-    # If asset has an exception, return an error block instead of an image
-    if asset.exception:
+def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
+    if _has_asset_failed(asset):
         insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
 
         # Slack text blocks have a 3000 character limit
         # Reserve space for the insight name, formatting, and support message
         max_error_length = 2000
-        exception_text = str(asset.exception)
 
-        if len(exception_text) > max_error_length:
-            exception_text = exception_text[:max_error_length] + "... (truncated)"
+        if asset.exception:
+            exception_text = str(asset.exception)
+            if len(exception_text) > max_error_length:
+                exception_text = exception_text[:max_error_length] + "... (truncated)"
+        else:
+            exception_text = ASSET_GENERATION_FAILED_MESSAGE
 
+        support_url = f"{resource_url}#panel=support:bug:analytics_platform:high:true"
         error_text = (
             f"*{insight_name}*\n"
             f"There was an error generating your asset: {exception_text}\n"
-            f"_If this issue persists, please contact support._"
+            f"_If this issue persists, please <{support_url}|contact support>._"
         )
 
         return {"type": "section", "text": {"type": "mrkdwn", "text": error_text}}
@@ -100,6 +110,7 @@ def _prepare_slack_message(
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
+    change_summary: str | None = None,
 ) -> SlackMessageData:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -111,16 +122,31 @@ def _prepare_slack_message(
     channel = subscription.target_value.split("|")[0]
     first_asset, *other_assets = assets
 
-    if is_new_subscription:
-        title = f"This channel has been subscribed to the {resource_info.kind} *{resource_info.name}* on PostHog! 🎉"
-        title += f"\nThis subscription is {subscription.summary}. The next one will be sent on {subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
+    if subscription.title:
+        display_name = f"*{subscription.title}* ({resource_info.kind}: {resource_info.name})"
     else:
-        title = f"Your subscription to the {resource_info.kind} *{resource_info.name}* is ready! 🎉"
+        display_name = f"the {resource_info.kind} *{resource_info.name}*"
 
-    blocks = [
+    if is_new_subscription:
+        title = f"This channel has been subscribed to {display_name} on PostHog! 🎉"
+        title += (
+            f"\nThis subscription is {subscription.summary}. "
+            f"The next one will be sent on {_next_delivery_date_display(subscription)}"
+        )
+    else:
+        title = f"Your subscription to {display_name} is ready! 🎉"
+
+    blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        _block_for_asset(first_asset),
     ]
+
+    if change_summary:
+        summary_text = f"*AI summary:*\n{change_summary}"
+        if len(summary_text) > 3000:
+            summary_text = summary_text[:2997] + "..."
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary_text}})
+
+    blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
 
     if other_assets:
         blocks.append(
@@ -154,7 +180,7 @@ def _prepare_slack_message(
     # Prepare additional messages for thread
     thread_messages = []
     for asset in other_assets:
-        thread_messages.append({"blocks": [_block_for_asset(asset)]})
+        thread_messages.append({"blocks": [_block_for_asset(asset, resource_url=resource_info.url)]})
 
     if total_asset_count > len(assets):
         thread_messages.append(
@@ -237,11 +263,14 @@ async def send_slack_message_with_integration_async(
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
+    change_summary: str | None = None,
 ) -> SlackDeliveryResult:
-    message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
+    message_data = _prepare_slack_message(
+        subscription, assets, total_asset_count, is_new_subscription, change_summary=change_summary
+    )
     slack_integration = SlackIntegration(integration)
 
-    async with aiohttp.ClientSession() as slack_session:
+    async with aiohttp.ClientSession(trust_env=True) as slack_session:
         async_client = slack_integration.async_client(session=slack_session)
 
         message_res = await _send_slack_message_with_retry(

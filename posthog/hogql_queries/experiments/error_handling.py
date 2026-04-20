@@ -13,31 +13,40 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 
 from products.experiments.stats.shared.statistics import StatisticError
+
+# Map error types to their error codes for the API response
+ERROR_TYPE_TO_CODE: dict[type, str] = {
+    ClickHouseQueryMemoryLimitExceeded: "memory_limit_exceeded",
+}
 
 logger = structlog.get_logger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-# User-friendly error messages for different error types
+# User-friendly error messages for specific error types
+# Note: ValueError and generic Exception are intentionally excluded - they pass through unaltered
+# so the original error message is visible for debugging
 ERROR_TYPE_MESSAGES: dict[type, str] = {
     # Statistical calculation errors
     StatisticError: "Unable to calculate experiment statistics. Please ensure your experiment has sufficient data and try again.",
     # HogQL/Query errors
     InternalHogQLError: "Unable to process your experiment query. Please check your metric configuration and try again.",
     ExposedCHQueryError: "Unable to retrieve experiment data. Please try refreshing the page.",
+    # ClickHouse resource errors
+    ClickHouseQueryMemoryLimitExceeded: "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
     # Python built-in errors that can occur during calculation
-    ValueError: "Invalid experiment configuration detected. Please check your experiment setup.",
     ZeroDivisionError: "Unable to calculate results due to insufficient data. Please wait for more experiment data.",
-    # Default fallback
-    Exception: "Unable to calculate experiment results. Please try again or contact support if the issue persists.",
 }
 
 
-def get_user_friendly_message(error: Exception) -> str:
-    """Convert technical error messages to user-friendly ones based on error type and message content."""
+def get_user_friendly_message(error: Exception) -> str | None:
+    """Convert technical error messages to user-friendly ones based on error type.
+    Returns None if the error type is not in the mapping (should be re-raised as-is).
+    """
 
     error_type = type(error)
 
@@ -68,8 +77,7 @@ def get_user_friendly_message(error: Exception) -> str:
         if isinstance(error, registered_type):
             return message
 
-    # Default fallback
-    return ERROR_TYPE_MESSAGES[Exception]
+    return None
 
 
 def experiment_error_handler(method: F) -> F:
@@ -101,11 +109,14 @@ def experiment_error_handler(method: F) -> F:
             else:
                 metric_type = None
 
+            query_runner = type(self).__name__ if self is not None else None
+
             # Log the technical error for engineers
             logger.error(
                 "Experiment calculation error",
                 experiment_id=experiment_id,
                 metric_type=metric_type,
+                query_runner=query_runner,
                 error_type=type(e).__name__,
                 error_message=str(e),
                 error_detail=getattr(e, "detail", None),
@@ -118,6 +129,7 @@ def experiment_error_handler(method: F) -> F:
                 additional_properties={
                     "experiment_id": experiment_id,
                     "metric_type": metric_type,
+                    "query_runner": query_runner,
                     "method": method.__name__,
                 },
             )
@@ -130,8 +142,13 @@ def experiment_error_handler(method: F) -> F:
                 # Preserve original exception for internal callers
                 raise
 
-            # Raise user-friendly error
+            # Convert to user-friendly error if we have a mapping, otherwise re-raise as-is
             user_message = get_user_friendly_message(e)
-            raise ValidationError(user_message)
+            if user_message is None:
+                raise
+
+            # Get error code if available
+            error_code = ERROR_TYPE_TO_CODE.get(type(e))
+            raise ValidationError(user_message, code=error_code)
 
     return cast(F, wrapper)

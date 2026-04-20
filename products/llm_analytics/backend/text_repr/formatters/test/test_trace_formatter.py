@@ -383,7 +383,7 @@ class TestFormatTraceTextRepr:
             }
         }
         hierarchy: list[dict[str, Any]] = []
-        result = format_trace_text_repr(trace, hierarchy)
+        result, _ = format_trace_text_repr(trace, hierarchy)
         assert "MY-TRACE" in result
         assert "=" * 80 in result
 
@@ -404,7 +404,7 @@ class TestFormatTraceTextRepr:
                 }
             }
         ]
-        result = format_trace_text_repr(trace, hierarchy, {"include_markers": True})
+        result, _ = format_trace_text_repr(trace, hierarchy, {"include_markers": True})
         assert "TRACE HIERARCHY:" in result
         assert "[GEN]" in result
         assert "generation" in result
@@ -417,7 +417,7 @@ class TestFormatTraceTextRepr:
             "total_tokens": 1500,
         }
         hierarchy: list[dict[str, Any]] = []
-        result = format_trace_text_repr(trace, hierarchy)
+        result, _ = format_trace_text_repr(trace, hierarchy)
         assert "TRACE" in result
         assert "=" * 80 in result
 
@@ -430,7 +430,7 @@ class TestFormatTraceTextRepr:
             }
         }
         hierarchy: list[dict[str, Any]] = []
-        result = format_trace_text_repr(trace, hierarchy)
+        result, _ = format_trace_text_repr(trace, hierarchy)
         assert "TRACE ERROR:" in result
         assert "Something went wrong" in result
 
@@ -443,7 +443,7 @@ class TestFormatTraceTextRepr:
             }
         }
         hierarchy: list[dict[str, Any]] = []
-        result = format_trace_text_repr(trace, hierarchy)
+        result, _ = format_trace_text_repr(trace, hierarchy)
         assert "TRACE INPUT" in result
         assert "query" in result
 
@@ -456,7 +456,7 @@ class TestFormatTraceTextRepr:
             }
         }
         hierarchy: list[dict[str, Any]] = []
-        result = format_trace_text_repr(trace, hierarchy)
+        result, _ = format_trace_text_repr(trace, hierarchy)
         assert "TRACE OUTPUT" in result
         assert "result" in result
 
@@ -472,7 +472,7 @@ class TestFormatTraceTextRepr:
                 }
             }
         ]
-        result = format_trace_text_repr(trace, hierarchy, {"collapsed": True})
+        result, _ = format_trace_text_repr(trace, hierarchy, {"collapsed": True})
         # Should show tree but not expandable content
         assert "[GEN]" in result
         assert "GEN_EXPANDABLE" not in result
@@ -486,7 +486,7 @@ class TestFormatTraceTextRepr:
             }
         }
         hierarchy: list[dict[str, Any]] = []
-        result = format_trace_text_repr(trace, hierarchy)
+        result, _ = format_trace_text_repr(trace, hierarchy)
         assert "TEST" in result
         assert "=" * 80 in result
 
@@ -497,7 +497,7 @@ class TestFormatTraceTextRepr:
             "trace_id": "trace456",
         }
         hierarchy: list[dict[str, Any]] = []
-        result = format_trace_text_repr(trace, hierarchy)
+        result, _ = format_trace_text_repr(trace, hierarchy)
         assert "TEST" in result
         assert "=" * 80 in result
 
@@ -509,7 +509,7 @@ class TestFormatTraceTextRepr:
             "totalTokens": 1500,
         }
         hierarchy: list[dict[str, Any]] = []
-        result = format_trace_text_repr(trace, hierarchy)
+        result, _ = format_trace_text_repr(trace, hierarchy)
         assert "TRACE" in result
         assert "=" * 80 in result
 
@@ -520,7 +520,7 @@ class TestEdgeCases:
     def test_empty_hierarchy(self):
         """Should handle empty hierarchy."""
         trace = {"properties": {"$ai_span_name": "test"}}
-        result = format_trace_text_repr(trace, [])
+        result, _ = format_trace_text_repr(trace, [])
         assert "TEST" in result
         # Should not crash
 
@@ -529,19 +529,19 @@ class TestEdgeCases:
         trace = {"properties": {"$ai_span_name": "test"}}
         hierarchy = [{"invalid": "structure"}]
         # Should not crash
-        result = format_trace_text_repr(trace, hierarchy)
+        result, _ = format_trace_text_repr(trace, hierarchy)
         assert isinstance(result, str)
 
     def test_none_options(self):
         """Should handle None options."""
         trace = {"properties": {"$ai_span_name": "test"}}
-        result = format_trace_text_repr(trace, [], None)
+        result, _ = format_trace_text_repr(trace, [], None)
         assert isinstance(result, str)
 
     def test_missing_properties(self):
         """Should handle missing properties field."""
         trace: dict[str, Any] = {}
-        result = format_trace_text_repr(trace, [])
+        result, _ = format_trace_text_repr(trace, [])
         assert isinstance(result, str)
 
     def test_complex_error_object(self):
@@ -552,7 +552,7 @@ class TestEdgeCases:
                 "$ai_error": {"message": "error", "code": 500, "details": {"info": "test"}},
             }
         }
-        result = format_trace_text_repr(trace, [])
+        result, _ = format_trace_text_repr(trace, [])
         assert "TRACE ERROR:" in result
         # Should serialize error object
         assert "message" in result or "error" in result

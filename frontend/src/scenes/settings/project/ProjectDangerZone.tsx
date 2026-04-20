@@ -62,6 +62,10 @@ export function DeleteProjectModal({
                     ))}
                 </ul>
             </p>
+            <p className="mt-2 p-2 bg-bg-3000 rounded text-sm">
+                <strong>Note:</strong> For projects with lots of data, cleanup may take several hours. We'll send you an
+                email when the process is complete.
+            </p>
             <p>
                 Please type <strong>{currentProject ? currentProject.name : "this project's name"}</strong> to confirm.
             </p>

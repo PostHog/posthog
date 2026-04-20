@@ -1,4 +1,3 @@
-import abc
 import math
 import uuid
 import typing
@@ -10,26 +9,24 @@ import collections.abc
 from django.conf import settings
 
 import pyarrow as pa
-import temporalio.common
 
-from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.schema import EventPropertyFilter, HogQLPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.batch_exports.service import BackfillDetails
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.temporal.heartbeat import BatchExportRangeHeartbeatDetails, DateRange
-from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
+from products.batch_exports.backend.service import BackfillDetails
 from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
 from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
@@ -37,25 +34,12 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+    SELECT_FROM_EVENTS_WORKFLOWS,
     SELECT_FROM_PERSONS,
     SELECT_FROM_PERSONS_BACKFILL,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    BatchExportTemporaryFile,
-    BytesSinceLastFlush,
-    FlushCounter,
-    IsLast,
-    RecordsSinceLastFlush,
-    WriterFormat,
-    get_batch_export_writer,
-)
-from products.batch_exports.backend.temporal.utils import (
-    cast_record_batch_json_columns,
-    cast_record_batch_schema_json_columns,
-)
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class RecordBatchQueue(asyncio.Queue):
@@ -185,319 +169,6 @@ async def wait_for_schema_or_producer(queue: RecordBatchQueue, producer_task: as
         await raise_on_task_failure(producer_task)
 
     return record_batch_schema
-
-
-class Consumer:
-    """Async consumer for batch exports.
-
-    Attributes:
-        flush_start_event: Event set when this consumer's flush method starts.
-        heartbeater: A batch export's heartbeater used for tracking progress.
-        heartbeat_details: A batch export's heartbeat details passed to the
-            heartbeater used for tracking progress.
-        data_interval_start: The beginning of the batch export period.
-        logger: Internal consumer logger.
-    """
-
-    def __init__(
-        self,
-        heartbeater: Heartbeater,
-        heartbeat_details: BatchExportRangeHeartbeatDetails,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
-        writer_format: WriterFormat,
-    ):
-        self.flush_start_event = asyncio.Event()
-        self.heartbeater = heartbeater
-        self.heartbeat_details = heartbeat_details
-        self.data_interval_start = data_interval_start
-        self.data_interval_end = data_interval_end
-        self.writer_format = writer_format
-        self.logger = LOGGER.bind(writer_format=writer_format)
-        self.external_logger = EXTERNAL_LOGGER.bind(writer_format=writer_format)
-
-    @property
-    def rows_exported_counter(self) -> temporalio.common.MetricCounter:
-        """Access the rows exported metric counter."""
-        return get_rows_exported_metric()
-
-    @property
-    def bytes_exported_counter(self) -> temporalio.common.MetricCounter:
-        """Access the bytes exported metric counter."""
-        return get_bytes_exported_metric()
-
-    def create_consumer_task(
-        self,
-        tg: asyncio.TaskGroup,
-        queue: RecordBatchQueue,
-        producer_task: asyncio.Task,
-        max_bytes: int,
-        schema: pa.Schema,
-        json_columns: collections.abc.Sequence[str],
-        multiple_files: bool = False,
-        include_inserted_at: bool = False,
-        task_name: str = "record_batch_consumer",
-        max_file_size_bytes: int = 0,
-        **kwargs,
-    ) -> asyncio.Task:
-        """Create a record batch consumer task."""
-        self.logger.debug("Starting consumer task '%s'", task_name)
-
-        consumer_task = tg.create_task(
-            self.start(
-                queue=queue,
-                producer_task=producer_task,
-                max_bytes=max_bytes,
-                schema=schema,
-                json_columns=json_columns,
-                multiple_files=multiple_files,
-                include_inserted_at=include_inserted_at,
-                max_file_size_bytes=max_file_size_bytes,
-                **kwargs,
-            ),
-            name=task_name,
-        )
-        return consumer_task
-
-    @abc.abstractmethod
-    async def flush(
-        self,
-        batch_export_file: BatchExportTemporaryFile,
-        records_since_last_flush: RecordsSinceLastFlush,
-        bytes_since_last_flush: BytesSinceLastFlush,
-        flush_counter: FlushCounter,
-        last_date_range: DateRange,
-        is_last: IsLast,
-        error: Exception | None,
-    ):
-        """Method called on reaching `max_bytes` when running the consumer.
-
-        Each batch export should override this method with their own implementation
-        of flushing, as each destination will have different requirements for
-        flushing data.
-
-        Arguments:
-            batch_export_file: The temporary file containing data to flush.
-            records_since_last_flush: How many records were written in the temporary
-                file.
-            bytes_since_last_flush: How many records were written in the temporary
-                file.
-            error: If any error occurs while writing the temporary file.
-        """
-        pass
-
-    async def start(
-        self,
-        queue: RecordBatchQueue,
-        producer_task: asyncio.Task,
-        max_bytes: int,
-        schema: pa.Schema,
-        json_columns: collections.abc.Sequence[str],
-        multiple_files: bool = False,
-        include_inserted_at: bool = False,
-        max_file_size_bytes: int = 0,
-        **kwargs,
-    ) -> int:
-        """Start consuming record batches from queue.
-
-        Record batches will be written to a temporary file defined by `writer_format`
-        and the file will be flushed upon reaching at least `max_bytes`.
-
-        Callers can control whether a new file is created for each flush or whether we
-        continue flushing to the same file by setting `multiple_files`. File data is
-        reset regardless, so this is not meant to impact total file size, but rather
-        to control whether we are exporting a single large file in multiple parts, or
-        multiple files that must each individually be valid.
-
-        Returns:
-            Total number of records in all consumed record batches.
-        """
-        self.logger = self.logger.bind(producer_task=producer_task.get_name())
-        schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
-        writer = get_batch_export_writer(
-            self.writer_format,
-            self.flush,
-            schema=schema,
-            max_bytes=max_bytes,
-            max_file_size_bytes=max_file_size_bytes,
-            **kwargs,
-        )
-
-        record_batches_count = 0
-        record_batches_count_total = 0
-        records_count = 0
-
-        self.logger.info("Consuming record batches directly from ClickHouse")
-
-        writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
-
-        async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
-            record_batches_count += 1
-            record_batches_count_total += 1
-            record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
-
-            await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
-
-            if writer.should_flush() or writer.should_hard_flush():
-                self.logger.info(
-                    "Flushing %d records from %d record batches", writer.records_since_last_flush, record_batches_count
-                )
-
-                records_count += writer.records_since_last_flush
-
-                if multiple_files or writer.should_hard_flush():
-                    await writer.hard_flush()
-                else:
-                    await writer.flush()
-
-                for _ in range(record_batches_count):
-                    queue.task_done()
-                record_batches_count = 0
-
-            self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
-
-        records_count += writer.records_since_last_flush
-
-        self.logger.info(
-            "Finished consuming %d records from %d record batches, will flush any pending data",
-            records_count,
-            record_batches_count_total,
-        )
-
-        await writer.close_temporary_file()
-        await self.close()
-
-        self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
-        return records_count
-
-    async def close(self):
-        """This method can be overridden by subclasses to perform any additional cleanup."""
-        pass
-
-    async def generate_record_batches_from_queue(
-        self,
-        queue: RecordBatchQueue,
-        producer_task: asyncio.Task,
-    ):
-        """Yield record batches from provided `queue` until `producer_task` is done."""
-        while True:
-            try:
-                record_batch = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                if producer_task.done():
-                    self.logger.debug(
-                        "Empty queue with no more events being produced, closing writer loop and flushing"
-                    )
-                    break
-                else:
-                    await asyncio.sleep(0)
-                    continue
-
-            yield record_batch
-
-    def complete_heartbeat(self):
-        """Complete this consumer's heartbeats."""
-        self.heartbeat_details.complete_done_ranges(self.data_interval_end)
-        self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
-
-
-class RecordBatchConsumerRetryableExceptionGroup(ExceptionGroup):
-    """ExceptionGroup raised when at least one task fails with a retryable exception."""
-
-    def derive(self, excs):
-        return RecordBatchConsumerRetryableExceptionGroup(self.message, excs)
-
-
-class RecordBatchConsumerNonRetryableExceptionGroup(ExceptionGroup):
-    """ExceptionGroup raised when all tasks fail with non-retryable exception."""
-
-    def derive(self, excs):
-        return RecordBatchConsumerNonRetryableExceptionGroup(self.message, excs)
-
-
-async def run_consumer(
-    queue: RecordBatchQueue,
-    consumer: Consumer,
-    producer_task: asyncio.Task,
-    max_bytes: int,
-    schema: pa.Schema,
-    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
-    multiple_files: bool = False,
-    writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
-    include_inserted_at: bool = False,
-    max_file_size_bytes: int = 0,
-    **kwargs,
-) -> int:
-    """Run one record batch consumer.
-
-    When a consumer starts flushing, a new consumer will be started, and so on in
-    a loop. Once there is nothing left to consumer from the `RecordBatchQueue`, no
-    more consumers will be started, and any pending consumers are awaited.
-
-    NOTE: We're starting to include the `_inserted_at` column in the record
-    batches, one destination at a time, so once we've added it to all
-    destinations, we can remove the `include_inserted_at` argument.
-
-    Returns:
-        Number of records exported. Not the number of record batches, but the
-        number of records in all record batches.
-
-    Raises:
-        RecordBatchConsumerRetryableExceptionGroup: When at least one consumer task
-            fails with a retryable error.
-        RecordBatchConsumerNonRetryableExceptionGroup: When all consumer tasks fail
-            with non-retryable errors.
-    """
-    consumer_tasks_pending: set[asyncio.Task] = set()
-    consumer_tasks_done = set()
-    records_completed = 0
-
-    def consumer_done_callback(task: asyncio.Task):
-        nonlocal records_completed
-        nonlocal consumer_tasks_done
-        nonlocal consumer_tasks_pending
-
-        if task.cancelled():
-            LOGGER.debug("Record batch consumer task cancelled")
-
-        try:
-            records_completed += task.result()
-        except:
-            pass
-
-        consumer_tasks_pending.remove(task)
-        consumer_tasks_done.add(task)
-
-    # We use a TaskGroup to ensure that if the activity is cancelled, this is propagated to all pending tasks.
-    try:
-        async with asyncio.TaskGroup() as tg:
-            consumer_task = consumer.create_consumer_task(
-                tg=tg,
-                queue=queue,
-                producer_task=producer_task,
-                max_bytes=max_bytes,
-                schema=schema,
-                json_columns=json_columns,
-                multiple_files=multiple_files,
-                include_inserted_at=include_inserted_at,
-                max_file_size_bytes=max_file_size_bytes,
-                **writer_file_kwargs or {},
-            )
-            consumer_task.add_done_callback(consumer_done_callback)
-            consumer_tasks_pending.add(consumer_task)
-    except Exception:
-        if consumer_task.done():
-            consumer_task_exception = consumer_task.exception()
-
-            if consumer_task_exception is not None:
-                raise consumer_task_exception
-
-    await raise_on_task_failure(producer_task)
-    LOGGER.debug("Successfully finished record batch consumer")
-
-    consumer.complete_heartbeat()
-
-    return records_completed
 
 
 class BatchExportField(typing.TypedDict):
@@ -657,8 +328,9 @@ class Producer:
         destination_default_fields: list[BatchExportField] | None = None,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
-        filters: list[dict[str, str | list[str]]] | None = None,
+        filters: list[dict[str, str | list[str] | None]] | None = None,
         order_columns: collections.abc.Iterable[str] | None = ("_inserted_at", "event"),
+        is_workflows: bool = False,
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -697,16 +369,22 @@ class Producer:
 
             # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
             # may not be able to handle the load from all batch exports
-            if is_5_min_batch_export(full_range=full_range) and not is_backfill:
+            if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
                 self.logger.debug("Using events_recent table for 5 min batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
             # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
             # which is a distributed table that sits in front of the `events_recent` table
-            elif use_distributed_events_recent_table(
-                is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+            elif (
+                use_distributed_events_recent_table(
+                    is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+                )
+                and not is_workflows
             ):
                 self.logger.debug("Using distributed_events_recent table for batch export")
                 query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
+            elif is_workflows:
+                self.logger.debug("Using workflows events query for batch export")
+                query_template = SELECT_FROM_EVENTS_WORKFLOWS
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
                 self.logger.debug("Using events_batch_export_unbounded view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
@@ -951,8 +629,29 @@ def generate_query_ranges(
         yield (candidate_start_at, candidate_end_at)
 
 
+class UpdatePropertiesToPersonProperties(TraversingVisitor):
+    """Update 'properties' to 'events.poe.properties' in all fields."""
+
+    def visit_field(self, node: ast.Field):
+        if node.chain and node.chain[0] == "properties":
+            node.chain = ["events", "poe", "properties", *node.chain[1:]]
+
+
+class InvalidFilterError(Exception):
+    """Error raised when an invalid filter is used."""
+
+    def __init__(self, error: ExposedHogQLError | InternalHogQLError):
+        if isinstance(error, ExposedHogQLError):
+            msg = f"One or more provided filters are invalid: {error}"
+        else:
+            # TODO: Figure out if we can include some debug information from internal
+            # errors too
+            msg = "One or more provided filters are invalid"
+        super().__init__(msg)
+
+
 def compose_filters_clause(
-    filters: list[dict[str, str | list[str]]],
+    filters: list[dict[str, str | list[str] | None]],
     team_id: int,
     values: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, str]]:
@@ -974,20 +673,50 @@ def compose_filters_clause(
     context = HogQLContext(
         team=team,
         team_id=team.id,
-        enable_select_queries=True,
+        enable_select_queries=False,
         limit_top_select=False,
-        within_non_hogql_query=True,
+        within_non_hogql_query=False,
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
     context.database = Database.create_for(team=team, modifiers=context.modifiers)
+    exprs = []
+    for filter in filters:
+        match filter["type"]:
+            case "event":
+                exprs.append(property_to_expr(EventPropertyFilter(**filter), team=team))
+            case "person":
+                # HACK: We are trying to apply the filter to 'events.person_properties' as that would
+                # mimic workflows behavior of applying it to the person in the event but:
+                # 1. PersonPropertyFilter expects a join with the person table, so we can't use it.
+                # 2. 'persons_properties' doesn't exist in the HogQL 'EventsTable', so we can't use it.
+                # So, we treat this filter like an events property filter (for 1) and manually update
+                # the chain to point to 'events.poe.properties' which does exist in 'EventsTable' (for 2).
+                # This will get resolved to 'events.person_properties' in ClickHouse dialect. This is done
+                # using a visitor, which makes it slightly less of a hack.
+                # I attempted to add a new property filter just for us to use here, but it was a mess
+                # requiring multiple unnecessary (for us) file changes, and consistently failed type checks
+                # everywhere in hogql modules.
+                expr = property_to_expr(EventPropertyFilter(**{**filter, **{"type": "event"}}), team=team)
+                UpdatePropertiesToPersonProperties().visit(expr)
+                exprs.append(expr)
 
-    exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
+            case "hogql":
+                try:
+                    exprs.append(property_to_expr(HogQLPropertyFilter(**filter), team=team))
+                except (ExposedHogQLError, InternalHogQLError) as e:
+                    raise InvalidFilterError(e) from e
+
+            case s:
+                raise TypeError(f"Unknown filter type: '{s}'")
+
     and_expr = ast.And(exprs=exprs)
     # This query only supports events at the moment.
     # TODO: Extend for other models that also wish to implement property filtering.
     select_query = ast.SelectQuery(
-        select=[parse_expr("properties as properties")],
+        select=[
+            parse_expr("properties as properties"),
+        ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=and_expr,
     )
@@ -998,12 +727,15 @@ def compose_filters_clause(
         and_expr, context=context, dialect="clickhouse", stack=[prepared_select_query]
     )
 
-    printed = print_prepared_ast(
-        prepared_and_expr,  # type: ignore
-        context=context,
-        dialect="clickhouse",
-        stack=[prepared_select_query],
-    )
+    try:
+        printed = print_prepared_ast(
+            prepared_and_expr,  # type: ignore
+            context=context,
+            dialect="clickhouse",
+            stack=[prepared_select_query],
+        )
+    except (ExposedHogQLError, InternalHogQLError) as e:
+        raise InvalidFilterError(e) from e
 
     return printed, context.values
 

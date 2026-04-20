@@ -23,8 +23,10 @@ export function useSortedPaginatedList<T>({
     const [orderedItems, setOrderedItems] = useState<string[] | null>(null)
 
     // Establish initial sort order on first render - preserve order after that
+    // Only re-sort when items array length changes (new items added/removed)
+    const itemsLength = items.length
     useEffect(() => {
-        if (items.length === 0) {
+        if (itemsLength === 0) {
             setOrderedItems(null)
             return
         }
@@ -42,7 +44,8 @@ export function useSortedPaginatedList<T>({
             return 0
         })
         setOrderedItems(sortedItems.map((item) => getId(item)))
-    }, [items, getId, isItemConfigured])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [itemsLength])
 
     // Apply the preserved order to current item data
     const sortedItems = useMemo(() => {

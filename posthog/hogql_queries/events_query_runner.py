@@ -1,31 +1,40 @@
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Optional, cast
+from typing import cast
 
-from django.db.models import Prefetch
 from django.utils.timezone import now
 
 import orjson
+import structlog
 
 from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQuery, EventsQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
+from posthog.hogql.property import (
+    action_to_expr,
+    has_aggregation,
+    map_virtual_properties,
+    property_to_expr,
+    steps_to_expr,
+)
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
 from posthog.models import Action, Person
+from posthog.models.action.action import ActionStepJSON
 from posthog.models.element import chain_to_elements
-from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
-from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
+
+logger = structlog.get_logger(__name__)
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [
@@ -40,6 +49,9 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "person_mode",
 ]
 
+# Wide columns that defeat presorted optimization
+WIDE_COLUMNS = {"elements_chain", "properties"}
+
 
 class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     query: EventsQuery
@@ -50,6 +62,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
+        self._cursor_eligible = False
 
     @cached_property
     def source_runner(self) -> InsightActorsQueryRunner:
@@ -60,6 +73,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             InsightActorsQueryRunner,
             get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
         )
+
+    def validate(self) -> None:
+        super().validate()
+        if self.query.source is not None:
+            self.source_runner.validate()
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
@@ -82,13 +100,65 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         props.append(f"toString(person.properties.{key})")
                     else:
                         props.append(f"toString(person.properties.`{key}`)")
-                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
+                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id), distinct_id)"
                 select_input.append(expr)
             else:
                 select_input.append(col)
         return select_input, [
             map_virtual_properties(parse_expr(column, timings=self.timings)) for column in select_input
         ]
+
+    def _can_use_presorted_optimization(self, order_by: list[ast.OrderExpr] | None) -> bool:
+        """
+        Check if ORDER BY can use presorted optimization.
+
+        We can optimize any ORDER BY that doesn't need wide columns directly.
+        - properties.$foo is fine (we extract just that value)
+        - elements_chain or raw properties blob is not fine
+        """
+        if not order_by:
+            return False
+
+        for order_expr in order_by:
+            if isinstance(order_expr.expr, ast.Field) and order_expr.expr.chain:
+                first = order_expr.expr.chain[0]
+                if first in WIDE_COLUMNS:
+                    # properties.$foo is fine - we extract just that property
+                    if first == "properties" and len(order_expr.expr.chain) >= 2:
+                        continue
+                    return False
+
+        return True
+
+    def apply_pagination_cursor(self, cursor: str) -> None:
+        # NB: This uses the last row's timestamp as the cursor, so events sharing
+        # the exact same timestamp as the page boundary may be skipped. In practice
+        # this is rare since the events table uses DateTime64(6) (microsecond precision).
+        order: str = "DESC"
+        if self.query.orderBy:
+            order = parse_order_expr(self.query.orderBy[0]).order
+        if order == "ASC":
+            self.query.after = cursor
+        else:
+            self.query.before = cursor
+
+    def _extract_last_timestamp(self, row: list) -> str | None:
+        select_input = self.select_input_raw()
+        val = None
+        if "*" in select_input:
+            star_idx = select_input.index("*")
+            if isinstance(row[star_idx], dict):
+                val = row[star_idx].get("timestamp")
+        if val is None:
+            for i, col in enumerate(select_input):
+                if col.split("--")[0].strip() == "timestamp":
+                    val = row[i]
+                    break
+        if val is None:
+            return None
+        if isinstance(val, datetime):
+            return val.isoformat()
+        return str(val)
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -115,15 +185,25 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         where_exprs.extend(
                             property_to_expr(property, self.team) for property in self.query.fixedProperties
                         )
-                if self.query.event:
+                all_events: list[str] = [e for e in [self.query.event, *(self.query.events or [])] if e]
+                if all_events:
                     with self.timings.measure("event"):
-                        where_exprs.append(
-                            parse_expr(
-                                "event = {event}",
-                                {"event": ast.Constant(value=self.query.event)},
-                                timings=self.timings,
+                        if len(all_events) == 1:
+                            where_exprs.append(
+                                parse_expr(
+                                    "event = {event}",
+                                    {"event": ast.Constant(value=all_events[0])},
+                                    timings=self.timings,
+                                )
                             )
-                        )
+                        else:
+                            where_exprs.append(
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.In,
+                                    left=ast.Field(chain=["event"]),
+                                    right=ast.Tuple(exprs=[ast.Constant(value=e) for e in all_events]),
+                                )
+                            )
                 if self.query.actionId:
                     with self.timings.measure("action_id"):
                         try:
@@ -133,11 +213,27 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         if not action.steps:
                             raise Exception("Action does not have any match groups")
                         where_exprs.append(action_to_expr(action))
+                elif self.query.actionSteps:
+                    with self.timings.measure("action_steps"):
+                        steps = [
+                            ActionStepJSON(
+                                event=s.event,
+                                tag_name=s.tag_name,
+                                text=s.text,
+                                text_matching=s.text_matching.value if s.text_matching else None,
+                                href=s.href,
+                                href_matching=s.href_matching.value if s.href_matching else None,
+                                selector=s.selector,
+                                url=s.url,
+                                url_matching=s.url_matching.value if s.url_matching else None,
+                                properties=[p.model_dump() for p in s.properties] if s.properties else None,
+                            )
+                            for s in self.query.actionSteps
+                        ]
+                        where_exprs.append(steps_to_expr(steps, self.team))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        person: Optional[Person] = get_pk_or_uuid(
-                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
-                        ).first()
+                        person: Person | None = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
                         where_exprs.append(
                             ast.CompareOperation(
                                 left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
@@ -218,6 +314,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 else:
                     order_by = []
 
+                first_order = order_by[0].expr if order_by else None
+                self._cursor_eligible = (
+                    self.query.source is None
+                    and not has_any_aggregation
+                    and isinstance(first_order, ast.Field)
+                    and first_order.chain == ["timestamp"]
+                )
+
             with self.timings.measure("select"):
                 if self.query.source is not None:
                     # Kludge: If the events_query has logic in select that the where clauses depends on, this will potentially error.
@@ -247,30 +351,20 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     order_by=order_by,
                 )
 
-                # sorting a large amount of columns is expensive, so we filter by a presorted table if possible
-                if (
-                    self.modifiers.usePresortedEventsTable
-                    and (
-                        order_by is not None
-                        and len(order_by) == 1
-                        and isinstance(order_by[0].expr, ast.Field)
-                        and order_by[0].expr.chain == ["timestamp"]
+                # Presorted optimization: sort narrow data (uuid) first, then fetch wide data for matched rows.
+                # Avoids sorting giant rows with properties and elements_chain cols - instead sorts uuids.
+                if self._can_use_presorted_optimization(order_by) and not has_any_aggregation:
+                    logger.info(
+                        "events_query_runner_presorted_optimization",
+                        team_id=self.team.pk,
                     )
-                    and not has_any_aggregation
-                ):
-                    inner_query = parse_select(
-                        "SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM events"
-                    )
+                    inner_query = parse_select("SELECT uuid FROM events")
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
                     inner_query.order_by = order_by
-                    self.paginator.paginate(inner_query)
+                    inner_query.limit = ast.Constant(value=self.paginator.limit + self.paginator.offset + 1)
 
-                    # prefilter the events table based on the sort order with a narrow set of columns
-                    prefilter_sorted = parse_expr(
-                        "(timestamp, event, cityHash64(distinct_id), cityHash64(uuid)) in ({inner_query})",
-                        {"inner_query": inner_query},
-                    )
+                    prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
 
                     if where is not None:
                         stmt.where = ast.And(exprs=[prefilter_sorted, where])
@@ -304,6 +398,19 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         ).data
                     self.paginator.results[index][star_idx] = new_result
 
+        # Batch check which session IDs have recordings
+        if "*" in self.select_input_raw() and len(self.paginator.results) > 0:
+            with self.timings.measure("session_recordings_check"):
+                session_recordings_map = self.batch_check_session_recordings()
+                star_idx = self.select_input_raw().index("*")
+                for result in self.paginator.results:
+                    if isinstance(result[star_idx], dict):
+                        properties = result[star_idx].get("properties", {})
+                        if isinstance(properties, dict):
+                            session_id = properties.get("$session_id")
+                            if session_id:
+                                properties["$has_recording"] = session_id in session_recordings_map
+
         person_indices: list[int] = []
         for column_index, col in enumerate(self.select_input_raw()):
             if col.split("--")[0].strip() == "person":
@@ -315,6 +422,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     row[column_index] = {
                         "display_name": result[column_index][0],
                         "id": str(result[column_index][1]),
+                        "distinct_id": str(result[column_index][2]),
                     }
                     self.paginator.results[index] = row
 
@@ -330,12 +438,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 batch_size = 1000
                 for i in range(0, len(distinct_ids), batch_size):
                     batch_distinct_ids = distinct_ids[i : i + batch_size]
+                    requested_batch = set(batch_distinct_ids)
                     persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
-                    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-                    for person in persons.iterator(chunk_size=1000):
+                    for person in persons:
                         if person:
                             for person_distinct_id in person.distinct_ids:
-                                distinct_to_person[person_distinct_id] = person
+                                if person_distinct_id in requested_batch:
+                                    distinct_to_person[person_distinct_id] = person
 
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:
@@ -355,6 +464,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                                 "distinct_id": distinct_id,
                             }
 
+        next_cursor = None
+        if self._cursor_eligible and self.paginator.has_more() and self.paginator.results:
+            last_row = self.paginator.results[-1]
+            next_cursor = self._extract_last_timestamp(last_row)
+
         return EventsQueryResponse(
             results=self.paginator.results,
             columns=self.columns(query_result.columns),
@@ -362,6 +476,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
             modifiers=self.modifiers,
+            nextCursor=next_cursor,
             **self.paginator.response_params(),
         )
 
@@ -383,3 +498,84 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
     def select_input_raw(self) -> list[str]:
         return ["*"] if len(self.query.select) == 0 else self.query.select
+
+    def batch_check_session_recordings(self) -> set[str]:
+        """
+        Batch check which session IDs have recordings.
+        Returns a set of session IDs that have recordings.
+        """
+        # Extract all unique session IDs from events
+        session_ids = set()
+        star_idx = self.select_input_raw().index("*") if "*" in self.select_input_raw() else None
+
+        for result in self.paginator.results:
+            if star_idx is not None and isinstance(result[star_idx], dict):
+                properties = result[star_idx].get("properties", {})
+                if isinstance(properties, dict):
+                    session_id = properties.get("$session_id")
+                    if session_id and session_id != "":
+                        session_ids.add(session_id)
+
+        # If no session IDs, return empty set
+        if not session_ids:
+            return set()
+
+        # Query to check which session IDs exist in raw_session_replay_events
+        # Use the date range from the query to optimize the search
+        after = self.query.after or "-24h"
+        before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
+        date_from = relative_date_parse(after, self.team.timezone_info) if after != "all" else None
+        date_to = relative_date_parse(before, self.team.timezone_info)
+
+        where_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["team_id"]),
+                right=ast.Constant(value=self.team.pk),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["session_id"]),
+                right=ast.Constant(value=list(session_ids)),
+            ),
+        ]
+
+        # Sessions can start before events occur, so look back 1 day from date_from
+        if date_from is not None:
+            where_conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["min_first_timestamp"]),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Sub,
+                        left=ast.Constant(value=date_from),
+                        right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)]),
+                    ),
+                )
+            )
+
+        where_conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["min_first_timestamp"]),
+                right=ast.Constant(value=date_to),
+            )
+        )
+
+        session_check_query = ast.SelectQuery(
+            select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["session_id"]))],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"])),
+            where=ast.And(exprs=where_conditions),
+            group_by=[ast.Field(chain=["session_id"])],
+        )
+
+        response = execute_hogql_query(
+            query=session_check_query,
+            team=self.team,
+            query_type="EventsQuerySessionRecordingsCheck",
+            timings=self.timings,
+            modifiers=self.modifiers,
+        )
+
+        # Return set of session IDs that exist
+        return {row[0] for row in response.results if row}

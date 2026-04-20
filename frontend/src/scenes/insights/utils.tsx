@@ -17,12 +17,12 @@ import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
-    ActionsNode,
+    AnyDataWarehouseNode,
+    AnyEntityNode,
     BreakdownFilter,
     DashboardFilter,
-    DataWarehouseNode,
-    EventsNode,
     FileSystemIconType,
+    GroupNode,
     HogQLQuery,
     HogQLVariable,
     InsightVizNode,
@@ -37,8 +37,9 @@ import {
 import {
     containsHogQLQuery,
     isDataTableNode,
-    isDataWarehouseNode,
+    isAnyDataWarehouseNode,
     isEventsNode,
+    isGroupNode,
     isInsightVizNode,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
@@ -73,16 +74,35 @@ export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | nu
     )
 }
 
+export const formatEventName = (name: string | undefined | null): string | undefined => {
+    if (!name) {
+        return
+    }
+
+    // Handle comma-separated event keys (e.g., "$pageview, $exception" from GroupNode)
+    if (name.includes(',')) {
+        return name
+            .split(',')
+            .map((eventName) => {
+                const trimmed = eventName.trim()
+                return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[trimmed]?.label || trimmed
+            })
+            .join(', ')
+    }
+
+    return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[name]?.label || name
+}
+
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
+
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
-        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
-    }
+    name = formatEventName(name) ?? name
+
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
     }
@@ -92,20 +112,35 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: EventsNode | ActionsNode | DataWarehouseNode,
+    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+
+    // Handle GroupNode: format comma-separated event names
+    if (isGroupNode(node) && name) {
+        const eventNames = name.split(',').map((eventName) => {
+            const trimmedName = eventName.trim()
+            return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[trimmedName]?.label || trimmedName
+        })
+        name = eventNames.join(', ')
+    } else if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
         name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
+
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'
     }
 
-    const id = isDataWarehouseNode(node) ? node.table_name : isEventsNode(node) ? node.event : node.id
+    const id = isAnyDataWarehouseNode(node)
+        ? node.table_name
+        : isEventsNode(node)
+          ? node.event
+          : isGroupNode(node)
+            ? undefined
+            : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
@@ -200,7 +235,7 @@ export function formatAggregationValue(
     if (property && formatPropertyValueForDisplay) {
         formattedValue = formatPropertyValueForDisplay(property, propertyValue)
         // yes, double equals not triple equals  ¯\_(ツ)_/¯ let JS compare strings and numbers however it wants
-        if (formattedValue == propertyValue) {
+        if (String(formattedValue) == String(propertyValue)) {
             // formatPropertyValueForDisplay didn't change the value...
             formattedValue = renderCount(propertyValue)
         }
@@ -221,7 +256,7 @@ export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
 export const BREAKDOWN_NULL_DISPLAY = 'None (i.e. no value)'
 
-export function isOtherBreakdown(breakdown_value: string | number | null | undefined | ReactNode): boolean {
+export function isOtherBreakdown(breakdown_value: string | number | bigint | null | undefined | ReactNode): boolean {
     return (
         breakdown_value === BREAKDOWN_OTHER_STRING_LABEL ||
         breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL ||
@@ -287,6 +322,9 @@ function formatNumericBreakdownLabel(
     return String(breakdown_value)
 }
 
+// Keep in sync with NOT_IN_COHORT_ID in posthog/queries/breakdown_props.py
+export const NOT_IN_COHORT_ID = 2 ** 52
+
 export function getCohortNameFromId(
     cohortId: string | number | null | undefined,
     cohorts: CohortType[] | null | undefined
@@ -294,6 +332,10 @@ export function getCohortNameFromId(
     // :TRICKY: Different endpoints represent the all users cohort breakdown differently
     if (cohortId === 'all' || cohortId === 0) {
         return 'All Users'
+    }
+
+    if (Number(cohortId) === NOT_IN_COHORT_ID) {
+        return 'Not in cohort'
     }
 
     return cohorts?.filter((c) => c.id == cohortId)[0]?.name ?? (cohortId || '').toString()
@@ -337,9 +379,23 @@ export function formatBreakdownLabel(
         return `${formattedBucketStart} – ${formattedBucketEnd}`
     }
 
-    if (breakdownFilter?.breakdown_type === 'cohort') {
+    const breakdownType =
+        multipleBreakdownIndex != null ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]?.type : null
+
+    if (breakdownFilter?.breakdown_type === 'cohort' || breakdownType === 'cohort') {
         if (breakdown_value === 'all' || breakdown_value === 0) {
             return 'All Users'
+        }
+        if (Number(breakdown_value) === NOT_IN_COHORT_ID) {
+            const selectedCohorts = Array.isArray(breakdownFilter?.breakdown) ? breakdownFilter.breakdown : []
+            const selectedCohortId = selectedCohorts.find((id) => id !== 'all' && Number(id) !== NOT_IN_COHORT_ID)
+            if (selectedCohortId != null && cohorts) {
+                const cohortName = cohorts.find((c) => c.id == selectedCohortId)?.name
+                if (cohortName) {
+                    return `Not in ${cohortName}`
+                }
+            }
+            return 'Not in cohort'
         }
         if (cohorts == null || cohorts.length === 0) {
             if (itemLabel != null) {
@@ -373,11 +429,17 @@ export function formatBreakdownLabel(
     }
 
     if (typeof breakdown_value == 'string') {
-        return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
-            ? BREAKDOWN_OTHER_DISPLAY
-            : isNullBreakdown(breakdown_value) || breakdown_value === ''
-              ? BREAKDOWN_NULL_DISPLAY
-              : breakdown_value
+        const label =
+            isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
+                ? BREAKDOWN_OTHER_DISPLAY
+                : isNullBreakdown(breakdown_value) || breakdown_value === ''
+                  ? BREAKDOWN_NULL_DISPLAY
+                  : breakdown_value
+
+        if (label.length > 200) {
+            return label.slice(0, 200) + '…'
+        }
+        return label
     }
 
     return ''
@@ -413,16 +475,17 @@ export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }
 
-export const INSIGHT_TYPE_URLS = {
-    TRENDS: urls.insightNew({ type: InsightType.TRENDS }),
-    STICKINESS: urls.insightNew({ type: InsightType.STICKINESS }),
-    LIFECYCLE: urls.insightNew({ type: InsightType.LIFECYCLE }),
-    FUNNELS: urls.insightNew({ type: InsightType.FUNNELS }),
-    RETENTION: urls.insightNew({ type: InsightType.RETENTION }),
-    PATHS: urls.insightNew({ type: InsightType.PATHS }),
+export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
+    [InsightType.TRENDS]: urls.insightNew({ type: InsightType.TRENDS }),
+    [InsightType.STICKINESS]: urls.insightNew({ type: InsightType.STICKINESS }),
+    [InsightType.LIFECYCLE]: urls.insightNew({ type: InsightType.LIFECYCLE }),
+    [InsightType.FUNNELS]: urls.insightNew({ type: InsightType.FUNNELS }),
+    [InsightType.RETENTION]: urls.insightNew({ type: InsightType.RETENTION }),
+    [InsightType.PATHS]: urls.insightNew({ type: InsightType.PATHS }),
+    [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
-    SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
+    SQL: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery)['query'] }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */

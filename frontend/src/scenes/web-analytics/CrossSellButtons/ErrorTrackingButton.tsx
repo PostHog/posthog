@@ -48,6 +48,7 @@ export const ErrorTrackingButton = ({ breakdownBy, value }: ErrorTrackingButtonP
             tooltip="View errors for this page"
             className="no-underline"
             targetBlank
+            hideExternalLinkIcon={true}
             onClick={(e: React.MouseEvent) => {
                 e.stopPropagation()
                 void addProductIntentForCrossSell({

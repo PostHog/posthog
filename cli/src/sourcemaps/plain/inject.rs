@@ -9,6 +9,7 @@ use crate::{
 
 pub fn inject(args: &InjectArgs) -> Result<()> {
     context().capture_command_invoked("sourcemap_inject");
+    args.validate()?;
     inject_impl(args, is_javascript_file)
 }
 

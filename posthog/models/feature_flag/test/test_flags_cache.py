@@ -8,18 +8,35 @@ Tests cover:
 - Data format compatibility with service
 """
 
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models import FeatureFlag, Team
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.feature_flag.flags_cache import (
+    _compute_flag_dependencies,
+    _extract_cohort_ids_from_flag_filters,
+    _extract_direct_dependency_ids,
     _get_feature_flags_for_service,
+    _get_feature_flags_for_teams_batch,
+    _get_referenced_cohorts,
+    _get_team_ids_with_recently_updated_flags,
+    _serialize_cohort,
     clear_flags_cache,
     flags_hypercache,
     get_flags_from_cache,
+    get_teams_with_flags_queryset,
     update_flags_cache,
 )
 
@@ -42,7 +59,15 @@ class TestServiceFlagsCache(BaseTest):
         """Test fetching flags when team has no flags."""
         result = _get_feature_flags_for_service(self.team)
 
-        assert result == {"flags": []}
+        assert result == {
+            "flags": [],
+            "evaluation_metadata": {
+                "dependency_stages": [],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {},
+            },
+            "cohorts": [],
+        }
 
     def test_get_feature_flags_for_service_with_flags(self):
         """Test fetching flags returns correct format for service."""
@@ -97,8 +122,12 @@ class TestServiceFlagsCache(BaseTest):
         assert len(flags) == 1
         assert flags[0]["key"] == "active-flag"
 
-    def test_get_feature_flags_for_service_excludes_inactive(self):
-        """Test that inactive flags are excluded from cache."""
+    def test_get_feature_flags_for_service_includes_inactive(self):
+        """Test that inactive flags are included in cache.
+
+        Inactive flags must be included so that flag dependencies can reference them
+        and evaluate them as false, rather than raising DependencyNotFound errors.
+        """
         # Create active flag
         FeatureFlag.objects.create(
             team=self.team,
@@ -119,8 +148,214 @@ class TestServiceFlagsCache(BaseTest):
         result = _get_feature_flags_for_service(self.team)
         flags = result["flags"]
 
-        assert len(flags) == 1
-        assert flags[0]["key"] == "active-flag"
+        # Both active and inactive flags should be included
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"active-flag", "inactive-flag"}
+
+        # Verify the inactive flag has active=False
+        inactive_flag = next(f for f in flags if f["key"] == "inactive-flag")
+        assert inactive_flag["active"] is False
+
+    def test_get_feature_flags_for_teams_batch_includes_inactive(self):
+        """Test that batch function includes inactive flags for dependency resolution.
+
+        This tests the same behavior as test_get_feature_flags_for_service_includes_inactive
+        but for the batch function used in management commands and cache warming.
+        """
+        # Create active flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="active-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create inactive flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="inactive-flag",
+            created_by=self.user,
+            active=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+        flags = result[self.team.id]["flags"]
+
+        # Both active and inactive flags should be included
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"active-flag", "inactive-flag"}
+
+        # Verify the inactive flag has active=False
+        inactive_flag = next(f for f in flags if f["key"] == "inactive-flag")
+        assert inactive_flag["active"] is False
+
+    def test_get_feature_flags_for_service_excludes_encrypted_remote_config(self):
+        """Test that encrypted remote config flags are excluded from cache.
+
+        Encrypted remote config flags can only be accessed via the dedicated
+        /remote_config endpoint which handles decryption. Including them in
+        /flags would return unusable encrypted ciphertext.
+
+        Unencrypted remote config flags should still be included since they
+        work with useFeatureFlagPayload.
+        """
+        # Create regular feature flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create unencrypted remote config flag (should be included)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="unencrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create encrypted remote config flag (should be excluded)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="encrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+        flags = result["flags"]
+
+        # Regular and unencrypted remote config should be included
+        # Encrypted remote config should be excluded
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"regular-flag", "unencrypted-remote-config"}
+
+    def test_get_feature_flags_for_teams_batch_excludes_encrypted_remote_config(self):
+        """Test that batch function excludes encrypted remote config flags.
+
+        This tests the same behavior as test_get_feature_flags_for_service_excludes_encrypted_remote_config
+        but for the batch function used in management commands and cache warming.
+        """
+        # Create regular feature flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create unencrypted remote config flag (should be included)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="unencrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create encrypted remote config flag (should be excluded)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="encrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+        flags = result[self.team.id]["flags"]
+
+        # Regular and unencrypted remote config should be included
+        # Encrypted remote config should be excluded
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"regular-flag", "unencrypted-remote-config"}
+        assert "encrypted-remote-config" not in flag_keys
+
+    @parameterized.expand(
+        [
+            # (is_remote_config, has_encrypted, should_include, description)
+            (False, False, True, "regular_flag"),
+            (False, True, True, "encrypted_but_not_remote_config"),
+            (True, False, True, "unencrypted_remote_config"),
+            (True, True, False, "encrypted_remote_config"),
+            (None, False, True, "null_remote_config_unencrypted"),
+            (None, True, True, "null_remote_config_encrypted"),
+            (False, None, True, "regular_flag_null_encrypted"),
+            (True, None, True, "remote_config_null_encrypted"),
+            (None, None, True, "legacy_flag_both_null"),
+        ]
+    )
+    def test_filtering_matrix_for_service(self, is_remote_config, has_encrypted, should_include, desc):
+        """Test filtering behavior for all combinations of is_remote_configuration and has_encrypted_payloads.
+
+        This parameterized test covers all 9 combinations including NULL values to ensure
+        legacy flags (created before these fields existed) are handled correctly.
+        """
+        FeatureFlag.objects.create(
+            team=self.team,
+            key=f"flag-{desc}",
+            created_by=self.user,
+            is_remote_configuration=is_remote_config,
+            has_encrypted_payloads=has_encrypted,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+        flag_keys = {f["key"] for f in result["flags"]}
+
+        if should_include:
+            assert f"flag-{desc}" in flag_keys, f"Expected flag-{desc} to be included"
+        else:
+            assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
+
+    @parameterized.expand(
+        [
+            # (is_remote_config, has_encrypted, should_include, description)
+            (False, False, True, "regular_flag"),
+            (False, True, True, "encrypted_but_not_remote_config"),
+            (True, False, True, "unencrypted_remote_config"),
+            (True, True, False, "encrypted_remote_config"),
+            (None, False, True, "null_remote_config_unencrypted"),
+            (None, True, True, "null_remote_config_encrypted"),
+            (False, None, True, "regular_flag_null_encrypted"),
+            (True, None, True, "remote_config_null_encrypted"),
+            (None, None, True, "legacy_flag_both_null"),
+        ]
+    )
+    def test_filtering_matrix_for_teams_batch(self, is_remote_config, has_encrypted, should_include, desc):
+        """Test batch function filtering for all combinations of is_remote_configuration and has_encrypted_payloads.
+
+        This parameterized test covers all 9 combinations including NULL values to ensure
+        legacy flags (created before these fields existed) are handled correctly in batch loading.
+        """
+        FeatureFlag.objects.create(
+            team=self.team,
+            key=f"flag-{desc}",
+            created_by=self.user,
+            is_remote_configuration=is_remote_config,
+            has_encrypted_payloads=has_encrypted,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+        flag_keys = {f["key"] for f in result[self.team.id]["flags"]}
+
+        if should_include:
+            assert f"flag-{desc}" in flag_keys, f"Expected flag-{desc} to be included"
+        else:
+            assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
 
     def test_get_flags_from_cache_redis_hit(self):
         """Test getting flags from Redis cache."""
@@ -177,6 +412,70 @@ class TestServiceFlagsCache(BaseTest):
         # Cache should now load from DB (source will be "db")
         flags, source = flags_hypercache.get_from_cache_with_source(self.team)
         assert source == "db"
+
+    def test_get_feature_flags_for_service_includes_referenced_cohorts(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="cohort-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [{"type": "cohort", "value": cohort.id}], "rollout_percentage": 100}],
+            },
+        )
+        result = _get_feature_flags_for_service(self.team)
+        assert len(result["cohorts"]) == 1
+        assert result["cohorts"][0]["id"] == cohort.id
+        assert result["cohorts"][0]["name"] == "Test Cohort"
+
+    def test_get_feature_flags_for_teams_batch_isolates_cohorts_per_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        cohort_a = Cohort.objects.create(
+            team=self.team,
+            name="Cohort A",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        cohort_b = Cohort.objects.create(
+            team=other_team,
+            name="Cohort B",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "b@b.com", "type": "person"}]}],
+                }
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            created_by=self.user,
+            filters={"groups": [{"properties": [{"type": "cohort", "value": cohort_a.id}], "rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.create(
+            team=other_team,
+            key="flag-b",
+            created_by=self.user,
+            filters={"groups": [{"properties": [{"type": "cohort", "value": cohort_b.id}], "rollout_percentage": 100}]},
+        )
+        result = _get_feature_flags_for_teams_batch([self.team, other_team])
+        assert len(result[self.team.id]["cohorts"]) == 1
+        assert result[self.team.id]["cohorts"][0]["id"] == cohort_a.id
+        assert len(result[other_team.id]["cohorts"]) == 1
+        assert result[other_team.id]["cohorts"][0]["id"] == cohort_b.id
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -317,6 +616,141 @@ class TestServiceFlagsCeleryTasks(BaseTest):
         update_team_service_flags_cache(999999)
 
 
+# Path from this test file up to the repo root (4 levels: test/ -> feature_flag/ -> models/ -> posthog/ -> repo)
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
+def _extract_schema(obj: Any) -> Any:
+    """Extract a type skeleton from a JSON-like object for structural comparison.
+
+    Returns a nested structure of dicts, lists, and leaf type names.
+    Dicts with all-numeric keys (e.g. transitive_deps keyed by flag ID) are
+    treated as maps — represented as {"<map>": value_schema} so the comparison
+    checks value structure, not specific keys.
+    """
+    if obj is None:
+        return "null"
+    if isinstance(obj, bool):
+        return "bool"
+    if isinstance(obj, int):
+        return "int"
+    if isinstance(obj, float):
+        return "float"
+    if isinstance(obj, str):
+        return "str"
+    if isinstance(obj, list):
+        if not obj:
+            return ["empty_list"]
+        # Assumes homogeneous lists (all elements same type), which holds for
+        # the hypercache JSON schema. Only the first element is inspected.
+        return [_extract_schema(obj[0])]
+    if isinstance(obj, dict):
+        if not obj:
+            return {}
+        # Dicts with all-numeric keys are ID-keyed maps, not fixed schemas.
+        # Derive the map value schema from the first informative (non-empty-list) value
+        # so that a breaking type change in non-empty entries isn't masked by leading
+        # empty lists (e.g. transitive_deps: {"1": [], "4": [2]}).
+        if all(k.isdigit() for k in obj.keys()):
+            map_schema = None
+            fallback_schema = None
+            for val in obj.values():
+                candidate = _extract_schema(val)
+                if fallback_schema is None:
+                    fallback_schema = candidate
+                if isinstance(candidate, list) and candidate and candidate[0] == "empty_list":
+                    continue
+                map_schema = candidate
+                break
+            return {"<map>": map_schema if map_schema is not None else fallback_schema}
+        return {k: _extract_schema(v) for k, v in sorted(obj.items())}
+    return type(obj).__name__
+
+
+def _compare_schemas(fixture_schema: Any, result_schema: Any, path: str = "") -> list[str]:
+    """Compare two type skeletons and return human-readable diffs."""
+    diffs: list[str] = []
+    # If the fixture declares a field as null, the serializer must also return null.
+    # This prevents null in the fixture from acting as a wildcard that accepts any
+    # non-null type, which would allow breaking type changes on nullable fields to
+    # slip through undetected (e.g. changing an Option<i32> field to emit a string).
+    if fixture_schema == "null":
+        if result_schema != "null":
+            diffs.append(f"Fixture expects null at `{path}` but serializer returned {result_schema}")
+        return diffs
+    if result_schema == "null":
+        diffs.append(f"Fixture expects non-null at `{path}` ({fixture_schema}) but serializer returned null")
+        return diffs
+    if type(fixture_schema) is not type(result_schema):
+        diffs.append(f"Type mismatch at `{path}`: fixture={fixture_schema}, serializer={result_schema}")
+        return diffs
+    if isinstance(fixture_schema, dict):
+        all_keys = set(fixture_schema.keys()) | set(result_schema.keys())
+        for key in sorted(all_keys):
+            child_path = f"{path}.{key}" if path else key
+            if key not in result_schema:
+                diffs.append(f"Key `{child_path}` in fixture but not in serializer output")
+            elif key not in fixture_schema:
+                diffs.append(f"Key `{child_path}` in serializer output but not in fixture")
+            else:
+                diffs.extend(_compare_schemas(fixture_schema[key], result_schema[key], child_path))
+    elif isinstance(fixture_schema, list) and fixture_schema:
+        # If the serializer returned an empty list we can't check element type
+        if result_schema[0] == "empty_list":
+            return diffs
+        diffs.extend(_compare_schemas(fixture_schema[0], result_schema[0], f"{path}[]"))
+    elif fixture_schema != result_schema:
+        diffs.append(f"Type mismatch at `{path}`: fixture={fixture_schema}, serializer={result_schema}")
+    return diffs
+
+
+class TestExtractSchema:
+    @parameterized.expand(
+        [
+            ("none", None, "null"),
+            ("bool_true", True, "bool"),
+            ("bool_false", False, "bool"),
+            ("int", 42, "int"),
+            ("float", 3.14, "float"),
+            ("str", "hi", "str"),
+            ("empty_list", [], ["empty_list"]),
+            ("list_of_int", [1, 2], ["int"]),
+            ("empty_dict", {}, {}),
+            ("simple_dict", {"a": 1}, {"a": "int"}),
+            ("map_skips_empty", {"1": [], "2": [3]}, {"<map>": ["int"]}),
+            ("map_all_empty", {"1": [], "2": []}, {"<map>": ["empty_list"]}),
+        ]
+    )
+    def test_extract_schema(self, _name: str, obj: Any, expected: Any):
+        assert _extract_schema(obj) == expected
+
+    @parameterized.expand(
+        [
+            ("null_match", "null", "null", []),
+            ("null_vs_str", "null", "str", ["Fixture expects null at `root` but serializer returned str"]),
+            ("str_vs_null", "str", "null", ["Fixture expects non-null at `root` (str) but serializer returned null"]),
+            ("int_vs_float", "int", "float", ["Type mismatch at `root`: fixture=int, serializer=float"]),
+            ("empty_list_compat_rhs", ["int"], ["empty_list"], []),
+            (
+                "empty_list_compat_lhs",
+                ["empty_list"],
+                ["str"],
+                ["Type mismatch at `root[]`: fixture=empty_list, serializer=str"],
+            ),
+            (
+                "extra_key",
+                {"a": "int"},
+                {"a": "int", "b": "str"},
+                ["Key `root.b` in serializer output but not in fixture"],
+            ),
+            ("matching_dict", {"a": "int"}, {"a": "int"}, []),
+        ]
+    )
+    def test_compare_schemas(self, _name: str, fixture_schema: Any, result_schema: Any, expected_diffs: list[str]):
+        diffs = _compare_schemas(fixture_schema, result_schema, "root")
+        assert diffs == expected_diffs
+
+
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestServiceFlagsDataFormat(BaseTest):
     """Test that cached data format matches service expectations."""
@@ -325,18 +759,60 @@ class TestServiceFlagsDataFormat(BaseTest):
         super().setUp()
         clear_flags_cache(self.team, kinds=["redis", "s3"])
 
-    def test_flag_data_contains_required_rust_fields(self):
-        """Test that flag data includes all fields expected by Rust."""
-        FeatureFlag.objects.create(
+    def test_serializer_output_matches_fixture_schema(self):
+        """Golden fixture validation: Python serializer output must match the fixture schema.
+
+        Recursively compares the type skeleton (keys + value types at every nesting
+        level) of the fixture against actual serializer output. If this test fails,
+        update the golden fixture and verify Rust tests pass.
+        """
+        fixture_path = _REPO_ROOT / "rust" / "feature-flags" / "tests" / "fixtures" / "hypercache_contract.json"
+        fixture = json.loads(fixture_path.read_text())
+
+        # --- Create test data mirroring the 4 fixture flag variants ---
+
+        cohort = Cohort.objects.create(
             team=self.team,
-            key="rust-compatible-flag",
-            name="Rust Compatible Flag",
+            name="Test Cohort",
             created_by=self.user,
+            version=1,
+            count=42,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "value": "test@example.com", "type": "person", "operator": "exact"}
+                            ],
+                        }
+                    ],
+                }
+            },
+            last_backfill_person_properties_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # 1) full-flag: exercises all optional nested structures.
+        # Every nullable field that has a typed schema should be non-null here
+        # so _compare_schemas can verify its type.
+        full_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="full-flag",
+            name="Full feature flag",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+            version=3,
+            evaluation_runtime="all",
+            bucketing_identifier="device_id",
             filters={
                 "groups": [
                     {
-                        "properties": [{"key": "email", "value": "test@example.com", "type": "person"}],
+                        "properties": [
+                            {"key": "email", "value": "test@example.com", "type": "person", "operator": "exact"}
+                        ],
                         "rollout_percentage": 50,
+                        "variant": None,
                     }
                 ],
                 "multivariate": {
@@ -345,39 +821,226 @@ class TestServiceFlagsDataFormat(BaseTest):
                         {"key": "test", "name": "Test", "rollout_percentage": 50},
                     ]
                 },
+                "payloads": {"control": "payload-value"},
+                "super_groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$feature_enrollment/full-flag",
+                                "type": "person",
+                                "value": ["true"],
+                                "operator": "exact",
+                            }
+                        ],
+                        "rollout_percentage": None,
+                        "variant": None,
+                    }
+                ],
+                "feature_enrollment": True,
+                "holdout": {"id": 42, "exclusion_percentage": 10.0},
+                "aggregation_group_type_index": None,
             },
-            ensure_experience_continuity=True,
+        )
+
+        # Attach evaluation contexts to full-flag
+        for ctx_name in ["docs-page", "marketing-site"]:
+            ctx, _ = EvaluationContext.objects.get_or_create(team=self.team, name=ctx_name)
+            FeatureFlagEvaluationContext.objects.create(feature_flag=full_flag, evaluation_context=ctx)
+
+        # 2) minimal-flag: only required fields, empty/null optionals
+        minimal_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="minimal-flag",
+            name="",
+            created_by=self.user,
+            version=1,
+            evaluation_runtime="all",
+            bucketing_identifier=None,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100, "variant": None}],
+                "multivariate": None,
+                "payloads": {},
+            },
+        )
+
+        # 3) cohort-flag: cohort-type property
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="cohort-flag",
+            name="Cohort flag",
+            created_by=self.user,
+            version=1,
+            evaluation_runtime="all",
+            bucketing_identifier=None,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort", "operator": "in"}],
+                        "rollout_percentage": 100,
+                        "variant": None,
+                    }
+                ],
+                "multivariate": None,
+                "payloads": {},
+            },
+        )
+
+        # 4) dependent-flag: flag-type property with label
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dependent-flag",
+            name="Flag with dependency",
+            created_by=self.user,
+            version=2,
+            evaluation_runtime="all",
+            bucketing_identifier=None,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(minimal_flag.id),
+                                "label": "minimal-flag",
+                                "operator": "flag_evaluates_to",
+                                "type": "flag",
+                                "value": True,
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": None,
+                    }
+                ],
+                "multivariate": None,
+                "payloads": {},
+            },
+        )
+
+        # 5) missing-dep-flag: depends on a flag that doesn't exist,
+        # exercises flags_with_missing_deps element type (int)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="missing-dep-flag",
+            name="Flag with missing dependency",
+            created_by=self.user,
+            version=1,
+            evaluation_runtime="all",
+            bucketing_identifier=None,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "99999",
+                                "label": "nonexistent-flag",
+                                "operator": "flag_evaluates_to",
+                                "type": "flag",
+                                "value": True,
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": None,
+                    }
+                ],
+                "multivariate": None,
+                "payloads": {},
+            },
         )
 
         result = _get_feature_flags_for_service(self.team)
-        flags = result["flags"]
-        flag_data = flags[0]
 
-        # Required fields for service FeatureFlag struct
-        required_fields = [
-            "id",
-            "team_id",
-            "name",
-            "key",
-            "filters",
-            "deleted",
-            "active",
-            "ensure_experience_continuity",
-            "version",
-        ]
+        # --- Deep recursive schema comparison ---
 
-        for field in required_fields:
-            assert field in flag_data, f"Missing required field: {field}"
+        all_diffs: list[str] = []
 
-        # Verify filters structure
-        assert "groups" in flag_data["filters"]
-        assert len(flag_data["filters"]["groups"]) == 1
-        assert "multivariate" in flag_data["filters"]
+        # Top-level keys
+        fixture_top = set(fixture.keys())
+        result_top = set(result.keys())
+        if fixture_top != result_top:
+            if fixture_top - result_top:
+                all_diffs.append(f"Top-level keys in fixture but not in serializer: {sorted(fixture_top - result_top)}")
+            if result_top - fixture_top:
+                all_diffs.append(f"Top-level keys in serializer but not in fixture: {sorted(result_top - fixture_top)}")
+
+        # Per-flag comparison by key — guard against KeyError when "flags" is missing
+        # (missing-key diffs are already recorded above; we continue to collect other diffs)
+        if "flags" in fixture and "flags" in result:
+            fixture_flags_by_key = {f["key"]: f for f in fixture["flags"]}
+            result_flags_by_key = {f["key"]: f for f in result["flags"]}
+
+            fixture_keys = set(fixture_flags_by_key.keys())
+            result_keys = set(result_flags_by_key.keys())
+            missing = fixture_keys - result_keys
+            extra = result_keys - fixture_keys
+            if missing:
+                all_diffs.append(f"Fixture flag keys not in serializer output: {sorted(missing)}")
+            if extra:
+                all_diffs.append(f"Serializer flag keys not in fixture: {sorted(extra)}")
+            for key in sorted(fixture_keys & result_keys):
+                all_diffs.extend(
+                    _compare_schemas(
+                        _extract_schema(fixture_flags_by_key[key]),
+                        _extract_schema(result_flags_by_key[key]),
+                        f"flags[key={key}]",
+                    )
+                )
+
+        # evaluation_metadata
+        if "evaluation_metadata" in fixture and "evaluation_metadata" in result:
+            all_diffs.extend(
+                _compare_schemas(
+                    _extract_schema(fixture["evaluation_metadata"]),
+                    _extract_schema(result["evaluation_metadata"]),
+                    "evaluation_metadata",
+                )
+            )
+
+        # cohorts
+        assert result.get("cohorts"), "Expected cohorts in serializer output (flags reference a cohort)"
+        if "cohorts" in fixture and "cohorts" in result:
+            assert len(result["cohorts"]) == len(fixture["cohorts"]), (
+                f"Cohort count mismatch: fixture has {len(fixture['cohorts'])}, serializer has {len(result['cohorts'])}"
+            )
+            for i, (f_cohort, r_cohort) in enumerate(zip(fixture["cohorts"], result["cohorts"])):
+                all_diffs.extend(
+                    _compare_schemas(
+                        _extract_schema(f_cohort),
+                        _extract_schema(r_cohort),
+                        f"cohorts[{i}]",
+                    )
+                )
+
+        assert not all_diffs, (
+            "\n"
+            + "=" * 78
+            + "\n"
+            + " WARNING: HYPERCACHE BOUNDARY CONTRACT VIOLATION\n"
+            + "=" * 78
+            + "\n\n"
+            + f"  {len(all_diffs)} schema difference(s) between the Python serializer and\n"
+            + "  the golden fixture used by the Rust feature-flags service:\n\n"
+            + "\n".join(f"    - {d}" for d in all_diffs)
+            + "\n\n"
+            + "-" * 78
+            + "\n"
+            + "  DO NOT just update the fixture to make this test green.\n"
+            + "  The Rust service deserializes this data — a schema change can\n"
+            + "  break flag evaluation in production.\n\n"
+            + "  Before proceeding, consider:\n"
+            + "    1. Is the change backwards-compatible? (adding a new nullable\n"
+            + "       field is usually safe; renaming/removing a field is not)\n"
+            + "    2. Do you need a phased rollout? (deploy Rust changes first\n"
+            + "       so the new schema is understood before Python writes it)\n"
+            + "    3. Will the cache need re-warming? (old cached payloads will\n"
+            + "       still have the previous shape until they expire or are\n"
+            + "       invalidated)\n\n"
+            + "  Once you have a plan:\n"
+            + "    - Update the fixture: rust/feature-flags/tests/fixtures/hypercache_contract.json\n"
+            + "    - Verify Rust tests: cargo test -p feature-flags test_hypercache_contract\n"
+            + "=" * 78
+        )
 
     def test_flag_data_serializes_to_json(self):
         """Test that flag data can be serialized to JSON (for Redis/S3 storage)."""
-        import json
-
         FeatureFlag.objects.create(
             team=self.team,
             key="json-test-flag",
@@ -404,7 +1067,7 @@ class TestCacheStats(BaseTest):
     @patch("posthog.storage.hypercache_manager.get_client")
     def test_get_cache_stats_basic(self, mock_get_client):
         """Test basic cache stats gathering with Redis pipelining."""
-        from posthog.models.feature_flag.flags_cache import get_flags_cache_stats
+        from posthog.models.feature_flag.flags_cache import get_cache_stats
 
         # Mock Redis client with pipelining support
         mock_redis = MagicMock()
@@ -435,11 +1098,15 @@ class TestCacheStats(BaseTest):
             [1024, 2048],  # Memory usage results
         ]
 
+        # Mock zcard for expiry tracking count
+        mock_redis.zcard.return_value = 2
+
         with patch("posthog.models.team.team.Team.objects.count", return_value=5):
-            stats = get_flags_cache_stats()
+            stats = get_cache_stats()
 
         self.assertEqual(stats["total_cached"], 2)
         self.assertEqual(stats["total_teams"], 5)
+        self.assertEqual(stats["expiry_tracked"], 2)
         self.assertEqual(stats["ttl_distribution"]["expires_1h"], 1)
         self.assertEqual(stats["ttl_distribution"]["expires_24h"], 1)
         self.assertEqual(stats["size_statistics"]["sample_count"], 2)
@@ -539,37 +1206,10 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         mock_get_client.return_value = mock_redis
         mock_redis.zrangebyscore.return_value = []
 
-        # Create config with explicit FLAGS_REDIS_URL (simulating production setup)
-        test_redis_url = "redis://localhost:6379/1"
-        test_config = FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config(test_redis_url)
+        get_teams_with_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours=24)
 
-        get_teams_with_expiring_caches(test_config, ttl_threshold_hours=24)
-
-        # Verify get_client was called with FLAGS_REDIS_URL, not default REDIS_URL
-        mock_get_client.assert_called_once_with(test_redis_url)
-
-    @override_settings(FLAGS_REDIS_URL="redis://localhost:6379/1")
-    @patch("posthog.storage.cache_expiry_manager.get_client")
-    def test_track_cache_expiry_uses_correct_redis_url(self, mock_get_client):
-        """Test that _track_cache_expiry uses FLAGS_REDIS_URL.
-
-        This is a regression test for a bug where _track_cache_expiry was using
-        the default Redis database (0) instead of the dedicated flags cache database (1).
-        """
-        from posthog.models.feature_flag.flags_cache import _track_cache_expiry
-
-        # Mock Redis client
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-
-        # Call _track_cache_expiry
-        _track_cache_expiry(self.team, ttl_seconds=3600)
-
-        # Verify get_client was called with FLAGS_REDIS_URL
-        mock_get_client.assert_called_once_with("redis://localhost:6379/1")
-
-        # Verify zadd was called to track the expiry
-        self.assertEqual(mock_redis.zadd.call_count, 1)
+        # Verify get_client was called with the hypercache's redis_url
+        mock_get_client.assert_called_once_with(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.hypercache.redis_url)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
@@ -579,7 +1219,10 @@ class TestBatchOperations(BaseTest):
     @patch("posthog.models.feature_flag.flags_cache.refresh_expiring_caches")
     def test_refresh_expiring_caches(self, mock_refresh):
         """Test refreshing expiring caches calls generic function."""
-        from posthog.models.feature_flag.flags_cache import FLAGS_CACHE_EXPIRY_CONFIG, refresh_expiring_flags_caches
+        from posthog.models.feature_flag.flags_cache import (
+            FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+            refresh_expiring_flags_caches,
+        )
 
         mock_refresh.return_value = (2, 0)  # successful, failed
 
@@ -590,7 +1233,7 @@ class TestBatchOperations(BaseTest):
         self.assertEqual(failed, 0)
 
         # Should call generic refresh_expiring_caches with correct config
-        mock_refresh.assert_called_once_with(FLAGS_CACHE_EXPIRY_CONFIG, 24, settings.FLAGS_CACHE_REFRESH_LIMIT)
+        mock_refresh.assert_called_once_with(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, 24, settings.FLAGS_CACHE_REFRESH_LIMIT)
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_cleanup_stale_expiry_tracking(self, mock_get_client):
@@ -624,8 +1267,8 @@ class TestBatchOperations(BaseTest):
         # Should call zrem with the stale team ID
         mock_redis.zrem.assert_called_once_with(FLAGS_CACHE_EXPIRY_SORTED_SET, str(team2_id))
 
-    @patch("posthog.storage.cache_expiry_manager.get_client")
-    @patch("posthog.storage.cache_expiry_manager.time")
+    @patch("posthog.storage.hypercache.get_client")
+    @patch("posthog.storage.hypercache.time")
     def test_warm_without_stagger_tracks_expiry_with_default_ttl(self, mock_time, mock_get_client):
         """Test that expiry tracking happens even when stagger_ttl=False (uses batch path)."""
         from posthog.models.feature_flag.flags_cache import (
@@ -755,30 +1398,6 @@ class TestManagementCommands(BaseTest):
         self.assertIn("Flags cache warm completed", output)
         self.assertIn("Total teams: 1", output)
         self.assertIn("Successful: 1", output)
-
-    @patch("builtins.input", return_value="yes")
-    def test_warm_command_invalidate_first(self, mock_input):
-        """Test warm_flags_cache command with --invalidate-first."""
-        from io import StringIO
-
-        from django.core.management import call_command
-
-        # Create a real flag for the team
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        # Call command with --invalidate-first
-        out = StringIO()
-        call_command("warm_flags_cache", "--invalidate-first", stdout=out)
-
-        output = out.getvalue()
-        # Should show warning about invalidation
-        self.assertIn("Invalidate first: True", output)
-        self.assertIn("Flags cache warm completed", output)
 
     def test_analyze_command_validates_sample_size_too_small(self):
         """Test analyze command rejects sample_size < 1."""
@@ -1090,22 +1709,6 @@ class TestManagementCommands(BaseTest):
             self.assertIn("Failed:", output)
             self.assertIn("1", output)  # 1 team failed
 
-    @patch("posthog.storage.hypercache_manager.warm_caches")
-    @patch("builtins.input", return_value="no")
-    def test_warm_invalidate_first_user_cancels(self, mock_input, mock_warm):
-        """Test that user can cancel --invalidate-first operation."""
-        from io import StringIO
-
-        from django.core.management import call_command
-
-        out = StringIO()
-        call_command("warm_flags_cache", "--invalidate-first", stdout=out)
-
-        output = out.getvalue()
-        self.assertIn("Aborted", output)
-        # Should NOT call warm_caches
-        mock_warm.assert_not_called()
-
     def test_warm_staggered_ttl_range(self):
         """Test that TTL staggering parameters are passed correctly."""
         from io import StringIO
@@ -1146,6 +1749,7 @@ class TestManagementCommands(BaseTest):
 
     # Comprehensive tests for verify_flags_cache
 
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_cache_miss_detection_and_fix(self):
         """Test that cache misses are detected and can be fixed."""
         from io import StringIO
@@ -1175,6 +1779,7 @@ class TestManagementCommands(BaseTest):
         self.assertIn("FIXED", output)
         self.assertIn("Cache fixes applied:  1", output)
 
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_cache_mismatch_detection_and_fix(self):
         """Test that cache mismatches are detected and fixed."""
         from io import StringIO
@@ -1205,6 +1810,90 @@ class TestManagementCommands(BaseTest):
         self.assertIn("DATA_MISMATCH", output)
         self.assertIn("FIXED", output)
 
+    def test_verify_cache_detects_evaluation_context_rename(self):
+        """Test that verification detects when an evaluation context is renamed."""
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        ctx = EvaluationContext.objects.create(team=self.team, name="original-context-name")
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+
+        # Warm the cache
+        update_flags_cache(self.team)
+
+        # Rename the context directly in DB (bypassing signals to simulate stale cache)
+        EvaluationContext.objects.filter(id=ctx.id).update(name="renamed-context-name")
+
+        # Verify should detect the mismatch
+        result = verify_team_flags(self.team, verbose=True)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(len(result["diffs"]), 1)
+        self.assertEqual(result["diffs"][0]["type"], "FIELD_MISMATCH")
+        self.assertIn("evaluation_contexts", result["diffs"][0]["diff_fields"])
+
+        field_diffs = result["diffs"][0]["field_diffs"]
+        eval_tag_diff = next(d for d in field_diffs if d["field"] == "evaluation_contexts")
+        self.assertEqual(eval_tag_diff["cached_value"], ["original-context-name"])
+        self.assertEqual(eval_tag_diff["db_value"], ["renamed-context-name"])
+
+        # Mismatch result should include db_data for cache fix optimization
+        self.assertIn("db_data", result)
+        self.assertIsInstance(result["db_data"], dict)
+
+    def test_verify_miss_includes_db_data(self):
+        """Test that cache miss result includes db_data for direct cache write."""
+        from posthog.models.feature_flag.flags_cache import clear_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+        result = verify_team_flags(self.team)
+
+        self.assertEqual(result["status"], "miss")
+        self.assertIn("db_data", result)
+        self.assertIsInstance(result["db_data"], dict)
+        self.assertIn("flags", result["db_data"])
+
+    def test_verify_detects_missing_evaluation_metadata(self):
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Warm the cache normally (includes evaluation_metadata)
+        update_flags_cache(self.team)
+
+        # Simulate a pre-evaluation_metadata cache entry by removing the key
+        cached_data, _source = flags_hypercache.get_from_cache_with_source(self.team)
+        assert cached_data is not None
+        del cached_data["evaluation_metadata"]
+        flags_hypercache.set_cache_value(self.team, cached_data)
+
+        result = verify_team_flags(self.team)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(result["issue"], "MISSING_EVALUATION_METADATA")
+        self.assertIn("db_data", result)
+        self.assertIn("evaluation_metadata", result["db_data"])
+
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_fix_failures_reported(self):
         """Test that fix failures are properly reported."""
         from io import StringIO
@@ -1238,9 +1927,15 @@ class TestManagementCommands(BaseTest):
 
         from django.core.management import call_command
 
-        # Create additional teams
+        # Create additional teams with flags so they appear in the scoped queryset
         for i in range(5):
-            Team.objects.create(organization=self.organization, name=f"Team {i}")
+            team = Team.objects.create(organization=self.organization, name=f"Team {i}")
+            FeatureFlag.objects.create(
+                team=team,
+                key="test-flag",
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            )
 
         mock_get_cache.return_value = []
         mock_batch_get_flags.return_value = {}
@@ -1427,6 +2122,202 @@ class TestManagementCommandsWithoutDedicatedCache(BaseTest):
         self.assertIn("NOT configured", output)
 
 
+@override_settings(
+    FLAGS_REDIS_URL="redis://test",
+    CACHES={
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+        "flags_dedicated": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+    },
+)
+class TestVerifyFlagsCacheVerboseOutput(BaseTest):
+    """Test verbose output formatting for verify_flags_cache command."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    def test_verbose_missing_in_cache(self):
+        """Test verbose output for MISSING_IN_CACHE diff type."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Create flag but don't cache it - this creates a MISSING_IN_CACHE scenario
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="uncached-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # First warm the cache to establish it, then create a new flag
+        update_flags_cache(self.team)
+
+        # Create another flag that won't be in cache
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="new-uncached-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        out = StringIO()
+        call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("new-uncached-flag", output)
+        self.assertIn("exists in DB but missing from cache", output)
+
+    def test_verbose_stale_in_cache(self):
+        """Test verbose output for STALE_IN_CACHE diff type."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Create flag and cache it
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="stale-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+
+        # Delete the flag (cache now stale)
+        flag.delete()
+
+        out = StringIO()
+        call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("stale-flag", output)
+        self.assertIn("exists in cache but deleted from DB", output)
+
+    def test_verbose_field_mismatch(self):
+        """Test verbose output for FIELD_MISMATCH diff type with field details."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Create flag and cache it
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="mismatch-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+        update_flags_cache(self.team)
+
+        # Modify the flag to create a mismatch
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        flag.save()
+
+        out = StringIO()
+        call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("mismatch-flag", output)
+        self.assertIn("field values differ", output)
+        self.assertIn("Field:", output)
+        self.assertIn("DB:", output)
+        self.assertIn("Cache:", output)
+
+    def test_verbose_unknown_diff_type_fallback(self):
+        """Test verbose output falls back gracefully for unknown diff types."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method with an unknown type
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        unknown_diff = {
+            "type": "UNKNOWN_TYPE",
+            "flag_key": "test-flag",
+        }
+        command.format_verbose_diff(unknown_diff)
+
+        output = out.getvalue()
+        self.assertIn("Flag 'test-flag'", output)
+        self.assertIn("UNKNOWN_TYPE", output)
+
+    def test_verbose_missing_flag_key_uses_flag_id(self):
+        """Test verbose output uses flag_id when flag_key is missing."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method without flag_key
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        diff_without_key = {
+            "type": "MISSING_IN_CACHE",
+            "flag_id": 12345,
+            # Note: no flag_key
+        }
+        command.format_verbose_diff(diff_without_key)
+
+        output = out.getvalue()
+        self.assertIn("Flag '12345'", output)
+
+    def test_verbose_empty_field_diffs(self):
+        """Test verbose output handles empty field_diffs gracefully."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method with empty field_diffs
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        diff_with_empty_field_diffs = {
+            "type": "FIELD_MISMATCH",
+            "flag_key": "test-flag",
+            "field_diffs": [],  # Empty list
+        }
+        command.format_verbose_diff(diff_with_empty_field_diffs)
+
+        output = out.getvalue()
+        self.assertIn("Flag 'test-flag'", output)
+        self.assertIn("field values differ", output)
+        # Should not crash despite empty field_diffs
+
+    def test_verbose_missing_field_in_field_diff(self):
+        """Test verbose output handles missing 'field' key in field_diff gracefully."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method with malformed field_diff
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        diff_with_malformed_field_diffs = {
+            "type": "FIELD_MISMATCH",
+            "flag_key": "test-flag",
+            "field_diffs": [
+                {
+                    # Missing 'field' key
+                    "db_value": "db_val",
+                    "cached_value": "cached_val",
+                }
+            ],
+        }
+        command.format_verbose_diff(diff_with_malformed_field_diffs)
+
+        output = out.getvalue()
+        self.assertIn("Flag 'test-flag'", output)
+        self.assertIn("unknown_field", output)  # Falls back to default
+        self.assertIn("db_val", output)
+        self.assertIn("cached_val", output)
+
+
 @override_settings(FLAGS_REDIS_URL=None)
 class TestServiceFlagsGuards(BaseTest):
     """Test that cache functions guard against writes when FLAGS_REDIS_URL is not set."""
@@ -1464,3 +2355,866 @@ class TestServiceFlagsGuards(BaseTest):
         clear_flags_cache(self.team)
 
         # Should complete without error (nothing to verify as it's a no-op)
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test", FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5)
+class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
+    """Test _get_team_ids_with_recently_updated_flags batch helper for grace period logic."""
+
+    def test_returns_empty_set_for_team_with_no_flags(self):
+        """Test returns empty set for team with no flags."""
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    def test_returns_team_id_for_recently_updated_flag(self):
+        """Test returns team ID for team with recently updated flag."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == {self.team.id}
+
+    def test_returns_empty_set_for_old_flag(self):
+        """Test returns empty set for team with flag updated outside grace period."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="old-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        # Manually set updated_at to outside grace period
+        FeatureFlag.objects.filter(id=flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
+    def test_returns_empty_set_when_grace_period_is_zero(self):
+        """Test returns empty set when grace period is disabled (0 minutes)."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    def test_returns_empty_set_for_empty_team_ids_list(self):
+        """Test returns empty set when given empty list of team IDs."""
+        result = _get_team_ids_with_recently_updated_flags([])
+        assert result == set()
+
+    def test_returns_team_id_if_any_flag_is_recent(self):
+        """Test returns team ID if ANY flag is recent (OR logic across team flags)."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        # Old flag outside grace period
+        old_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="old-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.filter(id=old_flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
+
+        # Recent flag within grace period
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Should return team ID because at least one flag is recent
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == {self.team.id}
+
+    def test_batch_returns_only_teams_with_recent_flags(self):
+        """Test batch query returns only team IDs that have recently updated flags."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        # Create second team
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+
+        # Team 1 has a recent flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Team 2 has an old flag
+        old_flag = FeatureFlag.objects.create(
+            team=team2,
+            key="old-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.filter(id=old_flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
+
+        # Query both teams - should only return team 1
+        result = _get_team_ids_with_recently_updated_flags([self.team.id, team2.id])
+        assert result == {self.team.id}
+
+    def test_ignores_recently_deleted_flags(self):
+        """Test returns empty set for team with recently deleted flag.
+
+        When a flag is deleted, the cache update removes it. We shouldn't skip
+        verification just because a deleted flag was recently updated.
+        """
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="deleted-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            deleted=True,  # Flag is deleted
+        )
+        # Ensure updated_at is recent (within grace period)
+        assert flag.updated_at is not None
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    def test_ignores_recently_deactivated_flags(self):
+        """Test returns empty set for team with recently deactivated flag.
+
+        The grace period function only considers active flags when determining
+        whether to skip cache verification. Inactive flags are included in the
+        cache (for dependency resolution), but their recent updates should not
+        trigger the grace period because their evaluation is deterministic (always false).
+        """
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="inactive-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            active=False,  # Flag is inactive
+        )
+        # Ensure updated_at is recent (within grace period)
+        assert flag.updated_at is not None
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+
+class TestGetTeamsWithFlagsQueryset(BaseTest):
+    def test_includes_team_with_active_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="active-flag", created_by=self.user)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_includes_team_with_soft_deleted_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="del", created_by=self.user, deleted=True)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_includes_team_with_inactive_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="off", created_by=self.user, active=False)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_excludes_team_with_no_flags(self):
+        team_no_flags = Team.objects.create(organization=self.organization, name="No Flags")
+        qs = get_teams_with_flags_queryset()
+        assert team_no_flags.id not in qs.values_list("id", flat=True)
+
+    def test_queryset_does_not_include_parent_team_join(self):
+        """The Q() wrapper in get_teams_with_flags_queryset bypasses
+        RootTeamQuerySet.filter() to keep the EXISTS subquery simple.
+        If someone removes the Q() wrapper, the query will regress to
+        include parent_team joins that are unusable at scale."""
+        qs = get_teams_with_flags_queryset()
+        sql = str(qs.query).lower()
+        # Extract the EXISTS subquery — this is where the regression would appear.
+        # The SELECT column list legitimately contains parent_team_id as a Team field.
+        exists_start = sql.index("exists(")
+        subquery_sql = sql[exists_start:]
+        assert "parent_team" not in subquery_sql, (
+            f"EXISTS subquery should not reference parent_team, got: {subquery_sql}"
+        )
+
+    def test_team_with_multiple_flags_returned_once(self):
+        FeatureFlag.objects.create(team=self.team, key="flag-1", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="flag-2", created_by=self.user)
+        qs = get_teams_with_flags_queryset()
+        team_ids = list(qs.values_list("id", flat=True))
+        assert team_ids.count(self.team.id) == 1
+
+
+def _make_flag(id: int, key: str, deps: list[int] | None = None, active: bool = True, deleted: bool = False) -> dict:
+    """Helper to build a serialized flag dict with optional flag dependencies."""
+    properties = []
+    for dep_id in deps or []:
+        properties.append({"type": "flag", "key": str(dep_id), "value": ["true"], "operator": "exact"})
+    return {
+        "id": id,
+        "key": key,
+        "active": active,
+        "deleted": deleted,
+        "filters": {"groups": [{"properties": properties, "rollout_percentage": 100}]},
+    }
+
+
+class TestExtractDirectDependencyIds:
+    @parameterized.expand(
+        [
+            ("no_dependencies", _make_flag(1, "flag_a"), set()),
+            ("single_dependency", _make_flag(1, "flag_a", deps=[2]), {2}),
+            ("multiple_dependencies", _make_flag(1, "flag_a", deps=[2, 3]), {2, 3}),
+            ("inactive_flag_returns_empty", _make_flag(1, "flag_a", deps=[2], active=False), set()),
+            ("deleted_flag_returns_empty", _make_flag(1, "flag_a", deps=[2], deleted=True), set()),
+            (
+                "non_flag_properties_ignored",
+                {
+                    "id": 1,
+                    "key": "flag_a",
+                    "active": True,
+                    "deleted": False,
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"type": "person", "key": "email", "value": "test@example.com"},
+                                    {"type": "flag", "key": "2", "value": ["true"], "operator": "exact"},
+                                ]
+                            }
+                        ]
+                    },
+                },
+                {2},
+            ),
+            (
+                "non_numeric_flag_key_ignored",
+                {
+                    "id": 1,
+                    "key": "flag_a",
+                    "active": True,
+                    "deleted": False,
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"type": "flag", "key": "not_a_number", "value": ["true"]},
+                                ]
+                            }
+                        ]
+                    },
+                },
+                set(),
+            ),
+        ]
+    )
+    def test_extract_direct_dependency_ids(self, _name, flag, expected):
+        assert _extract_direct_dependency_ids(flag) == expected
+
+
+class TestComputeFlagDependencies:
+    def test_no_dependencies(self):
+        flags = [_make_flag(1, "flag_a"), _make_flag(2, "flag_b")]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["dependency_stages"] == [[1, 2]]
+        assert ctx["flags_with_missing_deps"] == []
+        assert ctx["transitive_deps"] == {"1": [], "2": []}
+
+    def test_linear_chain(self):
+        # A(1) -> B(2) -> C(3)
+        flags = [
+            _make_flag(1, "flag_a", deps=[2]),
+            _make_flag(2, "flag_b", deps=[3]),
+            _make_flag(3, "flag_c"),
+        ]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["dependency_stages"] == [[3], [2], [1]]
+        assert ctx["flags_with_missing_deps"] == []
+        assert ctx["transitive_deps"] == {"1": [2, 3], "2": [3], "3": []}
+
+    def test_diamond(self):
+        # A(1) -> B(2), C(3); B(2) -> D(4); C(3) -> D(4)
+        flags = [
+            _make_flag(1, "flag_a", deps=[2, 3]),
+            _make_flag(2, "flag_b", deps=[4]),
+            _make_flag(3, "flag_c", deps=[4]),
+            _make_flag(4, "flag_d"),
+        ]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["dependency_stages"] == [[4], [2, 3], [1]]
+        assert ctx["flags_with_missing_deps"] == []
+        assert ctx["transitive_deps"] == {"1": [2, 3, 4], "2": [4], "3": [4], "4": []}
+
+    def test_missing_dependency(self):
+        # A(1) -> 999 (missing)
+        flags = [_make_flag(1, "flag_a", deps=[999])]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["dependency_stages"] == [[1]]
+        assert ctx["flags_with_missing_deps"] == [1]
+        assert ctx["transitive_deps"] == {"1": []}
+
+    def test_cycle_both_flags_marked(self):
+        # A(1) -> B(2) -> A(1)
+        # Kahn's: neither flag reaches in-degree 0, so both are excluded from stages.
+        flags = [
+            _make_flag(1, "flag_a", deps=[2]),
+            _make_flag(2, "flag_b", deps=[1]),
+        ]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["dependency_stages"] == []
+        assert ctx["flags_with_missing_deps"] == [1, 2]
+
+    def test_transitive_missing_propagation(self):
+        # A(1) -> B(2) -> 999 (missing)
+        flags = [
+            _make_flag(1, "flag_a", deps=[2]),
+            _make_flag(2, "flag_b", deps=[999]),
+        ]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["flags_with_missing_deps"] == [1, 2]
+        assert ctx["dependency_stages"] == [[2], [1]]
+
+    def test_inactive_flag_empty_deps(self):
+        # Inactive A(1) has a dep on B(2), but since inactive, deps should be empty
+        flags = [
+            _make_flag(1, "flag_a", deps=[2], active=False),
+            _make_flag(2, "flag_b"),
+        ]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["dependency_stages"] == [[1, 2]]
+
+    def test_dependency_on_inactive_flag_not_missing(self):
+        # A(1) -> inactive B(2). B exists so dependency is valid, but B evaluates to false.
+        flags = [
+            _make_flag(1, "flag_a", deps=[2]),
+            _make_flag(2, "flag_b", active=False),
+        ]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["dependency_stages"] == [[2], [1]]
+        assert ctx["flags_with_missing_deps"] == []
+
+    def test_self_cycle(self):
+        # A(1) -> A(1)
+        flags = [_make_flag(1, "flag_a", deps=[1])]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["dependency_stages"] == []
+        assert ctx["flags_with_missing_deps"] == [1]
+
+    def test_three_node_cycle(self):
+        # A(1) -> B(2) -> C(3) -> A(1), plus D(4) -> A(1)
+        # Kahn's: A, B, C never reach in-degree 0 (cycle). D depends on cycled A,
+        # so D also never reaches in-degree 0. All excluded from stages.
+        flags = [
+            _make_flag(1, "flag_a", deps=[2]),
+            _make_flag(2, "flag_b", deps=[3]),
+            _make_flag(3, "flag_c", deps=[1]),
+            _make_flag(4, "flag_d", deps=[1]),
+        ]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["dependency_stages"] == []
+        assert ctx["flags_with_missing_deps"] == [1, 2, 3, 4]
+        # Cycled flags get empty transitive deps (never peeled by Kahn's)
+        assert ctx["transitive_deps"] == {"1": [], "2": [], "3": [], "4": []}
+
+    def test_empty_flags_list(self):
+        ctx = _compute_flag_dependencies([])
+
+        assert ctx["dependency_stages"] == []
+        assert ctx["flags_with_missing_deps"] == []
+        assert ctx["transitive_deps"] == {}
+
+    def test_partial_missing_branch(self):
+        # A(1) -> 999 (missing), B(2) -> C(3) (valid)
+        flags = [
+            _make_flag(1, "flag_a", deps=[999]),
+            _make_flag(2, "flag_b", deps=[3]),
+            _make_flag(3, "flag_c"),
+        ]
+        ctx = _compute_flag_dependencies(flags)
+
+        assert ctx["flags_with_missing_deps"] == [1]
+        assert ctx["dependency_stages"] == [[1, 3], [2]]
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestComputeFlagDependenciesIntegration(BaseTest):
+    def test_get_feature_flags_for_service_includes_dependency_fields(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        result = _get_feature_flags_for_service(self.team)
+
+        assert "evaluation_metadata" in result
+        ctx = result["evaluation_metadata"]
+        assert "dependency_stages" in ctx
+        assert "flags_with_missing_deps" in ctx
+        assert "transitive_deps" in ctx
+        assert ctx["dependency_stages"] == [[flag.id]]
+        assert ctx["flags_with_missing_deps"] == []
+        assert ctx["transitive_deps"] == {str(flag.id): []}
+
+        # Per-flag fields should not exist
+        flag_data = result["flags"][0]
+        assert "direct_dependency_flag_ids" not in flag_data
+        assert "dependency_flag_ids" not in flag_data
+        assert "has_missing_dependencies" not in flag_data
+
+    def test_batch_includes_dependency_fields(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        result = _get_feature_flags_for_teams_batch([self.team])
+
+        assert "evaluation_metadata" in result[self.team.id]
+
+    def test_service_computes_transitive_deps(self):
+        flag_c = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-c",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"type": "flag", "key": str(flag_c.id), "value": ["true"], "operator": "exact"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"type": "flag", "key": str(flag_b.id), "value": ["true"], "operator": "exact"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+        ctx = result["evaluation_metadata"]
+
+        assert sorted(ctx["transitive_deps"][str(flag_a.id)]) == sorted([flag_b.id, flag_c.id])
+        assert ctx["transitive_deps"][str(flag_b.id)] == [flag_c.id]
+        assert ctx["transitive_deps"][str(flag_c.id)] == []
+        assert ctx["dependency_stages"] == [[flag_c.id], [flag_b.id], [flag_a.id]]
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestExtractCohortIdsFromFlagFilters(BaseTest):
+    def test_extracts_cohort_ids_from_active_flag(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": 42}]}],
+                },
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == {42}
+
+    @parameterized.expand(
+        [
+            ("inactive", {"active": False}),
+            ("deleted", {"active": True, "deleted": True}),
+        ]
+    )
+    def test_skips_excluded_flag(self, _name, flag_overrides):
+        flags_data = [
+            {
+                **flag_overrides,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": 42}]}],
+                },
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == set()
+
+    def test_handles_string_cohort_value(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": "42"}]}],
+                },
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == {42}
+
+    def test_skips_non_cohort_properties(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"type": "person", "key": "email", "value": "test@test.com"},
+                                {"type": "cohort", "value": 5},
+                            ]
+                        }
+                    ],
+                },
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == {5}
+
+    def test_handles_malformed_value(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": "not_a_number"}]}],
+                },
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == set()
+
+    def test_returns_empty_for_no_flags(self):
+        assert _extract_cohort_ids_from_flag_filters([]) == set()
+
+    def test_deduplicates_cohort_ids(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [
+                        {"properties": [{"type": "cohort", "value": 42}]},
+                        {"properties": [{"type": "cohort", "value": 42}]},
+                    ],
+                },
+            },
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": 42}]}],
+                },
+            },
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == {42}
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestGetReferencedCohorts(BaseTest):
+    def test_returns_empty_when_no_cohorts_referenced(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "person", "key": "email", "value": "x"}]}],
+                },
+            }
+        ]
+        assert _get_referenced_cohorts(self.team.id, flags_data) == []
+
+    def test_returns_referenced_cohort(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": cohort.id}]}],
+                },
+            }
+        ]
+        result = _get_referenced_cohorts(self.team.id, flags_data)
+        assert len(result) == 1
+        assert result[0]["id"] == cohort.id
+        assert result[0]["name"] == "Test Cohort"
+
+    def test_includes_transitive_cohort_deps(self):
+        cohort_b = Cohort.objects.create(
+            team=self.team,
+            name="Leaf Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "b@b.com", "type": "person"}]}],
+                }
+            },
+        )
+        cohort_a = Cohort.objects.create(
+            team=self.team,
+            name="Parent Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "id", "value": cohort_b.id, "type": "cohort"}]}],
+                }
+            },
+        )
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": cohort_a.id}]}],
+                },
+            }
+        ]
+        result = _get_referenced_cohorts(self.team.id, flags_data)
+        result_ids = {c["id"] for c in result}
+        assert cohort_a.id in result_ids
+        assert cohort_b.id in result_ids
+
+    def test_excludes_deleted_cohorts(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Deleted",
+            deleted=True,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": cohort.id}]}],
+                },
+            }
+        ]
+        assert _get_referenced_cohorts(self.team.id, flags_data) == []
+
+    def test_excludes_other_team_cohorts(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        cohort = Cohort.objects.create(
+            team=other_team,
+            name="Other Team Cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": cohort.id}]}],
+                },
+            }
+        ]
+        assert _get_referenced_cohorts(self.team.id, flags_data) == []
+
+    def test_handles_circular_cohort_deps(self):
+        cohort_a = Cohort.objects.create(
+            team=self.team,
+            name="A",
+            filters={"properties": {"type": "OR", "values": []}},
+        )
+        cohort_b = Cohort.objects.create(
+            team=self.team,
+            name="B",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "id", "value": cohort_a.id, "type": "cohort"}]}],
+                }
+            },
+        )
+        # Update A to reference B (creating a cycle)
+        cohort_a.filters = {
+            "properties": {
+                "type": "OR",
+                "values": [{"type": "OR", "values": [{"key": "id", "value": cohort_b.id, "type": "cohort"}]}],
+            }
+        }
+        cohort_a.save()
+
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": cohort_a.id}]}],
+                },
+            }
+        ]
+        # Should terminate without infinite loop
+        result = _get_referenced_cohorts(self.team.id, flags_data)
+        result_ids = {c["id"] for c in result}
+        assert cohort_a.id in result_ids
+        assert cohort_b.id in result_ids
+
+    def test_terminates_at_depth_limit(self):
+        chain: list[Cohort] = []
+        for i in range(25):
+            filters: dict[str, Any] = {"properties": {"type": "OR", "values": []}}
+            if chain:
+                filters["properties"]["values"] = [
+                    {"type": "OR", "values": [{"key": "id", "value": chain[-1].id, "type": "cohort"}]}
+                ]
+            cohort = Cohort.objects.create(team=self.team, name=f"chain-{i}", filters=filters)
+            chain.append(cohort)
+
+        flags_data = [
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [{"type": "cohort", "value": chain[-1].id}]}],
+                },
+            }
+        ]
+        result = _get_referenced_cohorts(self.team.id, flags_data)
+        # BFS should stop at depth 20, returning fewer than all 25 cohorts
+        assert len(result) <= 20  # BFS loads at most 20 cohorts
+        assert len(result) < 25
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestSerializeCohort(BaseTest):
+    def test_serializes_all_required_fields(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test",
+            description="A test cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        result = _serialize_cohort(cohort)
+
+        # Hypercache/service cohort schema: these 17 fields must always be present in the serialized payload
+        expected_fields = {
+            "id",
+            "name",
+            "description",
+            "team_id",
+            "deleted",
+            "filters",
+            "query",
+            "version",
+            "pending_version",
+            "count",
+            "is_calculating",
+            "is_static",
+            "errors_calculating",
+            "groups",
+            "created_by_id",
+            "cohort_type",
+            "last_backfill_person_properties_at",
+        }
+        assert set(result.keys()) == expected_fields
+        assert result["id"] == cohort.id
+        assert result["team_id"] == self.team.id
+        assert result["name"] == "Test"
+        assert result["deleted"] is False
+        assert result["is_static"] is False
+        assert result["is_calculating"] is False
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestCohortChangedFlagsCacheSignal(BaseTest):
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_fires_on_cohort_definition_change(self, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        cohort.name = "updated"
+        cohort.save()
+        mock_task.delay.assert_called_with(self.team.id)
+
+    @parameterized.expand(
+        [
+            ("is_calculating", "is_calculating", True),
+            ("count", "count", 100),
+            ("version", "version", 2),
+        ]
+    )
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_skips_recalculation_only_save(self, _name, field, value, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        setattr(cohort, field, value)
+        cohort.save(update_fields=[field])
+        mock_task.delay.assert_not_called()
+
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_skips_cohort_type_only_save(self, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        cohort.cohort_type = "behavioral"
+        cohort.save(update_fields=["cohort_type"])
+        mock_task.delay.assert_not_called()
+
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_fires_on_mixed_recalculation_and_definition_fields(self, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        cohort.name = "updated"
+        cohort.count = 50
+        cohort.save(update_fields=["name", "count"])
+        mock_task.delay.assert_called_with(self.team.id)
+
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_fires_on_cohort_delete(self, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        cohort.delete()
+        mock_task.delay.assert_called_with(self.team.id)
+
+    @override_settings(FLAGS_REDIS_URL=None)
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    def test_skips_when_no_flags_redis_url(self, mock_task):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_task.reset_mock()
+        cohort.name = "updated"
+        cohort.save()
+        mock_task.delay.assert_not_called()

@@ -1,6 +1,6 @@
 {
     "$schema": "./node_modules/oxlint/configuration_schema.json",
-    "plugins": ["typescript", "unicorn", "react", "react-perf", "jest", "promise", "jsdoc", "oxc"],
+    "plugins": ["typescript", "unicorn", "react", "react-perf", "jest", "promise", "jsdoc", "oxc", "import"],
     "env": {
         "builtin": true
     },
@@ -10,16 +10,17 @@
         "build",
         "rust",
         "cli",
-        "plugin-server",
+        "nodejs",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
         "common/plugin_transpiler/dist",
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
         "frontend/src/queries/validators.js",
-        "products/mcp/**/generated.ts",
-        "products/mcp/schema/tool-inputs.json",
-        "products/mcp/python"
+        "frontend/src/generated/**",
+        "services/mcp/**/generated.ts",
+        "services/mcp/schema/tool-inputs.json",
+        "products/**/frontend/generated/**"
     ],
     "rules": {
         "no-constant-condition": "off",
@@ -108,7 +109,7 @@
                 "forbid": [
                     {
                         "propName": "style",
-                        "message": "style should be avoided in favor of utility CSS classes - see https://storybook.posthog.net/?path=/docs/lemon-ui-utilities--overview"
+                        "message": "style should be avoided in favor of utility CSS classes - see https://storybook.dev.posthog.dev/?path=/docs/lemon-ui-utilities--overview"
                     }
                 ]
             }
@@ -118,14 +119,6 @@
             {
                 "forbid": [
                     {
-                        "element": "Layout",
-                        "message": "use utility classes instead"
-                    },
-                    {
-                        "element": "Tabs",
-                        "message": "use <LemonTabs> instead"
-                    },
-                    {
                         "element": "Space",
                         "message": "use flex or space utility classes instead"
                     },
@@ -134,36 +127,8 @@
                         "message": "use Spinner instead"
                     },
                     {
-                        "element": "Badge",
-                        "message": "use LemonBadge instead"
-                    },
-                    {
-                        "element": "InputNumber",
-                        "message": "use LemonInput with type=\"number\" instead"
-                    },
-                    {
-                        "element": "Collapse",
-                        "message": "use <LemonCollapse> instead"
-                    },
-                    {
-                        "element": "Slider",
-                        "message": "use <LemonSlider> instead"
-                    },
-                    {
-                        "element": "Checkbox",
-                        "message": "use <LemonCheckbox> instead"
-                    },
-                    {
                         "element": "MonacoEditor",
                         "message": "use <CodeEditor> instead"
-                    },
-                    {
-                        "element": "Typography",
-                        "message": "use utility classes instead"
-                    },
-                    {
-                        "element": "Input.TextArea",
-                        "message": "use <LemonTextArea> instead"
                     },
                     {
                         "element": "ReactMarkdown",
@@ -172,54 +137,6 @@
                     {
                         "element": "a",
                         "message": "use <Link> instead"
-                    },
-                    {
-                        "element": "Tag",
-                        "message": "use <LemonTag> instead"
-                    },
-                    {
-                        "element": "Alert",
-                        "message": "use <LemonBanner> instead"
-                    },
-                    {
-                        "element": "ReactJson",
-                        "message": "use <JSONViewer> for dark mode support instead"
-                    },
-                    {
-                        "element": "Radio",
-                        "message": "use <LemonRadio> instead"
-                    },
-                    {
-                        "element": "Skeleton",
-                        "message": "use <LemonSkeleton> instead"
-                    },
-                    {
-                        "element": "Divider",
-                        "message": "use <LemonDivider> instead"
-                    },
-                    {
-                        "element": "Popconfirm",
-                        "message": "use <LemonDialog> instead"
-                    },
-                    {
-                        "element": "Button",
-                        "message": "use <LemonButton> instead"
-                    },
-                    {
-                        "element": "Input",
-                        "message": "use <LemonInput> instead"
-                    },
-                    {
-                        "element": "Modal",
-                        "message": "use <LemonModal> or <LemonDialog> instead"
-                    },
-                    {
-                        "element": "Select",
-                        "message": "use <LemonSelect> instead"
-                    },
-                    {
-                        "element": "Progress",
-                        "message": "use <LemonProgress> instead"
                     }
                 ]
             }
@@ -227,16 +144,10 @@
         "no-constant-binary-expression": "error",
         "no-useless-rename": "error",
         "no-useless-call": "error",
-        "import/no-restricted-paths": [
+        "import/no-cycle": [
             "error",
             {
-                "zones": [
-                    {
-                        "target": "./frontend/**",
-                        "from": "./ee/frontend/**",
-                        "message": "EE licensed TypeScript should only be accessed via the posthogEE objects. Use `import posthogEE from '@posthog/ee/exports'`"
-                    }
-                ]
+                "maxDepth": 10
             }
         ],
         "jest/no-restricted-matchers": [
@@ -251,6 +162,41 @@
             "files": ["*.stories.tsx"],
             "rules": {
                 "react-hooks/rules-of-hooks": "off"
+            }
+        },
+        {
+            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}"],
+            "rules": {
+                "no-console": [
+                    "error",
+                    {
+                        "allow": ["debug", "info", "warn", "error"]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["docs/onboarding/**/*.tsx"],
+            "rules": {
+                "react/forbid-elements": "off"
+            }
+        },
+        {
+            "files": ["services/stripe-app/src/**/*.{ts,tsx}"],
+            "rules": {
+                "react/forbid-elements": "off",
+                "react/forbid-dom-props": "off",
+                "no-restricted-imports": "off"
+            }
+        },
+        {
+            "files": [
+                "common/mosaic/**/*.{ts,tsx}",
+                "services/mcp/src/ui-apps/**/*.{ts,tsx}",
+                "products/**/mcp/apps/**/*.{ts,tsx}"
+            ],
+            "rules": {
+                "react/forbid-elements": "off"
             }
         }
     ]

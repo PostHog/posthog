@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional, TypeVar
+from typing import Optional, TypeVar, cast
 
 from dateutil.parser import isoparse
 
@@ -14,6 +14,7 @@ from posthog.models import Team
 from posthog.utils import relative_date_parse
 
 T = TypeVar("T", bound=ast.Expr)
+DEFAULT_TEAM = cast(Team, None)
 
 
 @dataclasses.dataclass
@@ -27,7 +28,7 @@ def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team) -> T:
 
 
 class ReplaceFilters(CloningVisitor):
-    def __init__(self, filters: Optional[HogQLFilters], team: Team = None):
+    def __init__(self, filters: Optional[HogQLFilters], team: Team = DEFAULT_TEAM):
         super().__init__()
         self.filters = filters
         self.team = team
@@ -58,27 +59,32 @@ class ReplaceFilters(CloningVisitor):
         if node.chain == ["filters"]:
             last_select = self.selects[-1]
             last_join = last_select.select_from
+            all_tables = []
             found_events = False
             found_sessions = False
             found_logs = False
+            found_traces = False
             found_groups = False
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
-                    if last_join.table.chain == ["events"]:
+                    all_tables.append(last_join.table.chain)
+                    if last_join.table.chain == ["events"] or last_join.table.chain == ["posthog", "ai_events"]:
                         found_events = True
                     if last_join.table.chain == ["sessions"]:
                         found_sessions = True
-                    if last_join.table.chain == ["logs"]:
+                    if last_join.table.chain == ["logs"] or last_join.table.chain == ["log_attributes"]:
                         found_logs = True
+                    if last_join.table.chain == ["posthog", "trace_spans"]:
+                        found_traces = True
                     if last_join.table.chain == ["groups"]:
                         found_groups = True
                     if found_events and found_sessions or found_groups:
                         break
                 last_join = last_join.next_join
 
-            if not any([found_events, found_sessions, found_logs, found_groups]):
+            if not any([found_events, found_sessions, found_logs, found_traces, found_groups]):
                 raise QueryError(
-                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table."
+                    f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces or groups table."
                 )
 
             if no_filters:
@@ -105,7 +111,7 @@ class ReplaceFilters(CloningVisitor):
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
             timestamp_field = ast.Field(chain=["$start_timestamp"])
-            if found_events or found_logs:
+            if found_events or found_logs or found_traces:
                 timestamp_field = ast.Field(chain=["timestamp"])
             if found_groups:
                 timestamp_field = ast.Field(chain=["created_at"])
@@ -195,5 +201,12 @@ class ReplaceFilters(CloningVisitor):
             else:
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
+
+        if node.chain and node.chain[0] == "filters":
+            chain_str = ".".join(str(c) for c in node.chain)
+            raise QueryError(
+                f"Unsupported filters placeholder `{{{chain_str}}}`. "
+                "Supported filters placeholders are: `{filters}`, `{filters.dateRange.from}`, `{filters.dateRange.to}`."
+            )
 
         return super().visit_placeholder(node)

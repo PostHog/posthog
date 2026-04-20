@@ -58,14 +58,12 @@ describe('llmAnalyticsDatasetsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.clearAllMocks()
+        jest.resetAllMocks()
 
-        mockApi.datasets = {
-            create: jest.fn(),
-            update: jest.fn(),
-            get: jest.fn(),
-            list: jest.fn().mockResolvedValue(mockDatasetsResponse),
-        } as any
+        jest.spyOn(mockApi.datasets, 'create').mockResolvedValue(undefined as any)
+        jest.spyOn(mockApi.datasets, 'update').mockResolvedValue(undefined as any)
+        jest.spyOn(mockApi.datasets, 'get').mockResolvedValue(undefined as any)
+        jest.spyOn(mockApi.datasets, 'list').mockResolvedValue(mockDatasetsResponse as any)
     })
 
     describe('filters functionality', () => {
@@ -292,13 +290,13 @@ describe('llmAnalyticsDatasetsLogic', () => {
             logic.actions.setFilters({ page: 2 }, false)
             logic.actions.loadDatasetsSuccess({ results: [], count: 100 })
 
-            expect(logic.values.datasetCountLabel).toBe('31-60 of 100 datasets')
+            expect(logic.values.datasetCountLabel).toBe('31-60 of 100 datasets')
         })
 
         it('computes dataset count label correctly for single result', () => {
             logic.actions.loadDatasetsSuccess({ results: [], count: 1 })
 
-            expect(logic.values.datasetCountLabel).toBe('1-1 of 1 dataset')
+            expect(logic.values.datasetCountLabel).toBe('1-1 of 1 dataset')
         })
 
         it('computes dataset count label correctly for no results', () => {
@@ -311,7 +309,7 @@ describe('llmAnalyticsDatasetsLogic', () => {
             logic.actions.setFilters({ page: 4 }, false)
             logic.actions.loadDatasetsSuccess({ results: [], count: 95 })
 
-            expect(logic.values.datasetCountLabel).toBe('91-95 of 95 datasets')
+            expect(logic.values.datasetCountLabel).toBe('91-95 of 95 datasets')
         })
     })
 

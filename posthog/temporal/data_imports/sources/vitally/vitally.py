@@ -363,7 +363,7 @@ def get_messages(
 
     logger.debug("Requesting first page")
 
-    with requests.session() as session:
+    with requests.Session() as session:
         while paginator.has_next_page:
             paginator.update_request(request)
             prepared_request = session.prepare_request(request)

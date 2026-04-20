@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -6,11 +6,16 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    SimpleSource,
+)
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -54,9 +59,21 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_report",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )
 
-    def validate_credentials(self, config: TikTokAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: TikTokAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if not config.advertiser_id or not config.tiktok_integration_id:
             return False, "Advertiser ID and TikTok Ads integration are required"
 
@@ -67,8 +84,10 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
             capture_exception(e)
             return False, f"Failed to validate TikTok Ads credentials: {str(e)}"
 
-    def get_schemas(self, config: TikTokAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: TikTokAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=str(endpoint_config.resource["name"]),
                 supports_incremental=endpoint_config.incremental_fields is not None,
@@ -77,6 +96,10 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
             )
             for endpoint_config in TIKTOK_ADS_CONFIG.values()
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def source_for_pipeline(self, config: TikTokAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         integration = self.get_oauth_integration(config.tiktok_integration_id, inputs.team_id)

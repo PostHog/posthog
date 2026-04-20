@@ -1,33 +1,41 @@
 import uuid
+import asyncio
+import datetime as dt
 import dataclasses
 from typing import Any, Optional
 
-from django.db import close_old_connections
 from django.db.models import Prefetch
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from posthog.temporal.data_imports.pipelines.common.extract import (
+    handle_non_retryable_error,
+    report_heartbeat_timeout,
+    trim_source_job_inputs,
+)
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT, PipelineResult
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.base import ResumableSource
+from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.util import NonRetryableException
+from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
+from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
+
+WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
 
 @dataclasses.dataclass
@@ -49,123 +57,36 @@ class ImportDataActivityInputs:
         }
 
 
-def _trim_source_job_inputs(source: ExternalDataSource) -> None:
-    if not source.job_inputs:
-        return
-
-    did_update_inputs = False
-    for key, value in source.job_inputs.items():
-        if isinstance(value, str):
-            if value.startswith(" ") or value.endswith(" "):
-                source.job_inputs[key] = value.strip()
-                did_update_inputs = True
-
-    if did_update_inputs:
-        source.save()
+@database_sync_to_async_pool
+def _get_external_data_job(run_id: str) -> ExternalDataJob:
+    return ExternalDataJob.objects.prefetch_related(
+        "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
+    ).get(id=run_id)
 
 
-def _report_heartbeat_timeout(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> None:
-    logger.debug("Checking for heartbeat timeout reporting...")
-
-    try:
-        info = activity.info()
-        heartbeat_timeout = info.heartbeat_timeout
-        current_attempt_scheduled_time = info.current_attempt_scheduled_time
-
-        if not heartbeat_timeout:
-            logger.debug(f"No heartbeat timeout set for this activity: {heartbeat_timeout}")
-            return
-
-        if not current_attempt_scheduled_time:
-            logger.debug(f"No current attempt scheduled time set for this activity: {current_attempt_scheduled_time}")
-            return
-
-        if info.attempt < 2:
-            logger.debug(f"First attempt of activity, no heartbeat timeout to report.")
-            return
-
-        heartbeat_details = info.heartbeat_details
-        if not isinstance(heartbeat_details, tuple | list) or len(heartbeat_details) < 1:
-            logger.debug(
-                f"No heartbeat details found to analyze for timeout: {heartbeat_details}. Class: {heartbeat_details.__class__.__name__}"
-            )
-            return
-
-        last_heartbeat = heartbeat_details[-1]
-        logger.debug(f"Resuming activity after failure. Last heartbeat details: {last_heartbeat}")
-
-        if not isinstance(last_heartbeat, dict):
-            logger.debug(
-                f"Last heartbeat details not in expected format (dict). Found: {type(last_heartbeat)}: {last_heartbeat}"
-            )
-            return
-
-        last_heartbeat_host = last_heartbeat.get("host", None)
-        last_heartbeat_timestamp = last_heartbeat.get("ts", None)
-
-        logger.debug(f"Last heartbeat was {last_heartbeat}")
-
-        if last_heartbeat_host is None or last_heartbeat_timestamp is None:
-            logger.debug(f"Incomplete heartbeat details. No host or timestamp found.")
-            return
-
-        try:
-            last_heartbeat_timestamp = float(last_heartbeat_timestamp)
-        except (TypeError, ValueError):
-            logger.debug(f"Last heartbeat timestamp could not be converted to float: {last_heartbeat_timestamp}")
-            return
-
-        gap_between_beats = current_attempt_scheduled_time.timestamp() - float(last_heartbeat_timestamp)
-        if gap_between_beats > heartbeat_timeout.total_seconds():
-            logger.debug(
-                "Last heartbeat was longer ago than the heartbeat timeout allows. Likely due to a pod OOM or restart.",
-                last_heartbeat_host=last_heartbeat_host,
-                last_heartbeat_timestamp=last_heartbeat_timestamp,
-                gap_between_beats=gap_between_beats,
-                heartbeat_timeout_seconds=heartbeat_timeout.total_seconds(),
-            )
-
-            posthoganalytics.capture(
-                "dwh_pod_heartbeat_timeout",
-                distinct_id=None,
-                properties={
-                    "team_id": inputs.team_id,
-                    "schema_id": str(inputs.schema_id),
-                    "source_id": str(inputs.source_id),
-                    "run_id": inputs.run_id,
-                    "host": last_heartbeat_host,
-                    "gap_between_beats": gap_between_beats,
-                    "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
-                    "task_queue": info.task_queue,
-                    "workflow_id": info.workflow_id,
-                    "workflow_run_id": info.workflow_run_id,
-                    "workflow_type": info.workflow_type,
-                    "attempt": info.attempt,
-                },
-            )
-        else:
-            logger.debug("Last heartbeat was within the heartbeat timeout window. No action needed.")
-    except Exception as e:
-        logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
+@database_sync_to_async_pool
+def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDataSchema:
+    return (
+        ExternalDataSchema.objects.prefetch_related("source", "table")
+        .exclude(deleted=True)
+        .get(id=schema_id, team_id=team_id)
+    )
 
 
 @activity.defn
-def import_data_activity_sync(inputs: ImportDataActivityInputs):
+async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> PipelineResult:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
 
-    _report_heartbeat_timeout(inputs, logger)
+    await asyncio.to_thread(report_heartbeat_timeout, inputs, logger)
 
-    with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
-        close_old_connections()
-        setup_row_tracking(inputs.team_id, inputs.schema_id)
+    async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
+        await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
-        model = ExternalDataJob.objects.prefetch_related(
-            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-        ).get(id=inputs.run_id)
+        model = await _get_external_data_job(inputs.run_id)
 
-        logger.debug("Running *SYNC* import_data")
+        await logger.adebug("Running import_data_activity")
 
         source_type = ExternalDataSourceType(model.pipeline.source_type)
 
@@ -175,10 +96,10 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             run_id=inputs.run_id,
             team_id=inputs.team_id,
             job_type=source_type,
-            dataset_name=model.folder_path(),
+            dataset_name=await database_sync_to_async_pool(model.folder_path)(),
         )
 
-        _trim_source_job_inputs(model.pipeline)
+        await trim_source_job_inputs(model.pipeline)
 
         schema: ExternalDataSchema | None = model.schema
         assert schema is not None
@@ -188,14 +109,10 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         else:
             reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
 
-        logger.debug(f"schema.sync_type_config = {schema.sync_type_config}")
-        logger.debug(f"reset_pipeline = {reset_pipeline}")
+        await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
+        await logger.adebug(f"reset_pipeline = {reset_pipeline}")
 
-        schema = (
-            ExternalDataSchema.objects.prefetch_related("source")
-            .exclude(deleted=True)
-            .get(id=inputs.schema_id, team_id=inputs.team_id)
-        )
+        schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
@@ -211,15 +128,16 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             )
 
         if schema.should_use_incremental_field:
-            logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
+            await logger.adebug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
         if processed_incremental_earliest_value:
-            logger.debug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
+            await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
         if SourceRegistry.is_registered(source_type):
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
+                source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
                 should_use_incremental_field=schema.should_use_incremental_field,
                 incremental_field=schema.incremental_field if schema.should_use_incremental_field else None,
@@ -232,20 +150,56 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 else None,
                 logger=logger,
                 job_id=inputs.run_id,
+                reset_pipeline=reset_pipeline,
             )
+
             new_source = SourceRegistry.get_source(source_type)
             config = new_source.parse_config(model.pipeline.job_inputs)
 
             resumable_source_manager: ResumableSourceManager | None = None
-            if isinstance(new_source, ResumableSource):
-                resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
-                source = new_source.source_for_pipeline(config, resumable_source_manager, source_inputs)
-            else:
-                source = new_source.source_for_pipeline(config, source_inputs)
+            try:
+                if isinstance(new_source, ResumableSource):
+                    resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
+                        config, resumable_source_manager, source_inputs
+                    )
+                elif isinstance(new_source, SimpleSource):
+                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
+                        config, source_inputs
+                    )
+                else:
+                    raise TypeError(
+                        f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
+                    )
+            except CDCHandledExternally:
+                await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
+                # Mark the job as non-billable so it doesn't clutter the Syncs tab
+                from products.data_warehouse.backend.models import ExternalDataJob
 
-            return _run(
+                await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
+                    billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)
+                )
+
+                # Pause the per-schema schedule — CDCExtractionWorkflow handles this
+                # schema now. The schedule is unpaused if the schema transitions back
+                # to snapshot mode (e.g., after a TRUNCATE or re-enable after grace period).
+                try:
+                    from products.data_warehouse.backend.data_load.service import pause_external_data_schedule
+
+                    await database_sync_to_async_pool(pause_external_data_schedule)(str(inputs.schema_id))
+                    await logger.ainfo("Paused per-schema schedule for CDC streaming schema")
+                except Exception:
+                    await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
+
+                return PipelineResult(
+                    should_trigger_cdp_producer=False,
+                    consumer_manages_job_status=True,
+                    skip_post_import_activities=True,
+                )
+
+            return await _run(
                 job_inputs=job_inputs,
-                source=source,
+                source_response=source_response,
                 logger=logger,
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
@@ -255,21 +209,82 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
-def _run(
+async def _is_pipeline_v3_enabled(team_id: int, source_type: str, logger: FilteringBoundLogger) -> bool:
+    from posthog.temporal.data_imports.workflow_activities.create_job_model import (
+        _is_pipeline_v3_enabled as _sync_check,
+    )
+
+    enabled = await database_sync_to_async_pool(_sync_check)(team_id, source_type)
+    if enabled:
+        logger.debug(
+            f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id} source_type {source_type}"
+        )
+    return enabled
+
+
+@database_sync_to_async_pool
+def _get_models(
+    job_id: str,
+) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
+    job = ExternalDataJob.objects.select_related("schema", "schema__table").get(id=job_id)
+    schema: ExternalDataSchema | None = job.schema
+    source: ExternalDataSource | None = job.pipeline
+    if schema is None:
+        raise Exception("No schema attached to job")
+    if source is None:
+        raise Exception("No source attached to job")
+
+    table: DataWarehouseTable | None = schema.table
+    return job, schema, source, table
+
+
+async def _run(
     job_inputs: PipelineInputs,
-    source: SourceResponse,
+    source_response: SourceResponse,
     logger: FilteringBoundLogger,
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
     resumable_source_manager: ResumableSourceManager | None,
-):
+) -> PipelineResult:
     try:
-        pipeline = PipelineNonDLT(
-            source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
-        )
-        pipeline.run()
-        logger.debug("Finished running pipeline")
+        job, schema, source, table = await _get_models(job_inputs.run_id)
+
+        use_v3 = await _is_pipeline_v3_enabled(job_inputs.team_id, source.source_type, logger)
+
+        if use_v3:
+            from posthog.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
+
+            logger.info("Running V3 pipeline (feature flag enabled)")
+            pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
+                source_response,
+                logger,
+                job_inputs.run_id,
+                reset_pipeline,
+                shutdown_monitor,
+                job,
+                schema,
+                source,
+                table,
+                resumable_source_manager,
+            )
+        else:
+            pipeline = PipelineNonDLT(
+                source_response,
+                logger,
+                job_inputs.run_id,
+                reset_pipeline,
+                shutdown_monitor,
+                job,
+                schema,
+                source,
+                table,
+                resumable_source_manager,
+            )
+
+        result = await pipeline.run()
         del pipeline
+        await logger.adebug("Finished running pipeline")
+        return result
     except Exception as e:
         source_cls = SourceRegistry.get_source(job_inputs.job_type)
         non_retryable_errors = source_cls.get_non_retryable_errors()
@@ -278,10 +293,8 @@ def _run(
             non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
         )
         if is_non_retryable_error:
-            logger.debug(f"Encountered non-retryable error during import_data_activity_sync. error={error_msg}")
-            raise NonRetryableException() from e
+            await handle_non_retryable_error(job_inputs, error_msg, logger, e)
         else:
-            logger.debug(
-                "Error encountered during import_data_activity_sync - re-raising",
-            )
+            await logger.aexception(error_msg)
+            await logger.adebug("Error encountered during import_data_activity - re-raising")
             raise

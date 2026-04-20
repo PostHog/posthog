@@ -4,6 +4,7 @@ import { BatchExportService } from '~/types'
 
 import IconHTTP from 'public/hedgehog/running-hog.png'
 import IconS3 from 'public/services/aws-s3.png'
+import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBigQuery from 'public/services/bigquery.png'
 import IconDatabricks from 'public/services/databricks.png'
 import IconPostgres from 'public/services/postgres.png'
@@ -15,6 +16,7 @@ export function getBatchExportUrl(service: BatchExportService['type']): string {
 }
 
 export const BATCH_EXPORT_ICON_MAP: Record<BatchExportService['type'], string> = {
+    AzureBlob: IconAzureBlob,
     BigQuery: IconBigQuery,
     Postgres: IconPostgres,
     Redshift: IconRedshift,
@@ -33,7 +35,7 @@ export function RenderBatchExportIcon({
 }): JSX.Element {
     const icon = BATCH_EXPORT_ICON_MAP[type]
 
-    const sizePx = size === 'small' ? 30 : 60
+    const sizePx = size === 'small' ? 30 : 45
 
     return (
         <div className="flex gap-4 items-center">

@@ -31,7 +31,7 @@ class SessionSummaryEventStringifier:
         for issue in ["abandonment", "confusion", "exception"]:
             if event[issue]:
                 if issue == "exception":
-                    issue = f'{event["exception"]} exception'
+                    issue = f"{event['exception']} exception"
                 issues_noticed.append(issue)
         context = {
             "issues_noticed": ", ".join(issues_noticed),
@@ -63,13 +63,13 @@ class SingleSessionSummaryStringifier(SessionSummaryEventStringifier):
 
     def stringify_session(self) -> str:
         template = Template(SESSION_STRING_FORMAT)
+        session_id = self._find_session_id()
         # Collect segments data
         session_segments = []
         for segment in self.summary["segments"]:
-            session_segments.append(self._stringify_segment(segment))
+            session_segments.append(self._stringify_segment(segment=segment, session_id=session_id))
         session_segments_str = "\n".join(session_segments)
         session_outcome = self.summary["session_outcome"]
-        session_id = self._find_session_id()
         # Format the template
         context = {
             "session_id": session_id,
@@ -79,29 +79,33 @@ class SingleSessionSummaryStringifier(SessionSummaryEventStringifier):
         }
         return self._clean_up(template.render(context))
 
-    def _find_segment_key_actions_events(self, segment_id: int) -> list[dict[str, Any]]:
+    def _find_segment_key_actions_events(self, segment_id: int, session_id: str) -> list[dict[str, Any]]:
         for key_actions in self.summary["key_actions"]:
             if key_actions["segment_index"] == segment_id:
                 return key_actions["events"]
         # Each segment should have at least one key action
-        raise ValueError(f"Segment key actions not found for segment_id {segment_id}")
+        msg = f"Segment key actions not found for segment_id {segment_id}"
+        logger.error(msg, signals_type="session-summaries", session_id=session_id)
+        raise ValueError(msg)
 
-    def _find_segment_outcome(self, segment_id: int) -> dict[str, Any]:
+    def _find_segment_outcome(self, segment_id: int, session_id: str) -> dict[str, Any]:
         for outcome in self.summary["segment_outcomes"]:
             if outcome["segment_index"] == segment_id:
                 return outcome
         # Each segment should have at least one outcome
-        raise ValueError(f"Segment outcome not found for segment_id {segment_id}")
+        msg = f"Segment outcome not found for segment_id {segment_id}"
+        logger.error(msg, signals_type="session-summaries", session_id=session_id)
+        raise ValueError(msg)
 
-    def _stringify_segment(self, segment: dict[str, Any]) -> str:
+    def _stringify_segment(self, segment: dict[str, Any], session_id: str) -> str:
         template = Template(SEGMENT_STRING_FORMAT)
         # Collect key actions data
         segment_events = []
-        key_actions_events = self._find_segment_key_actions_events(segment["index"])
+        key_actions_events = self._find_segment_key_actions_events(segment_id=segment["index"], session_id=session_id)
         for event in key_actions_events:
             segment_events.append(self.stringify_event(event))
         events_str = "".join(segment_events)
-        outcome = self._find_segment_outcome(segment["index"])
+        outcome = self._find_segment_outcome(segment_id=segment["index"], session_id=session_id)
         # Format the template
         summary, success = outcome["summary"], outcome["success"]
         context = {
@@ -118,4 +122,6 @@ class SingleSessionSummaryStringifier(SessionSummaryEventStringifier):
     def _find_session_id(self) -> str:
         if self.summary["key_actions"] and self.summary["key_actions"][0]["events"]:
             return self.summary["key_actions"][0]["events"][0]["session_id"]
-        raise ValueError("Session ID not found in the first key action")
+        msg = f"Session ID not found in the first key action: {self.summary}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)

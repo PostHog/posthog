@@ -9,8 +9,8 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -117,7 +117,7 @@ export function SessionGroupSummariesTable(): JSX.Element {
                         value={filters.search}
                         data-attr="session-group-summaries-search"
                     />
-                    <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <div className="flex items-center gap-2">
                             <span>Created by:</span>
                             <MemberSelect

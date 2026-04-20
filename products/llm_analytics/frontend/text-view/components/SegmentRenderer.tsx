@@ -26,6 +26,7 @@ interface SegmentRendererProps {
     activeLineNumber?: number | null
     lineNumberPadding?: number
     onCopyPermalink?: (lineNumber: number) => void
+    enableLineActions?: boolean
 }
 
 export function SegmentRenderer({
@@ -43,6 +44,7 @@ export function SegmentRenderer({
     activeLineNumber,
     lineNumberPadding,
     onCopyPermalink,
+    enableLineActions = false,
 }: SegmentRendererProps): JSX.Element {
     if (segment.type === 'gen_expandable') {
         // Extract [GEN], [SPAN], or [EMBED] tag and rest of content
@@ -76,6 +78,7 @@ export function SegmentRenderer({
                             activeLineNumber={activeLineNumber}
                             lineNumberPadding={lineNumberPadding}
                             onCopyPermalink={onCopyPermalink}
+                            enableLineActions={enableLineActions}
                         />
                     </div>
                 )}
@@ -126,6 +129,7 @@ export function SegmentRenderer({
                             activeLineNumber={activeLineNumber}
                             lineNumberPadding={lineNumberPadding}
                             onCopyPermalink={onCopyPermalink}
+                            enableLineActions={enableLineActions}
                         />
                         {'\n\n'}
                     </span>
@@ -150,6 +154,7 @@ export function SegmentRenderer({
                                             activeLineNumber={activeLineNumber}
                                             lineNumberPadding={lineNumberPadding}
                                             onCopyPermalink={onCopyPermalink}
+                                            enableLineActions={enableLineActions}
                                         />
                                         {'\n\n'}
                                     </span>
@@ -173,6 +178,7 @@ export function SegmentRenderer({
                         activeLineNumber={activeLineNumber}
                         lineNumberPadding={lineNumberPadding}
                         onCopyPermalink={onCopyPermalink}
+                        enableLineActions={enableLineActions}
                     />
                     <button
                         onClick={() => onToggleExpand(index)}

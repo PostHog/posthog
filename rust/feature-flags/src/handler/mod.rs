@@ -1,5 +1,6 @@
 pub mod authentication;
 pub mod billing;
+pub mod canonical_log;
 pub mod config_response_builder;
 pub mod cookieless;
 pub mod decoding;
@@ -10,15 +11,18 @@ pub mod properties;
 pub mod session_recording;
 pub mod types;
 
+pub use canonical_log::{
+    run_with_canonical_log, with_canonical_log, EvalCounters, FlagsCanonicalLogLine,
+};
 pub use types::*;
 
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
-    flags::flag_service::FlagService,
+    flags::{flag_matching::EvaluationType, flag_service::FlagService},
     metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
 };
 use std::collections::HashMap;
-use tracing::{info, instrument, warn};
+use tracing::{instrument, warn};
 
 #[cfg(test)]
 use crate::handler::test_metrics::{histogram, inc};
@@ -33,6 +37,9 @@ use common_metrics::{histogram, inc};
 /// 3) Prepares property overrides,
 /// 4) Evaluates the requested flags,
 /// 5) Returns a [`FlagsResponse`] or an error.
+///
+/// Expects to be called within a `run_with_canonical_log()` scope.
+/// Updates the canonical log via `with_canonical_log()`.
 #[instrument(skip_all, fields(request_id = %context.request_id))]
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let start_time = std::time::Instant::now();
@@ -47,6 +54,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 struct MetricsData {
     team_id: Option<i32>,
     flags_disabled: Option<bool>,
+    library: Library,
+    evaluation_type: Option<EvaluationType>,
 }
 
 fn record_metrics(
@@ -64,9 +73,20 @@ fn record_metrics(
         .map(|disabled| disabled.to_string())
         .unwrap_or_else(|| "not_available".to_string());
 
+    let library = data.library.to_string();
+
+    // "none" (not "not_available") because it means evaluation was intentionally skipped
+    // (flags disabled, quota limited, empty set), not that the value is unknown.
+    let evaluation_type = data
+        .evaluation_type
+        .map_or("none", EvaluationType::as_str)
+        .to_string();
+
     let labels = [
         ("flags_disabled".to_string(), flags_disabled),
         ("team_id".to_string(), team_id.clone()),
+        ("library".to_string(), library),
+        ("evaluation_type".to_string(), evaluation_type),
     ];
 
     inc(FLAG_REQUESTS_COUNTER, &labels, 1);
@@ -86,53 +106,73 @@ fn record_metrics(
 async fn process_request_inner(
     context: RequestContext,
 ) -> (Result<FlagsResponse, FlagError>, MetricsData) {
+    let library = Library::from_headers(&context.headers);
+
     let mut metrics_data = MetricsData {
         team_id: None,
         flags_disabled: None,
+        library,
+        evaluation_type: None,
     };
 
     let result = async {
+        // Use the pre-initialized HyperCacheReaders from state (for team and flags)
+        // This avoids per-request AWS SDK initialization overhead
         let flag_service = FlagService::new(
             context.state.redis_client.clone(),
-            context.state.dedicated_redis_client.clone(),
             context.state.database_pools.non_persons_reader.clone(),
-            context.state.config.team_cache_ttl_seconds,
-            context.state.config.flags_cache_ttl_seconds,
-            context.state.config.clone(),
+            context.state.team_hypercache_reader.clone(),
+            context.state.flags_hypercache_reader.clone(),
+            context.state.team_negative_cache.clone(),
+            *context.state.config.skip_pg_team_fallback,
         );
 
-        let (original_distinct_id, verified_token, request) =
+        let (original_distinct_id, team, request) =
             authentication::parse_and_authenticate(&context, &flag_service).await?;
 
         let distinct_id_for_logging = original_distinct_id
             .clone()
             .unwrap_or_else(|| "disabled".to_string());
 
+        // Populate canonical log with distinct_id, device_id, and anon_distinct_id
+        // anon_distinct_id uses same precedence as hash_key_override: top-level > person_properties
+        let anon_distinct_id_for_logging = request.anon_distinct_id.clone().or_else(|| {
+            request
+                .person_properties
+                .as_ref()
+                .and_then(|props| props.get("$anon_distinct_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+        let device_id = request.extract_device_id();
+        with_canonical_log(|log| {
+            log.distinct_id = Some(distinct_id_for_logging.clone());
+            log.device_id = device_id.clone();
+            log.anon_distinct_id = anon_distinct_id_for_logging;
+        });
+
         tracing::debug!(
             "Authentication completed for distinct_id: {}",
             distinct_id_for_logging
         );
 
-        let team = flag_service
-            .get_team_from_cache_or_pg(&verified_token)
-            .await?;
-
         metrics_data.team_id = Some(team.id);
         metrics_data.flags_disabled = Some(request.is_flags_disabled());
 
-        tracing::debug!(
-            "Team fetched: team_id={}, project_id={}",
-            team.id,
-            team.project_id()
-        );
+        // Populate canonical log with team_id
+        with_canonical_log(|log| log.team_id = Some(team.id));
+
+        tracing::debug!("Team fetched: team_id={}", team.id);
 
         // Early exit if flags are disabled
         let flags_response = if request.is_flags_disabled() {
+            with_canonical_log(|log| log.flags_disabled = true);
             FlagsResponse::new(false, HashMap::new(), None, context.request_id)
         } else if let Some(quota_limited_response) =
-            billing::check_limits(&context, &verified_token).await?
+            billing::check_limits(&context, &team.api_token).await?
         {
             warn!("Request quota limited");
+            with_canonical_log(|log| log.quota_limited = true);
             quota_limited_response
         } else {
             let distinct_id = cookieless::handle_distinct_id(
@@ -148,11 +188,11 @@ async fn process_request_inner(
 
             let filtered_flags = flags::fetch_and_filter(
                 &flag_service,
-                team.project_id(),
+                team.id,
                 &context.meta,
                 &context.headers,
                 request.evaluation_runtime,
-                request.evaluation_environments.as_ref(),
+                request.evaluation_contexts.as_ref(),
             )
             .await?;
 
@@ -164,8 +204,8 @@ async fn process_request_inner(
             let response = flags::evaluate_for_request(
                 &context.state,
                 team.id,
-                team.project_id(),
                 distinct_id.clone(),
+                device_id.clone(),
                 filtered_flags.clone(),
                 property_overrides.person_properties,
                 property_overrides.group_properties,
@@ -175,32 +215,35 @@ async fn process_request_inner(
                 request.is_flags_disabled(),
                 request.flag_keys.clone(),
             )
-            .await;
+            .await?;
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {
-                billing::record_usage(&context, &filtered_flags, team.id).await;
+                billing::record_usage(&context, &filtered_flags, team.id, metrics_data.library)
+                    .await;
             }
 
             response
         };
 
-        // build the rest of the FlagsResponse, since the caller may have passed in `&config=true` and may need additional fields
-        // beyond just feature flags
+        // Build the rest of the FlagsResponse with config from HyperCache.
+        // When config=true, reads pre-computed config from Python's RemoteConfig.
+        // On cache miss, returns fallback config.
         let response =
-            config_response_builder::build_response(flags_response, &context, &team).await?;
+            config_response_builder::build_response_from_cache(flags_response, &context, &team)
+                .await?;
 
-        // Comprehensive request summary
-        info!(
-            request_id = %context.request_id,
-            distinct_id = %distinct_id_for_logging,
-            team_id = team.id,
-            project_id = team.project_id(),
-            flags_count = response.flags.len(),
-            flags_disabled = request.is_flags_disabled(),
-            quota_limited = response.quota_limited.is_some(),
-            "Request completed"
-        );
+        // Populate canonical log with flag evaluation results and read back evaluation_type.
+        // If an earlier step errored (? above), we skip this and evaluation_type stays
+        // None → "none" in metrics. That's intentional: we don't need sequential/parallel
+        // breakdown for failed requests.
+        with_canonical_log(|log| {
+            log.flags_evaluated = response.flags.len();
+            if response.quota_limited.is_some() {
+                log.quota_limited = true;
+            }
+            metrics_data.evaluation_type = log.evaluation_type;
+        });
 
         Ok(response)
     }
@@ -292,6 +335,8 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: Some(123),
             flags_disabled: Some(false),
+            library: Library::PosthogNode,
+            evaluation_type: Some(EvaluationType::Sequential),
         };
 
         // Call the real record_metrics function - it will use our test metrics functions
@@ -316,12 +361,21 @@ mod metrics_tests {
         assert!(counter
             .labels
             .contains(&("flags_disabled".to_string(), "false".to_string())));
+        assert!(counter
+            .labels
+            .contains(&("library".to_string(), "posthog-node".to_string())));
+        assert!(counter
+            .labels
+            .contains(&("evaluation_type".to_string(), "sequential".to_string())));
 
         // Check the histogram metric
         let histogram = &metrics[1];
         assert_eq!(histogram.name, FLAG_REQUESTS_LATENCY);
         assert_eq!(histogram.metric_type, MetricType::Histogram);
         assert_eq!(histogram.value, 100.0);
+        assert!(histogram
+            .labels
+            .contains(&("evaluation_type".to_string(), "sequential".to_string())));
     }
 
     #[test]
@@ -337,6 +391,8 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: None,
             flags_disabled: None,
+            library: Library::Other,
+            evaluation_type: None,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(50));
@@ -344,7 +400,7 @@ mod metrics_tests {
         let metrics = get_recorded_metrics();
         assert_eq!(metrics.len(), 2);
 
-        // Both metrics should use "not_available" for missing values
+        // Both metrics should use "not_available" / "none" for missing values
         for metric in &metrics {
             assert!(metric
                 .labels
@@ -352,6 +408,9 @@ mod metrics_tests {
             assert!(metric
                 .labels
                 .contains(&("flags_disabled".to_string(), "not_available".to_string())));
+            assert!(metric
+                .labels
+                .contains(&("evaluation_type".to_string(), "none".to_string())));
         }
     }
 
@@ -363,6 +422,8 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: Some(456),
             flags_disabled: Some(true),
+            library: Library::PosthogJs,
+            evaluation_type: Some(EvaluationType::Parallel),
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(200));
@@ -385,6 +446,23 @@ mod metrics_tests {
         assert!(fault_counter
             .labels
             .contains(&("team_id".to_string(), "456".to_string())));
+
+        // Verify counter and histogram carry the correct evaluation_type label
+        let counter = metrics
+            .iter()
+            .find(|m| m.name == FLAG_REQUESTS_COUNTER)
+            .expect("Should have counter");
+        assert!(counter
+            .labels
+            .contains(&("evaluation_type".to_string(), "parallel".to_string())));
+
+        let histogram = metrics
+            .iter()
+            .find(|m| m.name == FLAG_REQUESTS_LATENCY)
+            .expect("Should have histogram");
+        assert!(histogram
+            .labels
+            .contains(&("evaluation_type".to_string(), "parallel".to_string())));
     }
 
     #[test]
@@ -395,6 +473,8 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: None,
             flags_disabled: Some(false),
+            library: Library::PosthogPython,
+            evaluation_type: None,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(150));
@@ -423,6 +503,8 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: Some(789),
             flags_disabled: Some(false),
+            library: Library::PosthogAndroid,
+            evaluation_type: Some(EvaluationType::Sequential),
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(75));

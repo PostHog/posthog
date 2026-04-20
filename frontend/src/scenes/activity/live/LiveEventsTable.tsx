@@ -1,119 +1,75 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
-import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
-import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconPauseFilled, IconPlayFilled, IconRefresh, IconTerminal } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TZLabel } from 'lib/components/TZLabel'
+import { LiveRecordingsCount, LiveUserCount } from 'lib/components/LiveUserCount'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
-import { ActivityTab, LiveEvent } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { ActivityTab, PropertyOperator } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
 
-import { useActivityTabs } from '../explore/utils'
+import { LiveEventsFeed } from './LiveEventsFeed'
+import { liveEventsLogic } from './liveEventsLogic'
+import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
 
-const columns: LemonTableColumns<LiveEvent> = [
-    {
-        title: 'Event',
-        key: 'event',
-        className: 'max-w-80',
-        render: function Render(_, event: LiveEvent) {
-            return <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
-        },
-    },
-    {
-        title: 'Person distinct ID',
-        tooltip:
-            'Some events may be missing a person profile – this is expected, because live events are streamed before person processing completes',
-        key: 'person',
-        className: 'max-w-80',
-        render: function Render(_, event: LiveEvent) {
-            return <PersonDisplay person={{ distinct_id: event.distinct_id }} />
-        },
-    },
-    {
-        title: 'URL / Screen',
-        key: '$current_url',
-        className: 'max-w-80',
-        render: function Render(_, event: LiveEvent) {
-            return <span>{event.properties['$current_url'] || event.properties['$screen_name']}</span>
-        },
-    },
-    {
-        title: 'Time',
-        key: 'timestamp',
-        className: 'max-w-80',
-        render: function Render(_, event: LiveEvent) {
-            return <TZLabel time={event.timestamp} />
-        },
-    },
-    {
-        dataIndex: '__more' as any,
-        render: function Render(_, event: LiveEvent) {
-            return (
-                <More
-                    overlay={
-                        <Tooltip title="It may take up to a few minutes for the event to show up in the Explore view">
-                            <EventCopyLinkButton event={event} />
-                        </Tooltip>
-                    }
-                />
-            )
-        },
-        width: 0,
-    },
-]
+const LIVE_EVENTS_POLL_INTERVAL_MS = 1500
+
+export const scene: SceneExport = {
+    component: LiveEventsTable,
+    logic: liveEventsTableSceneLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
+}
 
 export function LiveEventsTable(): JSX.Element {
-    const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
-    const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsTableLogic)
-    const tabs = useActivityTabs()
+    const { events, streamPaused, filters } = useValues(liveEventsLogic)
+    const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { isVisible } = usePageVisibility()
+    useEffect(() => {
+        if (isVisible) {
+            resumeStream()
+        } else {
+            pauseStream()
+        }
+    }, [isVisible, resumeStream, pauseStream])
 
     return (
         <SceneContent data-attr="manage-events-table">
-            <LemonTabs activeKey={ActivityTab.LiveEvents} tabs={tabs} sceneInset className="mb-3" />
+            <ActivitySceneTabs activeKey={ActivityTab.LiveEvents} />
+            {featureFlags[FEATURE_FLAGS.LIVESTREAM_TUI] && (
+                <LemonBanner type="info" className="mb-4" icon={<IconTerminal />} dismissKey="livestream-tui-banner">
+                    Stream live events directly in your terminal with <code>posthog-live</code>.{' '}
+                    <Link to="https://posthog.com/docs/live-events/cli" target="_blank">
+                        Learn more
+                    </Link>
+                </LemonBanner>
+            )}
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.LiveEvents].iconType || 'default_icon_type',
                 }}
             />
             <div className="mb-4 flex w-full justify-between items-center">
-                <div className="flex justify-center">
-                    <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
-                        <div className="flex justify-center items-center bg-surface-primary px-3 py-2 rounded border border-primary text-xs font-medium text-secondary gap-x-2.5">
-                            <span className="relative flex h-2.5 w-2.5">
-                                <span
-                                    className={clsx(
-                                        'absolute inline-flex h-full w-full rounded-full bg-danger',
-                                        stats?.users_on_product != null && 'animate-ping'
-                                    )}
-                                    // Unfortunately we can't use the `opacity-50` class, because we use Tailwind's
-                                    // `important: true` and because of that Tailwind's `opacity` completely overrides
-                                    // the animation (see https://github.com/tailwindlabs/tailwindcss/issues/9225)
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ opacity: 0.75 }}
-                                />
-                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
-                            </span>
-                            <span className="text-sm cursor-default">
-                                Users active right now: <b>{stats?.users_on_product ?? '0'}</b>
-                            </span>
-                        </div>
-                    </Tooltip>
+                <div className="flex gap-2">
+                    <LiveUserCount pollIntervalMs={LIVE_EVENTS_POLL_INTERVAL_MS} showUpdatedTimeInTooltip={false} />
+                    <LiveRecordingsCount pollIntervalMs={LIVE_EVENTS_POLL_INTERVAL_MS} />
                 </div>
 
                 <div className="flex gap-2">
@@ -129,6 +85,14 @@ export function LiveEventsTable(): JSX.Element {
                         onChange={(value) => setFilters({ ...filters, eventType: value })}
                         placeholder="Filter by event"
                         allEventsOption="clear"
+                    />
+                    <PropertyFilters
+                        pageKey="live-events"
+                        propertyFilters={filters.properties ?? []}
+                        onChange={(properties) => setFilters({ ...filters, properties })}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                        operatorAllowlist={[PropertyOperator.Exact]}
+                        buttonText="Filter by property"
                     />
                     <LemonButton
                         icon={
@@ -146,32 +110,7 @@ export function LiveEventsTable(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <LemonTable
-                columns={columns}
-                data-attr="live-events-table"
-                rowKey="uuid"
-                dataSource={events}
-                useURLForSorting={false}
-                emptyState={
-                    <div className="flex flex-col justify-center items-center gap-4 p-6">
-                        {!streamPaused ? (
-                            <Spinner className="text-4xl" textColored />
-                        ) : (
-                            <IconPauseFilled className="text-4xl" />
-                        )}
-                        <span className="text-lg font-title font-semibold leading-tight">
-                            {!streamPaused ? 'Waiting for events…' : 'Stream paused'}
-                        </span>
-                    </div>
-                }
-                nouns={['event', 'events']}
-            />
+            <LiveEventsFeed events={events} streamPaused={streamPaused} />
         </SceneContent>
     )
-}
-
-export const scene: SceneExport = {
-    component: LiveEventsTable,
-    logic: liveEventsTableLogic,
-    settingSectionId: 'environment-autocapture',
 }

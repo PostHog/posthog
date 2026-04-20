@@ -25,9 +25,9 @@ def assert_records_match_events(records, events):
     all_record = sorted(records, key=operator.itemgetter("event"))
 
     assert len(all_expected) == len(all_record)
-    assert len([record["uuid"] for record in all_record]) == len(
-        {record["uuid"] for record in all_record}
-    ), "duplicate records found"
+    assert len([record["uuid"] for record in all_record]) == len({record["uuid"] for record in all_record}), (
+        "duplicate records found"
+    )
 
     for expected, record in zip(all_expected, all_record):
         for key, value in record.items():
@@ -344,6 +344,39 @@ def test_get_data_interval(interval, data_interval_end, expected):
     """Test get_data_interval returns the expected data interval tuple."""
     result = get_data_interval(interval, data_interval_end)
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "interval,data_interval_end,expected_duration_hours",
+    [
+        # US/Eastern spring forward: 2024-03-10 clocks skip 2am->3am, so the calendar day is 23 hours.
+        (
+            "day",
+            "2024-03-11T04:00:00+00:00",
+            23,
+        ),
+        # US/Eastern fall back: 2024-11-03 clocks repeat 1am->2am, so the calendar day is 25 hours.
+        (
+            "day",
+            "2024-11-04T05:00:00+00:00",
+            25,
+        ),
+    ],
+)
+def test_get_data_interval_dst_transition(interval, data_interval_end, expected_duration_hours):
+    """get_data_interval should match Temporal's calendar-aware scheduling.
+
+    Temporal's ScheduleCalendarSpec fires at the correct local time each day,
+    so consecutive data_interval_end values may be 23h apart (spring forward)
+    or 25h apart (fall back). get_data_interval must produce a matching window
+    so intervals don't overlap or have gaps.
+    """
+    start, end = get_data_interval(interval, data_interval_end, timezone="US/Eastern")
+    actual_duration_hours = (end - start).total_seconds() / 3600
+
+    assert actual_duration_hours == expected_duration_hours, (
+        f"Expected {expected_duration_hours}h interval for DST transition day, got {actual_duration_hours}h"
+    )
 
 
 @pytest.mark.parametrize(

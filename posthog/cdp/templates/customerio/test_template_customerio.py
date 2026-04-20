@@ -1,8 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.customerio.template_customerio import (
     TemplateCustomerioMigrator,
     template as template_customerio,
@@ -40,26 +38,24 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://track.customer.io/api/v2/entity",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "User-Agent": "PostHog Customer.io App",
-                        "Authorization": "Basic U0lURV9JRDpUT0tFTg==",
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "type": "person",
-                        "action": "page",
-                        "name": None,
-                        "identifiers": {"email": "example@posthog.com"},
-                        "attributes": {"name": "example"},
-                        "timestamp": 1704067200,
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://track.customer.io/api/v2/entity",
+            {
+                "method": "POST",
+                "headers": {
+                    "User-Agent": "PostHog Customer.io App",
+                    "Authorization": "Basic U0lURV9JRDpUT0tFTg==",
+                    "Content-Type": "application/json",
                 },
-            )
+                "body": {
+                    "type": "person",
+                    "action": "page",
+                    "name": None,
+                    "identifiers": {"email": "example@posthog.com"},
+                    "attributes": {"name": "example"},
+                    "timestamp": 1704067200,
+                },
+            },
         )
 
     def test_will_truncate_long_values(self):
@@ -70,47 +66,47 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://track.customer.io/api/v2/entity",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "User-Agent": "PostHog Customer.io App",
-                        "Authorization": "Basic U0lURV9JRDpUT0tFTg==",
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "type": "person",
-                        "action": "page",
-                        "name": None,
-                        "identifiers": {"email": "example@posthog.com"},
-                        "attributes": {
-                            "url": "https://example.com/12345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345",
-                            "name": "example",
-                        },
-                        "timestamp": 1704067200,
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://track.customer.io/api/v2/entity",
+            {
+                "method": "POST",
+                "headers": {
+                    "User-Agent": "PostHog Customer.io App",
+                    "Authorization": "Basic U0lURV9JRDpUT0tFTg==",
+                    "Content-Type": "application/json",
                 },
-            )
+                "body": {
+                    "type": "person",
+                    "action": "page",
+                    "name": None,
+                    "identifiers": {"email": "example@posthog.com"},
+                    "attributes": {
+                        "url": "https://example.com/12345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345",
+                        "name": "example",
+                    },
+                    "timestamp": 1704067200,
+                },
+            },
         )
 
     def test_body_includes_all_properties_if_set(self):
         self.run_function(inputs=create_inputs(include_all_properties=False))
 
-        assert self.get_mock_fetch_calls()[0][1]["body"]["attributes"] == snapshot({"name": "example"})
+        assert self.get_mock_fetch_calls()[0][1]["body"]["attributes"] == {"name": "example"}
 
         self.run_function(inputs=create_inputs(include_all_properties=True))
 
-        assert self.get_mock_fetch_calls()[0][1]["body"]["attributes"] == snapshot(
-            {"$current_url": "https://example.com", "name": "example"}
-        )
+        assert self.get_mock_fetch_calls()[0][1]["body"]["attributes"] == {
+            "$current_url": "https://example.com",
+            "name": "example",
+        }
 
         self.run_function(inputs=create_inputs(include_all_properties=True, action="identify"))
 
-        assert self.get_mock_fetch_calls()[0][1]["body"]["attributes"] == snapshot(
-            {"email": "example@posthog.com", "name": "example"}
-        )
+        assert self.get_mock_fetch_calls()[0][1]["body"]["attributes"] == {
+            "email": "example@posthog.com",
+            "name": "example",
+        }
 
     def test_automatic_action_mapping(self):
         for event_name, expected_action in [
@@ -152,7 +148,7 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
         self.run_function(inputs=create_inputs(identifier_key="email", identifier_value=""))
 
         assert not self.get_mock_fetch_calls()
-        assert self.get_mock_print_calls() == snapshot([("No identifier set. Skipping as identifier is required.",)])
+        assert self.get_mock_print_calls() == [("No identifier set. Skipping as identifier is required.",)]
 
     def test_function_errors_on_bad_status(self):
         self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "error"}}  # type: ignore
@@ -178,19 +174,18 @@ class TestTemplateMigration(BaseTest):
         obj = self.get_plugin_config({})
 
         template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "action": {"value": "automatic"},
-                "site_id": {"value": "SITE_ID"},
-                "token": {"value": "TOKEN"},
-                "host": {"value": "track.customer.io"},
-                "identifier_key": {"value": "id"},
-                "identifier_value": {"value": "{event.distinct_id}"},
-                "include_all_properties": {"value": True},
-                "attributes": {"value": {}},
-            }
-        )
-        assert template["filters"] == snapshot({})
+        assert template["inputs"] == {
+            "action": {"value": "automatic"},
+            "site_id": {"value": "SITE_ID"},
+            "token": {"value": "TOKEN"},
+            "host": {"value": "track.customer.io"},
+            "identifier_key": {"value": "id"},
+            "identifier_value": {"value": "{event.distinct_id}"},
+            "include_all_properties": {"value": True},
+            "attributes": {"value": {}},
+        }
+
+        assert template["filters"] == {}
 
     def test_anon_config_send_all(self):
         obj = self.get_plugin_config(
@@ -200,7 +195,7 @@ class TestTemplateMigration(BaseTest):
         )
 
         template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["filters"] == snapshot({})
+        assert template["filters"] == {}
 
     def test_anon_config_send_emails(self):
         obj = self.get_plugin_config(
@@ -210,9 +205,9 @@ class TestTemplateMigration(BaseTest):
         )
 
         template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["filters"] == snapshot(
-            {"properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]}
-        )
+        assert template["filters"] == {
+            "properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]
+        }
 
     def test_anon_config_send_identified(self):
         obj = self.get_plugin_config(
@@ -222,9 +217,9 @@ class TestTemplateMigration(BaseTest):
         )
 
         template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["filters"] == snapshot(
-            {"properties": [{"key": "$is_identified", "value": ["true"], "operator": "exact", "type": "event"}]}
-        )
+        assert template["filters"] == {
+            "properties": [{"key": "$is_identified", "value": ["true"], "operator": "exact", "type": "event"}]
+        }
 
     def test_identify_by_email(self):
         obj = self.get_plugin_config({"identifyByEmail": "Yes"})
@@ -235,12 +230,10 @@ class TestTemplateMigration(BaseTest):
     def test_events_filters(self):
         obj = self.get_plugin_config({"eventsToSend": "event1,event2, $pageview"})
         template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["filters"] == snapshot(
-            {
-                "events": [
-                    {"id": "event1", "name": "event1", "type": "events", "order": 0},
-                    {"id": "event2", "name": "event2", "type": "events", "order": 0},
-                    {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
-                ]
-            }
-        )
+        assert template["filters"] == {
+            "events": [
+                {"id": "event1", "name": "event1", "type": "events", "order": 0},
+                {"id": "event2", "name": "event2", "type": "events", "order": 0},
+                {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+            ]
+        }

@@ -5,9 +5,10 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isGroupType } from 'lib/utils'
+import { assignField, isGroupType, isSessionType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -17,12 +18,14 @@ import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
     DataTableNode,
+    ExperimentActorsQuery,
     FunnelCorrelationActorsQuery,
     FunnelsActorsQuery,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
     NodeKind,
+    TrendsQuery,
     insightActorsQueryOptionsResponseKeys,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
@@ -31,18 +34,98 @@ import {
     BreakdownType,
     ChartDisplayType,
     CommonActorType,
+    FilterLogicalOperator,
     GroupActorType,
     IntervalType,
     PersonActorType,
     PropertiesTimelineFilterType,
+    SessionActorType,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+    UniversalFilterValue,
 } from '~/types'
 
 import type { personsModalLogicType } from './personsModalLogicType'
 
 const RESULTS_PER_PAGE = 100
 
+// Scope session recordings to the funnel's selected breakdown value. Load-bearing:
+// matched_recordings from the backend contains ALL of each actor's session IDs, so we
+// need this filter to actually narrow the list. Returns null for breakdown types that
+// can't be a single property filter (hogql / data_warehouse / multi-key / multi-value).
+function buildFunnelBreakdownFilter(source: ActorsQuery['source'] | null): UniversalFilterValue | null {
+    if (!source || source.kind !== NodeKind.FunnelsActorsQuery || source.funnelStepBreakdown == null) {
+        return null
+    }
+    const breakdownFilter = source.source.breakdownFilter
+    const breakdown = breakdownFilter?.breakdown
+    const breakdownType = breakdownFilter?.breakdown_type ?? 'event'
+
+    // Backend sends single values as one-element arrays (e.g. ["NL"]). Unwrap them; bail
+    // for genuine multi-value arrays — a click represents one selected value.
+    const rawBreakdownValue = source.funnelStepBreakdown
+    let breakdownValue: string | number
+    if (Array.isArray(rawBreakdownValue)) {
+        if (rawBreakdownValue.length !== 1) {
+            return null
+        }
+        breakdownValue = rawBreakdownValue[0]
+    } else {
+        breakdownValue = rawBreakdownValue
+    }
+
+    // Cohort → cohort membership filter. Skip the "All users" pseudo-cohort (0 / 'all').
+    if (breakdownType === 'cohort') {
+        if (breakdownValue === 0 || breakdownValue === 'all') {
+            return null
+        }
+        const cohortId = typeof breakdownValue === 'number' ? breakdownValue : Number(breakdownValue)
+        if (!Number.isFinite(cohortId)) {
+            return null
+        }
+        return {
+            type: PropertyFilterType.Cohort,
+            key: 'id',
+            value: cohortId,
+            operator: PropertyOperator.In,
+        }
+    }
+
+    // Non-cohort types need a single property key.
+    if (!breakdown || Array.isArray(breakdown)) {
+        return null
+    }
+
+    const key = String(breakdown)
+    const base = { key, value: breakdownValue, operator: PropertyOperator.Exact }
+
+    switch (breakdownType) {
+        case 'event':
+            return { ...base, type: PropertyFilterType.Event }
+        case 'event_metadata':
+            return { ...base, type: PropertyFilterType.EventMetadata }
+        case 'person':
+            return { ...base, type: PropertyFilterType.Person }
+        case 'session':
+            return { ...base, type: PropertyFilterType.Session }
+        case 'group':
+            if (breakdownFilter?.breakdown_group_type_index == null) {
+                return null
+            }
+            return {
+                ...base,
+                type: PropertyFilterType.Group,
+                group_type_index: breakdownFilter.breakdown_group_type_index,
+            }
+        // hogql / data_warehouse / revenue_analytics don't map to a single property filter.
+        default:
+            return null
+    }
+}
+
 export interface PersonModalLogicProps {
-    query?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | null
+    query?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | ExperimentActorsQuery | null
     url?: string | null
     additionalSelect?: Partial<Record<keyof CommonActorType, string>>
     orderBy?: string[]
@@ -78,8 +161,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
         loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
     connect(() => ({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
-        actions: [eventUsageLogic, ['reportPersonsModalViewed']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], teamLogic, ['currentTeamId']],
+        actions: [eventUsageLogic, ['reportPersonsModalViewed', 'reportPersonsModalSearched']],
     })),
 
     loaders(({ values, actions, props }) => ({
@@ -117,9 +200,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
-                        const additionalFieldIndices = Object.values(props.additionalSelect || {}).map((field) =>
-                            assembledSelectFields.indexOf(field)
-                        )
+                        const fieldKeys = Object.keys(props.additionalSelect || {}) as Array<keyof CommonActorType>
+                        const fieldValues = Object.values(props.additionalSelect || {}) as Array<keyof CommonActorType>
+                        const additionalFieldIndices = fieldValues.map((field) => assembledSelectFields.indexOf(field))
+                        const personColumnIndex = (response.columns || []).indexOf('person')
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
@@ -136,10 +220,26 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 matched_recordings: [],
                                                 value_at_data_point: null,
                                             }
-                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
-                                                group[field] = result[additionalFieldIndices[index]]
+                                            fieldKeys.forEach((field, index) => {
+                                                assignField(group, field, result[additionalFieldIndices[index]])
                                             })
                                             return group
+                                        }
+
+                                        if (result[0].session_id !== undefined) {
+                                            const session: SessionActorType = {
+                                                type: 'session',
+                                                id: result[0].session_id,
+                                                properties: result[0],
+                                                created_at: result[0].$start_timestamp,
+                                                matched_recordings: [],
+                                                value_at_data_point: null,
+                                                person: personColumnIndex >= 0 ? result[personColumnIndex] : undefined,
+                                            }
+                                            fieldKeys.forEach((field, index) => {
+                                                assignField(session, field, result[additionalFieldIndices[index]])
+                                            })
+                                            return session
                                         }
                                         const person: PersonActorType = {
                                             type: 'person',
@@ -151,11 +251,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                             matched_recordings: [],
                                             value_at_data_point: null,
                                         }
-
-                                        Object.keys(props.additionalSelect || {}).forEach((field, index) => {
-                                            person[field] = result[additionalFieldIndices[index]]
+                                        fieldKeys.forEach((field, index) => {
+                                            assignField(person, field, result[additionalFieldIndices[index]])
                                         })
-
                                         return person
                                     }),
                                 },
@@ -252,9 +350,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
-        setSearchTerm: async (_, breakpoint) => {
+        setSearchTerm: async ({ search }, breakpoint) => {
             await breakpoint(500)
             actions.loadActors({ url: props.url, clear: true })
+
+            if (search) {
+                actions.reportPersonsModalSearched({
+                    teamId: values.currentTeamId,
+                    actorType: values.actorLabel.singular,
+                })
+            }
         },
         saveAsCohort: async ({ cohortName }) => {
             const cohortParams = {
@@ -301,6 +406,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 if (!firstResult) {
                     return { singular: 'result', plural: 'results' }
+                }
+                if (isSessionType(firstResult)) {
+                    return { singular: 'session', plural: 'sessions' }
                 }
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
             },
@@ -384,7 +492,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     return null
                 }
 
-                // Generate insight events query from actors query
                 const { select: _select, ...source } = actorsQuery
 
                 const kind =
@@ -396,18 +503,156 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
 
+                const trendsQuery = insightActorsQuery.source as TrendsQuery
+                const seriesIndex = insightActorsQuery.series ?? 0
+                const seriesNode = trendsQuery.series?.[seriesIndex]
+                const eventName = seriesNode && 'event' in seriesNode ? seriesNode.event : undefined
+
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
                         source: insightActorsQuery,
                         select: ['*', 'event', 'person', 'timestamp'],
-                        after: 'all', // Show all events by default because date range is filtered by the source
+                        // Show all events by default because date range is filtered by the source
+                        after: 'all',
+                        event: eventName,
                     },
                     full: true,
                 }
 
                 return urls.insightNew({ query })
+            },
+        ],
+        sessionIdsFromLoadedActors: [
+            (s) => [s.actors],
+            (actors: ActorType[]): string[] => {
+                // Extract all session IDs from loaded actors' matched_recordings
+                const sessionIds: string[] = []
+                actors.forEach((actor: ActorType) => {
+                    if (actor.matched_recordings) {
+                        actor.matched_recordings.forEach((recording) => {
+                            if (recording.session_id) {
+                                sessionIds.push(recording.session_id)
+                            }
+                        })
+                    }
+                })
+                return sessionIds
+            },
+        ],
+        recordingFilters: [
+            (s) => [s.actorsQuery, s.propertiesTimelineFilterFromUrl, s.sessionIdsFromLoadedActors],
+            (
+                actorsQuery: ActorsQuery | null,
+                propertiesTimelineFilter: PropertiesTimelineFilterType,
+                sessionIds: string[]
+            ): Partial<RecordingUniversalFilters> => {
+                if (!actorsQuery || !actorsQuery.source) {
+                    return {}
+                }
+
+                const source = actorsQuery.source
+
+                // Scope recordings to the selected funnel breakdown value (e.g. country = "NL").
+                const funnelBreakdownFilter = buildFunnelBreakdownFilter(source)
+
+                // If we have session IDs from matched_recordings, use them directly for efficient lookup
+                if (sessionIds.length > 0) {
+                    return {
+                        session_ids: sessionIds,
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: funnelBreakdownFilter ? [funnelBreakdownFilter] : [],
+                                },
+                            ],
+                        },
+                        duration: [],
+                    }
+                }
+
+                // For non-funnel queries or funnels without session IDs, use filter-based approach
+                const filters: UniversalFilterValue[] = []
+
+                // The actual insight query (with series, properties, etc.) is nested at source.source
+                let insightQuery = source
+                if ('source' in source && source.source) {
+                    insightQuery = source.source as any
+                }
+
+                // Extract events from the insight query series
+                if ('series' in insightQuery && Array.isArray(insightQuery.series)) {
+                    insightQuery.series.forEach((series) => {
+                        if ('event' in series && series.event) {
+                            const eventFilter: any = {
+                                id: series.event,
+                                name: series.event,
+                                type: 'events',
+                            }
+                            if (
+                                'properties' in series &&
+                                Array.isArray(series.properties) &&
+                                series.properties.length > 0
+                            ) {
+                                eventFilter.properties = series.properties
+                            }
+                            filters.push(eventFilter)
+                        }
+                    })
+                }
+
+                // Add breakdown filters if present (trends path)
+                if ('breakdown' in source && source.breakdown && propertiesTimelineFilter?.breakdown) {
+                    const breakdownFilter = {
+                        key: propertiesTimelineFilter.breakdown,
+                        value: source.breakdown,
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    }
+                    filters.push(breakdownFilter as UniversalFilterValue)
+                }
+
+                // Add breakdown filter for funnels
+                if (funnelBreakdownFilter) {
+                    filters.push(funnelBreakdownFilter)
+                }
+
+                // Add global properties from the insight query
+                if (
+                    'properties' in insightQuery &&
+                    Array.isArray(insightQuery.properties) &&
+                    insightQuery.properties.length > 0
+                ) {
+                    filters.push(...insightQuery.properties)
+                }
+
+                // Extract date range from insight query
+                let date_from = propertiesTimelineFilter?.date_from
+                let date_to = propertiesTimelineFilter?.date_to
+
+                if ('dateRange' in insightQuery && insightQuery.dateRange) {
+                    const dateRange = insightQuery.dateRange as any
+                    date_from = dateRange.date_from || date_from
+                    date_to = dateRange.date_to || date_to
+                }
+
+                // Build the result for non-funnel or fallback cases
+                return {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: filters,
+                            },
+                        ],
+                    },
+                    date_from,
+                    date_to,
+                }
             },
         ],
     }),

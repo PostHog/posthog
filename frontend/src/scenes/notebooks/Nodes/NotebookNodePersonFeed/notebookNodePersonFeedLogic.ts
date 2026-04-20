@@ -11,6 +11,8 @@ import { performQuery } from '~/queries/query'
 import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
+
 import type { notebookNodePersonFeedLogicType } from './notebookNodePersonFeedLogicType'
 
 export type NotebookNodePersonFeedLogicProps = {
@@ -39,6 +41,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                     const result = await performQuery<SessionsTimelineQuery>(
                         setLatestVersionsOnQuery({
                             kind: NodeKind.SessionsTimelineQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             personId: props.personId,
                         })
                     )

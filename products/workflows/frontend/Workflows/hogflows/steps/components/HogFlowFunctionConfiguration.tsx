@@ -6,19 +6,24 @@ import { Spinner } from '@posthog/lemon-ui'
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 
-import { CyclotronJobInputType } from '~/types'
+import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
+import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 
 export function HogFlowFunctionConfiguration({
     templateId,
     inputs,
     setInputs,
+    mappings,
+    setMappings,
     errors,
 }: {
     templateId: string
     inputs: Record<string, CyclotronJobInputType>
+    mappings?: HogFunctionMappingType[]
     setInputs: (inputs: Record<string, CyclotronJobInputType>) => void
+    setMappings?: (mappings: HogFunctionMappingType[]) => void
     errors?: Record<string, string>
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
@@ -56,6 +61,8 @@ export function HogFlowFunctionConfiguration({
                 workflowVariables[variable.key] = 123
             } else if (variable.type === 'boolean') {
                 workflowVariables[variable.key] = true
+            } else if (variable.type === 'dictionary' || variable.type === 'json') {
+                workflowVariables[variable.key] = {}
             } else {
                 workflowVariables[variable.key] = null
             }
@@ -91,18 +98,36 @@ export function HogFlowFunctionConfiguration({
             },
         }
         sampleGlobals.groups = {}
+    } else if (triggerType === 'batch') {
+        sampleGlobals.person = {
+            id: 'person123',
+            properties: {
+                email: 'user@example.com',
+                name: 'John Doe',
+            },
+        }
     }
 
     return (
-        <CyclotronJobInputs
-            errors={errors}
-            configuration={{
-                inputs: inputs as Record<string, CyclotronJobInputType>,
-                inputs_schema: template?.inputs_schema ?? [],
-            }}
-            showSource={false}
-            sampleGlobalsWithInputs={sampleGlobals}
-            onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
-        />
+        <>
+            <CyclotronJobInputs
+                errors={errors}
+                configuration={{
+                    inputs: inputs as Record<string, CyclotronJobInputType>,
+                    inputs_schema: template?.inputs_schema ?? [],
+                }}
+                showSource={false}
+                sampleGlobalsWithInputs={sampleGlobals}
+                onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
+            />
+            <HogFlowFunctionMappings
+                useMapping={Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0}
+                inputs={inputs}
+                inputs_schema={template?.inputs_schema ?? []}
+                mappings={mappings ?? []}
+                mappingTemplates={template?.mapping_templates ?? []}
+                onChange={(mappings) => setMappings?.(mappings)}
+            />
+        </>
     )
 }

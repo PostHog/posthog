@@ -2,24 +2,55 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+// eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
-import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
     ActionType,
     CohortType,
     EventDefinition,
+    EventPropertyFilter,
     PersonProperty,
+    PersonPropertyFilter,
     PropertyDefinition,
     PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
+
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 export interface SimpleOption {
     name: string
     propertyFilterType?: PropertyFilterType
+}
+
+export interface QuickFilterItem {
+    _type: 'quick_filter'
+    name: string
+    filterValue: string
+    operator: PropertyOperator
+    propertyKey: string
+    propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person
+    eventName?: string
+    extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
+}
+
+export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
+    return item != null && typeof item === 'object' && '_type' in item && item._type === 'quick_filter'
+}
+
+export function quickFilterToPropertyFilter(item: QuickFilterItem): EventPropertyFilter | PersonPropertyFilter {
+    const base = { key: item.propertyKey, value: item.filterValue, operator: item.operator }
+    if (item.propertyFilterType === PropertyFilterType.Event) {
+        return { ...base, type: PropertyFilterType.Event }
+    }
+    return { ...base, type: PropertyFilterType.Person }
+}
+
+export function quickFilterToPropertyFilters(item: QuickFilterItem): (EventPropertyFilter | PersonPropertyFilter)[] {
+    return [quickFilterToPropertyFilter(item), ...(item.extraProperties ?? [])]
 }
 
 export type TaxonomicFilterGroupValueMap = { [key in TaxonomicFilterGroupType]?: (PropertyKey | null)[] }
@@ -30,9 +61,7 @@ export type AllowedProperties = TaxonomicFilterGroupValueMap
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
-    // sometimes the filter searches for a different value than provided e.g. a URL will be searched as $current_url
-    // in that case the original value is returned here as well as the property that the user chose
-    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any, originalQuery?: string) => void
+    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onEnter?: (query: string) => void
     onClose?: () => void
     filter?: LocalFilter
@@ -41,6 +70,8 @@ export interface TaxonomicFilterProps {
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    schemaColumnsLoading?: boolean
+    endpointFilters?: Record<string, any>
     height?: number
     width?: number | string
     popoverEnabled?: boolean
@@ -65,6 +96,13 @@ export interface TaxonomicFilterProps {
     initialSearchQuery?: string
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
+    hogQLGlobals?: Record<string, any>
+    /** Optionally customize definition popover contents for selected items. */
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
+    /** Override the group-level minSearchQueryLength for all groups in this instance. */
+    minSearchQueryLength?: number
+    /** Override the "Suggested filters" tab label for specific contexts. */
+    suggestedFiltersLabel?: string
 }
 
 export interface DataWarehousePopoverField {
@@ -90,6 +128,12 @@ export type TaxonomicFilterRenderProps = {
     infiniteListLogicProps: InfiniteListLogicProps
 }
 export type TaxonomicFilterRender = (props: TaxonomicFilterRenderProps) => JSX.Element | null
+export type DefinitionPopoverRendererProps = {
+    item: TaxonomicDefinitionTypes
+    group: TaxonomicFilterGroup
+    defaultView: JSX.Element
+}
+export type DefinitionPopoverRenderer = (props: DefinitionPopoverRendererProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
     name: string
@@ -104,6 +148,10 @@ export interface TaxonomicFilterGroup {
     render?: TaxonomicFilterRender
     /** if you want to override the default local items search behaviour e.g. for the replay group type */
     localItemsSearch?: (items: TaxonomicDefinitionTypes[], q: string) => TaxonomicDefinitionTypes[]
+    /** Local-only groups don't participate in server-search mechanics (top matches, skeletons). */
+    isLocalOnly?: boolean
+    /** Meta groups (Suggested, Recent, Pinned) are excluded from loading indicators, top matches, auto-tab-away, and definition popovers. */
+    isMetaGroup?: boolean
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
@@ -113,6 +161,8 @@ export interface TaxonomicFilterGroup {
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
+    /** Name of a boolean selector on `logic` that indicates items are still loading. */
+    valueLoading?: string
     searchAlias?: string
     valuesEndpoint?: (propertyKey: string) => string | undefined
     getGroup?: (instance: any) => TaxonomicFilterGroup
@@ -120,12 +170,18 @@ export interface TaxonomicFilterGroup {
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
+    /** Determines if an item should be disabled (unselectable) */
+    getIsDisabled?: (instance: any) => boolean
     groupTypeIndex?: number
     getFullDetailUrl?: (instance: any) => string
     excludedProperties?: string[]
     propertyAllowList?: string[]
     /** Passed to the component specified via the `render` key */
     componentProps?: Record<string, any>
+    /** Minimum number of characters before a remote search is issued. */
+    minSearchQueryLength?: number
+    /** Description shown in the empty state when minSearchQueryLength is set. */
+    searchDescription?: string
 }
 
 export enum TaxonomicFilterGroupType {
@@ -147,7 +203,11 @@ export enum TaxonomicFilterGroupType {
     NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
     PageviewUrls = 'pageview_urls',
+    PageviewEvents = 'pageview_events',
     Screens = 'screens',
+    ScreenEvents = 'screen_events',
+    EmailAddresses = 'email_addresses',
+    AutocaptureEvents = 'autocapture_events',
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
     GroupsPrefix = 'groups',
@@ -164,16 +224,38 @@ export enum TaxonomicFilterGroupType {
     Notebooks = 'notebooks',
     LogEntries = 'log_entries',
     ErrorTrackingIssues = 'error_tracking_issues',
+    Logs = 'logs',
     LogAttributes = 'log_attributes',
+    LogResourceAttributes = 'log_resource_attributes',
+    Spans = 'spans',
+    SpanAttributes = 'span_attributes',
+    SpanResourceAttributes = 'span_resource_attributes',
     // Misc
     Replay = 'replay',
+    ReplaySavedFilters = 'replay_saved_filters',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
     ActivityLogProperties = 'activity_log_properties',
     // Max AI Context
     MaxAIContext = 'max_ai_context',
+    // Workflows execution variables
+    WorkflowVariables = 'workflow_variables',
+    SuggestedFilters = 'suggested_filters',
+    RecentFilters = 'recent_filters',
+    PinnedFilters = 'pinned_filters',
+    Empty = 'empty',
 }
+
+export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.SuggestedFilters,
+    TaxonomicFilterGroupType.RecentFilters,
+    TaxonomicFilterGroupType.PinnedFilters,
+    TaxonomicFilterGroupType.Empty,
+    TaxonomicFilterGroupType.Wildcards,
+    TaxonomicFilterGroupType.MaxAIContext,
+])
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType
@@ -181,11 +263,7 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 
 export interface ListStorage {
     results: TaxonomicDefinitionTypes[]
-    // Query used for the results currently in state
     searchQuery?: string
-    // some list logics alter the query to make it more useful
-    // the original query might be different to the search query
-    originalQuery?: string
     count: number
     expandedCount?: number
     queryChanged?: boolean
@@ -199,8 +277,20 @@ export interface LoaderOptions {
 
 export type ListFuse = Fuse<{
     name: string
+    posthogName: string | undefined
+    recentLabel: string | undefined
     item: EventDefinition | CohortType
 }> // local alias for typegen
+
+export interface SkeletonItem {
+    _skeleton: true
+    group: TaxonomicFilterGroupType
+    groupName: string
+}
+
+export function isSkeletonItem(item: unknown): item is SkeletonItem {
+    return typeof item === 'object' && item !== null && '_skeleton' in item
+}
 
 export type TaxonomicDefinitionTypes =
     | EventDefinition
@@ -210,4 +300,4 @@ export type TaxonomicDefinitionTypes =
     | PersonProperty
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
-    | ReplayTaxonomicFilterProperty
+    | QuickFilterItem

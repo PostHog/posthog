@@ -12,6 +12,8 @@ from posthog.temporal.data_imports.sources.shopify.constants import (
     CUSTOMERS,
     DISCOUNT_NODES,
     ID,
+    ORDERS,
+    PRODUCTS,
     UPDATED_AT,
 )
 from posthog.temporal.data_imports.sources.shopify.utils import safe_set, unwrap
@@ -118,5 +120,27 @@ ENDPOINT_CONFIGS: dict[str, ShopifyEndpointConfig] = {
         partition_key_resolver=lambda row: safe_set(
             row, path="createdAt", value=unwrap(row, path="discount.createdAt")
         ),
+    ),
+    ORDERS: ShopifyEndpointConfig(
+        fields=[
+            {
+                "label": "updatedAt",
+                "type": IncrementalFieldType.Timestamp,
+                "field": UPDATED_AT,
+                "field_type": IncrementalFieldType.Timestamp,
+            },
+        ],
+        query_filter=UPDATED_AT,
+    ),
+    PRODUCTS: ShopifyEndpointConfig(
+        fields=[
+            {
+                "label": "updatedAt",
+                "type": IncrementalFieldType.Timestamp,
+                "field": UPDATED_AT,
+                "field_type": IncrementalFieldType.Timestamp,
+            },
+        ],
+        query_filter=UPDATED_AT,
     ),
 }

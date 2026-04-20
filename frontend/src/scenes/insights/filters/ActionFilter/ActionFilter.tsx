@@ -9,31 +9,37 @@ import React, { useEffect } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 
-import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
+    TaxonomicFilterGroupType,
+} from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 import {
     ActionFilter as ActionFilterType,
     ChartDisplayType,
+    EntityTypes,
     FilterType,
     FunnelExclusionLegacy,
     InsightType,
-    Optional,
+    PropertyOperator,
 } from '~/types'
 
 import { teamLogic } from '../../../teamLogic'
+import { ActionFilterGroup } from './ActionFilterGroup/ActionFilterGroup'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
 import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
-    filters: Optional<FilterType, 'type'>
+    filters: FilterType
     typeKey: string
     addFilterDefaultOptions?: Record<string, any>
     mathAvailability?: MathAvailability
@@ -99,6 +105,13 @@ export interface ActionFilterProps {
     addFilterDocLink?: string
     /** Properties to exclude from the properties filter */
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
+    /** Allow adding non-captured events */
+    allowNonCapturedEvents?: boolean
+    hogQLGlobals?: Record<string, any>
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
+    operatorAllowlist?: PropertyOperator[]
+    /** Extra content rendered in the footer alongside the "Add series" button */
+    customFooter?: React.ReactNode
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -134,6 +147,11 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         filtersLeftPadding,
         addFilterDocLink,
         excludedProperties,
+        allowNonCapturedEvents,
+        hogQLGlobals,
+        definitionPopoverRenderer,
+        operatorAllowlist,
+        customFooter,
     },
     ref
 ): JSX.Element {
@@ -170,6 +188,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
     }
 
     const singleFilter = entitiesLimit === 1
+    const canAccessEventsCombination = filters.insight === InsightType.TRENDS || filters.insight === InsightType.FUNNELS
 
     const commonProps = {
         logic,
@@ -189,6 +208,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         renderRow,
         hideRename,
         hideDuplicate,
+        showCombine: canAccessEventsCombination,
+        insightType: filters.insight,
         onRenameClick: showModal,
         sortable,
         showNumericalPropsOnly,
@@ -197,6 +218,12 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         filtersLeftPadding,
         addFilterDocLink,
         excludedProperties,
+        allowNonCapturedEvents,
+        hogQLGlobals,
+        operatorAllowlist,
+        inlineEventsDocLink: isTrendsFilter(filters)
+            ? 'https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline'
+            : 'https://posthog.com/docs/product-analytics/funnels#combine-events-inline',
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
@@ -233,47 +260,75 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             items={sortedItemIds}
                             strategy={verticalListSortingStrategy}
                         >
-                            {localFilters.map((filter, index) => (
-                                <ActionFilterRow
-                                    key={filter.uuid}
-                                    typeKey={typeKey}
-                                    filter={filter}
-                                    index={index}
-                                    filterCount={localFilters.length}
-                                    showNestedArrow={showNestedArrow}
-                                    singleFilter={singleFilter}
-                                    hideFilter={hideFilter || readOnly}
-                                    hideDeleteBtn={
-                                        typeof hideDeleteBtn === 'function'
-                                            ? hideDeleteBtn(filter, index)
-                                            : hideDeleteBtn
-                                    }
-                                    {...commonProps}
-                                />
-                            ))}
+                            {localFilters.map((filter, index) =>
+                                canAccessEventsCombination && filter.type === EntityTypes.GROUPS ? (
+                                    <ActionFilterGroup
+                                        key={filter.uuid}
+                                        filter={filter}
+                                        index={index}
+                                        typeKey={typeKey}
+                                        filterCount={localFilters.length}
+                                        sortable={sortable}
+                                        showSeriesIndicator={showSeriesIndicator}
+                                        seriesIndicatorType={seriesIndicatorType}
+                                        disabled={disabled}
+                                        readOnly={readOnly}
+                                        hideDeleteBtn={
+                                            typeof hideDeleteBtn === 'function'
+                                                ? hideDeleteBtn(filter, index)
+                                                : hideDeleteBtn
+                                        }
+                                        hasBreakdown={!!filters.breakdown}
+                                        mathAvailability={mathAvailability}
+                                        groupTitle={isFunnelsFilter(filters) ? 'Any of the events below' : undefined}
+                                        actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                                        dataWarehousePopoverFields={dataWarehousePopoverFields}
+                                        excludedProperties={excludedProperties}
+                                        insightType={filters.insight}
+                                        definitionPopoverRenderer={definitionPopoverRenderer}
+                                    />
+                                ) : (
+                                    <ActionFilterRow
+                                        key={filter.uuid}
+                                        typeKey={typeKey}
+                                        filter={filter}
+                                        index={index}
+                                        filterCount={localFilters.length}
+                                        showNestedArrow={showNestedArrow}
+                                        singleFilter={singleFilter}
+                                        hideFilter={hideFilter || readOnly}
+                                        hideDeleteBtn={
+                                            typeof hideDeleteBtn === 'function'
+                                                ? hideDeleteBtn(filter, index)
+                                                : hideDeleteBtn
+                                        }
+                                        definitionPopoverRenderer={definitionPopoverRenderer}
+                                        {...commonProps}
+                                    />
+                                )
+                            )}
                         </SortableContext>
                     </DndContext>
                 </ul>
             ) : null}
             {!singleFilter && (
                 <div className="ActionFilter-footer">
-                    {!singleFilter && (
-                        <LemonButton
-                            type={buttonType}
-                            onClick={() => addFilter()}
-                            data-attr="add-action-event-button"
-                            icon={<IconPlusSmall />}
-                            size="small"
-                            disabled={reachedLimit || disabled || readOnly}
-                            {...buttonProps}
-                        >
-                            {!reachedLimit
-                                ? buttonCopy || 'Action or event'
-                                : `Reached limit of ${entitiesLimit} ${
-                                      filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
-                                  }`}
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        type={buttonType}
+                        onClick={() => addFilter()}
+                        data-attr="add-action-event-button"
+                        icon={<IconPlusSmall />}
+                        size="small"
+                        disabled={reachedLimit || disabled || readOnly}
+                        {...buttonProps}
+                    >
+                        {!reachedLimit
+                            ? buttonCopy || 'Action or event'
+                            : `Reached limit of ${entitiesLimit} ${
+                                  filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
+                              }`}
+                    </LemonButton>
+                    {customFooter}
                 </div>
             )}
         </div>

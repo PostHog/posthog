@@ -26,6 +26,13 @@ from ee.hogai.session_summaries.constants import (
 logger = structlog.get_logger(__name__)
 
 
+def _build_posthog_props(trigger_session_id: str | None) -> dict[str, str]:
+    props: dict[str, str] = {"ai_product": "signals"}
+    if trigger_session_id:
+        props["$session_id"] = trigger_session_id
+    return props
+
+
 def _get_default_posthog_client() -> Client:
     """Return the default analytics client after validating the environment."""
     if not settings.DEBUG and not is_cloud():
@@ -71,7 +78,9 @@ def _prepare_messages(
         # Force LLM to start with the assistant text
         messages.append({"role": "assistant", "content": assistant_start_text})
     if not messages:
-        raise ValueError(f"No messages to send to LLM for sessions: {session_id}")
+        msg = f"No messages to send to LLM for sessions: {session_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return messages
 
 
@@ -84,24 +93,30 @@ def _prepare_user_param(user_key: int) -> str:
 
 async def stream_llm(
     input_prompt: str,
-    user_key: int,
+    *,
     session_id: str,
     model: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
     trace_id: str | None = None,
+    user_id: int,
+    user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> AsyncStream[ChatCompletionChunk]:
     """
     LLM streaming call.
     """
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
-    user_param = _prepare_user_param(user_key)
+    user_param = _prepare_user_param(user_id)
     client = get_async_openai_client()
     if model not in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
-        raise ValueError(
+        msg = (
             f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
             f"{SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS}"
         )
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
+    posthog_props = _build_posthog_props(trigger_session_id)
     stream: AsyncStream = await client.chat.completions.create(  # type: ignore[call-overload]
         messages=messages,
         model=model,
@@ -109,25 +124,31 @@ async def stream_llm(
         user=user_param,
         stream=True,
         posthog_trace_id=trace_id,
+        posthog_distinct_id=user_distinct_id,
+        posthog_properties=posthog_props,
     )
     return stream
 
 
 async def call_llm(
     input_prompt: str,
-    user_key: int,
+    *,
     session_id: str,
     model: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
     trace_id: str | None = None,
+    user_id: int,
+    user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> ChatCompletion | OpenAIResponse:
     """
     LLM non-streaming call.
     """
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
-    user_param = _prepare_user_param(user_key)
+    user_param = _prepare_user_param(user_id)
     client = get_async_openai_client()
+    posthog_props = _build_posthog_props(trigger_session_id)
     if model in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
         result = await client.chat.completions.create(  # type: ignore[call-overload]
             messages=messages,
@@ -135,6 +156,8 @@ async def call_llm(
             temperature=SESSION_SUMMARIES_TEMPERATURE,
             user=user_param,
             posthog_trace_id=trace_id,
+            posthog_distinct_id=user_distinct_id,
+            posthog_properties=posthog_props,
         )
     elif model in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
         result = await client.responses.create(  # type: ignore[call-overload]
@@ -143,10 +166,14 @@ async def call_llm(
             reasoning={"effort": SESSION_SUMMARIES_REASONING_EFFORT},
             user=user_param,
             posthog_trace_id=trace_id,
+            posthog_distinct_id=user_distinct_id,
+            posthog_properties=posthog_props,
         )
     else:
-        raise ValueError(
+        msg = (
             f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
             f"{SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS | SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS}"
         )
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return result

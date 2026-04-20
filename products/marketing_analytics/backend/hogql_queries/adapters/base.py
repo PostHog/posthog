@@ -1,19 +1,22 @@
 # Base Marketing Source Adapter
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Generic, Optional, TypeVar
 
 import structlog
 
-from posthog.schema import MarketingAnalyticsColumnsSchemaNames, SourceMap
+from posthog.schema import MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsConstants, SourceMap
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
 from products.data_warehouse.backend.models import DataWarehouseTable
+from products.marketing_analytics.backend.hogql_queries.constants import MATCH_KEY_FIELD
 
 logger = structlog.get_logger(__name__)
 
@@ -78,6 +81,30 @@ class TikTokAdsConfig(BaseMarketingConfig):
 
 
 @dataclass
+class BingAdsConfig(BaseMarketingConfig):
+    """Configuration for Bing Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+
+
+@dataclass
+class SnapchatAdsConfig(BaseMarketingConfig):
+    """Configuration for Snapchat Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+
+
+@dataclass
+class PinterestAdsConfig(BaseMarketingConfig):
+    """Configuration for Pinterest Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+
+
+@dataclass
 class ValidationResult:
     """Result of source validation"""
 
@@ -89,7 +116,7 @@ class ValidationResult:
 class QueryContext:
     """Context needed for query building"""
 
-    date_range: QueryDateRange
+    date_range: Optional[QueryDateRange]
     team: Team
     global_filters: list[Any] = field(default_factory=list)
     base_currency: str = DEFAULT_CURRENCY
@@ -105,11 +132,50 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     # Default fields for the marketing analytics table
     campaign_name_field: str = MarketingAnalyticsColumnsSchemaNames.CAMPAIGN
+    campaign_id_field: str = MarketingAnalyticsColumnsSchemaNames.ID
     source_name_field: str = MarketingAnalyticsColumnsSchemaNames.SOURCE
     impressions_field: str = MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS
     clicks_field: str = MarketingAnalyticsColumnsSchemaNames.CLICKS
     cost_field: str = MarketingAnalyticsColumnsSchemaNames.COST
     reported_conversion_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION
+    reported_conversion_value_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE
+    match_key_field: str = MATCH_KEY_FIELD
+
+    CONSTANT_VALUE_PREFIX = MarketingAnalyticsConstants.CONST_
+
+    @staticmethod
+    def _is_simple_column_name(value: str) -> bool:
+        # Handle single character case first
+        if len(value) == 1:
+            return value.isalnum() or value == "_"
+        return (
+            bool(value)
+            and value.replace("_", "").replace(".", "").isalnum()
+            and not value.startswith(".")
+            and not value.endswith(".")
+        )
+
+    def _resolve_field_expr(self, field_value: str) -> ast.Expr:
+        if self._is_simple_column_name(field_value):
+            parts: list[str | int] = list(field_value.split("."))
+            return ast.Field(chain=parts)
+        return parse_expr(field_value)
+
+    # Matches bare ISO 4217 currency codes like "USD", "EUR", "GBP"
+    _ISO_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+
+    def _resolve_field_or_constant(self, field_value: str) -> ast.Expr:
+        """Resolve a field value that may be a column reference or a constant.
+        Values prefixed with 'const:' are treated as string constants.
+        For backwards compatibility, bare ISO currency codes (e.g. "USD")
+        saved before the frontend enforced the 'const:' prefix are also
+        treated as constants.
+        """
+        if field_value.startswith(self.CONSTANT_VALUE_PREFIX):
+            return ast.Constant(value=field_value[len(self.CONSTANT_VALUE_PREFIX) :])
+        if self._ISO_CURRENCY_RE.match(field_value):
+            return ast.Constant(value=field_value)
+        return self._resolve_field_expr(field_value)
 
     @classmethod
     @abstractmethod
@@ -155,6 +221,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     @abstractmethod
     def _get_campaign_name_field(self) -> ast.Expr:
         """Get the campaign name field expression"""
+
+        pass
+
+    @abstractmethod
+    def _get_campaign_id_field(self) -> ast.Expr:
+        """Get the campaign ID field expression"""
         pass
 
     def _get_source_name_field(self) -> ast.Expr:
@@ -191,7 +263,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     @abstractmethod
     def _get_reported_conversion_field(self) -> ast.Expr:
-        """Get the reported conversion field expression"""
+        """Get the reported conversion count field expression"""
+        pass
+
+    @abstractmethod
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        """Get the reported conversion value (monetary) field expression"""
         pass
 
     @abstractmethod
@@ -209,6 +286,62 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Get GROUP BY expressions"""
         pass
 
+    def _get_campaign_field_preference(self) -> str:
+        """
+        Get campaign field matching preference for this integration from team config.
+
+        Returns: "campaign_name" or "campaign_id"
+
+        Defaults to campaign_name if no preference set (backward compatible).
+        """
+        try:
+            preferences = self.team.marketing_analytics_config.campaign_field_preferences
+            integration_prefs = preferences.get(self.get_source_type(), {})
+            return integration_prefs.get("match_field", "campaign_name")
+        except Exception:
+            # If any error accessing config, default to campaign_name
+            return "campaign_name"
+
+    def get_campaign_match_field(self) -> ast.Expr:
+        """
+        Get the campaign field expression to use for matching with utm_campaign.
+        This respects the campaign_field_preferences setting.
+
+        Returns either campaign_name or campaign_id field based on configuration.
+        """
+        preference = self._get_campaign_field_preference()
+        if preference == "campaign_id":
+            return self._get_campaign_id_field()
+        return self._get_campaign_name_field()
+
+    def _apply_currency_conversion(
+        self,
+        table: DataWarehouseTable,
+        table_name: str,
+        currency_column: str,
+        value_expr: ast.Expr,
+    ) -> ast.Expr | None:
+        """Wrap value_expr with currency conversion if the currency column exists in the table.
+
+        Returns toFloat(convertCurrency(coalesce(currency_col, base_currency), base_currency, value_expr))
+        or None if the column doesn't exist or can't be checked.
+        """
+        try:
+            columns = getattr(table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and currency_column in columns:
+                currency_field = ast.Field(chain=[table_name, currency_column])
+                currency_with_fallback = ast.Call(
+                    name="coalesce", args=[currency_field, ast.Constant(value=self.context.base_currency)]
+                )
+                converted = ast.Call(
+                    name="convertCurrency",
+                    args=[currency_with_fallback, ast.Constant(value=self.context.base_currency), value_expr],
+                )
+                return ast.Call(name="toFloat", args=[converted])
+        except (TypeError, AttributeError, KeyError):
+            pass
+        return None
+
     def _log_validation_errors(self, errors: list[str]):
         """Helper to log validation issues"""
         if errors:
@@ -221,29 +354,41 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         else:
             self.logger.error("Query generation failed", error=error)
 
+    def _build_select_columns(self) -> list[ast.Expr]:
+        """Build the standardized SELECT columns for marketing analytics queries.
+        match_key first (stable position for joins), then data columns.
+        """
+        return [
+            ast.Alias(alias=self.match_key_field, expr=self.get_campaign_match_field()),
+            ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
+            ast.Alias(alias=self.campaign_id_field, expr=self._get_campaign_id_field()),
+            ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
+            ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
+            ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
+            ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
+            ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
+            ast.Alias(alias=self.reported_conversion_value_field, expr=self._get_reported_conversion_value_field()),
+        ]
+
     def build_query(self) -> Optional[ast.SelectQuery]:
         """
         Build SelectQuery that returns marketing data in standardized format.
 
-        MUST return columns in this exact order and format:
-        - campaign_name (string): Campaign identifier
+        MUST return columns in this exact order and format (9 columns):
+        - match_key (string): Campaign match field for joining with conversion goals
+        - campaign_name (string): Campaign identifier (human-readable name)
+        - campaign_id (string): Campaign identifier (platform ID)
         - source_name (string): Source identifier
         - impressions (float): Number of impressions
         - clicks (float): Number of clicks
         - cost (float): Total cost in base currency
+        - reported_conversion (float): Number of reported conversions
+        - reported_conversion_value (float): Monetary value of reported conversions
 
         Returns None if this source cannot provide data for the given context.
         """
         try:
-            # Build SELECT columns
-            select_columns: list[ast.Expr] = [
-                ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
-                ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
-                ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
-                ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
-                ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
-                ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
-            ]
+            select_columns = self._build_select_columns()
 
             # Build query components
             from_expr = self._get_from()

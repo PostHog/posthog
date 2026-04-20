@@ -1,5 +1,3 @@
-from typing import cast
-
 from django.db.models import Q, QuerySet
 
 import structlog
@@ -10,13 +8,18 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import serializers
 from rest_framework.viewsets import ModelViewSet
 
+from posthog.schema import ProductKey
+
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
+from posthog.permissions import AccessControlPermission
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.models import Dataset
 from products.llm_analytics.backend.models.datasets import DatasetItem
 
@@ -130,8 +133,10 @@ class DatasetFilter(django_filters.FilterSet):
         return super().list(request, *args, **kwargs)
 
 
-class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
+@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
+class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
+    permission_classes = [AccessControlPermission]
     serializer_class = DatasetSerializer
     queryset = Dataset.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -147,7 +152,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
 
         # Track dataset created
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma dataset created",
             {
                 "dataset_id": str(instance.id),
@@ -155,7 +160,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
                 "has_description": bool(instance.description),
                 "has_metadata": bool(instance.metadata),
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -176,24 +182,51 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
         # Track appropriate event
         if is_deletion:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma dataset deleted",
                 {
                     "dataset_id": str(instance.id),
                     "dataset_name": instance.name,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
         elif changed_fields:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma dataset updated",
                 {
                     "dataset_id": str(instance.id),
                     "changed_fields": changed_fields,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
+
+    @llma_track_latency("llma_datasets_list")
+    @monitor(feature=None, endpoint="llma_datasets_list", method="GET")
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_retrieve")
+    @monitor(feature=None, endpoint="llma_datasets_retrieve", method="GET")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_create")
+    @monitor(feature=None, endpoint="llma_datasets_create", method="POST")
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_update")
+    @monitor(feature=None, endpoint="llma_datasets_update", method="PUT")
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_partial_update")
+    @monitor(feature=None, endpoint="llma_datasets_partial_update", method="PATCH")
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
 
 
 class DatasetItemSerializer(serializers.ModelSerializer):
@@ -231,8 +264,10 @@ class DatasetItemSerializer(serializers.ModelSerializer):
         return super().create(validated_data, *args, **kwargs)
 
 
+@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
+    permission_classes = [AccessControlPermission]
     serializer_class = DatasetItemSerializer
     queryset = DatasetItem.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -255,7 +290,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
 
         # Track dataset item created
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma dataset item created",
             {
                 "dataset_item_id": str(instance.id),
@@ -267,7 +302,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                 "has_ref_source_id": bool(instance.ref_source_id),
                 "source": source,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -288,25 +324,47 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
         # Track appropriate event
         if is_deletion:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma dataset item deleted",
                 {
                     "dataset_item_id": str(instance.id),
                     "dataset_id": str(instance.dataset_id),
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
         elif changed_fields:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma dataset item updated",
                 {
                     "dataset_item_id": str(instance.id),
                     "dataset_id": str(instance.dataset_id),
                     "changed_fields": changed_fields,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
+
+    @llma_track_latency("llma_dataset_items_retrieve")
+    @monitor(feature=None, endpoint="llma_dataset_items_retrieve", method="GET")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @llma_track_latency("llma_dataset_items_create")
+    @monitor(feature=None, endpoint="llma_dataset_items_create", method="POST")
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @llma_track_latency("llma_dataset_items_update")
+    @monitor(feature=None, endpoint="llma_dataset_items_update", method="PUT")
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @llma_track_latency("llma_dataset_items_partial_update")
+    @monitor(feature=None, endpoint="llma_dataset_items_partial_update", method="PATCH")
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
 
     @extend_schema(
         parameters=[
@@ -323,5 +381,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
             ),
         ]
     )
+    @llma_track_latency("llma_dataset_items_list")
+    @monitor(feature=None, endpoint="llma_dataset_items_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)

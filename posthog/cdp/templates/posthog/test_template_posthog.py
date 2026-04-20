@@ -1,7 +1,5 @@
 from posthog.test.base import BaseTest
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.posthog.template_posthog import (
     TemplatePostHogMigrator,
@@ -23,22 +21,20 @@ class TestTemplatePosthog(BaseHogFunctionTemplateTest):
             }
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://us.i.posthog.com/e",
-                {
-                    "method": "POST",
-                    "headers": {"Content-Type": "application/json"},
-                    "body": {
-                        "token": "TOKEN",
-                        "elements_chain": "",
-                        "event": "event-name",
-                        "timestamp": "2024-01-01T00:00:00Z",
-                        "distinct_id": "distinct-id",
-                        "properties": {"$current_url": "https://example.com", "additional": "value"},
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://us.i.posthog.com/e",
+            {
+                "method": "POST",
+                "headers": {"Content-Type": "application/json"},
+                "body": {
+                    "token": "TOKEN",
+                    "elements_chain": "",
+                    "event": "event-name",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "distinct_id": "distinct-id",
+                    "properties": {"$current_url": "https://example.com", "additional": "value"},
                 },
-            )
+            },
         )
 
     def test_function_doesnt_include_all_properties(self):
@@ -51,7 +47,7 @@ class TestTemplatePosthog(BaseHogFunctionTemplateTest):
             }
         )
 
-        assert self.get_mock_fetch_calls()[0][1]["body"]["properties"] == snapshot({"additional": "value"})
+        assert self.get_mock_fetch_calls()[0][1]["body"]["properties"] == {"additional": "value"}
 
 
 class TestTemplateMigration(BaseTest):
@@ -69,40 +65,37 @@ class TestTemplateMigration(BaseTest):
     def test_default_config(self):
         obj = self.get_plugin_config({})
         template = TemplatePostHogMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "host": {"value": "us.i.example.com"},
-                "token": {"value": "apikey"},
-                "include_all_properties": {"value": True},
-                "properties": {"value": {}},
-            }
-        )
+        assert template["inputs"] == {
+            "host": {"value": "us.i.example.com"},
+            "token": {"value": "apikey"},
+            "include_all_properties": {"value": True},
+            "properties": {"value": {}},
+        }
+
         assert template["filters"] == {}
 
     def test_disable_geoip(self):
         obj = self.get_plugin_config({"disable_geoip": "Yes"})
         template = TemplatePostHogMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "host": {"value": "us.i.example.com"},
-                "token": {"value": "apikey"},
-                "include_all_properties": {"value": True},
-                "properties": {"value": {"$geoip_disable": True}},
-            }
-        )
+        assert template["inputs"] == {
+            "host": {"value": "us.i.example.com"},
+            "token": {"value": "apikey"},
+            "include_all_properties": {"value": True},
+            "properties": {"value": {"$geoip_disable": True}},
+        }
+
         assert template["filters"] == {}
 
     def test_ignore_events(self):
         obj = self.get_plugin_config({"events_to_ignore": "event1, event2, 'smore"})
         template = TemplatePostHogMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "host": {"value": "us.i.example.com"},
-                "token": {"value": "apikey"},
-                "include_all_properties": {"value": True},
-                "properties": {"value": {}},
-            }
-        )
+        assert template["inputs"] == {
+            "host": {"value": "us.i.example.com"},
+            "token": {"value": "apikey"},
+            "include_all_properties": {"value": True},
+            "properties": {"value": {}},
+        }
+
         assert template["filters"] == {
             "events": [
                 {

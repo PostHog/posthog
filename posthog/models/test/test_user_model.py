@@ -129,3 +129,19 @@ class TestUser(BaseTest):
         # Admin should be set to the first team
         user.refresh_from_db()
         self.assertEqual(user.current_team, t1)
+
+    def test_from_db_sets_original_is_active(self):
+        user = User.objects.create(email="from_db@example.com", is_active=True)
+
+        loaded = User.objects.get(pk=user.pk)
+
+        self.assertTrue(loaded._original_is_active)
+        self.assertEqual(loaded._original_is_active, loaded.is_active)
+
+    def test_from_db_sets_original_is_active_for_inactive_user(self):
+        user = User.objects.create(email="inactive@example.com", is_active=False)
+
+        loaded = User.objects.get(pk=user.pk)
+
+        self.assertFalse(loaded._original_is_active)
+        self.assertEqual(loaded._original_is_active, loaded.is_active)

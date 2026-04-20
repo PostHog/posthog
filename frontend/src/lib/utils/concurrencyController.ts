@@ -2,7 +2,7 @@ import FastPriorityQueue from 'fastpriorityqueue'
 
 import { promiseResolveReject } from 'lib/utils'
 
-// Note that this file also exists in the plugin-server, please keep them in sync as the tests only exist for this version
+// Note that this file also exists in the nodejs package, please keep them in sync as the tests only exist for this version
 
 class ConcurrencyControllerItem<T> {
     _debugTag?: string
@@ -118,5 +118,5 @@ export class ConcurrencyController {
 
 // Create a fake AbortError that allows us to use e.name === 'AbortError' to check if an error is an AbortError
 class FakeAbortError extends Error {
-    name = 'AbortError'
+    override name = 'AbortError'
 }

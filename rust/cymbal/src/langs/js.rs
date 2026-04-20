@@ -8,7 +8,6 @@ use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
     frames::Frame,
     langs::CommonFrameMetadata,
-    metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
@@ -178,10 +177,21 @@ impl RawJSFrame {
 impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
     fn from(src: (&RawJSFrame, SourceLocation)) -> Self {
         let (raw_frame, token) = src;
-        metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
 
         let resolved_name = match token.scope() {
-            ScopeLookupResult::NamedScope(name) => Some(sanitize_string(name.to_string())),
+            // The `$async$` prefix is a Dart/Flutter compiler artifact that appears in
+            // JavaScript source maps when Flutter code is compiled to JavaScript (web).
+            // This branch normalizes such Flutter-to-JavaScript async function names.
+            // See internal context: https://posthog.slack.com/archives/C07AA937K9A/p1768415443965209
+            ScopeLookupResult::NamedScope(name) => {
+                let scope_name = name.to_string();
+                let resolved = if name.starts_with("$async$") {
+                    token.name().map_or(scope_name.clone(), |n| n.to_owned())
+                } else {
+                    scope_name
+                };
+                Some(sanitize_string(resolved))
+            }
             ScopeLookupResult::AnonymousScope => Some("<anonymous>".to_string()),
             ScopeLookupResult::Unknown => None,
         };
@@ -209,6 +219,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             context: get_sourcelocation_context(&token),
@@ -216,7 +227,6 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             synthetic: raw_frame.meta.synthetic,
             suspicious,
             module: None,
-            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -229,8 +239,6 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
 // mark it as a failed resolve and emit an "unresolved" frame
 impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
     fn from((raw_frame, err, location): (&RawJSFrame, JsResolveErr, &FrameLocation)) -> Self {
-        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "javascript").increment(1);
-
         // TODO - extremely rough
         let was_minified = match err {
             JsResolveErr::NoSourceUrl | JsResolveErr::NoUrlOrChunkId => false, // This frame's `source` didn't exist
@@ -258,7 +266,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             // Regardless of whather we think this was a minified frame or not, we still put
             // the error message in resolve_failure, so if a user comes along and want to know
             // why we thought a frame wasn't minified, they can see the error message
-            resolve_failure: Some(err.to_string()),
+            resolve_failure: Some(FrameError::from(err)),
             junk_drawer: None,
             code_variables: None,
             context: None,
@@ -266,7 +274,6 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: None,
-            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -279,8 +286,6 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
 // probably a native function or something else weird
 impl From<&RawJSFrame> for Frame {
     fn from(raw_frame: &RawJSFrame) -> Self {
-        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "javascript").increment(1);
-
         // If this is a source_url: <anonymous> frame, we always assume it's not in_app
         let is_anon = raw_frame
             .source_url
@@ -301,6 +306,7 @@ impl From<&RawJSFrame> for Frame {
             lang: "javascript".to_string(),
             resolved: true, // Without location information, we're assuming this is not minified
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             context: None,
@@ -308,7 +314,6 @@ impl From<&RawJSFrame> for Frame {
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: None,
-            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);

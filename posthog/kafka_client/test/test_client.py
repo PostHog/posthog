@@ -1,8 +1,6 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
-
-import kafka
 
 from posthog.kafka_client.client import _KafkaProducer, build_kafka_consumer
 
@@ -34,9 +32,12 @@ class KafkaClientTestCase(TestCase):
         payload = next(consumer)
         self.assertEqual(payload.value, self.payload)
 
-    def test_kafka_default_security_protocol(self):
-        producer = _KafkaProducer(test=False)
-        self.assertEqual(producer.producer.config["security_protocol"], "PLAINTEXT")  # type: ignore
+    @patch("posthog.kafka_client.client.ConfluentProducer")
+    def test_kafka_default_security_protocol(self, mock_producer_class: MagicMock):
+        mock_producer_class.return_value = MagicMock()
+        _KafkaProducer(test=False)
+        config = mock_producer_class.call_args[0][0]
+        self.assertEqual(config["security.protocol"], "PLAINTEXT")
 
     @override_settings(
         KAFKA_SECURITY_PROTOCOL="SASL_PLAINTEXT",
@@ -44,20 +45,15 @@ class KafkaClientTestCase(TestCase):
         KAFKA_SASL_USER="<user>",
         KAFKA_SASL_PASSWORD="<password>",
     )
-    def test_kafka_sasl_params(self):
-        expected_sasl_config = {
-            "security_protocol": "SASL_PLAINTEXT",
-            "sasl_mechanism": "<mechanism>",
-            "sasl_plain_username": "<user>",
-            "sasl_plain_password": "<password>",
-        }
-        # If an API version isn't specified, the client will immediately attempt to connect to Kafka to determine the
-        # version. This will fail, as the dev/test Kafka do not have SASL configured/enabled. Instead, we patch the
-        # default client config to specify an API version and skip connecting to Kafka.
-        with patch.dict(kafka.KafkaProducer.DEFAULT_CONFIG, {"api_version": (2, 5, 0)}):
-            producer = _KafkaProducer(test=False)
-        for key, value in expected_sasl_config.items():
-            self.assertEqual(value, producer.producer.config[key])  # type: ignore
+    @patch("posthog.kafka_client.client.ConfluentProducer")
+    def test_kafka_sasl_params(self, mock_producer_class: MagicMock):
+        mock_producer_class.return_value = MagicMock()
+        _KafkaProducer(test=False)
+        config = mock_producer_class.call_args[0][0]
+        self.assertEqual(config["security.protocol"], "SASL_PLAINTEXT")
+        self.assertEqual(config["sasl.mechanism"], "<mechanism>")
+        self.assertEqual(config["sasl.username"], "<user>")
+        self.assertEqual(config["sasl.password"], "<password>")
 
     @override_settings(
         KAFKA_SECURITY_PROTOCOL="SSL",
@@ -65,14 +61,13 @@ class KafkaClientTestCase(TestCase):
         KAFKA_SASL_USER="<user>",
         KAFKA_SASL_PASSWORD="<password>",
     )
-    def test_kafka_no_sasl_params(self):
-        expected_sasl_config = {
-            "security_protocol": "SSL",
-            "sasl_mechanism": None,
-            "sasl_plain_username": None,
-            "sasl_plain_password": None,
-        }
-        with patch.dict(kafka.KafkaProducer.DEFAULT_CONFIG, {"api_version": (2, 5, 0)}):
-            producer = _KafkaProducer(test=False)
-        for key, value in expected_sasl_config.items():
-            self.assertEqual(value, producer.producer.config[key])  # type: ignore
+    @patch("posthog.kafka_client.client.ConfluentProducer")
+    def test_kafka_no_sasl_params(self, mock_producer_class: MagicMock):
+        mock_producer_class.return_value = MagicMock()
+        _KafkaProducer(test=False)
+        config = mock_producer_class.call_args[0][0]
+        self.assertEqual(config["security.protocol"], "SSL")
+        # SASL params should not be present when using SSL without SASL
+        self.assertNotIn("sasl.mechanism", config)
+        self.assertNotIn("sasl.username", config)
+        self.assertNotIn("sasl.password", config)

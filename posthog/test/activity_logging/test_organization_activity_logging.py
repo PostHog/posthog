@@ -1,3 +1,4 @@
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -15,6 +16,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         ).first()
 
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.activity, "created")
         self.assertEqual(log.item_id, str(organization["id"]))
         self.assertEqual(log.user, self.user)
@@ -27,6 +29,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
 
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.activity, "updated")
         self.assertEqual(log.user, self.user)
         self.assertEqual(log.detail["name"], "Updated Organization")
@@ -39,11 +42,15 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
     def test_organization_security_settings_activity_logging(self):
         organization = self.create_organization("Security Test Org")
+        Organization.objects.filter(id=organization["id"]).update(
+            available_product_features=[{"key": AvailableFeature.TWO_FACTOR_ENFORCEMENT}]
+        )
         self.update_organization(organization["id"], {"enforce_2fa": True})
 
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
 
         assert log is not None
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         enforce_2fa_change = next((c for c in changes if c["field"] == "two-factor authentication requirement"), None)
         assert enforce_2fa_change is not None
@@ -51,6 +58,12 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
     def test_organization_member_invite_permissions_activity_logging(self):
         organization = self.create_organization("Permissions Test Org")
+        Organization.objects.filter(id=organization["id"]).update(
+            available_product_features=[
+                {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+                {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS},
+            ]
+        )
         self.update_organization(organization["id"], {"members_can_invite": False})
 
         log = (
@@ -59,6 +72,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
             .first()
         )
         assert log is not None
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         invite_change = next((c for c in changes if c["field"] == "member invitation permissions"), None)
         assert invite_change is not None
@@ -72,6 +86,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
             .first()
         )
         assert log is not None
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         api_keys_change = next((c for c in changes if c["field"] == "personal API key permissions"), None)
         assert api_keys_change is not None
@@ -79,10 +94,14 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
     def test_organization_sharing_settings_activity_logging(self):
         organization = self.create_organization("Sharing Test Org")
+        Organization.objects.filter(id=organization["id"]).update(
+            available_product_features=[{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}]
+        )
         self.update_organization(organization["id"], {"allow_publicly_shared_resources": False})
 
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
         assert log is not None
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         sharing_change = next((c for c in changes if c["field"] == "public sharing permissions"), None)
         assert sharing_change is not None
@@ -90,6 +109,12 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
     def test_organization_multiple_changes_activity_logging(self):
         organization = self.create_organization("Multi Change Test Org")
+        Organization.objects.filter(id=organization["id"]).update(
+            available_product_features=[
+                {"key": AvailableFeature.TWO_FACTOR_ENFORCEMENT},
+                {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+            ]
+        )
         self.update_organization(
             organization["id"],
             {"name": "New Multi Change Org", "enforce_2fa": True, "members_can_invite": False},
@@ -97,6 +122,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
         assert log is not None
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         field_changes = {c["field"]: c for c in changes}
 
@@ -113,6 +139,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
         assert log is not None
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         name_change = next((c for c in changes if c["field"] == "organization name"), None)
         assert name_change is not None
@@ -124,28 +151,22 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
         assert log is not None
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         stats_change = next((c for c in changes if c["field"] == "default experiment stats method"), None)
         assert stats_change is not None
         self.assertEqual(stats_change["after"], "frequentist")
 
-    def test_organization_member_join_email_logging(self):
-        organization = self.create_organization("Email Preferences Test Org")
-        self.update_organization(organization["id"], {"is_member_join_email_enabled": False})
-
-        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
-        assert log is not None
-        changes = log.detail.get("changes", [])
-        email_change = next((c for c in changes if c["field"] == "member join email notifications"), None)
-        assert email_change is not None
-        self.assertEqual(email_change["after"], False)
-
     def test_organization_2fa_enforcement_logging(self):
         organization = self.create_organization("2FA Test Org")
+        Organization.objects.filter(id=organization["id"]).update(
+            available_product_features=[{"key": AvailableFeature.TWO_FACTOR_ENFORCEMENT}]
+        )
         self.update_organization(organization["id"], {"enforce_2fa": True})
 
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
         assert log is not None
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         twofa_change = next((c for c in changes if c["field"] == "two-factor authentication requirement"), None)
         assert twofa_change is not None
@@ -164,11 +185,13 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         ).first()
 
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.activity, "created")
         self.assertEqual(log.item_id, str(membership.id))
         self.assertIn("joined", log.detail["name"])
         self.assertIn("testmember@example.com", log.detail["name"])
 
+        assert log.detail is not None
         context = log.detail.get("context", {})
         self.assertEqual(context["user_email"], "testmember@example.com")
         self.assertEqual(context["organization_name"], "Test Membership Org")
@@ -190,11 +213,13 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         ).first()
 
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.activity, "deleted")
         self.assertEqual(log.item_id, membership_id)
         self.assertIn("left", log.detail["name"])
         self.assertIn("deletemember@example.com", log.detail["name"])
 
+        assert log.detail is not None
         context = log.detail.get("context", {})
         self.assertEqual(context["user_email"], "deletemember@example.com")
         self.assertEqual(context["organization_name"], "Test Delete Membership Org")
@@ -217,10 +242,12 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         ).first()
 
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.activity, "updated")
         self.assertEqual(log.item_id, str(membership.id))
         self.assertIn("membership updated", log.detail["name"])
 
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         level_change = next((c for c in changes if c["field"] == "level"), None)
         assert level_change is not None
@@ -248,12 +275,14 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         ).first()
 
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.activity, "created")
         self.assertEqual(log.item_id, str(invite.id))
         self.assertEqual(log.user, self.user)
         self.assertIn("invited user invitee@example.com", log.detail["name"])
         self.assertIn("Test Invite Org", log.detail["name"])
 
+        assert log.detail is not None
         context = log.detail.get("context", {})
         self.assertEqual(context["target_email"], "invitee@example.com")
         self.assertEqual(context["organization_name"], "Test Invite Org")
@@ -282,11 +311,13 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(organization_id=org.id, scope="OrganizationInvite", activity="deleted").first()
 
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.activity, "deleted")
         self.assertEqual(log.item_id, invite_id)
         self.assertIn("cancelled", log.detail["name"])
         self.assertIn("delete-invitee@example.com", log.detail["name"])
 
+        assert log.detail is not None
         context = log.detail.get("context", {})
         self.assertEqual(context["target_email"], "delete-invitee@example.com")
         self.assertEqual(context["organization_name"], "Test Delete Invite Org")
@@ -296,7 +327,12 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         organization = self.create_organization("Logo Test Org")
         org = Organization.objects.get(id=organization["id"])
 
-        media = UploadedMedia.objects.create(media_location="test-logo.png", team_id=self.team.id, created_by=self.user)
+        from posthog.models.team.team import Team
+
+        team_in_org = Team.objects.create(organization=org, name="Logo Test Team")
+        media = UploadedMedia.objects.create(
+            media_location="test-logo.png", team_id=team_in_org.id, created_by=self.user
+        )
 
         response = self.client.patch(
             f"/api/organizations/{org.id}/",
@@ -315,6 +351,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         self.assertEqual(log.activity, "updated")
         self.assertEqual(log.user, self.user)
 
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         logo_change = next((c for c in changes if c["field"] == "logo_media"), None)
         assert logo_change is not None
@@ -336,6 +373,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         )
 
         assert log is not None
+        assert log.detail is not None
         changes = log.detail.get("changes", [])
         logo_removal = next((c for c in changes if c["field"] == "logo_media"), None)
         assert logo_removal is not None

@@ -1,7 +1,7 @@
 use crate::error::ToUserError;
 use anyhow::{Context, Error};
+use async_trait::async_trait;
 use aws_sdk_s3::Client as S3Client;
-use axum::async_trait;
 use tracing::debug;
 
 use super::DataSource;
@@ -23,7 +23,7 @@ impl S3Source {
 }
 
 // String matching hack to get around the fact that there didn't seem to be an easy way to import and handle the different error types with the aws sdk
-fn extract_user_friendly_error(
+pub(crate) fn extract_user_friendly_error(
     error: &dyn std::error::Error,
     bucket: &str,
     operation: &str,
@@ -137,5 +137,86 @@ impl DataSource for S3Source {
         })?;
 
         Ok(data.to_vec())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Mock error type for testing extract_user_friendly_error
+    #[derive(Debug)]
+    struct MockS3Error(String);
+
+    impl std::fmt::Display for MockS3Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    impl std::error::Error for MockS3Error {}
+
+    #[test]
+    fn test_extract_user_friendly_error_invalid_access_key() {
+        let err = MockS3Error("InvalidAccessKeyId: The access key ID is invalid".to_string());
+        let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
+        assert_eq!(
+            msg,
+            "Invalid AWS Access Key ID - please check your credentials"
+        );
+    }
+
+    #[test]
+    fn test_extract_user_friendly_error_signature_mismatch() {
+        let err = MockS3Error("SignatureDoesNotMatch: The signature did not match".to_string());
+        let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
+        assert_eq!(
+            msg,
+            "Invalid AWS Secret Access Key - please check your credentials"
+        );
+    }
+
+    #[test]
+    fn test_extract_user_friendly_error_access_denied() {
+        let err = MockS3Error("AccessDenied: Access Denied".to_string());
+        let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
+        assert_eq!(
+            msg,
+            "Access denied to S3 bucket 'my-bucket' - check your permissions"
+        );
+    }
+
+    #[test]
+    fn test_extract_user_friendly_error_no_such_bucket() {
+        let err = MockS3Error("NoSuchBucket: The specified bucket does not exist".to_string());
+        let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
+        assert_eq!(
+            msg,
+            "S3 bucket 'my-bucket' does not exist or you don't have access to it"
+        );
+    }
+
+    #[test]
+    fn test_extract_user_friendly_error_no_such_key() {
+        let err = MockS3Error("NoSuchKey: The specified key does not exist".to_string());
+        let msg = extract_user_friendly_error(&err, "my-bucket", "get object");
+        assert_eq!(msg, "The specified S3 object does not exist");
+    }
+
+    #[test]
+    fn test_extract_user_friendly_error_timeout() {
+        let err = MockS3Error("Request timeout: Connection timed out".to_string());
+        let msg = extract_user_friendly_error(&err, "my-bucket", "get object chunk");
+        assert_eq!(msg, "S3 get object chunk operation timed out - check your network connection and region settings");
+    }
+
+    #[test]
+    fn test_extract_user_friendly_error_unknown() {
+        let err = MockS3Error("Some other unknown error".to_string());
+        let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
+        assert_eq!(
+            msg,
+            "S3 list objects failed - check your credentials, bucket name, and permissions"
+        );
     }
 }

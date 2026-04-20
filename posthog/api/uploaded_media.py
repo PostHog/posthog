@@ -6,7 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 from drf_spectacular.utils import extend_schema
-from PIL import Image
+from PIL import Image, ImageOps
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -38,7 +38,7 @@ def validate_image_file(file: Optional[bytes], user: int) -> bool:
 
     try:
         im = Image.open(BytesIO(file))
-        im.transpose(Image.FLIP_LEFT_RIGHT)
+        ImageOps.mirror(im)
         im.close()
         return True
     except Exception as e:
@@ -59,10 +59,13 @@ def download(request, *args, **kwargs) -> HttpResponse:
     """
     instance: Optional[UploadedMedia] = None
     try:
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (intentionally public endpoint)
         instance = UploadedMedia.objects.get(pk=kwargs["image_uuid"])
     except UploadedMedia.DoesNotExist:
         return HttpResponse(status=404)
 
+    if instance.media_location is None:
+        return HttpResponse(status=404)
     file_bytes = object_storage.read_bytes(instance.media_location)
 
     statsd.incr(
@@ -78,7 +81,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
 
 
 class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "uploaded_media"
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
 
@@ -109,6 +112,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
                 # to save having to copy the stream so that we can read it to verify the image,
                 # save it to minio anyway and then delete the record if it's not valid
+                if uploaded_media.media_location is None:
+                    raise APIException("Could not read uploaded media")
                 bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
                 if not validate_image_file(bytes_to_verify, user=request.user.id):
                     statsd.incr(

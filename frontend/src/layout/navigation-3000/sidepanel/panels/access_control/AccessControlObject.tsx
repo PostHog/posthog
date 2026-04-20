@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconTrash } from '@posthog/icons'
+import { IconInfo, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -21,6 +21,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter, fullName } from 'lib/utils'
+import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -38,14 +39,22 @@ import {
 import { AccessControlLogicProps, accessControlLogic } from './accessControlLogic'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
-    const { canEditAccessControls, humanReadableResource } = useValues(accessControlLogic(props))
+    const { canEditAccessControls, humanReadableResource, resource } = useValues(accessControlLogic(props))
 
     const suffix = `this ${humanReadableResource}`
+    const tooltipText = getAccessControlTooltip(resource)
 
     return (
         <BindLogic logic={accessControlLogic} props={props}>
             <div>
-                <h2>{props.title}</h2>
+                <h2 className="flex items-center gap-2">
+                    {props.title}
+                    {tooltipText && (
+                        <Tooltip title={tooltipText}>
+                            <IconInfo className="text-base text-muted" />
+                        </Tooltip>
+                    )}
+                </h2>
                 <p>{props.description}</p>
                 <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
                     <div className="deprecated-space-y-6">

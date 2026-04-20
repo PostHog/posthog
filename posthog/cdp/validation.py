@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Any, Optional
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
@@ -17,6 +18,19 @@ from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOUR
 logger = logging.getLogger(__name__)
 
 
+CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
+
+PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
+
+
+def register_supported_function(name: str) -> None:
+    PRODUCT_ASYNC_FUNCTIONS.add(name)
+
+
+register_supported_function("postHogGetTicket")
+register_supported_function("postHogUpdateTicket")
+
+
 class InputCollector(TraversingVisitor):
     inputs: set[str]
 
@@ -29,6 +43,40 @@ class InputCollector(TraversingVisitor):
         if node.chain[0] == "inputs":
             if len(node.chain) > 1:
                 self.inputs.add(str(node.chain[1]))
+
+
+class HyphenatedPropertyDetector(TraversingVisitor):
+    errors: list[str]
+
+    def __init__(self):
+        super().__init__()
+        self.errors = []
+
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        super().visit_arithmetic_operation(node)
+        if node.op == ast.ArithmeticOperationOp.Sub:
+            if (
+                isinstance(node.left, ast.Field)
+                and len(node.left.chain) >= 2
+                and isinstance(node.right, ast.Field)
+                and len(node.right.chain) == 1
+                and self._is_hyphenated(node.left, node.right)
+            ):
+                right_name = str(node.right.chain[0])
+                left_last = str(node.left.chain[-1])
+                parent = ".".join(str(c) for c in node.left.chain[:-1])
+                self.errors.append(
+                    f"Hyphens are not supported in identifiers and are interpreted as "
+                    f"subtraction. Use bracket notation: "
+                    f"{parent}['{left_last}-{right_name}']"
+                )
+
+    @staticmethod
+    def _is_hyphenated(left: ast.Field, right: ast.Field) -> bool:
+        """Check if the subtraction looks like a hyphenated property name (no spaces around the minus)."""
+        if left.end is not None and right.start is not None:
+            return right.start - left.end == 1
+        return True
 
 
 def collect_inputs(node: ast.Expr) -> set[str]:
@@ -49,6 +97,10 @@ def generate_template_bytecode(obj: Any, input_collector: set[str]) -> Any:
     elif isinstance(obj, str):
         node = parse_string_template(obj)
         input_collector.update(collect_inputs(node))
+        detector = HyphenatedPropertyDetector()
+        detector.visit(node)
+        if detector.errors:
+            raise Exception(detector.errors[0])
         return create_bytecode(node).bytecode
     else:
         return obj
@@ -92,6 +144,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "integration_field",
             "email",
             "native_email",
+            "posthog_assignee",
+            "posthog_ticket_tags",
+            "posthog_business_hours",
         ]
     )
     key = serializers.CharField()
@@ -113,6 +168,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     # TODO Validate choices if type=choice
 
 
+@extend_schema_field({})
 class AnyInputField(serializers.Field):
     def to_internal_value(self, data):
         return data
@@ -152,8 +208,19 @@ class InputsItemSerializer(serializers.Serializer):
             if not isinstance(value, int | float):
                 raise serializers.ValidationError({"input": f"Value must be a number."})
         elif item_type == "boolean":
-            if not isinstance(value, bool):
-                raise serializers.ValidationError({"input": f"Value must be a boolean."})
+            templating_enabled = schema.get("templating", True)
+            if templating_enabled:
+                if not isinstance(value, bool) and not isinstance(value, str):
+                    raise serializers.ValidationError({"input": f"Value must be a boolean or a template string."})
+                # Liquid templating always renders to strings, which bypasses boolean type guarantees.
+                # Only Hog templating is allowed for boolean fields as it preserves the actual boolean type.
+                if isinstance(value, str) and attrs.get("templating") == "liquid":
+                    raise serializers.ValidationError(
+                        {"input": "Liquid templating is not supported for boolean fields. Use Hog templating instead."}
+                    )
+            else:
+                if not isinstance(value, bool):
+                    raise serializers.ValidationError({"input": f"Value must be a boolean."})
         elif item_type == "dictionary":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be a dictionary."})
@@ -178,7 +245,15 @@ class InputsItemSerializer(serializers.Serializer):
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
-                    if item_type in ["string", "dictionary", "json", "email", "native_email"]:
+                    value_is_transpiled = item_type in [
+                        "string",
+                        "boolean",
+                        "dictionary",
+                        "json",
+                        "email",
+                        "native_email",
+                    ] or (item_type == "boolean" and isinstance(value, str))
+                    if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property
                             value = {key: value[key] for key in value if key != "design"}
@@ -283,9 +358,12 @@ class InputsSerializer(serializers.DictField):
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
-    source = serializers.ChoiceField(choices=["events", "person-updates"], required=False, default="events")  # type: ignore
+    source = serializers.ChoiceField(
+        choices=["events", "person-updates", "data-warehouse-table"], required=False, default="events"
+    )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
+    data_warehouse = serializers.ListField(child=serializers.DictField(), required=False)
     properties = serializers.ListField(child=serializers.DictField(), required=False)
     bytecode = serializers.JSONField(required=False, allow_null=True)
     transpiled = serializers.JSONField(required=False)
@@ -304,10 +382,25 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
 
+        if data.get("source") == "events":
+            # Don't allow events or actions for person-updates
+            data.pop("data_warehouse", None)
+
         if data.get("source") == "person-updates":
             # Don't allow events or actions for person-updates
             data.pop("events", None)
             data.pop("actions", None)
+            data.pop("data_warehouse", None)
+
+        if data.get("source") == "data-warehouse-table":
+            # Don't allow events or actions for data-warehouse-table
+            data.pop("events", None)
+            data.pop("actions", None)
+
+        if "data_warehouse" in data and isinstance(data["data_warehouse"], list):
+            data["data_warehouse"] = [
+                entry for entry in data["data_warehouse"] if entry.get("name") != "Select a table"
+            ]
 
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_TRANSPILED_FILTERS:
@@ -346,7 +439,7 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     Raises an error if a cycle is detected.
     """
     # Build in-degree
-    in_degree = {node: 0 for node in nodes}
+    in_degree = dict.fromkeys(nodes, 0)
     for node, deps in edges.items():
         for dep in deps:
             if dep in in_degree:
@@ -376,12 +469,20 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
+
+        detector = HyphenatedPropertyDetector()
+        detector.visit(program)
+        if detector.errors:
+            raise serializers.ValidationError({"hog": detector.errors[0]})
+
         supported_functions = set()
 
         if hog_type == "destination":
-            supported_functions = {"fetch", "postHogCapture"}
+            supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
 
         return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
+    except serializers.ValidationError:
+        raise
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})

@@ -1,12 +1,30 @@
 import './PersonDisplay.scss'
 
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { NUM_LETTERMARK_STYLES } from 'lib/lemon-ui/Lettermark/Lettermark'
 import { ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { isUUIDLike, midEllipsis } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
+import { PersonType } from '~/types'
+
+/**
+ * Generates a stable color index from a string using djb2 hash.
+ * Used for consistent avatar colors based on person identifiers.
+ */
+export function getPersonColorIndex(identifier: string | null | undefined): number | undefined {
+    if (!identifier) {
+        return undefined
+    }
+
+    let hash = 5381
+    for (let i = 0; i < identifier.length; i++) {
+        hash = (hash * 33) ^ identifier.charCodeAt(i)
+    }
+    return Math.abs(hash) % NUM_LETTERMARK_STYLES
+}
 
 export type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never }
@@ -26,7 +44,7 @@ const EMAIL_REGEX = /.+@.+\..+/i
 /** Very rough UUID format. It's loose around length, because the posthog-js UUID util returns non-normative IDs. */
 const BROWSER_ANON_ID_REGEX = /^(?:[a-fA-F0-9]+-){4}[a-fA-F0-9]+$/i
 /** Score distinct IDs for display: UUID-like (i.e. anon ID) gets 0, custom format gets 1, email-like gets 2. */
-function scoreDistinctId(id: string): number {
+export function scoreDistinctId(id: string): number {
     if (EMAIL_REGEX.test(id)) {
         return 2
     }
@@ -66,7 +84,7 @@ export function asDisplay(
 
     // Sync the logic below with the plugin server `getPersonDetails`
     const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-    const customPropertyKey = personDisplayNameProperties.find((x) => person.properties?.[x])
+    const customPropertyKey = personDisplayNameProperties.find((x: string) => person.properties?.[x])
     const propertyIdentifier = customPropertyKey ? person.properties?.[customPropertyKey] : undefined
 
     const customIdentifier: string =
@@ -90,6 +108,29 @@ export function asDisplay(
     return display ? midEllipsis(display, maxLength || 40) : 'Anonymous'
 }
 
+// Property editor inputs are always strings — coerce to native types before persisting
+export function coercePropertyValue(value: string | number | boolean | null): string | number | boolean | null {
+    if (value === null || value === '') {
+        return value
+    }
+
+    let result: string | number | boolean | null = value
+
+    const attemptedParsedNumber = Number(value)
+    if (Number.isFinite(attemptedParsedNumber) && typeof value !== 'boolean') {
+        result = attemptedParsedNumber
+    }
+
+    if (typeof result === 'string') {
+        const lowercaseValue = result.toLowerCase()
+        if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
+            result = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
+        }
+    }
+
+    return result
+}
+
 export const asLink = (person?: PersonPropType | null): string | undefined =>
     person?.distinct_id
         ? urls.personByDistinctId(person.distinct_id)
@@ -99,13 +140,35 @@ export const asLink = (person?: PersonPropType | null): string | undefined =>
             ? urls.personByUUID(person.id)
             : undefined
 
+/**
+ * Parse a row from the HogQL person query into a PersonType.
+ * Column order matches getHogqlQueryStringForPersonId:
+ * [id, distinct_ids, properties, is_identified, created_at, last_seen_at]
+ */
+export function parsePersonFromHogQLRow(row: any[]): PersonType {
+    let properties = {}
+    try {
+        properties = JSON.parse(row[2] || '{}')
+    } catch {}
+    return {
+        id: row[0],
+        uuid: row[0],
+        distinct_ids: row[1],
+        properties,
+        is_identified: !!row[3],
+        created_at: row[4],
+        last_seen_at: row[5],
+    }
+}
+
 export const getHogqlQueryStringForPersonId = (): HogQLQueryString => {
     return hogql`SELECT
                     id,
                     groupArray(101)(pdi2.distinct_id) as distinct_ids,
                     properties,
                     is_identified,
-                    created_at
+                    created_at,
+                    last_seen_at
                 FROM persons
                 LEFT JOIN (
                     SELECT
@@ -122,5 +185,5 @@ export const getHogqlQueryStringForPersonId = (): HogQLQueryString => {
                         AND argMax(pdi2.person_id, pdi2.version) = {id}
                 ) AS pdi2 ON pdi2.person_id = persons.id
                 WHERE persons.id = {id}
-                GROUP BY id, properties, is_identified, created_at`
+                GROUP BY id, properties, is_identified, created_at, last_seen_at`
 }

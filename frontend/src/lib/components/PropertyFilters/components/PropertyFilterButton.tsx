@@ -22,17 +22,19 @@ export interface PropertyFilterButtonProps {
     children?: string
     item: AnyPropertyFilter
     disabledReason?: string
+    compact?: boolean
 }
 
 export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
-    function PropertyFilterButton({ onClick, onClose, children, item, disabledReason }, ref): JSX.Element {
+    function PropertyFilterButton(
+        { onClick, onClose, children, item, disabledReason, compact = false },
+        ref
+    ): JSX.Element {
         const { cohortsById } = useValues(cohortsModel)
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
         const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(item.type)
 
-        const closable = onClose !== undefined
-        const clickable = onClick !== undefined
         const label =
             children ||
             formatPropertyLabel(
@@ -47,16 +49,24 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                     )?.toString() || '?'
             )
 
+        // Don't render empty buttons
+        if (!label) {
+            return <></>
+        }
+
+        const closable = onClose !== undefined
+        const clickable = onClick !== undefined
+
         const ButtonComponent = clickable ? 'button' : 'div'
 
         const button = (
             <ButtonComponent
                 ref={ref as any}
                 onClick={disabledReason ? undefined : onClick}
-                className={clsx('PropertyFilterButton', 'grow', {
+                className={clsx('PropertyFilterButton', 'grow', 'ph-no-capture', {
                     'PropertyFilterButton--closeable': closable,
                     'PropertyFilterButton--clickable': clickable,
-                    'ph-no-capture': true,
+                    'PropertyFilterButton--compact': compact,
                 })}
                 aria-disabled={!!disabledReason}
                 type={ButtonComponent === 'button' ? 'button' : undefined}

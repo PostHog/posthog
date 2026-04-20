@@ -14,7 +14,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
     try:
         result = sync_execute(
             """
-            SELECT hostname(), query_id
+            SELECT FQDN(), query_id
             FROM distributed_system_processes
             WHERE query_id LIKE %(client_query_id)s
             SETTINGS max_execution_time = 2
@@ -38,6 +38,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
         statsd.incr("clickhouse.query.cancellation.ok", tags={"team_id": team_id})
     elif settings.CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER:
         logger.debug("No initiator host found for query %s, cancelling query on cluster", client_query_id)
+        # nosemgrep: clickhouse-fstring-param-audit - CLICKHOUSE_CLUSTER from settings constant
         result = sync_execute(
             f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
             {"client_query_id": f"{team_id}_{client_query_id}%"},

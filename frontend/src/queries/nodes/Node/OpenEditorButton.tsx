@@ -1,5 +1,5 @@
-import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { IconPreview } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
 import { Node } from '~/queries/schema/schema-general'
@@ -16,6 +16,7 @@ export function OpenEditorButton({ query, ...props }: OpenEditorButtonProps): JS
             to={query ? urls.insightNew({ query }) : undefined}
             icon={<IconPreview />}
             tooltip="Open as a new insight"
+            size="small"
             {...props}
         />
     )

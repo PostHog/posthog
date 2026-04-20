@@ -242,7 +242,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                             <LemonInput
                                 type="text"
                                 placeholder={inputPlaceholder}
-                                className="w-full"
+                                className="w-full min-h-[30px]"
                                 onChange={(val) => handleChange(val)}
                                 value={value}
                                 onKeyDown={handleKeydown}

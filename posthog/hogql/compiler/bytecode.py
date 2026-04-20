@@ -91,6 +91,7 @@ def create_bytecode(
     in_repl: Optional[bool] = False,
     locals: Optional[list[Local]] = None,
     cohort_membership_supported: Optional[bool] = False,
+    null_safe_comparisons: Optional[bool] = False,
 ) -> CompiledBytecode:
     supported_functions = supported_functions or set()
     bytecode: list[Any] = []
@@ -98,7 +99,14 @@ def create_bytecode(
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
         bytecode.append(HOGQL_BYTECODE_VERSION)
     compiler = BytecodeCompiler(
-        supported_functions, args, context, enclosing, in_repl, locals, cohort_membership_supported
+        supported_functions,
+        args,
+        context,
+        enclosing,
+        in_repl,
+        locals,
+        cohort_membership_supported,
+        null_safe_comparisons,
     )
     bytecode.extend(compiler.visit(expr))
     return CompiledBytecode(bytecode, locals=compiler.locals, upvalues=compiler.upvalues)
@@ -116,6 +124,7 @@ class BytecodeCompiler(Visitor):
         in_repl: Optional[bool] = False,
         locals: Optional[list[Local]] = None,
         cohort_membership_supported: Optional[bool] = False,
+        null_safe_comparisons: Optional[bool] = False,
     ):
         super().__init__()
         self.enclosing = enclosing
@@ -127,6 +136,7 @@ class BytecodeCompiler(Visitor):
         self.scope_depth = 0
         self.args = args
         self.cohort_membership_supported = cohort_membership_supported
+        self.null_safe_comparisons = null_safe_comparisons
         # we're in a function definition
         if args is not None:
             for arg in args:
@@ -212,6 +222,33 @@ class BytecodeCompiler(Visitor):
                 raise QueryError(
                     f"Can't use cohorts in real-time filters. Please inline the relevant expressions{cohort_name}."
                 )
+
+        # For null-safe comparisons on GT, GTE, LT, LTE operations
+        if self.null_safe_comparisons and operation in [Operation.GT, Operation.GT_EQ, Operation.LT, Operation.LT_EQ]:
+            # Generate: if(isNull(left) or isNull(right), false, left <op> right)
+            null_check = ast.Or(
+                exprs=[
+                    ast.Call(name="isNull", args=[node.left]),
+                    ast.Call(name="isNull", args=[node.right]),
+                ]
+            )
+            wrapped_comparison = ast.Call(
+                name="if",
+                args=[
+                    null_check,
+                    ast.Constant(value=False),
+                    node,  # The original comparison
+                ],
+            )
+            # Temporarily disable null_safe_comparisons to avoid infinite recursion
+            old_null_safe = self.null_safe_comparisons
+            self.null_safe_comparisons = False
+            try:
+                result = self.visit(wrapped_comparison)
+            finally:
+                self.null_safe_comparisons = old_null_safe
+            return result
+
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_between_expr(self, node: ast.BetweenExpr):

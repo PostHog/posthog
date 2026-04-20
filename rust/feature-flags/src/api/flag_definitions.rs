@@ -1,7 +1,20 @@
 use crate::{
-    api::{auth, errors::FlagError},
+    api::{
+        auth,
+        errors::{ClientFacingError, FlagError},
+    },
+    flags::{
+        flag_analytics::{increment_request_count, is_billable_flag_key},
+        flag_request::FlagRequestType,
+        flag_service::FlagService,
+    },
+    handler::types::Library,
+    metrics::consts::{
+        FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
+        FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
+    },
     router::State as AppState,
-    team::{team_models::Team, team_operations},
+    team::team_models::Team,
 };
 use axum::{
     debug_handler,
@@ -9,10 +22,100 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use common_hypercache::{CacheSource, HyperCacheConfig, HyperCacheReader, KeyType};
+use common_hypercache::{HyperCacheError, KeyType};
+use common_metrics::inc;
+use common_types::TeamId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::PgPool;
+use std::collections::HashSet;
+use std::sync::Arc;
 use tracing::{info, warn};
+
+const ALLOWLIST_TTL_SECS: u64 = 60;
+const CONSTANCE_KEY: &str = "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS";
+
+/// Refresh the rate limit allowlist from the database if stale, then update the limiter.
+/// Matches Django's `get_team_allow_list(round(time.time() / 60))` pattern.
+/// The cache is per-instance (stored on the rate limiter), not global.
+///
+/// To avoid stampeding the database at the TTL boundary (10k+ req/s),
+/// `claim_allowlist_refresh` atomically checks staleness and marks as refreshed,
+/// so only one request triggers the DB query. If the query fails, we serve stale
+/// data for another TTL cycle.
+async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
+    if !state
+        .flag_definitions_limiter
+        .claim_allowlist_refresh(ALLOWLIST_TTL_SECS)
+    {
+        return;
+    }
+
+    match fetch_allowlist_from_db(&state.database_pools.non_persons_reader).await {
+        Ok(Some(new_allowlist)) => {
+            state
+                .flag_definitions_limiter
+                .update_allowlist(new_allowlist);
+        }
+        Ok(None) => {
+            // Row not in DB — keep the env var default
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to refresh rate limit allowlist from database, using cached value");
+        }
+    }
+}
+
+/// Query the posthog_instancesetting table for the rate limit allowlist.
+/// The key is stored with the constance prefix: "constance:posthog:RATE_LIMITING_ALLOW_LIST_TEAMS"
+/// Returns None if the row doesn't exist (env var default should be kept),
+/// Some(set) if the row exists (overrides the env var).
+pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<TeamId>>, String> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT raw_value FROM posthog_instancesetting WHERE key = $1")
+            .bind(CONSTANCE_KEY)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("DB query failed: {e}"))?;
+
+    let raw_value = match row {
+        Some((val,)) => val,
+        None => return Ok(None),
+    };
+
+    // Match Django's InstanceSetting.value: try json.loads first, fall back to raw string.
+    // Handles JSON strings ("\"23047,12345\""), null, and bare strings ("23047,12345").
+    let value = match serde_json::from_str::<serde_json::Value>(&raw_value) {
+        Ok(serde_json::Value::String(s)) => s,
+        Ok(serde_json::Value::Null) => return Ok(Some(HashSet::new())),
+        _ => raw_value, // non-string JSON or invalid JSON, treat as bare string (like Django)
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(Some(HashSet::new()));
+    }
+
+    let mut team_ids = HashSet::new();
+    for part in value.split(',').map(|p| p.trim()) {
+        if part.is_empty() {
+            continue;
+        }
+        match part.parse::<TeamId>() {
+            Ok(id) => {
+                team_ids.insert(id);
+            }
+            Err(e) => {
+                warn!(
+                    part = part,
+                    error = %e,
+                    "Skipping invalid team ID in RATE_LIMITING_ALLOW_LIST_TEAMS"
+                );
+            }
+        }
+    }
+
+    Ok(Some(team_ids))
+}
 
 /// Response for flag definitions endpoint
 /// This is returned as raw JSON from cache to avoid deserialization overhead
@@ -21,8 +124,11 @@ pub type FlagDefinitionsResponse = Value;
 /// Query parameters for the flag definitions endpoint
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FlagDefinitionsQueryParams {
-    /// Team API token - required to specify which team's flags to return
-    pub token: String,
+    /// Team API token. Required when authenticating with a personal API key (which
+    /// can access multiple teams). Optional when authenticating with a `phs_` secret
+    /// token or project secret API key, since those are team-scoped and the team can
+    /// be derived from the token itself.
+    pub token: Option<String>,
 }
 
 /// Flag definitions endpoint handler
@@ -44,6 +150,11 @@ pub struct FlagDefinitionsQueryParams {
 /// The response is retrieved directly from Redis cache using Django's cache keys.
 /// No database fallback is provided - if the cache is empty, an error is returned.
 /// The response always includes cohort definitions.
+///
+/// **ETag support:**
+/// Supports `If-None-Match` header for conditional requests. Returns 304 Not Modified
+/// when the client's ETag matches the current cache state, avoiding redundant data transfer.
+/// ETags are stored by Django in Redis alongside the cached data.
 #[debug_handler]
 pub async fn flags_definitions(
     State(state): State<AppState>,
@@ -53,8 +164,8 @@ pub async fn flags_definitions(
 ) -> Result<Response, FlagError> {
     info!(
         method = %method,
-        token = %params.token,
-        "Processing flag definitions request (always includes cohorts)"
+        token = ?params.token,
+        "Processing flag definitions request"
     );
 
     // Only GET is supported for this read-only endpoint
@@ -63,19 +174,188 @@ pub async fn flags_definitions(
         return Ok(handle_non_get_method(&method));
     }
 
-    // Fetch team using the token from query parameter
-    let team = fetch_team_by_token(&state, &params.token).await?;
+    // Resolve the team. Two flows:
+    // 1. Token provided: look up team by token, then authenticate against it (standard SDK flow)
+    // 2. Token absent: authenticate with phs_ secret token first, derive team_id from it
+    //    (supports direct API callers who authenticate with Bearer phs_<key> only)
+    let team = if let Some(ref token) = params.token {
+        let team = fetch_team_by_token(&state, token).await?;
+        authenticate_flag_definitions(&state, &team, &headers).await?;
+        team
+    } else {
+        resolve_team_from_auth(&state, &headers).await?
+    };
 
-    // Authenticate against the specified team
-    authenticate_flag_definitions(&state, &team, &headers).await?;
+    // Refresh the rate limit allowlist from the database if stale (every ~60s)
+    refresh_rate_limit_allowlist_if_stale(&state).await;
 
     // Check rate limit for this team
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
-    // Retrieve cached response from HyperCache (always with cohorts)
-    let cached_response = get_from_cache(&state, &team).await?;
+    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior.
+    if state
+        .feature_flags_billing_limiter
+        .is_limited(&team.api_token)
+        .await
+    {
+        return Err(FlagError::ClientFacing(ClientFacingError::BillingLimit));
+    }
 
-    Ok(Json(cached_response).into_response())
+    let client_etag = extract_etag_from_header(headers.get("if-none-match"));
+    let team_key = KeyType::team(team.clone());
+    let current_etag = get_etag_from_redis(&state, &team_key).await;
+
+    // If client sent a matching ETag, short-circuit with 304 (skip full data fetch)
+    if let (Some(ref client_val), Some(ref current_val)) = (&client_etag, &current_etag) {
+        if client_val == current_val {
+            inc(
+                FLAG_DEFINITIONS_ETAG_COUNTER,
+                &[("result".to_string(), "hit".to_string())],
+                1,
+            );
+            return Ok(not_modified_response(current_val));
+        }
+    }
+
+    let etag_result = if client_etag.is_some() {
+        "miss"
+    } else {
+        "none"
+    };
+    inc(
+        FLAG_DEFINITIONS_ETAG_COUNTER,
+        &[("result".to_string(), etag_result.to_string())],
+        1,
+    );
+
+    // Retrieve cached response from HyperCache (always with cohorts)
+    let cached_response = get_from_cache(&state, &team_key, team.id).await?;
+
+    // Record usage for billing, filtering out non-billable flags (surveys, product tours).
+    // Placed after the ETag/304 path intentionally: 304 responses skip billing,
+    // matching Django's /local_evaluation behavior.
+    if !*state.config.skip_writes && has_billable_flags(&cached_response) {
+        let library = Library::from_headers(&headers);
+        if let Err(e) = increment_request_count(
+            state.redis_client.clone(),
+            team.id,
+            1,
+            FlagRequestType::FlagDefinitions,
+            Some(library),
+        )
+        .await
+        {
+            inc(
+                "flag_request_redis_error",
+                &[("error".to_string(), e.to_string())],
+                1,
+            );
+        }
+    }
+
+    Ok(ok_response_with_etag(
+        cached_response,
+        current_etag.as_deref(),
+    ))
+}
+
+fn format_weak_etag(raw: &str) -> String {
+    format!("W/\"{}\"", raw)
+}
+
+/// Build a 304 Not Modified response with ETag and Cache-Control headers.
+fn not_modified_response(etag: &str) -> Response {
+    (
+        StatusCode::NOT_MODIFIED,
+        [
+            ("etag", format_weak_etag(etag)),
+            ("cache-control", "private, must-revalidate".to_string()),
+        ],
+    )
+        .into_response()
+}
+
+/// Build a 200 OK JSON response, attaching ETag and Cache-Control if available.
+fn ok_response_with_etag(data: Value, etag: Option<&str>) -> Response {
+    match etag {
+        Some(etag_val) => (
+            StatusCode::OK,
+            [
+                ("content-type", "application/json".to_string()),
+                ("etag", format_weak_etag(etag_val)),
+                ("cache-control", "private, must-revalidate".to_string()),
+            ],
+            Json(data),
+        )
+            .into_response(),
+        None => Json(data).into_response(),
+    }
+}
+
+/// Extract the raw ETag value from an `If-None-Match` header.
+///
+/// Handles both strong ETags (`"abc123"`) and weak ETags (`W/"abc123"`) per RFC 7232.
+/// Returns `None` if the header is absent or empty.
+fn extract_etag_from_header(header: Option<&axum::http::HeaderValue>) -> Option<String> {
+    let value = header?.to_str().ok()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let etag = if trimmed.starts_with("W/\"") {
+        // Weak ETag: W/"abc123" → strip W/ prefix, then strip quotes
+        &trimmed[2..]
+    } else {
+        trimmed
+    };
+
+    let etag = etag.trim_matches('"');
+    if etag.is_empty() {
+        None
+    } else {
+        Some(etag.to_string())
+    }
+}
+
+/// Read the ETag for a team's flag definitions from Redis.
+///
+/// Django stores ETags as separate Redis keys with an `:etag` suffix,
+/// pickle-serialized via Django's cache framework. Returns `None` if the
+/// ETag is unavailable (cache miss, Redis error, deserialization error)
+/// — this gracefully degrades to always returning 200 with full data.
+async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<String> {
+    let config = state.flags_with_cohorts_hypercache_reader.config();
+    let cache_key = config.get_redis_cache_key(team_key);
+    let etag_key = format!("{}:etag", cache_key);
+
+    match state.redis_client.get_raw_bytes(etag_key.clone()).await {
+        Ok(raw_bytes) => match serde_pickle::from_slice::<String>(&raw_bytes, Default::default()) {
+            Ok(etag) if !etag.is_empty() => Some(etag),
+            Ok(_) => None,
+            Err(e) => {
+                warn!(
+                    etag_key = %etag_key,
+                    error = %e,
+                    "Failed to deserialize ETag from Redis"
+                );
+                None
+            }
+        },
+        Err(e) => {
+            warn!(
+                etag_key = %etag_key,
+                error = %e,
+                "Failed to read ETag from Redis"
+            );
+            inc(
+                FLAG_DEFINITIONS_ETAG_COUNTER,
+                &[("result".to_string(), "redis_error".to_string())],
+                1,
+            );
+            None
+        }
+    }
 }
 
 /// Handles non-GET HTTP methods (HEAD, OPTIONS, and unsupported methods)
@@ -98,75 +378,121 @@ fn handle_non_get_method(method: &Method) -> Response {
     }
 }
 
-/// Fetches a team by its API token
-/// Tries Redis cache first, then falls back to PostgreSQL
-async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
-    let pg_reader = state.database_pools.non_persons_reader.clone();
-    let token_str = token.to_string();
-
-    team_operations::fetch_team_from_redis_with_fallback(
+fn flag_service(state: &AppState) -> FlagService {
+    FlagService::new(
         state.redis_client.clone(),
-        token,
-        Some(state.config.team_cache_ttl_seconds),
-        || async move {
-            Team::from_pg(pg_reader, &token_str)
-                .await
-                .map_err(|_| FlagError::TokenValidationError)
-        },
+        state.database_pools.non_persons_reader.clone(),
+        state.team_hypercache_reader.clone(),
+        state.flags_hypercache_reader.clone(),
+        state.team_negative_cache.clone(),
+        *state.config.skip_pg_team_fallback,
     )
-    .await
 }
 
-/// Retrieves the cached response using HyperCache (Redis + S3 fallback)
+/// Fetches a team by its API token, delegating to FlagService for consistent
+/// negative caching, metrics, and error handling across all endpoints.
+async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
+    flag_service(state).verify_token_and_get_team(token).await
+}
+
+/// Resolves a team from the Authorization header when no `?token=` param is provided.
+///
+/// Only works with `phs_` secret tokens and project secret API keys, which are
+/// team-scoped. Personal API keys can access multiple teams and require an explicit
+/// `?token=` param to disambiguate — returns an error in that case.
+async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result<Team, FlagError> {
+    if let Some(token) = auth::extract_team_secret_token(headers) {
+        let (team_id, api_token, is_project_secret) =
+            auth::validate_secret_api_token(state, &token).await?;
+
+        let method = if is_project_secret {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
+        };
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), method.to_string())],
+            1,
+        );
+
+        // Prefer HyperCache via api_token (new cache entries include it).
+        // Fall back to PG for old cache entries that predate the field.
+        let svc = flag_service(state);
+        return match api_token {
+            Some(t) => svc.verify_token_and_get_team(&t).await,
+            None => svc.get_team_by_id(team_id).await,
+        };
+    }
+
+    // Non-phs_ auth (e.g. personal API key) can't derive team without a token param
+    if auth::extract_personal_api_key(headers)?.is_some() {
+        return Err(FlagError::ClientFacing(ClientFacingError::BadRequest(
+            "The 'token' query parameter is required unless authenticating with a \
+             phs_-prefixed token."
+                .to_string(),
+        )));
+    }
+
+    Err(FlagError::NoAuthenticationProvided)
+}
+
+/// Retrieves the cached response using the pre-initialized HyperCacheReader
 ///
 /// Always uses the cache with cohorts included to match Django's behavior and ensure
 /// consistency across all clients accessing the same team's data. The cohorts are required
 /// for proper local evaluation of flags that depend on cohort membership.
+///
+/// Emits metrics on both cache hit (with source label) and cache miss (with reason label)
+/// to support dashboards and alerting during the migration from Django.
 async fn get_from_cache(
     state: &AppState,
-    team: &Team,
+    team_key: &KeyType,
+    team_id: i32,
 ) -> Result<FlagDefinitionsResponse, FlagError> {
-    // Configure HyperCache to use the flags_with_cohorts.json cache key
-    // This ensures we always return cohort definitions along with flag definitions
-    let hypercache_config = HyperCacheConfig::new(
-        "feature_flags".to_string(),
-        "flags_with_cohorts.json".to_string(),
-        state.config.object_storage_region.clone(),
-        state.config.object_storage_bucket.clone(),
-    );
+    let result = state
+        .flags_with_cohorts_hypercache_reader
+        .get_with_source(team_key)
+        .await;
 
-    // Set S3 endpoint if configured
-    let mut config = hypercache_config;
-    if !state.config.object_storage_endpoint.is_empty() {
-        config.s3_endpoint = Some(state.config.object_storage_endpoint.clone());
+    match result {
+        Ok((data, source)) => {
+            let source_name = source.as_log_str();
+            inc(
+                FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
+                &[("source".to_string(), source_name.to_string())],
+                1,
+            );
+            info!(
+                team_id = team_id,
+                source = source_name,
+                "Cache hit for flag definitions"
+            );
+            Ok(data)
+        }
+        Err(e) => {
+            let reason = match &e {
+                HyperCacheError::CacheMiss => "cache_miss",
+                HyperCacheError::S3(_) => "s3_error",
+                HyperCacheError::Redis(_) => "redis_error",
+                HyperCacheError::Json(_) => "json_parse_error",
+                HyperCacheError::Pickle(_) => "pickle_parse_error",
+                HyperCacheError::Timeout(_) => "timeout",
+            };
+            inc(
+                FLAG_DEFINITIONS_CACHE_MISS_COUNTER,
+                &[("reason".to_string(), reason.to_string())],
+                1,
+            );
+            warn!(
+                team_id = team_id,
+                reason = reason,
+                error = %e,
+                "Flag definitions cache miss"
+            );
+            Err(FlagError::from(e))
+        }
     }
-
-    // Create HyperCacheReader with the Redis client from state
-    let hypercache_reader = HyperCacheReader::new(state.redis_client.clone(), config)
-        .await
-        .map_err(|e| {
-            warn!(team_id = team.id, error = %e, "Failed to create HyperCacheReader");
-            FlagError::CacheMiss
-        })?;
-
-    // Use KeyType::team() to generate the proper cache key
-    let team_key = KeyType::team(team.clone());
-
-    // Try to get data from cache (Redis first, then S3 fallback)
-    let (data, source) = hypercache_reader.get_with_source(&team_key).await?;
-
-    let source_name = match source {
-        CacheSource::Redis => "Redis",
-        CacheSource::S3 => "S3",
-        CacheSource::Fallback => "Fallback",
-    };
-    info!(
-        team_id = team.id,
-        source = source_name,
-        "Cache hit for flag definitions (with cohorts)"
-    );
-
-    Ok(data)
 }
 
 /// Authenticates flag definitions requests using team secret API tokens or personal API keys
@@ -185,16 +511,149 @@ async fn authenticate_flag_definitions(
     team: &Team,
     headers: &HeaderMap,
 ) -> Result<(), FlagError> {
-    // Try team secret token first (from Authorization header only)
-    // Secret tokens have priority over personal API keys
+    // Try team secret token or project secret API key (from Authorization header only)
+    // Both use phs_ prefix and share the same cache; the unified loader handles both.
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        return auth::validate_secret_api_token_for_team(state, &token, team.id).await;
+        let (_, _, is_project_secret) =
+            auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
+        let method = if is_project_secret {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
+        };
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), method.to_string())],
+            1,
+        );
+        return Ok(());
     }
 
     // Try personal API key (with scope validation)
     if let Some(key) = auth::extract_personal_api_key(headers)? {
-        return auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await;
+        let pak_id =
+            auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await?;
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), "personal_api_key".to_string())],
+            1,
+        );
+
+        if !*state.config.skip_writes {
+            // Use shared Redis, not the dedicated flags cache client —
+            // PAK last_used_at tracking is advisory and shouldn't steal
+            // capacity from the critical path.
+            let redis = state.redis_client.clone();
+            let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
+                state.database_pools.non_persons_writer.clone();
+            // Redis SET NX EX is sub-millisecond, so we check inline to avoid
+            // spawning a background task on every request. Only the DB write
+            // (triggered when the key is newly set) runs in a spawned task.
+            drop(super::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
+        }
+
+        return Ok(());
     }
 
     Err(FlagError::NoAuthenticationProvided)
+}
+
+/// Checks whether the cached flag definitions contain any billable flags.
+///
+/// Returns false if all flags are survey or product tour targeting flags,
+/// matching Django's `local_evaluation` billing filter. The cached response
+/// has a `"flags"` array where each entry has a `"key"` field.
+fn has_billable_flags(response: &Value) -> bool {
+    let Some(flags) = response.get("flags").and_then(|f| f.as_array()) else {
+        return false;
+    };
+
+    flags.iter().any(|flag| {
+        let key = flag.get("key").and_then(|k| k.as_str()).unwrap_or("");
+        is_billable_flag_key(key)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+    use serde_json::json;
+
+    #[rstest]
+    #[case::regular_flags(json!({"flags": [{"key": "my-feature"}, {"key": "another-flag"}]}), true)]
+    #[case::only_survey_flags(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "survey-targeting-xyz"}]}), false)]
+    #[case::only_product_tour_flags(json!({"flags": [{"key": "product-tour-targeting-abc"}]}), false)]
+    #[case::mixed_survey_and_regular(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "my-feature"}]}), true)]
+    #[case::empty_flags_array(json!({"flags": []}), false)]
+    #[case::no_flags_key(json!({"cohorts": {}}), false)]
+    #[case::only_survey_and_tour_flags(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "product-tour-targeting-xyz"}]}), false)]
+    fn test_has_billable_flags(#[case] response: Value, #[case] expected: bool) {
+        assert_eq!(has_billable_flags(&response), expected);
+    }
+
+    #[test]
+    fn test_extract_etag_from_header_weak() {
+        let val = axum::http::HeaderValue::from_static("W/\"a1b2c3d4e5f6g7h8\"");
+        assert_eq!(
+            extract_etag_from_header(Some(&val)),
+            Some("a1b2c3d4e5f6g7h8".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_etag_from_header_strong() {
+        let val = axum::http::HeaderValue::from_static("\"a1b2c3d4e5f6g7h8\"");
+        assert_eq!(
+            extract_etag_from_header(Some(&val)),
+            Some("a1b2c3d4e5f6g7h8".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_etag_from_header_none() {
+        assert_eq!(extract_etag_from_header(None), None);
+    }
+
+    #[test]
+    fn test_extract_etag_from_header_empty() {
+        let val = axum::http::HeaderValue::from_static("");
+        assert_eq!(extract_etag_from_header(Some(&val)), None);
+    }
+
+    #[test]
+    fn test_extract_etag_from_header_bare_value() {
+        let val = axum::http::HeaderValue::from_static("a1b2c3d4e5f6g7h8");
+        assert_eq!(
+            extract_etag_from_header(Some(&val)),
+            Some("a1b2c3d4e5f6g7h8".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_etag_from_header_empty_weak() {
+        let val = axum::http::HeaderValue::from_static("W/\"\"");
+        assert_eq!(extract_etag_from_header(Some(&val)), None);
+    }
+
+    #[test]
+    fn test_extract_etag_from_header_wildcard_treated_as_literal() {
+        // RFC 7232 allows `*` to match any ETag, but we treat it as a literal
+        // value. This means it will never match a stored ETag, which is safe —
+        // the client just gets a 200 with full data instead of a 304.
+        let val = axum::http::HeaderValue::from_static("*");
+        assert_eq!(extract_etag_from_header(Some(&val)), Some("*".to_string()));
+    }
+
+    #[test]
+    fn test_extract_etag_from_header_multiple_etags_no_special_handling() {
+        // RFC 7232 allows comma-separated ETags, but we don't parse them
+        // individually. The whole value is treated as a single string, so it
+        // won't match any stored ETag — the client gets a 200 with full data.
+        let val = axum::http::HeaderValue::from_static("\"etag1\", \"etag2\"");
+        assert_eq!(
+            extract_etag_from_header(Some(&val)),
+            Some("etag1\", \"etag2".to_string())
+        );
+    }
 }

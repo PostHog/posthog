@@ -1,8 +1,9 @@
 import json
 
 from django.contrib import admin
+from django.db.models import Model
+from django.http import HttpRequest
 from django.utils.html import format_html
-from django.utils.safestring import mark_safe
 
 from posthog.models import PluginAttachment
 
@@ -23,7 +24,7 @@ class PluginAttachmentInline(admin.StackedInline):
                 )
             return attachment.contents
         except Exception as err:
-            return format_html(f"cannot preview: {err}")
+            return format_html("cannot preview: {}", err)
 
     def parsed_json(self, attachment: PluginAttachment):
         try:
@@ -33,15 +34,15 @@ class PluginAttachmentInline(admin.StackedInline):
                 )
 
             response = json.dumps(json.loads(attachment.contents), sort_keys=True, indent=4)
-            return mark_safe(f"<pre>{response}</pre>")
+            return format_html("<pre>{}</pre>", response)
         except Exception as err:
-            return format_html(f"cannot preview: {err}")
+            return format_html("cannot preview: {}", err)
 
-    def has_add_permission(self, request, obj):
+    def has_add_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         return False
 
-    def has_change_permission(self, request, obj):
+    def has_change_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj):
+    def has_delete_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         return False

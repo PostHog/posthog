@@ -1,0 +1,276 @@
+{
+    "id": "019cc379-c4c6-0000-9aee-d5efa598d0f4",
+    "name": "Negative survey response -> alert team",
+    "description": "Get notified when a user submits negative survey feedback. This workflow detects low survey scores and sends a Slack alert so your team can quickly review the response and follow up with the user.",
+    "version": 1,
+    "created_at": "2026-03-06T14:07:43.302433Z",
+    "created_by": {
+        "id": 310726,
+        "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+        "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+        "first_name": "Sara",
+        "last_name": "Miteva",
+        "email": "sara@posthog.com",
+        "is_email_verified": true,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "updated_at": "2026-03-06T14:07:43.302447Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "events": [
+                {
+                    "id": "survey sent",
+                    "name": "Survey sent",
+                    "type": "events"
+                }
+            ],
+            "source": "events",
+            "bytecode": [
+                "_H",
+                1,
+                31,
+                32,
+                "$survey_id",
+                32,
+                "properties",
+                1,
+                2,
+                12,
+                29,
+                32,
+                "$survey_completed",
+                32,
+                "properties",
+                1,
+                2,
+                11,
+                32,
+                "survey sent",
+                32,
+                "event",
+                1,
+                1,
+                11,
+                3,
+                3
+            ],
+            "properties": [
+                {
+                    "key": "$survey_id",
+                    "type": "event",
+                    "operator": "is_set"
+                },
+                {
+                    "key": "$survey_completed",
+                    "type": "event",
+                    "value": true,
+                    "operator": "exact"
+                }
+            ],
+            "filter_test_accounts": false
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "bytecode": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_conditional_branch_a5208ea8-7821-4f1b-b281-313ef899b1b9",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_conditional_branch_a5208ea8-7821-4f1b-b281-313ef899b1b9",
+            "type": "continue"
+        },
+        {
+            "to": "action_function_8ab22520-fb94-4b45-9a38-a2178aafa7c4",
+            "from": "action_conditional_branch_a5208ea8-7821-4f1b-b281-313ef899b1b9",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_8ab22520-fb94-4b45-9a38-a2178aafa7c4",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Survey completed",
+            "description": "Select the survey you need to be alerted for.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "survey sent",
+                            "name": "Survey sent",
+                            "type": "events"
+                        }
+                    ],
+                    "source": "events",
+                    "bytecode": [
+                        "_H",
+                        1,
+                        31,
+                        32,
+                        "$survey_id",
+                        32,
+                        "properties",
+                        1,
+                        2,
+                        12,
+                        29,
+                        32,
+                        "$survey_completed",
+                        32,
+                        "properties",
+                        1,
+                        2,
+                        11,
+                        32,
+                        "survey sent",
+                        32,
+                        "event",
+                        1,
+                        1,
+                        11,
+                        3,
+                        3
+                    ],
+                    "properties": [
+                        {
+                            "key": "$survey_id",
+                            "type": "event",
+                            "operator": "is_set"
+                        },
+                        {
+                            "key": "$survey_completed",
+                            "type": "event",
+                            "value": true,
+                            "operator": "exact"
+                        }
+                    ],
+                    "filter_test_accounts": false
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_conditional_branch_a5208ea8-7821-4f1b-b281-313ef899b1b9",
+            "name": "Negative response?",
+            "description": "Check if survey score is negative.",
+            "on_error": null,
+            "created_at": 1772805521677,
+            "updated_at": 1772805521677,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Yes",
+                        "filters": {
+                            "source": "events",
+                            "bytecode": ["_H", 1, 29]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_8ab22520-fb94-4b45-9a38-a2178aafa7c4",
+            "name": "Slack Alert",
+            "description": "Connect Slack and alert your team.",
+            "on_error": null,
+            "created_at": 1772805938811,
+            "updated_at": 1772805938811,
+            "filters": null,
+            "type": "function",
+            "config": {
+                "inputs": {
+                    "text": {
+                        "value": "*{person.name}* gave a negative answer to: '{survey}'",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "⚠️ *Negative survey response received*\n\n*{person.name}* submitted negative feedback in a survey.",
+                                    "type": "mrkdwn"
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "url": "{person.url}",
+                                        "text": {
+                                            "text": "View person in PostHog",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button"
+                                    }
+                                ]
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "PostHog",
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":hedgehog:",
+                        "templating": "hog"
+                    },
+                    "slack_workspace": {
+                        "value": 54567,
+                        "templating": "hog"
+                    }
+                },
+                "template_id": "template-slack"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"],
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_2_c54cc98bea.jpg",
+    "tags": ["surveys", "slack"],
+    "scope": "global"
+}

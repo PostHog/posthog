@@ -26,7 +26,13 @@
             "lastFundingAt": "2025-02-25T00:00:00Z",
             "lastFundingType": "POST_IPO_DEBT",
             "lastFundingTotal": 500000000,
-            "fundingStage": "EXITED"
+            "fundingStage": "EXITED",
+            "investors": [
+                {"name": "Formus Capital"},
+                {"name": "Peak XV Partners"},
+                {"name": "GV"},
+                {"fullName": "Julia Dewahl"}
+            ]
         },
         "tractionMetrics": {
             "webTraffic": {
@@ -2806,6 +2812,43 @@
                     }
                 ]
             }
-        }
+        },
+        "tags": [
+            {
+                "type": "INDUSTRY",
+                "displayValue": "Enterprise Software",
+                "dateAdded": "2024-01-15T00:00:00Z",
+                "isPrimaryTag": true
+            },
+            {
+                "type": "CATEGORY",
+                "displayValue": "B2B",
+                "dateAdded": "2024-01-15T00:00:00Z",
+                "isPrimaryTag": false
+            },
+            {
+                "type": "TECHNOLOGY",
+                "displayValue": "SaaS",
+                "dateAdded": "2024-02-20T00:00:00Z",
+                "isPrimaryTag": false
+            }
+        ],
+        "tagsV2": [
+            {
+                "type": "INDUSTRY",
+                "displayValue": "Enterprise Software",
+                "dateAdded": "2024-01-15T00:00:00Z"
+            },
+            {
+                "type": "MARKET_VERTICAL",
+                "displayValue": "Business Intelligence",
+                "dateAdded": "2024-01-20T00:00:00Z"
+            },
+            {
+                "type": "CATEGORY",
+                "displayValue": "B2B",
+                "dateAdded": "2024-01-15T00:00:00Z"
+            }
+        ]
     }
 }

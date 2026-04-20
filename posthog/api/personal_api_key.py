@@ -5,6 +5,8 @@ from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
 
+import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -16,10 +18,10 @@ from posthog.models.activity_logging.personal_api_key_utils import (
     log_personal_api_key_activity,
     log_personal_api_key_scope_change,
 )
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
@@ -30,7 +32,10 @@ MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
     # Specifying method name because the serializer class already has a get_value method
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
-    scopes = serializers.ListField(child=serializers.CharField(required=True))
+    is_legacy_hashing = serializers.SerializerMethodField(
+        help_text="Whether this key uses legacy PBKDF2 hashing and should be rolled to upgrade."
+    )
+    scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
     scoped_teams = serializers.ListField(child=serializers.IntegerField(required=False))
     scoped_organizations = serializers.ListField(child=serializers.CharField(required=False))
 
@@ -40,6 +45,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "id",
             "label",
             "value",
+            "is_legacy_hashing",
             "mask_value",
             "created_at",
             "last_used_at",
@@ -49,12 +55,27 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "scoped_organizations",
             "last_rolled_at",
         ]
-        read_only_fields = ["id", "value", "mask_value", "created_at", "last_used_at", "user_id", "last_rolled_at"]
+        read_only_fields = [
+            "id",
+            "value",
+            "is_legacy_hashing",
+            "mask_value",
+            "created_at",
+            "last_used_at",
+            "user_id",
+            "last_rolled_at",
+        ]
 
     def get_key_value(self, obj: PersonalAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore
 
+    def get_is_legacy_hashing(self, obj: PersonalAPIKey) -> bool:
+        # Keys created before 2024-02 use PBKDF2 hashing, which is significantly slower per request
+        return bool(obj.secure_value and obj.secure_value.startswith(LEGACY_HASH_PREFIX))
+
     def validate_scopes(self, scopes):
+        requesting_user = self.context["request"].user
+
         for scope in scopes:
             if scope == "*":
                 continue
@@ -66,6 +87,27 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
                 or scope_parts[1] not in API_SCOPE_ACTIONS
             ):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+            # Check feature flag for llm_gateway scope - block if newly adding this scope
+            if scope_parts[0] == "llm_gateway":
+                existing_has_llm_gateway = self.instance is not None and any(
+                    s.startswith("llm_gateway:") for s in self.instance.scopes
+                )
+                if not existing_has_llm_gateway:
+                    organization_id = requesting_user.current_organization_id
+                    if organization_id is None:
+                        raise serializers.ValidationError("Unable to verify feature access.")
+                    if not posthoganalytics.feature_enabled(
+                        "gateway-personal-api-key",
+                        str(requesting_user.distinct_id),
+                        groups={"organization": str(organization_id)},
+                        group_properties={"organization": {"id": str(organization_id)}},
+                        only_evaluate_locally=False,
+                        send_feature_flag_events=False,
+                    ):
+                        raise serializers.ValidationError(
+                            "LLM gateway scope is not available. Contact support to enable this feature."
+                        )
 
         return scopes
 
@@ -101,11 +143,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Invalid organization UUID")
 
         return scoped_organizations
-
-    def to_representation(self, instance):
-        ret = super().to_representation(instance)
-        ret["scopes"] = ret["scopes"] or ["*"]
-        return ret
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user
@@ -176,6 +213,7 @@ class PersonalApiKeySelfAccessPermission(BasePermission):
         return request.successful_authenticator.personal_api_key == item
 
 
+@extend_schema(tags=["core"])
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer

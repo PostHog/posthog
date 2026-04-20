@@ -1,0 +1,4 @@
+id,name,account,status,total_budget,created_time
+501,Analytics Platform Campaign Group,urn:li:sponsoredAccount:12345678,ACTIVE,"5000.00_USD",2024-01-10
+502,Brand Awareness Campaign Group,urn:li:sponsoredAccount:12345678,ACTIVE,"3000.00_USD",2024-03-05
+503,Display Campaign Group,urn:li:sponsoredAccount:12345678,PAUSED,"1000.00_EUR",2024-03-28

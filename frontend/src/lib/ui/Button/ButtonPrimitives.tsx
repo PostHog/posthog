@@ -126,6 +126,7 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 
 export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
     'data-attr'?: string
+    forceVariant?: boolean
 }
 
 export const buttonPrimitiveVariants = cva({
@@ -275,14 +276,15 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltipInteractive,
         autoHeight,
         inert,
+        forceVariant = false,
+        truncate,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
     const context = useButtonGroupContext()
     const effectiveSize = context?.sizeContext || size
-    const effectiveVariant = context?.variantContext || variant
+    const effectiveVariant = forceVariant ? variant : context?.variantContext || variant
     let effectiveDisabled = disabledReasons ? Object.values(disabledReasons).some((value) => value) : disabled
-
     let buttonComponent: JSX.Element = React.createElement(
         'button',
         {
@@ -298,6 +300,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     isSideActionRight,
                     autoHeight,
                     inert,
+                    truncate,
                     className,
                 })
             ),
@@ -313,22 +316,29 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         children
     )
 
-    if (tooltip || tooltipDocLink || disabledReasons) {
+    // If there are disabled reasons which are true, render them, otherwise render the tooltip
+    const tooltipTitle =
+        disabledReasons && Object.values(disabledReasons).some(Boolean)
+            ? renderDisabledReasons(disabledReasons)
+            : tooltip
+
+    if (tooltipTitle || tooltipDocLink) {
+        const tooltipChild = effectiveDisabled ? (
+            <span className="inline-flex w-fit">{buttonComponent}</span>
+        ) : (
+            buttonComponent
+        )
+
         buttonComponent = (
             <Tooltip
-                // If there are disabled reasons which are true, render them, otherwise render the tooltip
-                title={
-                    disabledReasons && Object.values(disabledReasons).some(Boolean)
-                        ? renderDisabledReasons(disabledReasons)
-                        : tooltip
-                }
+                title={tooltipTitle}
                 placement={tooltipPlacement}
                 closeDelayMs={tooltipCloseDelayMs}
                 docLink={tooltipDocLink}
                 visible={tooltipVisible}
                 interactive={tooltipInteractive}
             >
-                {buttonComponent}
+                {tooltipChild}
             </Tooltip>
         )
     }

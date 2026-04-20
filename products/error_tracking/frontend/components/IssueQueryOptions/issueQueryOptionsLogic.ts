@@ -1,8 +1,10 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import posthog, { Properties } from 'posthog-js'
+import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Params } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
@@ -12,15 +14,18 @@ import type { issueQueryOptionsLogicType } from './issueQueryOptionsLogicType'
 
 export type ErrorTrackingQueryOrderBy = ErrorTrackingQuery['orderBy']
 export type ErrorTrackingQueryOrderDirection = ErrorTrackingQuery['orderDirection']
-export type ErrorTrackingQueryRevenuePeriod = ErrorTrackingQuery['revenuePeriod']
-export type ErrorTrackingQueryRevenueEntity = ErrorTrackingQuery['revenueEntity']
 export type ErrorTrackingQueryAssignee = ErrorTrackingQuery['assignee']
 export type ErrorTrackingQueryStatus = ErrorTrackingQuery['status']
 
-const DEFAULT_ORDER_BY = 'last_seen'
+export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
+    last_seen: 'Last seen',
+    first_seen: 'First seen',
+    occurrences: 'Occurrences',
+    users: 'Users',
+    sessions: 'Sessions',
+}
+const DEFAULT_ORDER_BY: ErrorTrackingQueryOrderBy = 'last_seen'
 const DEFAULT_ORDER_DIRECTION = 'DESC'
-const DEFAULT_REVENUE_PERIOD = 'last_30_days'
-const DEFAULT_REVENUE_ENTITY = 'person'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
 
@@ -33,13 +38,16 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     props({} as IssueQueryOptionsLogicProps),
     key(({ logicKey }) => logicKey),
 
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
+
     actions({
         setOrderBy: (orderBy: ErrorTrackingQueryOrderBy) => ({ orderBy }),
         setOrderDirection: (orderDirection: ErrorTrackingQueryOrderDirection) => ({ orderDirection }),
-        setRevenueEntity: (revenueEntity: ErrorTrackingQueryRevenueEntity) => ({ revenueEntity }),
-        setRevenuePeriod: (revenuePeriod: ErrorTrackingQueryRevenuePeriod) => ({ revenuePeriod }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
-        setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
+        setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
+        setUseQueryV3: (useQueryV3: boolean) => ({ useQueryV3 }),
     }),
 
     reducers({
@@ -57,20 +65,6 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 setOrderDirection: (_, { orderDirection }) => orderDirection,
             },
         ],
-        revenuePeriod: [
-            DEFAULT_REVENUE_PERIOD as ErrorTrackingQueryRevenuePeriod,
-            { persist: true },
-            {
-                setRevenuePeriod: (_, { revenuePeriod }) => revenuePeriod,
-            },
-        ],
-        revenueEntity: [
-            DEFAULT_REVENUE_ENTITY as ErrorTrackingQueryRevenueEntity,
-            { persist: true },
-            {
-                setRevenueEntity: (_, { revenueEntity }) => revenueEntity,
-            },
-        ],
         assignee: [
             DEFAULT_ASSIGNEE as ErrorTrackingQueryAssignee | null,
             { persist: true },
@@ -85,20 +79,38 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 setStatus: (_, { status }) => status,
             },
         ],
+        useQueryV3: [
+            false as boolean,
+            { persist: true },
+            {
+                setUseQueryV3: (_, { useQueryV3 }) => useQueryV3,
+            },
+        ],
+    }),
+
+    selectors({
+        showQueryV3Switch: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ERROR_TRACKING_QUERY_V3],
+        ],
+        forceQueryV3: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ERROR_TRACKING_FORCE_QUERY_V3],
+        ],
     }),
 
     listeners(({ values }) => ({
         setOrderBy: ({ orderBy }) => {
-            posthog.capture(
-                'error_tracking_issues_sorted',
-                issueSortedCaptureProperties(orderBy, values.orderDirection, values.revenueEntity)
-            )
+            posthog.capture('error_tracking_issues_sorted', {
+                sort_by: orderBy,
+                sort_direction: values.orderDirection,
+            })
         },
         setOrderDirection: ({ orderDirection }) => {
-            posthog.capture(
-                'error_tracking_issues_sorted',
-                issueSortedCaptureProperties(values.orderBy, orderDirection, values.revenueEntity)
-            )
+            posthog.capture('error_tracking_issues_sorted', {
+                sort_by: values.orderBy,
+                sort_direction: orderDirection,
+            })
         },
     })),
 
@@ -116,8 +128,6 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 updateSearchParams(params, 'status', values.status, DEFAULT_STATUS)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                 updateSearchParams(params, 'orderDirection', values.orderDirection, DEFAULT_ORDER_DIRECTION)
-                updateSearchParams(params, 'revenuePeriod', values.revenuePeriod, DEFAULT_REVENUE_PERIOD)
-                updateSearchParams(params, 'revenueEntity', values.revenueEntity, DEFAULT_REVENUE_ENTITY)
                 return params
             })
         }
@@ -126,8 +136,6 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             setOrderBy: () => buildURL(),
             setStatus: () => buildURL(),
             setAssignee: () => buildURL(),
-            setRevenuePeriod: () => buildURL(),
-            setRevenueEntity: () => buildURL(),
             setOrderDirection: () => buildURL(),
         }
     }),
@@ -135,7 +143,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
-                actions.setOrderBy(params.orderBy)
+                if (params.orderBy in ORDER_BY_OPTIONS) {
+                    actions.setOrderBy(params.orderBy)
+                }
             }
             if (params.status && !equal(params.status, values.status)) {
                 actions.setStatus(params.status)
@@ -146,28 +156,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             if (params.orderDirection && !equal(params.orderDirection, values.orderDirection)) {
                 actions.setOrderDirection(params.orderDirection)
             }
-            if (params.revenueEntity && !equal(params.revenueEntity, values.revenueEntity)) {
-                actions.setRevenueEntity(params.revenueEntity)
-            }
-            if (params.revenuePeriod && !equal(params.revenuePeriod, values.revenuePeriod)) {
-                actions.setOrderDirection(params.revenuePeriod)
-            }
         }
         return {
             '*': urlToAction,
         }
     }),
 ])
-
-function issueSortedCaptureProperties(orderBy: any, orderDirection: any, revenueEntity: any): Properties {
-    const properties: Properties = {
-        sort_by: orderBy,
-        sort_direction: orderDirection,
-    }
-
-    if (orderBy === 'revenue') {
-        properties.revenue_entity = revenueEntity
-    }
-
-    return properties
-}

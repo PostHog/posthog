@@ -1,3 +1,4 @@
+import { RegisterWindowIdCallback, createWindowIdRegistry } from '@posthog/replay-shared'
 import { eventWithTime } from '@posthog/rrweb-types'
 
 import { RecordingSnapshot } from '~/types'
@@ -9,35 +10,44 @@ const lineTwo =
 
 export const snapshotsAsJSONLines = (): string => `${lineOne}\n${lineTwo}\n`
 
-export const convertSnapshotsByWindowId = (snapshotsByWindowId: {
-    [key: string]: eventWithTime[]
-}): RecordingSnapshot[] =>
-    Object.entries(snapshotsByWindowId).flatMap(([windowId, snapshots]) => {
+export const convertSnapshotsByWindowId = (
+    snapshotsByWindowId: { [key: string]: eventWithTime[] },
+    registerWindowId?: RegisterWindowIdCallback
+): RecordingSnapshot[] => {
+    const register = registerWindowId || createWindowIdRegistry()
+    return Object.entries(snapshotsByWindowId).flatMap(([windowIdUuid, snapshots]) => {
+        const windowId = register(windowIdUuid)
         return snapshots.map((snapshot) => ({
             ...snapshot,
             windowId,
         }))
     })
+}
 
 export const convertSnapshotsResponse = (
     snapshotsByWindowId: { [key: string]: eventWithTime[] },
-    existingSnapshots?: RecordingSnapshot[]
+    existingSnapshots?: RecordingSnapshot[],
+    registerWindowId?: RegisterWindowIdCallback
 ): RecordingSnapshot[] => {
-    return [...convertSnapshotsByWindowId(snapshotsByWindowId), ...(existingSnapshots ?? [])]
+    return [...convertSnapshotsByWindowId(snapshotsByWindowId, registerWindowId), ...(existingSnapshots ?? [])]
 }
 
-export const sortedRecordingSnapshots = (): { snapshot_data_by_window_id: Record<string, RecordingSnapshot[]> } => {
-    const sortedRecordingSnapshotsJson = { snapshot_data_by_window_id: {} }
+export const sortedRecordingSnapshots = (): { snapshot_data_by_window_id: Record<number, RecordingSnapshot[]> } => {
+    const registerWindowId = createWindowIdRegistry()
+    const sortedRecordingSnapshotsJson: { snapshot_data_by_window_id: Record<number, RecordingSnapshot[]> } = {
+        snapshot_data_by_window_id: {},
+    }
 
     snapshotsAsJSONLines()
         .trim()
         .split('\n')
         .forEach((line) => {
             const j = JSON.parse(line)
-            sortedRecordingSnapshotsJson.snapshot_data_by_window_id[j.window_id] = j.data
+            const windowId = registerWindowId(j.window_id)
+            sortedRecordingSnapshotsJson.snapshot_data_by_window_id[windowId] = j.data
                 .map((jd: Record<string, any>) => {
                     return {
-                        windowId: j.window_id,
+                        windowId,
                         ...jd,
                     }
                 })

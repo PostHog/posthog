@@ -2,15 +2,23 @@ import time
 from datetime import timedelta
 from typing import Any
 
-from posthog.batch_exports.service import batch_export_delete_schedule
+import structlog
+
 from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
+
+from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
+
+logger = structlog.get_logger(__name__)
 
 actions_that_require_current_team = [
     "rotate_secret_token",
     "delete_secret_token_backup",
     "reset_token",
+    "generate_conversations_public_token",
+    "default_release_conditions",
 ]
 
 
@@ -22,13 +30,20 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.group.group import Group
     from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.insight_caching_state import InsightCachingState
-    from posthog.models.person import Person, PersonDistinctId
+    from posthog.models.person import Person, PersonDistinctId, PersonlessDistinctId
 
+    from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 
+    # Delete data modeling nodes and edges first to not block Team deletion.
+    # Team cascades to DataWarehouseSavedQuery, but it has PROTECT on delete.
+    _raw_delete(Edge.objects.filter(team_id__in=team_ids))
+    _raw_delete(Node.objects.filter(team_id__in=team_ids))
+
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
     # Get cohort_ids from the default database first to avoid cross-database join
@@ -45,7 +60,11 @@ def delete_bulky_postgres_data(team_ids: list[int]):
 
 def _raw_delete(queryset: Any):
     "Issues a single DELETE statement for the queryset"
-    queryset._raw_delete(queryset.db)
+    from django.db import router
+
+    # Use db_for_write to ensure we get a writable connection (not read-only replica)
+    db_alias = router.db_for_write(queryset.model)
+    queryset._raw_delete(db_alias)
 
 
 def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
@@ -59,7 +78,7 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
     Uses tuple IN clause (id, team_id) IN ((...), (...)) to ensure accurate
     deletion of specific record combinations rather than a Cartesian product.
     """
-    from django.db import connections
+    from django.db import connections, router
 
     while True:
         # Get tuples of (id, team_id) to ensure accurate deletion
@@ -70,7 +89,9 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
 
         # Use raw SQL with tuple IN clause for accurate deletion
         # Format: DELETE FROM table WHERE (id, team_id) IN ((1, 1), (2, 1), ...)
-        db_connection = connections[queryset.db]
+        # Use db_for_write to ensure we get a writable connection (not read-only replica)
+        db_alias = router.db_for_write(queryset.model)
+        db_connection = connections[db_alias]
         with db_connection.cursor() as cursor:
             table_name = queryset.model._meta.db_table
             # Build tuple placeholders: (%s, %s), (%s, %s), ...
@@ -97,13 +118,57 @@ def delete_batch_exports(team_ids: list[int]):
 
     temporal = sync_connect()
 
-    for batch_export in BatchExport.objects.filter(team_id__in=team_ids):
+    for batch_export in BatchExport.objects.filter(team_id__in=team_ids, deleted=False):
         schedule_id = batch_export.id
 
         batch_export.delete()
         batch_export.destination.delete()
 
-        batch_export_delete_schedule(temporal, str(schedule_id))
+        try:
+            batch_export_delete_schedule(temporal, str(schedule_id))
+        except BatchExportServiceScheduleNotFound as e:
+            logger.warning(
+                "Schedule not found during team deletion",
+                schedule_id=e.schedule_id,
+            )
+
+
+def delete_data_modeling_schedules(team_ids: list[int]) -> None:
+    """Delete Temporal schedules for data modeling saved queries in deleted teams.
+
+    Django CASCADE deletes the DataWarehouseSavedQuery records but doesn't
+    call revert_materialization(), leaving orphaned Temporal schedules.
+    """
+    import temporalio.service
+
+    from posthog.temporal.common.schedule import delete_schedule
+
+    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_queries = list(
+        DataWarehouseSavedQuery.objects.filter(
+            team_id__in=team_ids,
+            sync_frequency_interval__isnull=False,
+        ).exclude(deleted=True)  # as it's nullable
+    )
+
+    if not saved_queries:
+        return
+
+    temporal = sync_connect()
+
+    for saved_query in saved_queries:
+        try:
+            delete_schedule(temporal, schedule_id=str(saved_query.id))
+        except temporalio.service.RPCError as e:
+            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                logger.warning(
+                    "Data modeling schedule not found during team deletion",
+                    schedule_id=str(saved_query.id),
+                    team_id=saved_query.team_id,
+                )
+                continue
+            capture_exception(e)
 
 
 can_enable_actor_on_events = False

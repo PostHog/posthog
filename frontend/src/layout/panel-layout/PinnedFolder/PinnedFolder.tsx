@@ -4,6 +4,7 @@ import { IconCheck, IconGear, IconPencil, IconPlusSmall } from '@posthog/icons'
 
 import { ItemSelectModalButton } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -17,11 +18,11 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { EditCustomProductsModal } from '~/layout/panel-layout/PinnedFolder/EditCustomProductsModal'
 import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { editCustomProductsModalLogic } from './editCustomProductsModalLogic'
 
@@ -34,12 +35,14 @@ export function PinnedFolder(): JSX.Element {
     const { pinnedFolder } = useValues(pinnedFolderLogic)
     const { setPinnedFolder } = useActions(pinnedFolderLogic)
     const { openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
+    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const isCustomProductsSidebarEnabled =
-        featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] || pinnedFolder === 'custom-products://'
 
     const showDefaultHeader = !['products://', 'data://', 'custom-products://'].includes(pinnedFolder)
+
+    const isCustomProductsSidebarEnabled = featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
+    const CustomProductsIcon = isCustomProductsSidebarEnabled ? IconGear : IconPencil
 
     const configMenu = (
         <>
@@ -48,7 +51,7 @@ export function PinnedFolder(): JSX.Element {
                     buttonProps={{
                         iconOnly: true,
                         size: 'xs',
-                        tooltip: 'Add shortcut',
+                        tooltip: isAIFirst ? 'Add to starred' : 'Add shortcut',
                         tooltipPlacement: 'top',
                         children: <IconPlusSmall className="size-4 text-tertiary" />,
                     }}
@@ -61,70 +64,59 @@ export function PinnedFolder(): JSX.Element {
                     tooltipPlacement="top"
                     onClick={openEditCustomProductsModal}
                     size="xs"
+                    data-attr="edit-sidebar-apps-button"
                 >
-                    <IconPencil className="size-3 text-secondary" />
+                    <CustomProductsIcon className="size-3 text-secondary" />
                 </ButtonPrimitive>
             ) : null}
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <ButtonPrimitive
-                        iconOnly
-                        data-attr="tree-navbar-pinned-folder-change-button"
-                        tooltip="Change sidebar mode"
-                        tooltipPlacement="top"
-                        size="xs"
-                    >
-                        <IconGear className="size-3 text-secondary" />
-                    </ButtonPrimitive>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                    <DropdownMenuGroup>
-                        <DropdownMenuLabel>Choose sidebar mode</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {isCustomProductsSidebarEnabled && (
+
+            {!isCustomProductsSidebarEnabled && (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive
+                            iconOnly
+                            data-attr="tree-navbar-pinned-folder-change-button"
+                            tooltip="Change sidebar mode"
+                            tooltipPlacement="top"
+                            size="xs"
+                        >
+                            <IconGear className="size-3 text-secondary" />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
+                        <DropdownMenuGroup>
+                            <DropdownMenuLabel>Choose sidebar mode</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    setPinnedFolder('custom-products://')
+                                    setPinnedFolder('products://')
                                 }}
                                 data-attr="tree-item-menu-open-link-button"
                             >
                                 <ButtonPrimitive menuItem>
-                                    My apps&nbsp;
-                                    <SelectedIcon checked={pinnedFolder === 'custom-products://'} />
+                                    All apps&nbsp;
+                                    <SelectedIcon checked={!pinnedFolder || pinnedFolder === 'products://'} />
                                 </ButtonPrimitive>
                             </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setPinnedFolder('products://')
-                            }}
-                            data-attr="tree-item-menu-open-link-button"
-                        >
-                            <ButtonPrimitive menuItem>
-                                All apps&nbsp;
-                                <SelectedIcon checked={!pinnedFolder || pinnedFolder === 'products://'} />
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setPinnedFolder('shortcuts://')
-                            }}
-                            data-attr="tree-item-menu-open-link-button"
-                        >
-                            <ButtonPrimitive menuItem>
-                                Shortcuts only&nbsp;
-                                <SelectedIcon checked={pinnedFolder === 'shortcuts://'} />
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    </DropdownMenuGroup>
-                </DropdownMenuContent>
-            </DropdownMenu>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setPinnedFolder('shortcuts://')
+                                }}
+                                data-attr="tree-item-menu-open-link-button"
+                            >
+                                <ButtonPrimitive menuItem>
+                                    Shortcuts only&nbsp;
+                                    <SelectedIcon checked={pinnedFolder === 'shortcuts://'} />
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            )}
         </>
     )
 

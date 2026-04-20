@@ -1,3 +1,5 @@
 export const PATH_NODE_CARD_WIDTH = 240
+export const PATH_NODE_CARD_HEIGHT = 38
+export const PATH_NODE_CARD_OVERLAP_GAP = 4
 export const PATH_NODE_CARD_TOP_OFFSET = 5
 export const PATH_NODE_CARD_LEFT_OFFSET = 7

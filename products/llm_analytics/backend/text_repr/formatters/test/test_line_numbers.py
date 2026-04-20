@@ -92,7 +92,7 @@ class TestLineNumbersInTrace:
             "properties": {"$ai_span_name": "My Trace"},
         }
         hierarchy: list[dict[str, Any]] = []
-        result = format_trace_text_repr(trace, hierarchy, {"include_line_numbers": True})
+        result, _ = format_trace_text_repr(trace, hierarchy, {"include_line_numbers": True})
         lines = result.split("\n")
 
         # Check that line numbers are present
@@ -109,7 +109,7 @@ class TestLineNumbersInTrace:
             "properties": {"$ai_span_name": "My Trace"},
         }
         hierarchy: list[dict[str, Any]] = []
-        result = format_trace_text_repr(trace, hierarchy, {"include_line_numbers": False})
+        result, _ = format_trace_text_repr(trace, hierarchy, {"include_line_numbers": False})
         # Should not have L1: prefix on first line
         assert not result.startswith("L1:")
         # But should still have trace name

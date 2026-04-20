@@ -7,9 +7,17 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
-from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration, LinearIntegration
+from posthog.models.integration import (
+    GitHubIntegration,
+    GitLabIntegration,
+    Integration,
+    JiraIntegration,
+    LinearIntegration,
+)
 
+from products.error_tracking.backend import logic
 from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
@@ -24,9 +32,9 @@ class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSeria
 
 class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
     config = serializers.JSONField(write_only=True)
-    issue = serializers.PrimaryKeyRelatedField(write_only=True, queryset=ErrorTrackingIssue.objects.all())
+    issue = TeamScopedPrimaryKeyRelatedField(write_only=True, queryset=ErrorTrackingIssue.objects.all())
     integration = ErrorTrackingExternalReferenceIntegrationSerializer(read_only=True)
-    integration_id = serializers.PrimaryKeyRelatedField(
+    integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration"
     )
     external_url = serializers.SerializerMethodField()
@@ -37,16 +45,13 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         read_only_fields = ["external_url"]
 
     def get_external_url(self, reference: ErrorTrackingExternalReference) -> str:
-        external_context: dict[str, str] = reference.external_context or {}
-        if reference.integration.kind == Integration.IntegrationKind.LINEAR:
-            url_key = LinearIntegration(reference.integration).url_key()
-            return f"https://linear.app/{url_key}/issue/{external_context['id']}"
-        elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
-            org = GitHubIntegration(reference.integration).organization()
-            return f"https://github.com/{org}/{external_context['repository']}/issues/{external_context['number']}"
-        elif reference.integration.kind == Integration.IntegrationKind.GITLAB:
-            gitlab = GitLabIntegration(reference.integration)
-            return f"{gitlab.hostname}/{gitlab.project_path}/issues/{external_context['issue_id']}"
+        external_url = logic.build_external_issue_url(reference)
+        if external_url:
+            return external_url
+
+        if logic.is_supported_external_issue_provider(reference.integration.kind):
+            raise ValidationError("Missing required external context fields")
+
         raise ValidationError("Provider not supported")
 
     def validate(self, data):
@@ -75,6 +80,8 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
             external_context = GitLabIntegration(integration).create_issue(config)
         elif integration.kind == "linear":
             external_context = LinearIntegration(integration).create_issue(team.pk, issue.id, config)
+        elif integration.kind == "jira":
+            external_context = JiraIntegration(integration).create_issue(config)
         else:
             raise ValidationError("Provider not supported")
 

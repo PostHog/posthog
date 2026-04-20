@@ -3,11 +3,15 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { AppContext, PropertyDefinition } from '~/types'
+import { AppContext, PropertyDefinition, PropertyType } from '~/types'
+
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
@@ -125,6 +129,20 @@ describe('infiniteListLogic', () => {
             })
         })
 
+        it('toggles pinned rows and keeps the highlighted index in sync', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+
+            await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({
+                index: 1,
+                pinnedRowIndex: 1,
+            })
+
+            await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({
+                index: 1,
+                pinnedRowIndex: null,
+            })
+        })
+
         it('setting search query filters events', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('event')
@@ -136,6 +154,23 @@ describe('infiniteListLogic', () => {
                         count: 3,
                         results: partial([partial({ name: 'event1' })]),
                     }),
+                })
+        })
+
+        it('resets pinned state when the search query changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+            await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({
+                pinnedRowIndex: 1,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('event')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    searchQuery: 'event',
+                    pinnedRowIndex: null,
+                    hasAppliedInitialPin: false,
                 })
         })
 
@@ -207,7 +242,6 @@ describe('infiniteListLogic', () => {
                     logic.actions.onRowsRendered({
                         startIndex: 30,
                         stopIndex: 40,
-                        overscanStartIndex: 20,
                         overscanStopIndex: 60,
                     })
                 )
@@ -218,7 +252,6 @@ describe('infiniteListLogic', () => {
                     logic.actions.onRowsRendered({
                         startIndex: 80,
                         stopIndex: 100,
-                        overscanStartIndex: 70,
                         overscanStopIndex: 120,
                     })
                 )
@@ -231,6 +264,69 @@ describe('infiniteListLogic', () => {
                             results: [{ name: 'All events', value: null }, ...mockEventDefinitions],
                         }),
                     })
+            })
+        })
+    })
+
+    describe('data warehouse pin lifecycle', () => {
+        beforeEach(() => {
+            const databaseLogic = databaseTableListLogic()
+            databaseLogic.mount()
+            databaseLogic.actions.loadDatabaseSuccess({
+                tables: {
+                    orders: {
+                        id: 'orders',
+                        name: 'orders',
+                        type: 'data_warehouse',
+                        format: 'Parquet',
+                        url_pattern: '',
+                        fields: {},
+                    },
+                    customers: {
+                        id: 'customers',
+                        name: 'customers',
+                        type: 'data_warehouse',
+                        format: 'Parquet',
+                        url_pattern: '',
+                        fields: {},
+                    },
+                },
+                joins: [],
+            } as any)
+
+            dataWarehouseSettingsSceneLogic().mount()
+        })
+
+        it('reapplies the initial pin when the data warehouse tab becomes active again', async () => {
+            const dataWarehouseLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'test-data-warehouse-list',
+                listGroupType: TaxonomicFilterGroupType.DataWarehouse,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.DataWarehouse],
+                showNumericalPropsOnly: false,
+                groupType: TaxonomicFilterGroupType.DataWarehouse,
+                value: 'customers',
+            })
+            dataWarehouseLogic.mount()
+
+            await expectLogic(dataWarehouseLogic).toMatchValues({
+                index: 1,
+                pinnedRowIndex: 1,
+                hasAppliedInitialPin: true,
+            })
+
+            await expectLogic(dataWarehouseLogic, () => {
+                dataWarehouseLogic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
+            }).toMatchValues({
+                pinnedRowIndex: null,
+                hasAppliedInitialPin: false,
+            })
+
+            await expectLogic(dataWarehouseLogic, () => {
+                dataWarehouseLogic.actions.setActiveTab(TaxonomicFilterGroupType.DataWarehouse)
+            }).toMatchValues({
+                index: 1,
+                pinnedRowIndex: 1,
+                hasAppliedInitialPin: true,
             })
         })
     })
@@ -255,6 +351,66 @@ describe('infiniteListLogic', () => {
                 .toMatchValues({
                     results: partial([partial({ name: 'first' }), partial({ name: 'second' })]),
                 })
+        })
+    })
+
+    it('filters local data warehouse person properties to numeric ones when requested', async () => {
+        const databaseLogic = databaseTableListLogic()
+        databaseLogic.mount()
+        databaseLogic.actions.loadDatabaseSuccess({
+            tables: {
+                companies: {
+                    id: 'companies',
+                    name: 'companies',
+                    type: 'data_warehouse',
+                    format: 'Parquet',
+                    url_pattern: '',
+                    fields: {
+                        revenue: {
+                            name: 'revenue',
+                            hogql_value: 'companies.revenue',
+                            type: 'integer',
+                            schema_valid: true,
+                        },
+                        name: {
+                            name: 'name',
+                            hogql_value: 'companies.name',
+                            type: 'string',
+                            schema_valid: true,
+                        },
+                    },
+                },
+            },
+            joins: [],
+        } as any)
+
+        const joinsLogicInstance = joinsLogic()
+        joinsLogicInstance.mount()
+        joinsLogicInstance.actions.loadJoinsSuccess([
+            {
+                id: 'join-1',
+                source_table_name: 'persons',
+                joining_table_name: 'companies',
+                field_name: 'company',
+            },
+        ])
+
+        const logicWithProps = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-data-warehouse-person-properties',
+            listGroupType: TaxonomicFilterGroupType.DataWarehousePersonProperties,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.DataWarehousePersonProperties],
+            showNumericalPropsOnly: true,
+        })
+        logicWithProps.mount()
+
+        await expectLogic(logicWithProps).toMatchValues({
+            localItems: {
+                count: 1,
+                results: [
+                    partial({ id: 'company.revenue', name: 'company: revenue', property_type: PropertyType.Numeric }),
+                ],
+                searchQuery: '',
+            },
         })
     })
 
@@ -400,39 +556,7 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
 
         await expectLogic(logicWithProps, () => logicWithProps.actions.setSearchQuery('css')).toMatchValues({
-            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css', originalQuery: undefined },
-        })
-    })
-
-    it('swaps in query when url is sent', async () => {
-        const logicWithProps = infiniteListLogic({
-            taxonomicFilterLogicKey: 'test-e-prop',
-            listGroupType: TaxonomicFilterGroupType.EventProperties,
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
-            showNumericalPropsOnly: false,
-        })
-        logicWithProps.mount()
-
-        await expectLogic(logicWithProps, () =>
-            logicWithProps.actions.setSearchQuery('http://localhost:8010/project/1/replay/playlists')
-        ).toMatchValues({
-            swappedInQuery: '$current_url',
-        })
-    })
-
-    it('swaps in query when email is sent', async () => {
-        const logicWithProps = infiniteListLogic({
-            taxonomicFilterLogicKey: 'test-e-prop',
-            listGroupType: TaxonomicFilterGroupType.PersonProperties,
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
-            showNumericalPropsOnly: false,
-        })
-        logicWithProps.mount()
-
-        await expectLogic(logicWithProps, () =>
-            logicWithProps.actions.setSearchQuery('test@example.com')
-        ).toMatchValues({
-            swappedInQuery: 'email',
+            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css' },
         })
     })
 })

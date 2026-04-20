@@ -27,9 +27,9 @@ func TestNewFilter(t *testing.T) {
 
 func TestRemoveSubscription(t *testing.T) {
 	subs := []Subscription{
-		{SubID: 1},
-		{SubID: 2},
-		{SubID: 3},
+		{SubID: 1, DroppedEvents: &atomic.Uint64{}},
+		{SubID: 2, DroppedEvents: &atomic.Uint64{}},
+		{SubID: 3, DroppedEvents: &atomic.Uint64{}},
 	}
 
 	result := removeSubscription(2, subs)
@@ -53,14 +53,16 @@ func TestUuidFromDistinctId(t *testing.T) {
 
 func TestConvertToResponseGeoEvent(t *testing.T) {
 	event := PostHogEvent{
-		Lat: 40.7128,
-		Lng: -74.0060,
+		Lat:        40.7128,
+		Lng:        -74.0060,
+		DistinctId: "user1",
 	}
 
 	result := convertToResponseGeoEvent(event)
 
 	assert.Equal(t, 40.7128, result.Lat)
 	assert.Equal(t, -74.0060, result.Lng)
+	assert.Equal(t, "user1", result.DistinctId)
 	assert.Equal(t, uint(1), result.Count)
 }
 
@@ -74,7 +76,7 @@ func TestConvertToResponsePostHogEvent(t *testing.T) {
 		Properties: map[string]interface{}{"url": "https://example.com"},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1)
+	result := convertToResponsePostHogEvent(event, 1, nil)
 
 	assert.Equal(t, "123", result.Uuid)
 	assert.Equal(t, "2023-01-01T00:00:00Z", result.Timestamp)
@@ -96,13 +98,14 @@ func TestFilterRun(t *testing.T) {
 	// Test subscription
 	eventChan := make(chan interface{}, 1)
 	sub := Subscription{
-		SubID:       1,
-		TeamId:      1,
-		Token:       "token1",
-		DistinctId:  "user1",
-		EventTypes:  []string{"pageview"},
-		EventChan:   eventChan,
-		ShouldClose: &atomic.Bool{},
+		SubID:         1,
+		TeamId:        1,
+		Token:         "token1",
+		DistinctId:    "user1",
+		EventTypes:    []string{"pageview"},
+		EventChan:     eventChan,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
 	}
 	subChan <- sub
 
@@ -154,11 +157,12 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 	// Test subscription with Geo enabled
 	eventChan := make(chan interface{}, 1)
 	sub := Subscription{
-		SubID:       1,
-		TeamId:      1,
-		Geo:         true,
-		EventChan:   eventChan,
-		ShouldClose: &atomic.Bool{},
+		SubID:         1,
+		TeamId:        1,
+		Geo:           true,
+		EventChan:     eventChan,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
 	}
 	subChan <- sub
 
@@ -167,8 +171,9 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 
 	// Test geo event filtering
 	event := PostHogEvent{
-		Lat: 40.7128,
-		Lng: -74.0060,
+		Lat:        40.7128,
+		Lng:        -74.0060,
+		DistinctId: "user1",
 	}
 	inboundChan <- event
 
@@ -179,10 +184,309 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, 40.7128, geoEvent.Lat)
 		assert.Equal(t, -74.0060, geoEvent.Lng)
+		assert.Equal(t, "user1", geoEvent.DistinctId)
 		assert.Equal(t, uint(1), geoEvent.Count)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Timed out waiting for geo event")
 	}
+}
+
+func TestFilterRunWithMultipleSubscribersDifferentProperties(t *testing.T) {
+	subChan := make(chan Subscription)
+	unSubChan := make(chan Subscription)
+	inboundChan := make(chan PostHogEvent)
+
+	filter := NewFilter(subChan, unSubChan, inboundChan)
+
+	go filter.Run()
+
+	eventChan1 := make(chan interface{}, 1)
+	sub1 := Subscription{
+		SubID:         1,
+		TeamId:        1,
+		Token:         "token1",
+		EventChan:     eventChan1,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
+		Columns:    []string{"url"},
+	}
+
+	eventChan2 := make(chan interface{}, 1)
+	sub2 := Subscription{
+		SubID:         2,
+		TeamId:        1,
+		Token:         "token1",
+		EventChan:     eventChan2,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
+		Columns:    []string{"url", "$browser"},
+	}
+
+	eventChan3 := make(chan interface{}, 1)
+	sub3 := Subscription{
+		SubID:         3,
+		TeamId:        1,
+		Token:         "token1",
+		EventChan:     eventChan3,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
+		Columns:    nil,
+	}
+
+	subChan <- sub1
+	subChan <- sub2
+	subChan <- sub3
+
+	time.Sleep(10 * time.Millisecond)
+
+	event := PostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2026-01-01T00:00:00Z",
+		DistinctId: "user1",
+		Token:      "token1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{
+			"url":          "https://example.com",
+			"$browser":     "Chrome",
+			"$device_type": "Desktop",
+		},
+	}
+	inboundChan <- event
+
+	select {
+	case received := <-eventChan1:
+		responseEvent, ok := received.(ResponsePostHogEvent)
+		require.True(t, ok)
+		assert.Equal(t, map[string]interface{}{"url": "https://example.com"}, responseEvent.Properties)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for event on subscriber 1")
+	}
+
+	select {
+	case received := <-eventChan2:
+		responseEvent, ok := received.(ResponsePostHogEvent)
+		require.True(t, ok)
+		assert.Equal(t, map[string]interface{}{
+			"url":      "https://example.com",
+			"$browser": "Chrome",
+		}, responseEvent.Properties)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for event on subscriber 2")
+	}
+
+	select {
+	case received := <-eventChan3:
+		responseEvent, ok := received.(ResponsePostHogEvent)
+		require.True(t, ok)
+		assert.Equal(t, map[string]interface{}{
+			"url":          "https://example.com",
+			"$browser":     "Chrome",
+			"$device_type": "Desktop",
+		}, responseEvent.Properties)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for event on subscriber 3")
+	}
+
+	unSubChan <- sub1
+	unSubChan <- sub2
+	unSubChan <- sub3
+	time.Sleep(10 * time.Millisecond)
+	assert.Empty(t, filter.subs)
+}
+
+func TestMatchesPropertyFilters(t *testing.T) {
+	tests := []struct {
+		name    string
+		props   map[string]interface{}
+		filters map[string][]string
+		want    bool
+	}{
+		{
+			name:    "single key match",
+			props:   map[string]interface{}{"$browser": "Chrome"},
+			filters: map[string][]string{"$browser": {"Chrome"}},
+			want:    true,
+		},
+		{
+			name:    "single key miss",
+			props:   map[string]interface{}{"$browser": "Firefox"},
+			filters: map[string][]string{"$browser": {"Chrome"}},
+			want:    false,
+		},
+		{
+			name:    "multiple values OR match",
+			props:   map[string]interface{}{"$browser": "Firefox"},
+			filters: map[string][]string{"$browser": {"Chrome", "Firefox"}},
+			want:    true,
+		},
+		{
+			name:  "multi-key AND match",
+			props: map[string]interface{}{"$browser": "Chrome", "plan": "enterprise"},
+			filters: map[string][]string{
+				"$browser": {"Chrome"},
+				"plan":     {"enterprise"},
+			},
+			want: true,
+		},
+		{
+			name:  "multi-key AND miss on one key",
+			props: map[string]interface{}{"$browser": "Chrome", "plan": "free"},
+			filters: map[string][]string{
+				"$browser": {"Chrome"},
+				"plan":     {"enterprise"},
+			},
+			want: false,
+		},
+		{
+			name:    "missing key fails",
+			props:   map[string]interface{}{"$os": "Linux"},
+			filters: map[string][]string{"$browser": {"Chrome"}},
+			want:    false,
+		},
+		{
+			name:    "numeric value coerced",
+			props:   map[string]interface{}{"count": 42},
+			filters: map[string][]string{"count": {"42"}},
+			want:    true,
+		},
+		{
+			name:    "boolean value coerced",
+			props:   map[string]interface{}{"is_admin": true},
+			filters: map[string][]string{"is_admin": {"true"}},
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := matchesPropertyFilters(tt.props, tt.filters)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFilterRunWithPropertyFilter(t *testing.T) {
+	subChan := make(chan Subscription)
+	unSubChan := make(chan Subscription)
+	inboundChan := make(chan PostHogEvent)
+
+	filter := NewFilter(subChan, unSubChan, inboundChan)
+	go filter.Run()
+
+	eventChan := make(chan interface{}, 2)
+	sub := Subscription{
+		SubID:           1,
+		TeamId:          1,
+		Token:           "token1",
+		PropertyFilters: map[string][]string{"$browser": {"Chrome"}},
+		EventChan:       eventChan,
+		ShouldClose:     &atomic.Bool{},
+		DroppedEvents:   &atomic.Uint64{},
+	}
+	subChan <- sub
+	time.Sleep(10 * time.Millisecond)
+
+	matching := PostHogEvent{
+		Uuid:       "match",
+		Token:      "token1",
+		DistinctId: "user1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{"$browser": "Chrome"},
+	}
+	nonMatching := PostHogEvent{
+		Uuid:       "miss",
+		Token:      "token1",
+		DistinctId: "user1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{"$browser": "Firefox"},
+	}
+	inboundChan <- matching
+	inboundChan <- nonMatching
+
+	select {
+	case received := <-eventChan:
+		resp, ok := received.(ResponsePostHogEvent)
+		require.True(t, ok)
+		assert.Equal(t, "match", resp.Uuid)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for matching event")
+	}
+
+	select {
+	case received := <-eventChan:
+		resp, _ := received.(ResponsePostHogEvent)
+		t.Fatalf("unexpected event delivered: %+v", resp)
+	case <-time.After(50 * time.Millisecond):
+		// expected: non-matching event was filtered out
+	}
+
+	unSubChan <- sub
+	time.Sleep(10 * time.Millisecond)
+}
+
+func TestFilterRunWithPropertyAndEventTypeFilter(t *testing.T) {
+	subChan := make(chan Subscription)
+	unSubChan := make(chan Subscription)
+	inboundChan := make(chan PostHogEvent)
+
+	filter := NewFilter(subChan, unSubChan, inboundChan)
+	go filter.Run()
+
+	eventChan := make(chan interface{}, 4)
+	sub := Subscription{
+		SubID:           1,
+		TeamId:          1,
+		Token:           "token1",
+		EventTypes:      []string{"checkout_completed"},
+		PropertyFilters: map[string][]string{"plan": {"enterprise"}},
+		EventChan:       eventChan,
+		ShouldClose:     &atomic.Bool{},
+		DroppedEvents:   &atomic.Uint64{},
+	}
+	subChan <- sub
+	time.Sleep(10 * time.Millisecond)
+
+	// Both match: event type and property
+	inboundChan <- PostHogEvent{
+		Uuid:       "both",
+		Token:      "token1",
+		Event:      "checkout_completed",
+		Properties: map[string]interface{}{"plan": "enterprise"},
+	}
+	// Wrong event type
+	inboundChan <- PostHogEvent{
+		Uuid:       "wrong-event",
+		Token:      "token1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{"plan": "enterprise"},
+	}
+	// Wrong property
+	inboundChan <- PostHogEvent{
+		Uuid:       "wrong-prop",
+		Token:      "token1",
+		Event:      "checkout_completed",
+		Properties: map[string]interface{}{"plan": "free"},
+	}
+
+	select {
+	case received := <-eventChan:
+		resp, ok := received.(ResponsePostHogEvent)
+		require.True(t, ok)
+		assert.Equal(t, "both", resp.Uuid)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for combined-match event")
+	}
+
+	select {
+	case received := <-eventChan:
+		resp, _ := received.(ResponsePostHogEvent)
+		t.Fatalf("unexpected event delivered: %+v", resp)
+	case <-time.After(50 * time.Millisecond):
+		// expected
+	}
+
+	unSubChan <- sub
+	time.Sleep(10 * time.Millisecond)
 }
 
 func TestResponsePostHogEvent_MarshalJSON(t *testing.T) {
@@ -198,4 +502,80 @@ func TestResponsePostHogEvent_MarshalJSON(t *testing.T) {
 	json, err := json.Marshal(event)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"uuid":"123","timestamp":"2023-01-01T00:00:00Z","distinct_id":"user1","person_id":"person1","event":"pageview","properties":{"url":"https://example.com"}}`, string(json))
+}
+
+func TestIncludeProperties_NilIncludesAllProperties(t *testing.T) {
+	properties := map[string]interface{}{
+		"url":          "https://example.com",
+		"$device_type": "Desktop",
+		"$browser":     "Chrome",
+	}
+
+	event := PostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2026-01-01T00:00:00Z",
+		DistinctId: "user1",
+		Event:      "pageview",
+		Properties: properties,
+	}
+
+	result := convertToResponsePostHogEvent(event, 1, nil)
+
+	assert.Equal(t, properties, result.Properties)
+}
+
+func TestIncludeProperties_EmptySliceIncludesNoProperties(t *testing.T) {
+	event := PostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2026-01-01T00:00:00Z",
+		DistinctId: "user1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{
+			"url":          "https://example.com",
+			"$device_type": "Desktop",
+		},
+	}
+
+	result := convertToResponsePostHogEvent(event, 1, []string{})
+
+	assert.Equal(t, map[string]interface{}{}, result.Properties)
+}
+
+func TestIncludeProperties_SpecificPropertiesFiltersCorrectly(t *testing.T) {
+	event := PostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2026-01-01T00:00:00Z",
+		DistinctId: "user1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{
+			"url":          "https://example.com",
+			"$device_type": "Desktop",
+			"$browser":     "Chrome",
+		},
+	}
+
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "$device_type"})
+
+	assert.Equal(t, map[string]interface{}{
+		"url":          "https://example.com",
+		"$device_type": "Desktop",
+	}, result.Properties)
+}
+
+func TestIncludeProperties_NonExistentPropertiesAreIgnored(t *testing.T) {
+	event := PostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2026-01-01T00:00:00Z",
+		DistinctId: "user1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{
+			"url": "https://example.com",
+		},
+	}
+
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "nonexistent"})
+
+	assert.Equal(t, map[string]interface{}{
+		"url": "https://example.com",
+	}, result.Properties)
 }

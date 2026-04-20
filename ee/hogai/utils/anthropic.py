@@ -8,10 +8,13 @@ from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMe
 
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
+# The blocks below MUST be preserved as in the original Anthropic responses, in order for thinking signatures to match up
+SUPPORTED_ANTHROPIC_BLOCKS = ("thinking", "redacted_thinking", "server_tool_use", "web_search_tool_result")
+
 
 def get_anthropic_thinking_from_assistant_message(message: AssistantMessage) -> list[dict[str, Any]]:
     if message.meta and message.meta.thinking:
-        return [item for item in message.meta.thinking if item["type"] in ("thinking", "redacted_thinking")]
+        return [item for item in message.meta.thinking if item["type"] in SUPPORTED_ANTHROPIC_BLOCKS]
     return []
 
 

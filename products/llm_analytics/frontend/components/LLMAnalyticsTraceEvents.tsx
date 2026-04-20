@@ -9,6 +9,7 @@ interface LLMAnalyticsTraceEventsProps {
     isLoading: boolean
     expandedEventIds: Set<string>
     onToggleEventExpand: (eventId: string) => void
+    traceId?: string
 }
 
 export function LLMAnalyticsTraceEvents({
@@ -16,6 +17,7 @@ export function LLMAnalyticsTraceEvents({
     isLoading,
     expandedEventIds,
     onToggleEventExpand,
+    traceId,
 }: LLMAnalyticsTraceEventsProps): JSX.Element {
     if (isLoading) {
         return <Spinner />
@@ -47,6 +49,7 @@ export function LLMAnalyticsTraceEvents({
                     event={event}
                     isExpanded={expandedEventIds.has(event.id)}
                     onToggleExpand={() => onToggleEventExpand(event.id)}
+                    traceId={traceId}
                 />
             ))}
         </>

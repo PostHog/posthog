@@ -1,6 +1,6 @@
 import time
 import asyncio
-from typing import cast
+from datetime import timedelta
 
 from django.conf import settings
 
@@ -11,12 +11,17 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import query_with_columns
 from posthog.event_usage import report_user_action
-from posthog.models import User
+from posthog.hogql_queries.ai.ai_table_resolver import is_ai_events_enabled
+from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY, merge_heavy_properties
+from posthog.permissions import AccessControlPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.run_evaluation import RunEvaluationInputs
+
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 
 from ..models.evaluations import Evaluation
 
@@ -33,8 +38,10 @@ class EvaluationRunRequestSerializer(serializers.Serializer):
 
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @llma_track_latency("llma_evaluation_runs_create")
+    @monitor(feature=None, endpoint="llma_evaluation_runs_create", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
         """
         Create a new evaluation run.
@@ -58,15 +65,14 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except Evaluation.DoesNotExist:
             return Response({"error": f"Evaluation {evaluation_id} not found"}, status=404)
 
-        # Fetch event data from ClickHouse efficiently using available index keys
-        # The compound index is (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
+        # Fetch event data from ClickHouse using available keys
         where_clauses = [
             "team_id = %(team_id)s",
             "toDate(timestamp) = toDate(%(timestamp)s)",
             "event = %(event)s",
             "uuid = %(event_id)s",
         ]
-        params = {
+        params: dict[str, object] = {
             "team_id": self.team_id,
             "event_id": target_event_id.replace("-", ""),
             "timestamp": timestamp,
@@ -77,29 +83,60 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             where_clauses.append("distinct_id = %(distinct_id)s")
             params["distinct_id"] = distinct_id
 
-        query_result = query_with_columns(
-            f"""
-            SELECT
-                uuid,
-                event,
-                properties,
-                timestamp,
-                team_id,
-                distinct_id,
-                elements_chain,
-                created_at,
-                person_id
-            FROM events
-            WHERE {" AND ".join(where_clauses)}
-            LIMIT 1
-            """,
-            params,
-            team_id=self.team_id,
-        )
+        # Try ai_events first (unless kill switch is off), fall back to events
+        query_result: list[dict] = []
+        used_ai_events = False
+
+        if is_ai_events_enabled(self.team):
+            heavy_cols = ",\n                    ".join(HEAVY_COLUMN_NAMES)
+            query_result = query_with_columns(
+                f"""
+                SELECT
+                    uuid,
+                    event,
+                    properties,
+                    timestamp,
+                    team_id,
+                    distinct_id,
+                    person_id,
+                    {heavy_cols}
+                FROM ai_events
+                WHERE {" AND ".join(where_clauses)}
+                LIMIT 1
+                """,
+                params,
+                team_id=self.team_id,
+            )
+            used_ai_events = len(query_result) > 0
+
+        if not query_result:
+            query_result = query_with_columns(
+                f"""
+                SELECT
+                    uuid,
+                    event,
+                    properties,
+                    timestamp,
+                    team_id,
+                    distinct_id,
+                    person_id
+                FROM events
+                WHERE {" AND ".join(where_clauses)}
+                LIMIT 1
+                """,
+                params,
+                team_id=self.team_id,
+            )
+
         if len(query_result) == 0:
             return Response({"error": f"Event {target_event_id} not found"}, status=404)
 
         event_data = query_result[0]
+
+        if used_ai_events:
+            # Merge heavy columns back into properties for the evaluation workflow
+            heavy_columns = {col: event_data.pop(col, "") for col in HEAVY_COLUMN_TO_PROPERTY}
+            event_data["properties"] = merge_heavy_properties(event_data["properties"], heavy_columns)
 
         # Build workflow inputs
         inputs = RunEvaluationInputs(
@@ -108,7 +145,8 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         # Generate unique workflow ID
-        workflow_id = f"{evaluation_id}-{target_event_id}-manual-{int(time.time() * 1000)}"
+        prefix = "llma-hog-eval" if evaluation.evaluation_type == "hog" else "llma-llm-eval"
+        workflow_id = f"{prefix}-{evaluation_id}-{target_event_id}-manual-{int(time.time() * 1000)}"
 
         # Start Temporal workflow
         try:
@@ -118,9 +156,10 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "run-evaluation",
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.LLMA_EVALS_TASK_QUEUE,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
+                    task_timeout=timedelta(minutes=2),
                 )
             )
 
@@ -134,16 +173,18 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             # Track evaluation run triggered
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "llma evaluation run triggered",
                 {
                     "evaluation_id": evaluation_id,
                     "evaluation_name": evaluation.name,
+                    "evaluation_type": evaluation.evaluation_type,
                     "target_event_id": target_event_id,
                     "workflow_id": workflow_id,
                     "trigger_type": "manual",
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
             return Response(

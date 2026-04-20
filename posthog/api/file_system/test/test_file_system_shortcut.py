@@ -1,4 +1,8 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
+
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -75,3 +79,16 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         response_data = response.json()
         self.assertEqual(response_data["count"], 1)
+
+    def test_list_shortcuts_ordering_by_created_at(self):
+        older = FileSystemShortcut.objects.create(team=self.team, path="older.txt", type="t", user=self.user)
+        newer = FileSystemShortcut.objects.create(team=self.team, path="newer.txt", type="t", user=self.user)
+        FileSystemShortcut.objects.filter(pk=older.pk).update(created_at=timezone.now() - timedelta(days=1))
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system_shortcut/",
+            {"ordering": "-created_at"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        ids = [row["id"] for row in response.json()["results"]]
+        self.assertEqual(ids, [str(newer.id), str(older.id)])

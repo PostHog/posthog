@@ -1,7 +1,7 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
-import { urlToAction } from 'kea-router'
 
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -9,8 +9,8 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps, PropertyFilterType } from '~/types'
 
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import type { llmAnalyticsSessionLogicType } from './llmAnalyticsSessionLogicType'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 
 export interface LLMAnalyticsSessionDataNodeLogicParams {
     sessionId: string
@@ -37,12 +37,18 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
+export interface LLMAnalyticsSessionLogicProps {
+    tabId?: string
+}
+
 export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsSessionLogic']),
+    props({} as LLMAnalyticsSessionLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
-    connect({
-        values: [llmAnalyticsLogic, ['dateFilter']],
-    }),
+    connect((props: LLMAnalyticsSessionLogicProps) => ({
+        values: [llmAnalyticsSharedLogic({ tabId: props.tabId }), ['dateFilter']],
+    })),
 
     actions({
         setSessionId: (sessionId: string) => ({ sessionId }),
@@ -130,7 +136,7 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
         ],
     }),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsSession(':id')]: ({ id }, { timestamp, date_from, date_to }) => {
             actions.setSessionId(id ?? '')
             if (timestamp) {

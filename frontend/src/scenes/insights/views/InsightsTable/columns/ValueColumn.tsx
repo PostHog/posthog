@@ -1,15 +1,12 @@
-import { useValues } from 'kea'
+import { ReactNode, memo } from 'react'
 
 import { DateDisplay } from 'lib/components/DateDisplay'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatAggregationValue } from 'scenes/insights/utils'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ResolvedDateRangeResponse, TrendsFilter } from '~/queries/schema/schema-general'
-import { IntervalType, TrendsFilterType } from '~/types'
+import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
+import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 
 type ValueColumnTitleProps = {
     index: number
@@ -48,17 +45,22 @@ export function ValueColumnTitle({
 type ValueColumnItemProps = {
     index: number
     item: IndexedTrendResult
-    trendsFilter: TrendsFilter | null | undefined
+    isStickiness: boolean
+    renderCount: (value: number) => ReactNode
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction
 }
 
-export function ValueColumnItem({ index, item, trendsFilter }: ValueColumnItemProps): JSX.Element {
-    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-    const { insightProps } = useValues(insightLogic)
-    const { isStickiness } = useValues(trendsDataLogic(insightProps))
+export const ValueColumnItem = memo(function ValueColumnItem({
+    index,
+    item,
+    isStickiness,
+    renderCount,
+    formatPropertyValueForDisplay,
+}: ValueColumnItemProps): JSX.Element {
     const formattedValue = formatAggregationValue(
         item.action?.math_property,
         item.data[index],
-        (value) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value),
+        renderCount,
         formatPropertyValueForDisplay
     )
     return (
@@ -73,4 +75,4 @@ export function ValueColumnItem({ index, item, trendsFilter }: ValueColumnItemPr
             )}
         </span>
     )
-}
+})

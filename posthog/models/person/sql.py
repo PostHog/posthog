@@ -3,7 +3,14 @@ from django.conf import settings
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_PERSON_DISTINCT_ID2_WS,
+    CONSUMER_GROUP_PERSON_WS,
+    KAFKA_COLUMNS,
+    KAFKA_COLUMNS_WITH_PARTITION,
+    STORAGE_POLICY,
+    kafka_engine,
+)
 from posthog.clickhouse.table_engines import CollapsingMergeTree, Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 
@@ -31,7 +38,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     properties VARCHAR,
     is_identified Int8,
     is_deleted Int8,
-    version UInt64
+    version UInt64,
+    last_seen_at Nullable(DateTime64)
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -60,6 +68,7 @@ def PERSONS_TABLE_SQL(on_cluster=True):
 
 
 def KAFKA_PERSONS_TABLE_SQL(on_cluster=True):
+    # Kafka tables cannot have DEFAULT expressions
     return PERSONS_TABLE_BASE_SQL.format(
         table_name=KAFKA_PERSONS_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -68,7 +77,12 @@ def KAFKA_PERSONS_TABLE_SQL(on_cluster=True):
     )
 
 
-def PERSONS_TABLE_MV_SQL(on_cluster=True, target_table=PERSONS_WRITABLE_TABLE):
+def PERSONS_TABLE_MV_SQL(
+    on_cluster=True,
+    target_table=PERSONS_WRITABLE_TABLE,
+    mv_name=PERSONS_TABLE_MV,
+    kafka_table=KAFKA_PERSONS_TABLE,
+):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {target_table}
@@ -80,14 +94,15 @@ properties,
 is_identified,
 is_deleted,
 version,
+last_seen_at,
 _timestamp,
 _offset
 FROM {kafka_table}
 """.format(
-        mv_name=PERSONS_TABLE_MV,
+        mv_name=mv_name,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         target_table=target_table,
-        kafka_table=KAFKA_PERSONS_TABLE,
+        kafka_table=kafka_table,
     )
 
 
@@ -97,6 +112,37 @@ def PERSONS_WRITABLE_TABLE_SQL():
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=Distributed(data_table=PERSONS_TABLE, cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER),
         extra_fields=KAFKA_COLUMNS,
+    )
+
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_PERSONS_WS_TABLE = "kafka_person_ws"
+PERSONS_WS_MV = "person_ws_mv"
+
+DROP_KAFKA_PERSONS_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_PERSONS_WS_TABLE}"
+DROP_PERSONS_WS_MV_SQL = f"DROP TABLE IF EXISTS {PERSONS_WS_MV}"
+
+
+def KAFKA_PERSONS_WS_TABLE_SQL():
+    return PERSONS_TABLE_BASE_SQL.format(
+        table_name=KAFKA_PERSONS_WS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_PERSON,
+            group=CONSUMER_GROUP_PERSON_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+    )
+
+
+def PERSONS_WS_TABLE_MV_SQL(target_table=PERSONS_WRITABLE_TABLE):
+    return PERSONS_TABLE_MV_SQL(
+        on_cluster=False,
+        target_table=target_table,
+        mv_name=PERSONS_WS_MV,
+        kafka_table=KAFKA_PERSONS_WS_TABLE,
     )
 
 
@@ -252,7 +298,12 @@ def KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL(on_cluster=True):
     )
 
 
-def PERSON_DISTINCT_ID2_MV_SQL(on_cluster=True, target_table=PERSON_DISTINCT_ID2_WRITABLE_TABLE):
+def PERSON_DISTINCT_ID2_MV_SQL(
+    on_cluster=True,
+    target_table=PERSON_DISTINCT_ID2_WRITABLE_TABLE,
+    mv_name=PERSON_DISTINCT_ID2_TABLE_MV,
+    kafka_table=KAFKA_PERSON_DISTINCT_ID2_TABLE,
+):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {target_table}
@@ -267,10 +318,10 @@ _offset,
 _partition
 FROM {kafka_table}
 """.format(
-        mv_name=PERSON_DISTINCT_ID2_TABLE_MV,
+        mv_name=mv_name,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         target_table=target_table,
-        kafka_table=KAFKA_PERSON_DISTINCT_ID2_TABLE,
+        kafka_table=kafka_table,
     )
 
 
@@ -283,6 +334,37 @@ def PERSON_DISTINCT_ID2_WRITABLE_TABLE_SQL():
         extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
     """,
+    )
+
+
+# WarpStream Kafka engine tables for person_distinct_id2 (coexist alongside MSK tables, same target)
+
+KAFKA_PERSON_DISTINCT_ID2_WS_TABLE = "kafka_person_distinct_id2_ws"
+PERSON_DISTINCT_ID2_WS_MV = "person_distinct_id2_ws_mv"
+
+DROP_KAFKA_PERSON_DISTINCT_ID2_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_PERSON_DISTINCT_ID2_WS_TABLE}"
+DROP_PERSON_DISTINCT_ID2_WS_MV_SQL = f"DROP TABLE IF EXISTS {PERSON_DISTINCT_ID2_WS_MV}"
+
+
+def KAFKA_PERSON_DISTINCT_ID2_WS_TABLE_SQL():
+    return PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
+        table_name=KAFKA_PERSON_DISTINCT_ID2_WS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_PERSON_DISTINCT_ID,
+            group=CONSUMER_GROUP_PERSON_DISTINCT_ID2_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+    )
+
+
+def PERSON_DISTINCT_ID2_WS_MV_SQL(target_table=PERSON_DISTINCT_ID2_WRITABLE_TABLE):
+    return PERSON_DISTINCT_ID2_MV_SQL(
+        on_cluster=False,
+        target_table=target_table,
+        mv_name=PERSON_DISTINCT_ID2_WS_MV,
+        kafka_table=KAFKA_PERSON_DISTINCT_ID2_WS_TABLE,
     )
 
 
@@ -429,7 +511,7 @@ DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WH
 
 COPY_PERSONS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     table_name=PERSONS_TABLE,
-    columns_except_team_id="""id, created_at, properties, is_identified, _timestamp, _offset, is_deleted""",
+    columns_except_team_id="""id, created_at, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at""",
 )
 
 COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
@@ -438,7 +520,7 @@ COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.forma
 )
 
 SELECT_PERSONS_OF_TEAM = """
-SELECT id, created_at, properties, is_identified, version
+SELECT id, created_at, properties, is_identified, version, last_seen_at
 FROM {table_name}
 WHERE team_id = %(source_team_id)s
 """.format(table_name=PERSONS_TABLE)
@@ -478,11 +560,11 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, %(is_deleted)s, %(version)s
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, %(is_deleted)s, %(version)s, %(last_seen_at)s
 """
 
 INSERT_PERSON_BULK_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) VALUES
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at) VALUES
 """
 
 INSERT_PERSON_DISTINCT_ID2 = """
@@ -497,6 +579,10 @@ INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, ve
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
     SELECT DISTINCT actor_id FROM ({query})
+) AS new_actors
+WHERE actor_id NOT IN (
+    SELECT person_id FROM {cohort_table}
+    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 )
 """
 

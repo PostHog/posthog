@@ -1,7 +1,8 @@
-import Fuse from 'fuse.js'
 import { useMemo, useState } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
+
+import { createFuse } from 'lib/utils/fuseSearch'
 
 import {
     LemonSelect,
@@ -20,12 +21,10 @@ export interface LemonSearchableSelectPropsBase<T> extends LemonSelectPropsBase<
 }
 
 export interface LemonSearchableSelectPropsClearable<T>
-    extends LemonSearchableSelectPropsBase<T>,
-        LemonSelectPropsClearable<T> {}
+    extends LemonSearchableSelectPropsBase<T>, LemonSelectPropsClearable<T> {}
 
 export interface LemonSearchableSelectPropsNonClearable<T>
-    extends LemonSearchableSelectPropsBase<T>,
-        LemonSelectPropsNonClearable<T> {}
+    extends LemonSearchableSelectPropsBase<T>, LemonSelectPropsNonClearable<T> {}
 
 export type LemonSearchableSelectProps<T> =
     | LemonSearchableSelectPropsClearable<T>
@@ -81,7 +80,7 @@ function filterOptions<T>(
     }
 
     const flatOptions = flattenOptions(options)
-    const fuse = new Fuse(flatOptions, { keys: searchKeys, threshold: 0.3 })
+    const fuse = createFuse(flatOptions, { keys: searchKeys })
     const matchedOptions = new Set(fuse.search(searchTerm).map((result) => result.item))
 
     return options.map((item) => filterStructure(item, matchedOptions)).filter(Boolean) as LemonSelectOptions<T>

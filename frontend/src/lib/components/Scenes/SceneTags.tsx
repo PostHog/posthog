@@ -1,21 +1,20 @@
-import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
-import { AvailableFeature } from '~/types'
 
 import { ObjectTags } from '../ObjectTags/ObjectTags'
-import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
-import { SceneCanEditProps, SceneDataAttrKeyProps, SceneSaveCancelButtons } from './utils'
+import { SceneCanEditProps, SceneDataAttrKeyProps } from './utils'
 
 type SceneTagsProps = SceneCanEditProps &
     SceneDataAttrKeyProps & {
         onSave?: (value: string[]) => void
         tags?: string[]
         tagsAvailable?: string[]
+        loading?: boolean
     }
 
 export const SceneTags = ({
@@ -24,42 +23,40 @@ export const SceneTags = ({
     tagsAvailable,
     dataAttrKey,
     canEdit = true,
+    loading,
 }: SceneTagsProps): JSX.Element => {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
-    const [hasChanged, setHasChanged] = useState(false)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
-    const onGuardClick = (callback: () => void): void => {
-        guardAvailableFeature(AvailableFeature.TAGGING, () => {
-            callback()
-        })
-    }
-
-    const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
-        e.preventDefault()
-        onSave?.(localTags ?? [])
-        setHasChanged(false)
-        setLocalIsEditing(false)
+    const handleTagsChange = (newTags: string[]): void => {
+        setLocalTags(newTags)
+        // Autosave on change
+        onSave?.(newTags)
     }
 
     useEffect(() => {
-        setHasChanged(localTags !== tags)
-    }, [localTags, tags])
+        if (!localIsEditing) {
+            setLocalTags(tags)
+        }
+    }, [tags, localIsEditing])
 
-    useEffect(() => {
-        setLocalTags(tags)
-    }, [tags])
+    const label = (
+        <span className="flex items-center gap-1.5">
+            Tags
+            {loading ? <Spinner className="text-sm" /> : null}
+        </span>
+    )
 
     return localIsEditing ? (
-        <form onSubmit={handleSubmit} name="page-tags" className="flex flex-col gap-1">
-            <ScenePanelLabel htmlFor="new-tag-input" title="Tags">
+        <div className="flex flex-col gap-1">
+            <ScenePanelLabel htmlFor="new-tag-input" title={label}>
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
                     value={localTags}
                     options={tagsAvailable?.map((t) => ({ key: t, label: t }))}
-                    onChange={setLocalTags}
+                    onChange={handleTagsChange}
+                    onBlur={() => setLocalIsEditing(false)}
                     loading={false}
                     data-attr={`${dataAttrKey}-new-tag-input`}
                     placeholder='try "official"'
@@ -68,22 +65,13 @@ export const SceneTags = ({
                     className="max-w-full"
                 />
             </ScenePanelLabel>
-            <SceneSaveCancelButtons
-                name="tags"
-                onCancel={() => {
-                    setLocalTags(tags)
-                    setLocalIsEditing(false)
-                }}
-                hasChanged={hasChanged}
-                dataAttrKey={dataAttrKey}
-            />
-        </form>
+        </div>
     ) : (
-        <ScenePanelLabel title="Tags">
+        <ScenePanelLabel title={label}>
             <ButtonPrimitive
                 className="hyphens-auto flex gap-1 items-center"
                 lang="en"
-                onClick={() => onSave && canEdit && onGuardClick(() => setLocalIsEditing(true))}
+                onClick={() => onSave && canEdit && setLocalIsEditing(true)}
                 tooltip={canEdit ? 'Edit tags' : 'Tags are read-only'}
                 autoHeight
                 menuItem

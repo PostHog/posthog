@@ -11,6 +11,7 @@ from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 import structlog
 import dateutil.parser
@@ -51,6 +52,10 @@ class OrganizationUsageInfo(TypedDict):
     feature_flag_requests: OrganizationUsageResource | None
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
+    ai_credits: OrganizationUsageResource | None
+    workflow_emails: OrganizationUsageResource | None
+    workflow_destinations_dispatched: OrganizationUsageResource | None
+    logs_mb_ingested: OrganizationUsageResource | None
     period: list[str] | None
 
 
@@ -150,6 +155,22 @@ class Organization(ModelActivityMixin, UUIDTModel):
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(
+        _("active"),
+        default=True,
+        null=True,
+        blank=True,
+        help_text=_("Set this to 'No' to temporarily disable an organization."),
+    )
+    is_not_active_reason = models.TextField(
+        _("de-activated reason"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "(optional) reason for why the organization has been de-activated. This will be displayed to users on the web app."
+        ),
+        max_length=200,
+    )
 
     # Security / management settings
     session_cookie_age = models.IntegerField(
@@ -157,8 +178,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
         help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
     )
-    is_member_join_email_enabled = models.BooleanField(default=True)
-    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
+
+    is_member_join_email_enabled = models.BooleanField(
+        default=True
+    )  # DEPRECATED in favor of User.partial_notification_settings
+    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)
@@ -191,6 +215,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
+    is_pending_deletion = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.",
+    )
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
@@ -208,6 +238,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Also currently indicates if the organization is on billing V2 or not
     usage = models.JSONField(null=True, blank=True)
     never_drop_data = models.BooleanField(default=False, null=True, blank=True)
+
+    if TYPE_CHECKING:
+        oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
 
@@ -588,6 +621,40 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
         save_user = True
     if save_user:
         instance.user.save()
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from posthog.models.alert import AlertSubscription
+
+    deleted_count, _ = AlertSubscription.objects.filter(
+        user=instance.user,
+        alert_configuration__team__organization=instance.organization,
+    ).delete()
+
+    if deleted_count > 0:
+        logger.info(
+            "Removed alert subscriptions for user removed from organization",
+            user_id=instance.user_id,
+            organization_id=str(instance.organization_id),
+            deleted_count=deleted_count,
+        )
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def sync_billing_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from posthog.tasks.sync_billing import sync_members_to_billing
+
+    if not is_cloud():
+        return
+
+    organization_id = str(instance.organization_id)
+
+    def _sync_if_org_exists():
+        if Organization.objects.filter(id=organization_id).exists():
+            sync_members_to_billing.delay(organization_id)
+
+    transaction.on_commit(_sync_if_org_exists)
 
 
 @receiver(models.signals.pre_save, sender=OrganizationMembership)

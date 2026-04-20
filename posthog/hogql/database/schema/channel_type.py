@@ -96,7 +96,7 @@ def create_initial_channel_type(
                 referring_domain=ast.Call(
                     name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])]
                 ),
-                url=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_url"])]),
+                url=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_current_url"])]),
                 hostname=ast.Call(
                     name="domain",
                     args=[ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_hostname"])])],

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Union, cast
+from typing import Any, Literal, Union, cast
 from uuid import UUID
 
 import pytest
@@ -1026,7 +1026,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         self.assertEqual(string_expr, ('e."mat_some_mat_prop"', True))
 
         materialize("events", "some_mat_prop2", table_column="person_properties")
-        materialize("events", "some_mat_prop3", table_column="group2_properties")
+        materialize("events", "some_mat_prop3", table_column=cast(Any, "group2_properties"))
         string_expr = get_property_string_expr(
             "events",
             "some_mat_prop2",
@@ -1100,7 +1100,7 @@ def test_parse_prop_clauses_precalculated_cohort(snapshot):
 
     assert (
         parse_prop_grouped_clauses(
-            team_id=1,
+            team_id=team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY,
             allow_denormalized_props=False,
@@ -1109,6 +1109,30 @@ def test_parse_prop_clauses_precalculated_cohort(snapshot):
         )
         == snapshot
     )
+
+
+@pytest.mark.django_db
+def test_parse_prop_clauses_cross_project_cohort_produces_impossible_match():
+    org_a = Organization.objects.create(name="org a")
+    team_a = Team.objects.create(organization=org_a)
+
+    org_b = Organization.objects.create(name="org b")
+    team_b = Team.objects.create(organization=org_b)
+    cohort_b = Cohort.objects.create(team=team_b, groups=[{"properties": [{"key": "$browser", "value": "test"}]}])
+
+    filter = Filter(
+        data={"properties": [{"key": "id", "value": cohort_b.pk, "type": "cohort"}]},
+        team=team_a,
+    )
+    result, _ = parse_prop_grouped_clauses(
+        team_id=team_a.pk,
+        property_group=filter.property_groups,
+        person_properties_mode=PersonPropertiesMode.USING_SUBQUERY,
+        allow_denormalized_props=False,
+        person_id_joined_alias="pdi.person_id",
+        hogql_context=filter.hogql_context,
+    )
+    assert "0 = 13" in result
 
 
 # Regression test for: https://github.com/PostHog/posthog/pull/9283
@@ -1203,7 +1227,7 @@ def test_breakdown_query_expression(
     table: TableWithProperties,
     query_alias: Literal["prop", "value"],
     column: str,
-    expected: str,
+    expected: tuple[str, dict[str, Any]],
 ):
     actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias, column)
 
@@ -1238,8 +1262,8 @@ def test_breakdown_query_expression_materialised(
     query_alias: Literal["prop", "value"],
     column: str,
     materialise_column: str,
-    expected_with: str,
-    expected_without: str,
+    expected_with: tuple[str, dict[str, Any]],
+    expected_without: tuple[str, dict[str, Any]],
 ):
     from posthog.models.team import util
 
@@ -1255,7 +1279,7 @@ def test_breakdown_query_expression_materialised(
     )
     assert actual == expected_with
 
-    materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
+    materialize(table, breakdown[0], table_column=cast(Any, materialise_column))
     actual = get_single_or_multi_property_string_expr(
         breakdown,
         table,
@@ -1775,7 +1799,7 @@ def test_prop_filter_json_extract_person_on_events_materialized(
         return
 
     # simulates a group property being materialised
-    materialize("events", property.key, table_column="group2_properties")
+    materialize("events", property.key, table_column=cast(Any, "group2_properties"))
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
     # this query uses the `properties` column, thus the materialized column is different.

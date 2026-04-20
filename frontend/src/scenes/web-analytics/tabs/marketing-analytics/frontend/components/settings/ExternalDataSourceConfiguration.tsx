@@ -2,15 +2,22 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGear, IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+import {
+    MarketingAnalyticsColumnsSchemaNames,
+    NativeMarketingSource,
+    VALID_NATIVE_MARKETING_SOURCES,
+} from '~/queries/schema/schema-general'
 import { ExternalDataSchemaStatus, ExternalDataSource, ManualLinkSourceType } from '~/types'
+
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import {
@@ -23,11 +30,10 @@ import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsS
 import {
     MAX_ITEMS_TO_SHOW,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
-    NativeMarketingSource,
     NonNativeMarketingSource,
-    VALID_NATIVE_MARKETING_SOURCES,
     VALID_NON_NATIVE_MARKETING_SOURCES,
     VALID_SELF_MANAGED_MARKETING_SOURCES,
+    findSchemaByFieldName,
 } from '../../logic/utils'
 import { AddIntegrationButton } from '../MarketingAnalyticsFilters/AddIntegrationButton'
 import { ColumnMappingModal } from './ColumnMappingModal'
@@ -54,9 +60,13 @@ type UnifiedSource = {
 }
 
 export function ExternalDataSourceConfiguration(): JSX.Element {
-    const { allExternalTablesWithStatus, loading } = useValues(marketingAnalyticsLogic)
+    const { allExternalTablesWithStatus, loading, hasNoConfiguredSources } = useValues(marketingAnalyticsLogic)
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     // Helper to get sync info for native sources
     const getSourceSyncInfo = (source: ExternalDataSource): { syncingTables: string[]; tablesToSync: string[] } => {
@@ -70,7 +80,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
         }
 
         const syncingTables = requiredFields.filter((field) => {
-            const schema = source.schemas?.find((s) => s.name === field)
+            const schema = findSchemaByFieldName(source.schemas, field, source.source_type)
             return schema?.should_sync ?? false
         })
 
@@ -174,6 +184,12 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
             title="Data source configuration"
             description="Connect and configure data sources to enable marketing analytics. Native sources sync automatically, while warehouse and self-managed sources need column mapping."
         >
+            {hasNoConfiguredSources && (
+                <LemonBanner type="error" className="mb-4">
+                    To use the Marketing analytics dashboard, you need at least one data source properly configured. Add
+                    a native integration (like Google Ads or Facebook Ads) or connect a data warehouse source below.
+                </LemonBanner>
+            )}
             <PaginationControls
                 hasMoreItems={hasMoreSources}
                 showAll={showAll}
@@ -193,8 +209,9 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                         title: '',
                         width: 0,
                         render: (_, item: UnifiedSource): JSX.Element => (
-                            <DataWarehouseSourceIcon
+                            <SourceIcon
                                 type={item.nativeSource?.source_type || item.table?.source_type || ''}
+                                engine={item.nativeSource?.engine}
                             />
                         ),
                     },
@@ -296,6 +313,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                         size="small"
                                         to={item.sourceUrl}
                                         tooltip="Configure source schemas"
+                                        disabledReason={restrictedReason}
                                     />
                                 )
                             }
@@ -308,6 +326,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                             size="small"
                                             onClick={() => setEditingTable(item.table!)}
                                             tooltip="Map columns"
+                                            disabledReason={restrictedReason}
                                         />
                                         {tableHasMapping && (
                                             <LemonButton
@@ -316,6 +335,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                                 status="danger"
                                                 onClick={() => removeTableMapping(item.table!)}
                                                 tooltip="Remove all mappings"
+                                                disabledReason={restrictedReason}
                                             />
                                         )}
                                     </div>

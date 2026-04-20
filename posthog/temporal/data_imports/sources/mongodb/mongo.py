@@ -3,24 +3,31 @@ from __future__ import annotations
 import math
 import contextlib
 import collections
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 import certifi
 from bson import ObjectId
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
+
+# Schema inference settings
+SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
+SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
 
 
 def _process_nested_value(value: Any) -> Any:
@@ -35,25 +42,20 @@ def _process_nested_value(value: Any) -> Any:
         return value
 
 
-def get_indexes(connection_string: str, collection_name: str) -> list[str]:
+def get_indexes(collection: Collection) -> list[str]:
     """Get all indexes for a MongoDB collection."""
     try:
-        connection_params = _parse_connection_string(connection_string)
-        with mongo_client(connection_string, connection_params) as client:
-            db = client[connection_params["database"]]
-            collection = db[collection_name]
-
-            index_cursor = collection.list_indexes()
+        index_cursor = collection.list_indexes()
         return [field for index in index_cursor for field in index["key"].keys()]
     except Exception:
         return []
 
 
 def filter_mongo_incremental_fields(
-    columns: list[tuple[str, str]], connection_string: str, collection_name: str
+    columns: list[tuple[str, str]], collection: Collection
 ) -> list[tuple[str, IncrementalFieldType]]:
     results: list[tuple[str, IncrementalFieldType]] = []
-    indexed_fields = get_indexes(connection_string, collection_name)
+    indexed_fields = get_indexes(collection)
 
     for column_name, type in columns:
         # Only include fields that have indexes
@@ -65,6 +67,8 @@ def filter_mongo_incremental_fields(
             results.append((column_name, IncrementalFieldType.Timestamp))
         elif type == "integer":
             results.append((column_name, IncrementalFieldType.Integer))
+        elif type == "double":
+            results.append((column_name, IncrementalFieldType.Numeric))
         elif column_name == "_id" and type == "string":
             results.append((column_name, IncrementalFieldType.ObjectID))
 
@@ -96,45 +100,34 @@ def _build_query(
     return query
 
 
+def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
+    """Create a PyMongo server_selector that rejects servers resolving to internal IPs.
+
+    Runs on every topology update (including SRV re-resolution), preventing
+    TOCTOU attacks where DNS records change after initial validation.
+    """
+
+    def selector(server_descriptions: list[ServerDescription]) -> list[ServerDescription]:
+        safe = []
+        for server in server_descriptions:
+            host = server.address[0]
+            is_safe, _ = _is_host_safe(host, team_id)
+            if is_safe:
+                safe.append(server)
+        return safe
+
+    return selector
+
+
 @contextlib.contextmanager
-def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> Iterator[MongoClient]:
-    """Yield a MongoDB client with the given parameters."""
-    # For SRV connections, use the full connection string
-    if connection_params["is_srv"]:
-        client: MongoClient = MongoClient(
-            connection_string, serverSelectionTimeoutMS=10000, tls=True, tlsCAFile=certifi.where()
-        )
-        try:
-            yield client
-        finally:
-            client.close()
-        return
-
-    # For regular connections
-    connection_kwargs = {
-        "host": connection_params["host"],
-        "port": connection_params["port"] or 27017,
-        "serverSelectionTimeoutMS": 5000,
+def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
+    kwargs: dict[str, Any] = {
+        "serverSelectionTimeoutMS": 10000,
+        "tls": True,
+        "tlsCAFile": certifi.where(),
+        "server_selector": _make_safe_server_selector(team_id),
     }
-
-    if connection_params["user"] and connection_params["password"]:
-        connection_kwargs.update(
-            {
-                "username": connection_params["user"],
-                "password": connection_params["password"],
-                "authSource": connection_params["auth_source"],
-            }
-        )
-
-    if connection_params["direct_connection"]:
-        connection_kwargs["directConnection"] = True
-
-    if connection_params["tls"]:
-        connection_kwargs["tls"] = True
-        connection_kwargs["tlsCAFile"] = certifi.where()
-
-    client = MongoClient(**connection_kwargs)
-
+    client: MongoClient = MongoClient(connection_string, **kwargs)
     try:
         yield client
     finally:
@@ -219,10 +212,12 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
 
 
 def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
-    """Infer schema from MongoDB collection using aggregation to get all document keys and types."""
+    """Infer schema from MongoDB collection using aggregation to get document keys and types."""
     try:
-        # Use aggregation pipeline to get all unique keys and their types
+        # Use aggregation pipeline with limit to avoid full collection scan
         pipeline: list[dict[str, Any]] = [
+            # Limit documents to avoid scanning entire collection (uses _id index)
+            {"$limit": SCHEMA_INFERENCE_LIMIT},
             # Convert each document to an array of key-value pairs
             {"$project": {"arrayofkeyvalue": {"$objectToArray": "$$ROOT"}}},
             # Unwind the array to get individual key-value pairs
@@ -236,7 +231,7 @@ def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
             },
         ]
 
-        result = list(collection.aggregate(pipeline))
+        result = list(collection.aggregate(pipeline, maxTimeMS=SCHEMA_INFERENCE_TIMEOUT_MS))
 
         if not result:
             return [("_id", "string")]
@@ -296,28 +291,47 @@ def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
     return "string"
 
 
-def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]:
+def get_schemas(
+    config: MongoDBSourceConfig, team_id: int, names: list[str] | None = None
+) -> dict[str, list[tuple[str, str]]]:
     """Get all collections from MongoDB source database to sync."""
 
     connection_params = _parse_connection_string(config.connection_string)
 
-    with mongo_client(config.connection_string, connection_params) as client:
+    with mongo_client(config.connection_string, team_id=team_id) as client:
         if not connection_params["database"]:
             raise ValueError("Database name is required in connection string")
 
         db = client[connection_params["database"]]
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str]]] = collections.defaultdict(list)
 
         # Get collection names
-        collection_names = db.list_collection_names()
+        collection_names = db.list_collection_names(authorizedCollections=True)
 
-        for collection_name in collection_names:
-            collection = db[collection_name]
-            # Use aggregation query to get all document keys and types
-            schema_info = _get_schema_from_query(collection)
-            schema_list[collection_name].extend(schema_info)
+        if names is not None:
+            names_set = set(names)
+            collection_names = [n for n in collection_names if n in names_set]
+
+        if not collection_names:
+            return schema_list
+
+        with ThreadPoolExecutor(max_workers=min(len(collection_names), 4)) as executor:
+            results = executor.map(
+                _get_schema_from_query, [db[collection_name] for collection_name in collection_names]
+            )
+            for collection_name, schema_info in zip(collection_names, results):
+                schema_list[collection_name].extend(schema_info)
 
     return schema_list
+
+
+def get_collection_names(config: MongoDBSourceConfig, team_id: int) -> list[str]:
+    connection_params = _parse_connection_string(config.connection_string)
+    with mongo_client(config.connection_string, team_id=team_id) as client:
+        if not connection_params["database"]:
+            raise ValueError("Database name is required in connection string")
+        db = client[connection_params["database"]]
+        return db.list_collection_names(authorizedCollections=True)
 
 
 def _get_primary_keys(collection: Collection, collection_name: str) -> list[str] | None:
@@ -340,6 +354,7 @@ def mongo_source(
     connection_string: str,
     collection_name: str,
     logger: FilteringBoundLogger,
+    team_id: int,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
     incremental_field: Optional[str] = None,
@@ -351,7 +366,7 @@ def mongo_source(
         raise ValueError("Database name is required in connection string")
 
     # Create MongoDB client
-    with mongo_client(connection_string, connection_params) as client:
+    with mongo_client(connection_string, team_id=team_id) as client:
         db = client[connection_params["database"]]
         collection = db[collection_name]
 
@@ -371,7 +386,7 @@ def mongo_source(
 
     def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
-        with mongo_client(connection_string, connection_params) as read_client:
+        with mongo_client(connection_string, team_id=team_id) as read_client:
             read_db = read_client[connection_params["database"]]
             read_collection = read_db[collection_name]
 
@@ -412,7 +427,7 @@ def mongo_source(
 
                 yield result
 
-    name = NamingConvention().normalize_identifier(collection_name)
+    name = NamingConvention.normalize_identifier(collection_name)
 
     return SourceResponse(
         name=name,

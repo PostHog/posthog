@@ -114,7 +114,7 @@ export function NotebooksTable(): JSX.Element {
                     value={filters.search}
                     data-attr="notebooks-search"
                 />
-                <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                     <ContainsTypeFilters filters={filters} setFilters={setFilters} />
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>

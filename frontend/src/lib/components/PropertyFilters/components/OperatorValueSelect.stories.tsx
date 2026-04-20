@@ -7,7 +7,7 @@ import {
 
 import { PropertyDefinition, PropertyOperator, PropertyType } from '~/types'
 
-const meta: Meta<typeof OperatorValueSelect> = {
+const meta: Meta<OperatorValueSelectProps> = {
     title: 'Filters/PropertyFilters/OperatorValueSelect',
     component: OperatorValueSelect,
 }

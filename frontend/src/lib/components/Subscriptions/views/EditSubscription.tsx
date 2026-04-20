@@ -4,12 +4,14 @@ import { Form } from 'kea-forms'
 import { IconChevronLeft } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -18,25 +20,34 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
+import { DashboardType, InsightShortId } from '~/types'
+
+import { InsightSelector } from '../InsightSelector'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
-    SubscriptionBaseProps,
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
+    getNextDeliveryDate,
     intervalOptions,
     monthlyWeekdayOptions,
     targetTypeOptions,
     timeOptions,
     weekdayOptions,
+    WEEKDAYS,
 } from '../utils'
 
-interface EditSubscriptionProps extends SubscriptionBaseProps {
+interface EditSubscriptionProps {
     id: number | 'new'
+    insightShortId?: InsightShortId
+    dashboard?: DashboardType<any> | null
     onCancel: () => void
     onDelete: () => void
 }
@@ -44,10 +55,11 @@ interface EditSubscriptionProps extends SubscriptionBaseProps {
 export function EditSubscription({
     id,
     insightShortId,
-    dashboardId,
+    dashboard,
     onCancel,
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
+    const dashboardId = dashboard?.id
     const logicProps = {
         id,
         insightShortId,
@@ -61,16 +73,25 @@ export function EditSubscription({
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
+    const { previewLoading, previewError, previewImageUrl } = useValues(logic)
+    const { resetSubscription, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
-    const { slackIntegrations } = useValues(integrationsLogic)
-    // TODO: Fix this so that we use the appropriate config...
-    const firstSlackIntegration = slackIntegrations?.[0]
+    const { slackIntegrations, integrations } = useValues(integrationsLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     const emailDisabled = !preflight?.email_service_available
 
+    // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
+    // For editing, wait until subscription data has loaded from API (target_type exists)
+    // We check target_type instead of dashboard_export_insights because old subscriptions
+    // may have no insights selected yet
+    const isEditing = id !== 'new'
+    const subscriptionLoaded = !!subscription?.target_type
+    const selectionReady = !isEditing || subscriptionLoaded
+
     const _onDelete = (): void => {
-        if (id !== 'new') {
+        if (isEditing) {
             deleteSubscription(id)
             onDelete()
         }
@@ -79,6 +100,7 @@ export function EditSubscription({
     const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
     const parts = formatter.formatToParts(new Date())
     const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
+    const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription) : null
 
     return (
         <Form
@@ -86,7 +108,7 @@ export function EditSubscription({
             props={logicProps}
             formKey="subscription"
             enableFormOnSubmit
-            className="LemonModal__layout"
+            className="flex flex-1 flex-col min-h-0"
         >
             <LemonModal.Header>
                 <div className="flex items-center gap-2">
@@ -96,7 +118,7 @@ export function EditSubscription({
                 </div>
             </LemonModal.Header>
 
-            <LemonModal.Content className="deprecated-space-y-2">
+            <LemonModal.Content className="deprecated-space-y-2 flex-1 min-h-0">
                 {!subscription ? (
                     subscriptionLoading ? (
                         <div className="deprecated-space-y-4">
@@ -154,6 +176,28 @@ export function EditSubscription({
                             <LemonInput placeholder="e.g. Weekly team report" />
                         </LemonField>
 
+                        {dashboard?.tiles && selectionReady && (
+                            <LemonField name="dashboard_export_insights" label="Insights to include">
+                                {({ value, onChange }) => (
+                                    <InsightSelector
+                                        tiles={dashboard.tiles}
+                                        selectedInsightIds={value ?? []}
+                                        onChange={onChange}
+                                        // After auto-selecting default insights, reset the form's "changed"
+                                        // state so that auto-selection alone doesn't trigger the
+                                        // "unsaved changes" warning when leaving. We merge the selected IDs
+                                        // into the subscription to preserve the auto-selected values.
+                                        onDefaultsApplied={(selectedIds) =>
+                                            resetSubscription({
+                                                ...subscription,
+                                                dashboard_export_insights: selectedIds,
+                                            })
+                                        }
+                                    />
+                                )}
+                            </LemonField>
+                        )}
+
                         <LemonField name="target_type" label="Destination">
                             <LemonSelect options={targetTypeOptions} />
                         </LemonField>
@@ -205,56 +249,61 @@ export function EditSubscription({
 
                         {subscription.target_type === 'slack' ? (
                             <>
-                                {!firstSlackIntegration ? (
-                                    <>
-                                        <LemonBanner type="info">
-                                            <div className="flex justify-between gap-2">
-                                                <span>
-                                                    Slack is not yet configured for this project. Add PostHog to your
-                                                    Slack workspace to continue.
-                                                </span>
-                                                <Link
-                                                    to={api.integrations.authorizeUrl({
-                                                        kind: 'slack',
-                                                        next: window.location.pathname + '?target_type=slack',
-                                                    })}
-                                                    disableClientSideRouting
-                                                >
-                                                    <img
-                                                        alt="Add to Slack"
-                                                        height="40"
-                                                        width="139"
-                                                        src="https://platform.slack-edge.com/img/add_to_slack.png"
-                                                        srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
-                                                    />
-                                                </Link>
-                                            </div>
-                                        </LemonBanner>
-                                    </>
+                                {!slackIntegrations?.length ? (
+                                    <SlackNotConfiguredBanner />
                                 ) : (
                                     <>
-                                        <LemonField
-                                            name="target_value"
-                                            label="Which Slack channel to send reports to"
-                                            help={
-                                                <>
-                                                    Private channels are only shown if you have{' '}
-                                                    <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
-                                                        added the PostHog Slack App
-                                                    </Link>{' '}
-                                                    to them. You can also paste the channel ID (e.g.{' '}
-                                                    <code>C1234567890</code>) to search for channels.
-                                                </>
-                                            }
-                                        >
+                                        <LemonField name="integration_id" label="Slack connection">
                                             {({ value, onChange }) => (
-                                                <SlackChannelPicker
+                                                <IntegrationChoice
+                                                    integration="slack"
                                                     value={value}
-                                                    onChange={onChange}
-                                                    integration={firstSlackIntegration}
+                                                    onChange={(newValue) => {
+                                                        onChange(newValue)
+                                                        // Only clear channel when user actively switches,
+                                                        // not on initial auto-select (value is null)
+                                                        if (value !== null && newValue !== value) {
+                                                            logic.actions.setSubscriptionValue('target_value', '')
+                                                        }
+                                                    }}
                                                 />
                                             )}
                                         </LemonField>
+
+                                        {subscription.integration_id && (
+                                            <LemonField
+                                                name="target_value"
+                                                label="Which Slack channel to send reports to"
+                                                help={
+                                                    <>
+                                                        Private channels are only shown if you have{' '}
+                                                        <Link
+                                                            to="https://posthog.com/docs/webhooks/slack"
+                                                            target="_blank"
+                                                        >
+                                                            added the PostHog Slack App
+                                                        </Link>{' '}
+                                                        to them. You can also paste the channel ID (e.g.{' '}
+                                                        <code>C1234567890</code>) to search for channels.
+                                                    </>
+                                                }
+                                            >
+                                                {({ value, onChange }) => {
+                                                    const selectedIntegration = integrations?.find(
+                                                        (i) => i.id === subscription.integration_id
+                                                    )
+                                                    return selectedIntegration ? (
+                                                        <SlackChannelPicker
+                                                            value={value}
+                                                            onChange={onChange}
+                                                            integration={selectedIntegration}
+                                                        />
+                                                    ) : (
+                                                        <></>
+                                                    )
+                                                }}
+                                            </LemonField>
+                                        )}
                                     </>
                                 )}
                             </>
@@ -322,21 +371,34 @@ export function EditSubscription({
                                             )}
                                         </LemonField>
                                         <LemonField name="byweekday">
-                                            {({ value, onChange }) => (
-                                                <LemonSelect
-                                                    dropdownMatchSelectWidth={false}
-                                                    options={monthlyWeekdayOptions}
-                                                    // "day" is a special case where it is a list of all available days
-                                                    value={value ? (value.length === 1 ? value[0] : 'day') : null}
-                                                    onChange={(val) =>
-                                                        onChange(
-                                                            val === 'day'
-                                                                ? Object.values(weekdayOptions).map((v) => v.value)
-                                                                : [val]
-                                                        )
-                                                    }
-                                                />
-                                            )}
+                                            {({ value, onChange }) => {
+                                                const isWeekday =
+                                                    value?.length === 5 && value.every((d: string) => WEEKDAYS.has(d))
+                                                const displayValue = value
+                                                    ? isWeekday
+                                                        ? 'weekday'
+                                                        : value.length === 1
+                                                          ? value[0]
+                                                          : 'day'
+                                                    : null
+
+                                                return (
+                                                    <LemonSelect
+                                                        dropdownMatchSelectWidth={false}
+                                                        options={monthlyWeekdayOptions}
+                                                        value={displayValue}
+                                                        onChange={(val) =>
+                                                            onChange(
+                                                                val === 'day'
+                                                                    ? Object.values(weekdayOptions).map((v) => v.value)
+                                                                    : val === 'weekday'
+                                                                      ? [...WEEKDAYS]
+                                                                      : [val]
+                                                            )
+                                                        }
+                                                    />
+                                                )
+                                            }}
                                         </LemonField>
                                     </>
                                 )}
@@ -359,7 +421,75 @@ export function EditSubscription({
                                     )}
                                 </LemonField>
                             </div>
+                            {nextDeliveryDate && (
+                                <div className="text-xs text-secondary mt-1">
+                                    Next delivery: {dayjs(nextDeliveryDate).format('ddd, MMM D [at] HH:mm')}
+                                </div>
+                            )}
                         </div>
+
+                        <FlaggedFeature flag={FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS}>
+                            <LemonField name="summary_enabled">
+                                {({ value, onChange }) => (
+                                    <AIConsentPopoverWrapper>
+                                        <LemonSwitch
+                                            checked={value}
+                                            onChange={onChange}
+                                            bordered
+                                            label="Include an automatic AI summary"
+                                            fullWidth
+                                            disabledReason={
+                                                !dataProcessingAccepted && !value
+                                                    ? 'Your organization needs to approve AI data processing before enabling AI summaries'
+                                                    : undefined
+                                            }
+                                        />
+                                    </AIConsentPopoverWrapper>
+                                )}
+                            </LemonField>
+
+                            {subscription.summary_enabled && (
+                                <LemonField name="summary_prompt_guide" label="Context for the AI summary" showOptional>
+                                    <LemonTextArea
+                                        placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                        maxLength={500}
+                                    />
+                                </LemonField>
+                            )}
+                        </FlaggedFeature>
+
+                        {insightShortId && (
+                            <div>
+                                <LemonLabel className="mb-2">Preview</LemonLabel>
+                                <div className="border rounded p-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={generatePreview}
+                                        loading={previewLoading}
+                                        disabled={previewLoading}
+                                        size="small"
+                                    >
+                                        Generate preview
+                                    </LemonButton>
+
+                                    {previewError && (
+                                        <LemonBanner type="error" className="mt-2">
+                                            {previewError}
+                                        </LemonBanner>
+                                    )}
+
+                                    {previewImageUrl && (
+                                        <div className="mt-2 border rounded">
+                                            <img
+                                                src={previewImageUrl}
+                                                alt="Subscription export preview"
+                                                className="w-full"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </>
                 )}
             </LemonModal.Content>

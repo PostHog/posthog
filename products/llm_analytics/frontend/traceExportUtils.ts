@@ -8,6 +8,7 @@ import { formatLLMEventTitle, normalizeMessages } from './utils'
 
 interface EventMetrics {
     latency?: number
+    time_to_first_token?: number
     tokens?: {
         input: number
         output: number
@@ -107,6 +108,9 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
     const metrics: EventMetrics = {}
     if (event.properties.$ai_latency) {
         metrics.latency = event.properties.$ai_latency
+    }
+    if (event.properties.$ai_time_to_first_token) {
+        metrics.time_to_first_token = event.properties.$ai_time_to_first_token
     }
     if (event.properties.$ai_input_tokens || event.properties.$ai_output_tokens) {
         metrics.tokens = {

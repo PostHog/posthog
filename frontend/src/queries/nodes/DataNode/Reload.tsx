@@ -25,6 +25,7 @@ export function Reload(): JSX.Element {
             }}
             // Setting the loading icon manually to capture clicks while spinning.
             icon={responseLoading ? <Spinner textColored /> : <IconRefresh />}
+            size="small"
         >
             {responseLoading ? 'Cancel' : 'Reload'}
         </LemonButton>

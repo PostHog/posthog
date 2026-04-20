@@ -3,17 +3,17 @@ import { useActions, useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { EmailUnavailableForInvitesBanner, InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
 import { InvitesTable } from 'scenes/settings/organization/Invites'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
+import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
-import { onboardingLogic } from './onboardingLogic'
 
-export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
+export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
     const { preflight } = useValues(preflightLogic)
     const { productKey } = useValues(onboardingLogic)
     const { inviteTeamMembers } = useActions(inviteLogic)
@@ -39,8 +39,6 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
 
     const likeTo = (): string => {
         switch (productKey) {
-            case ProductKey.PRODUCT_ANALYTICS:
-                return 'dig into the data'
             case ProductKey.SESSION_REPLAY:
                 return 'see how people use your product'
             case ProductKey.FEATURE_FLAGS:
@@ -57,7 +55,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
     return (
         <OnboardingStep
             title="Invite teammates"
-            stepKey={stepKey}
+            stepKey={OnboardingStepKey.INVITE_TEAMMATES}
             onContinue={() =>
                 preflight?.email_service_available &&
                 invitesToSend[0]?.target_email &&
@@ -77,7 +75,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
                     )}
                 </p>
             </div>
-            <InviteTeamMatesComponent />
+            <InviteTeamMatesComponent hideProjectAccessSelector />
             {showInviteLinks && (
                 <>
                     <LemonDivider className="my-4" />
@@ -91,3 +89,5 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
         </OnboardingStep>
     )
 }
+
+OnboardingInviteTeammates.stepKey = OnboardingStepKey.INVITE_TEAMMATES

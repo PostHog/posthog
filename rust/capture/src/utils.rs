@@ -8,9 +8,9 @@ use uuid::Uuid;
 
 use crate::{
     api::CaptureError,
+    payload::{Compression, EventFormData, EventQuery},
     prometheus::report_dropped_events,
     token::validate_token,
-    v0_request::{Compression, EventFormData, EventQuery},
 };
 
 // used to limit test scans and extract loggable snippets from potentially large strings/buffers
@@ -172,7 +172,7 @@ pub fn decode_form(payload: &[u8]) -> Result<EventFormData, CaptureError> {
                 .unwrap_or(String::from("INVALID_UTF8"));
             error!(
                 form_data = form_data_snippet,
-                "failed to decode urlencoded form body: {}", e
+                "failed to decode urlencoded form body: {e:#}"
             );
             Err(CaptureError::RequestDecodingError(String::from(
                 "invalid urlencoded form data",

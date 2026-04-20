@@ -5,8 +5,10 @@ from posthog.test.base import ClickhouseTestMixin
 from django.test import TestCase
 from django.utils.timezone import now
 
-from posthog.models import FeatureFlag, Organization, Survey, Team, User
+from posthog.models import FeatureFlag, Organization, Team, User
 from posthog.tasks.update_survey_iteration import update_survey_iteration
+
+from products.surveys.backend.models import Survey
 
 
 class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
@@ -21,7 +23,6 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             created_by=self.user,
             key="flag_name",
             filters={},
-            rollout_percentage=100,
         )
 
         self.iteration_frequency_days = 60
@@ -69,6 +70,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         update_survey_iteration()
         self.recurring_survey.refresh_from_db()
         self.assertEqual(self.recurring_survey.current_iteration, 3)
+        assert self.recurring_survey.internal_targeting_flag is not None
 
         self.assertLessEqual(
             {
@@ -134,3 +136,56 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
                 }.items(),
                 internal_flag.filters.items(),
             )
+
+    def test_iteration_change_updates_flag_with_new_iteration_suffix(self) -> None:
+        """Test that when iteration changes, the flag is updated with the NEW iteration suffix.
+
+        This guards against a merge order bug where old filters could overwrite new ones.
+        """
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
+        self.recurring_survey.save()
+        self.assertEqual(self.recurring_survey.current_iteration, 1)
+
+        # Set up flag with OLD iteration suffix (/1)
+        old_filters = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{self.recurring_survey.id}/1",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{self.recurring_survey.id}/1",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                }
+            ]
+        }
+        assert self.recurring_survey.internal_targeting_flag is not None
+        self.recurring_survey.internal_targeting_flag.filters = old_filters
+        self.recurring_survey.internal_targeting_flag.save()
+
+        # Run the job - should update to iteration 3
+        update_survey_iteration()
+        self.recurring_survey.refresh_from_db()
+        self.assertEqual(self.recurring_survey.current_iteration, 3)
+
+        # Verify flag now has NEW iteration suffix (/3), not old (/1)
+        assert self.recurring_survey.internal_targeting_flag is not None
+        self.recurring_survey.internal_targeting_flag.refresh_from_db()
+        flag_filters = self.recurring_survey.internal_targeting_flag.filters
+        properties = flag_filters["groups"][0]["properties"]
+        property_keys = [p["key"] for p in properties]
+
+        self.assertIn(f"$survey_dismissed/{self.recurring_survey.id}/3", property_keys)
+        self.assertIn(f"$survey_responded/{self.recurring_survey.id}/3", property_keys)
+        self.assertNotIn(f"$survey_dismissed/{self.recurring_survey.id}/1", property_keys)
+        self.assertNotIn(f"$survey_responded/{self.recurring_survey.id}/1", property_keys)

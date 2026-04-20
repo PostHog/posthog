@@ -8,11 +8,14 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActorsQuery,
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
+    ChartDisplayType,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -28,6 +31,7 @@ from posthog.schema import (
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyOperator,
+    TrendsFilter,
     TrendsQuery,
 )
 
@@ -39,9 +43,10 @@ from posthog.hogql.visitor import clear_locations
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -98,7 +103,14 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         assert len(response.results) == 10
 
-        assert set(response.results[0][0].keys()) == {"id", "created_at", "distinct_ids", "properties", "is_identified"}
+        assert set(response.results[0][0].keys()) == {
+            "id",
+            "created_at",
+            "last_seen_at",
+            "distinct_ids",
+            "properties",
+            "is_identified",
+        }
         assert response.results[0][0].get("properties").get("random_uuid") == self.random_uuid
         assert len(response.results[0][0].get("distinct_ids")) > 0
 
@@ -156,6 +168,13 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
         self.assertEqual(len(runner.calculate().results), 1)
 
+    def test_persons_query_search_trims_whitespace(self):
+        self.random_uuid = self._create_random_persons()
+        runner = self._create_runner(ActorsQuery(search=f"  jacob4@{self.random_uuid}.posthog  "))
+        self.assertEqual(len(runner.calculate().results), 1)
+        runner = self._create_runner(ActorsQuery(search=f"\tjacob4@{self.random_uuid}.posthog\n"))
+        self.assertEqual(len(runner.calculate().results), 1)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_persons_query_search_snapshot(self):
         runner = self._create_runner(ActorsQuery(search="SEARCHSTRING"))
@@ -172,6 +191,60 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"]))
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob9@{self.random_uuid}.posthog.com"])
+
+    def test_persons_query_order_by_virtual_property(self):
+        self.random_uuid = self._create_random_persons()
+        runner = self._create_runner(ActorsQuery(select=["properties.email"], orderBy=["properties.$virt_mrr DESC"]))
+
+        results = runner.calculate().results
+
+        self.assertIsNotNone(results, "The query should execute without errors")
+
+    @freeze_time("2023-05-10T15:23:00Z")
+    def test_persons_query_with_insight_actors_source_order_by_last_seen(self):
+        with freeze_time("2023-05-07T15:23:00Z"):
+            _create_person(
+                properties={
+                    "email": f"first@posthog.com",
+                    "name": "Mr Jump the Gun",
+                },
+                team=self.team,
+                distinct_ids=["jump-the-gun"],
+                is_identified=True,
+            )
+            _create_event(distinct_id="jump-the-gun", event="clicky", team=self.team)
+        with freeze_time("2023-05-09T15:23:00Z"):
+            _create_person(
+                properties={
+                    "email": "last@posthog.com",
+                    "name": "Mr Sleepy",
+                },
+                team=self.team,
+                distinct_ids=["sleepy"],
+                is_identified=True,
+            )
+            _create_event(distinct_id="sleepy", event="clicky", team=self.team)
+        flush_persons_and_events()
+
+        for direction, expected_email in [("DESC", "last@posthog.com"), ("ASC", "first@posthog.com")]:
+            with self.subTest(direction):
+                query = ActorsQuery(
+                    select=["properties.email", "event_count", "last_seen_at"],
+                    source=InsightActorsQuery(
+                        source=TrendsQuery(
+                            series=[EventsNode(event="clicky")],
+                            dateRange=DateRange(date_from="-30d"),
+                            interval=IntervalType.DAY,
+                            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
+                        ),
+                        series=0,
+                    ),
+                    orderBy=[f"last_seen_at {direction}"],
+                )
+
+                runner = self._create_runner(query)
+                results = runner.calculate().results
+                self.assertEqual(expected_email, results[0][0])
 
     def test_persons_query_order_by_with_aliases(self):
         # We use the first column by default as an order key. It used to cause "error redefining alias" errors.
@@ -325,6 +398,20 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = self._create_runner(query)
             response = runner.calculate()
             self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
+
+    def test_source_lifecycle_query_runs_lifecycle_validations(self):
+        query = ActorsQuery(
+            source=InsightActorsQuery(
+                source=LifecycleQuery(
+                    dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
+                    interval=IntervalType.DAY,
+                    series=[],
+                )
+            )
+        )
+
+        with pytest.raises(ValidationError, match="Lifecycle insights require at least one series."):
+            self._create_runner(query).calculate()
 
     def test_persons_query_grouping(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
@@ -710,11 +797,8 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Insert a newer version without the email property (simulating deletion)
         sync_execute(
             """
-            INSERT INTO person (
-                id, team_id, properties, is_identified, is_deleted, version, created_at
-            ) VALUES (
-                %(person_id)s, %(team_id)s, %(properties)s, 1, 0, %(version)s, %(created_at)s
-            )
+            INSERT INTO person (id, team_id, properties, is_identified, is_deleted, version, created_at)
+            VALUES (%(person_id)s, %(team_id)s, %(properties)s, 1, 0, %(version)s, %(created_at)s)
             """,
             {
                 "person_id": str(person.uuid),
@@ -747,4 +831,57 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner.modifiers.personsArgMaxVersion,
             PersonsArgMaxVersion.V2,
             "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data",
+        )
+
+    def test_person_strategy_batches_large_actor_sets(self):
+        """Verify that PersonStrategy.get_actors batches queries."""
+        from posthog.hogql_queries.actor_strategies import PersonStrategy
+        from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+
+        # Create 5 persons
+        person_uuids = []
+        for i in range(5):
+            person = _create_person(
+                properties={"email": f"batch_test_{i}@example.com"},
+                team=self.team,
+                distinct_ids=[f"batch-test-{UUIDT()}-{i}"],
+                is_identified=True,
+            )
+            person_uuids.append(str(person.uuid))
+        flush_persons_and_events()
+
+        query = ActorsQuery()
+        paginator = HogQLHasMorePaginator(limit=100, offset=0)
+        strategy = PersonStrategy(team=self.team, query=query, paginator=paginator)
+
+        # Temporarily set a small batch size to verify batching works
+        with patch.object(PersonStrategy, "BATCH_SIZE", 2):
+            result = strategy.get_actors(person_uuids)
+
+        self.assertEqual(len(result), 5)
+        for uuid in person_uuids:
+            self.assertIn(uuid, result)
+
+    @freeze_time("2023-05-07T15:23:00Z")
+    def test_last_seen_for_persons(self):
+        _create_person(
+            properties={"email": "test@example.com"},
+            team=self.team,
+            distinct_ids=["test-user-distinct-id"],
+            is_identified=True,
+            immediate=True,
+        )
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person", "id", "last_seen_at"])
+        runner = ActorsQueryRunner(query=query, team=self.team)
+
+        response = runner.calculate()
+
+        result = response.results[0]
+        last_seen_idx = response.columns.index("last_seen_at")
+        last_seen_value = result[last_seen_idx]
+        self.assertEqual(
+            "2023-05-07 15:00:00+00:00",
+            str(last_seen_value),
+            "Should round to the bottom of the hour of the event (user creation)",
         )

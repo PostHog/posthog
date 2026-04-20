@@ -19,7 +19,7 @@ export function PipelineNodeLogs({ id }: PipelineNodeLogsLogicProps): JSX.Elemen
         <div className="flex-1 ph-no-capture deprecated-space-y-2">
             <LemonInput
                 type="search"
-                placeholder="Search for messages containing…"
+                placeholder="Search messages or invocation ID…"
                 fullWidth
                 onChange={setSearchTerm}
                 allowClear

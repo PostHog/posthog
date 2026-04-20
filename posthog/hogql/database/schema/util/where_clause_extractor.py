@@ -1,6 +1,9 @@
 import random
 import string
+from datetime import datetime
 from typing import Optional, cast
+
+from django.core.cache import cache
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
@@ -16,6 +19,8 @@ from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_ex
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 SESSION_BUFFER_DAYS = 3
+DEFAULT_SESSION_LOOKBACK_DAYS = 30
+DEFAULT_SESSION_LOOKBACK_CACHE_TTL_SECONDS = 60
 
 
 class WhereClauseExtractor(CloningVisitor):
@@ -258,6 +263,70 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
     def __init__(self, context: HogQLContext):
         super().__init__(context)
 
+    def should_apply_default_limit_bound(self, select_query: ast.SelectQuery) -> bool:
+        if (
+            select_query.limit is None
+            or select_query.order_by
+            or select_query.where is not None
+            or select_query.prewhere is not None
+        ):
+            return False
+        if len(select_query.select) != 1:
+            return False
+        selected = select_query.select[0]
+        return isinstance(selected, ast.Field) and selected.chain == ["*"]
+
+    def get_default_limit_bound(self) -> ast.Expr:
+        team_id = self.context.team_id
+        if team_id is None:
+            return ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
+                left=ast.Call(name="now", args=[]),
+                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=DEFAULT_SESSION_LOOKBACK_DAYS)]),
+            )
+
+        cache_key = f"sessions_default_limit_bound:last_seen_at:{team_id}"
+        cache_miss = object()
+        cached_last_seen_at = cache.get(cache_key, cache_miss)
+        if cached_last_seen_at is cache_miss:
+            from products.event_definitions.backend.models.event_definition import EventDefinition
+
+            latest_event_last_seen_at = (
+                EventDefinition.objects.filter(team_id=team_id, last_seen_at__isnull=False)
+                .values_list("last_seen_at", flat=True)
+                .order_by("-last_seen_at")
+                .first()
+            )
+            cache.set(cache_key, latest_event_last_seen_at, timeout=DEFAULT_SESSION_LOOKBACK_CACHE_TTL_SECONDS)
+        else:
+            latest_event_last_seen_at = cast(Optional[datetime], cached_last_seen_at)
+
+        if latest_event_last_seen_at is None:
+            reference_time: ast.Expr = ast.Call(name="now", args=[])
+        else:
+            reference_time = ast.Call(
+                name="toDateTime",
+                args=[ast.Constant(value=latest_event_last_seen_at.strftime("%Y-%m-%d %H:%M:%S"))],
+            )
+
+        return ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub,
+            left=reference_time,
+            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=DEFAULT_SESSION_LOOKBACK_DAYS)]),
+        )
+
+    def get_inner_where(self, select_query: ast.SelectQuery) -> Optional[ast.Expr]:
+        result = super().get_inner_where(select_query)
+        if result is not None:
+            return result
+        if self.should_apply_default_limit_bound(select_query):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=clone_expr(self.timestamp_field),
+                right=self.get_default_limit_bound(),
+            )
+        return None
+
     def handle_timestamp_comparison(
         self, node: ast.CompareOperation, is_left_constant: bool, is_right_constant: bool
     ) -> Optional[ast.Expr]:
@@ -378,6 +447,129 @@ class SessionMinTimestampWhereClauseExtractorV3(SessionMinTimestampWhereClauseEx
         return timestamp_expr
 
 
+class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
+    """Extract predicates from the outer WHERE that only reference the events table.
+
+    Used to build a ``session_id_v7 IN (SELECT $session_id_uuid FROM events WHERE <events-only>)``
+    pushdown into the raw_sessions subquery, so aggregation state only covers sessions that
+    actually participate in the outer events filter.
+
+    **This is a targeted fix for one customer's ExperimentQuery OOMs, not a general-purpose
+    optimization.** Benchmarks in the analysis doc show the pushdown *regresses* most other
+    traffic — e.g. a healthy ``WebStatsTableQuery`` got +93% runtime / +32% memory once the
+    pushdown kicked in, because a ``$pageview OR $screen`` filter doesn't narrow the session
+    set and the ``GLOBAL IN`` broadcast + double events scan dominate. The modifier that
+    activates this code path (``sessionIdPushdown``) is therefore off by default and is only
+    turned on by ``ExperimentQueryRunner``, gated by a per-team feature flag so we can enable
+    it for the single affected team without touching anyone else.
+
+    Background, numbers, and the rollout decision:
+    https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-experiment-sessions-oom.md
+
+    Inverts the field-tracking semantics of ``WhereClauseExtractor``: we keep fields that
+    resolve to the EventsTable and tombstone everything else, letting the base AND/OR/NOT
+    logic drop unsafe branches.
+    """
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        if has_tombstone(node, self.tombstone_string):
+            return ast.Constant(value=self.tombstone_string)
+
+        is_left_constant = is_time_or_interval_constant(node.left, self.tombstone_string)
+        is_right_constant = is_time_or_interval_constant(node.right, self.tombstone_string)
+        if is_left_constant and is_right_constant:
+            return ast.Constant(value=True)
+
+        left = self.visit(node.left)
+        if isinstance(node.right, ast.SelectQuery):
+            right = clone_expr(node.right, clear_types=False, clear_locations=False, inline_subquery_field_names=True)
+        else:
+            right = self.visit(node.right)
+
+        if has_tombstone(left, self.tombstone_string) or has_tombstone(right, self.tombstone_string):
+            return ast.Constant(value=self.tombstone_string)
+        return ast.CompareOperation(op=node.op, left=left, right=right)
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if is_events_only_field(node):
+            return cast(ast.Field, clone_expr(node))
+        return ast.Constant(value=self.tombstone_string)
+
+
+def is_events_only_field(node: ast.Field) -> bool:
+    """True iff the field resolves to a direct field on the EventsTable (not a traversal to
+    person/groups/sessions/etc. via a virtual/lazy join)."""
+    from posthog.hogql.database.schema.events import EventsTable
+
+    type_ = node.type
+    if isinstance(type_, ast.PropertyType):
+        type_ = type_.field_type
+    if isinstance(type_, ast.FieldAliasType):
+        type_ = type_.type
+    if not isinstance(type_, ast.FieldType):
+        return False
+
+    table_type = type_.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    # Virtual tables (e.g. person, group) pivot to another underlying table, so they are not
+    # safely "events-only" even if they hang off an events row.
+
+    if isinstance(table_type, ast.TableType):
+        return isinstance(table_type.table, EventsTable)
+    return False
+
+
+def build_session_id_v7_pushdown_predicate(
+    outer_node: ast.SelectQuery,
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    session_id_v7_field: ast.Expr,
+    events_session_id_field: list[str | int],
+) -> Optional[ast.Expr]:
+    """Build ``raw_sessions.session_id_v7 IN (SELECT DISTINCT events.<session_id_field>
+    FROM events WHERE <events-only WHERE of outer query>)``.
+
+    Returns None if the outer query shape or WHERE can't be safely pushed down.
+    """
+    events_join = _find_join_for_alias(outer_node.select_from, join_to_add.from_table)
+    if events_join is None or not isinstance(events_join.table, ast.Field):
+        return None
+
+    events_where = EventsOnlyWhereClauseExtractor(context).get_inner_where(outer_node)
+    if events_where is None:
+        return None
+
+    events_alias = join_to_add.from_table
+    subquery = ast.SelectQuery(
+        select=[ast.Field(chain=[events_alias, *events_session_id_field])],
+        distinct=True,
+        select_from=ast.JoinExpr(
+            table=ast.Field(chain=list(events_join.table.chain)),
+            alias=events_alias,
+        ),
+        where=events_where,
+    )
+
+    return ast.CompareOperation(
+        op=CompareOperationOp.In,
+        left=session_id_v7_field,
+        right=subquery,
+    )
+
+
+def _find_join_for_alias(select_from: Optional[ast.JoinExpr], alias: str) -> Optional[ast.JoinExpr]:
+    ptr = select_from
+    while ptr:
+        current_alias = ptr.alias
+        if current_alias is None and isinstance(ptr.table, ast.Field) and ptr.table.chain:
+            current_alias = str(ptr.table.chain[0])
+        if current_alias == alias:
+            return ptr
+        ptr = ptr.next_join
+    return None
+
+
 def has_tombstone(expr: ast.Expr, tombstone_string: str) -> bool:
     visitor = HasTombstoneVisitor(tombstone_string)
     visitor.visit(expr)
@@ -419,10 +611,17 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
             table_type = node.type.resolve_table_type(self.context)
-            if isinstance(table_type, ast.TableAliasType):
+            if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 table_type = table_type.table_type
-            table = table_type.table
-            if resolved_field and isinstance(resolved_field, DatabaseField):
+            # Get the underlying table based on the table_type
+            table = None
+            if isinstance(table_type, ast.LazyJoinType):
+                table = table_type.lazy_join.join_table
+            elif isinstance(table_type, ast.SelectQueryAliasType):
+                pass  # Subquery aliases don't represent actual database tables
+            elif hasattr(table_type, "table"):
+                table = table_type.table
+            if table is not None and resolved_field and isinstance(resolved_field, DatabaseField):
                 if (
                     (isinstance(table, EventsTable) and resolved_field.name == "timestamp")
                     or (
@@ -464,12 +663,17 @@ def is_session_id_string_expr(node: ast.Expr, context: HogQLContext) -> bool:
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(context)
             table_type = node.type.resolve_table_type(context)
-            if isinstance(table_type, ast.TableAliasType):
+            if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 table_type = table_type.table_type
             if isinstance(table_type, ast.LazyJoinType):
                 table = table_type.lazy_join.join_table
-            else:
+            elif isinstance(table_type, ast.SelectQueryAliasType):
+                # Subquery aliases don't represent actual database tables
+                return False
+            elif hasattr(table_type, "table"):
                 table = table_type.table
+            else:
+                return False
             if resolved_field and isinstance(resolved_field, DatabaseField):
                 if (
                     (isinstance(table, EventsTable) and resolved_field.name == "$session_id")

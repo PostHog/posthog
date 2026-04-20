@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -34,14 +34,16 @@ class CustomerIOSource(SimpleSource[CustomerIOSourceConfig]):
             unreleasedSource=True,
         )
 
-    def validate_credentials(self, config: CustomerIOSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: CustomerIOSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         # TODO(Andrew J. McGehee): implement the logic to validate the credentials of your source,
         # e.g. check the validity of API keys. returns a tuple of whether the credentials are valid,
         # and if not, returns an error message to return to the user
         raise NotImplementedError()
 
     def get_schemas(
-        self, config: CustomerIOSourceConfig, team_id: int, with_counts: bool = False
+        self, config: CustomerIOSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:
         raise NotImplementedError()
 

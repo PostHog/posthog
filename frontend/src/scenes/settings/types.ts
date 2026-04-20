@@ -1,3 +1,4 @@
+import { PlatformSupportConfig } from 'lib/components/SupportedPlatforms/types'
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
 import { AccessControlLevel, AccessControlResourceType, Realm, TeamPublicType, TeamType } from '~/types'
@@ -17,20 +18,31 @@ export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
     | 'environment-details'
+    | 'environment-conversations'
+    | 'environment-customization'
     | 'environment-autocapture'
+    | 'environment-heatmaps'
     | 'environment-customer-analytics'
     | 'environment-product-analytics'
+    | 'environment-privacy'
     | 'environment-revenue-analytics'
+    | 'environment-llm-analytics'
     | 'environment-marketing-analytics'
     | 'environment-web-analytics'
     | 'environment-replay'
     | 'environment-surveys'
     | 'environment-feature-flags'
+    | 'environment-experiments'
     | 'environment-error-tracking'
+    | 'environment-logs'
+    | 'environment-conversations'
+    | 'environment-visual-review'
     | 'environment-csp-reporting'
     | 'environment-max'
+    | 'environment-posthog-code'
     | 'environment-integrations'
     | 'environment-activity-logs'
+    | 'environment-discussions'
     | 'environment-access-control'
     | 'environment-danger-zone'
     | 'project-details'
@@ -42,52 +54,85 @@ export type SettingSectionId =
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'organization-details'
+    | 'organization-integrations'
+    | 'organization-oauth-apps'
     | 'organization-members'
     | 'organization-roles'
     | 'organization-authentication'
     | 'organization-proxy'
     | 'organization-security'
+    | 'environment-approvals'
     | 'organization-danger-zone'
     | 'organization-billing'
     | 'organization-startup-program'
     | 'user-profile'
+    | 'user-connected-apps'
     | 'user-api-keys'
     | 'user-notifications'
     | 'user-customization'
     | 'user-danger-zone'
     | 'user-feature-previews'
-    | 'mcp-server'
+    | 'posthog-mcp'
+    | 'mcp-servers'
 
 export type SettingId =
+    | 'conversations-api'
+    | 'conversations-api-key'
+    | 'conversations-email'
+    | 'conversations-email-channel'
+    | 'conversations-notifications'
+    | 'conversations-public-token'
+    | 'conversations-slack'
+    | 'conversations-widget'
+    | 'conversations-widget-config'
+    | 'conversations-workflows'
+    | 'snippet-v2'
+    | 'js-snippet-version'
     | 'replay-triggers'
+    | 'replay-integrations'
     | 'display-name'
     | 'snippet'
-    | 'authorized-urls'
     | 'web-analytics-authorized-urls'
-    | 'bookmarklet'
     | 'variables'
     | 'autocapture'
     | 'autocapture-data-attributes'
     | 'date-and-time'
     | 'internal-user-filtering'
+    | 'business-model'
     | 'data-theme'
     | 'correlation-analysis'
-    | 'crm-usage-metrics'
+    | 'customer-analytics-usage-metrics'
+    | 'customer-analytics-dashboard-events'
     | 'person-display-name'
+    | 'person-last-seen-at'
     | 'path-cleaning'
     | 'datacapture'
     | 'human-friendly-comparison-periods'
     | 'group-analytics'
     | 'persons-on-events'
     | 'replay'
+    | 'replay-log-capture'
+    | 'replay-canvas-capture'
     | 'replay-network'
+    | 'replay-network-headers-payloads'
     | 'replay-masking'
     | 'replay-authorized-domains'
     | 'replay-ingestion'
     | 'replay-retention'
     | 'surveys-interface'
+    | 'surveys-default-appearance'
     | 'feature-flags-interface'
+    | 'feature-flag-confirmation'
+    | 'feature-flag-require-evaluation-contexts'
+    | 'feature-flag-default-evaluation-contexts'
+    | 'feature-flag-default-release-conditions'
+    | 'feature-flag-secure-api-key'
+    | 'environment-experiment-stats-method'
+    | 'environment-experiment-confidence-level'
+    | 'environment-experiment-recalculation-time'
     | 'error-tracking-exception-autocapture'
+    | 'error-tracking-suppression-rules'
+    | 'error-tracking-ingestion-controls'
     | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
@@ -95,9 +140,12 @@ export type SettingId =
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
+    | 'error-tracking-spike-detection'
     | 'integration-webhooks'
     | 'integration-slack'
+    | 'integration-posthog-code-slack'
     | 'integration-error-tracking'
+    | 'integration-linear'
     | 'integration-github'
     | 'integration-other'
     | 'integration-ip-allowlist'
@@ -105,29 +153,34 @@ export type SettingId =
     | 'environment-delete'
     | 'project-delete'
     | 'project-move'
-    | 'organization-logo'
     | 'organization-display-name'
+    | 'organization-integrations-list'
+    | 'organization-oauth-apps-list'
     | 'invites'
     | 'members'
-    | 'email-members'
     | 'authentication-domains'
     | 'organization-ai-consent'
     | 'organization-experiment-stats-method'
     | 'organization-roles'
+    | 'organization-default-role'
     | 'organization-delete'
     | 'organization-proxy'
     | 'organization-security'
     | 'details'
     | 'change-password'
     | '2fa'
+    | 'passkeys'
+    | 'connected-apps'
     | 'personal-api-keys'
     | 'notifications'
     | 'feature-previews'
+    | 'feature-previews-coming-soon'
     | 'optout'
     | 'theme'
     | 'replay-ai-config'
     | 'heatmaps'
     | 'hedgehog-mode'
+    | 'sidebar-auto-suggest'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
     | 'session-join-mode'
@@ -137,6 +190,7 @@ export type SettingId =
     | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
+    | 'llm-analytics-byok'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'
@@ -146,23 +200,36 @@ export type SettingId =
     | 'user-delete'
     | 'web-revenue-events'
     | 'core-memory'
+    | 'changelog'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'web-analytics-opt-in-pre-aggregated-tables-and-api'
     | 'csp-reporting'
     | 'base-currency'
     | 'marketing-settings'
-    | 'mcp-server-configure'
+    | 'posthog-mcp-configure'
+    | 'mcp-servers-manage'
     | 'activity-log-settings'
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
+    | 'discussion-mention-integrations'
+    | 'logs'
+    | 'logs-json-parse'
+    | 'logs-pii-scrub'
+    | 'logs-retention'
+    | 'logs-alerting'
     | 'organization-ip-anonymization-default'
+    | 'allow-impersonation'
+    | 'approval-policies'
+    | 'change-requests'
+    | 'banner'
+    | 'visual-review-repos'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
 export type Setting = {
     id: SettingId
-    title: JSX.Element | string
+    title: JSX.Element | string | null
     description?: JSX.Element | string
     component: JSX.Element
     searchTerm?: string
@@ -186,6 +253,24 @@ export type Setting = {
      * but will still appear when viewing its specific section directly
      */
     hideWhenNoSection?: boolean
+
+    /** Additional search terms that help users find this setting (e.g. ['ip', 'anonymize', 'gdpr']) */
+    keywords?: string[]
+
+    /** Plaintext description for search indexing when `description` is JSX */
+    searchDescription?: string
+
+    /** URL to relevant PostHog documentation */
+    docsUrl?: string
+
+    /** Platform/SDK availability rendered as badges to the right of the title */
+    platformSupport?: PlatformSupportConfig
+
+    /**
+     * Optional sub-group label. Settings with the same `subGroup` within a section are rendered
+     * together under a sticky divider with the sub-group label, to aid scannability in long sections.
+     */
+    subGroup?: string
 }
 
 export interface SettingSection extends Pick<Setting, 'flag'> {
@@ -206,4 +291,17 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
         resourceType: AccessControlResourceType
         minimumAccessLevel: AccessControlLevel
     }
+
+    /**
+     * Optional group name to organize sections under collapsible headers.
+     * Sections with the same group will be nested under a group header.
+     */
+    group?: string
+
+    /**
+     * When true, the section is hidden from the settings page navigation and search
+     * but remains accessible when referenced directly via sectionId (e.g. from a
+     * product's own configuration scene).
+     */
+    hideFromNavigation?: boolean
 }

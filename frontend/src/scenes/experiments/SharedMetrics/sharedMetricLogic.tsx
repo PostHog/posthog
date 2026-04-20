@@ -8,8 +8,14 @@ import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
-import { UserBasicType } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { AccessControlLevel, ActivityScope, Breadcrumb, ExperimentsTabs } from '~/types'
+import type { UserBasicType } from '~/types'
 
 import { getDefaultFunnelMetric } from '../utils'
 import type { sharedMetricLogicType } from './sharedMetricLogicType'
@@ -30,6 +36,7 @@ export interface SharedMetric {
     updated_at: string | null
     tags: string[]
     metadata?: Record<string, any>
+    user_access_level: AccessControlLevel
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
@@ -37,6 +44,7 @@ export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
     description: '',
     query: undefined,
     tags: [],
+    user_access_level: AccessControlLevel.Editor,
 }
 
 export const sharedMetricLogic = kea<sharedMetricLogicType>([
@@ -46,13 +54,13 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
 
     connect(() => ({
         actions: [sharedMetricsLogic, ['loadSharedMetrics'], eventUsageLogic, ['reportExperimentSharedMetricCreated']],
-        values: [featureFlagLogic, ['featureFlags'], billingLogic, ['billing']],
+        values: [featureFlagLogic, ['featureFlags'], billingLogic, ['billing'], teamLogic, ['currentProjectId']],
     })),
 
     actions({
         setSharedMetric: (metric: Partial<SharedMetric>) => ({ metric }),
         createSharedMetric: true,
-        updateSharedMetric: true,
+        updateSharedMetric: (redirect?: boolean) => ({ redirect }),
         deleteSharedMetric: true,
     }),
 
@@ -62,7 +70,9 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 const { sharedMetricId } = props
 
                 if (sharedMetricId) {
-                    const response = await api.get(`api/projects/@current/experiment_saved_metrics/${sharedMetricId}`)
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/experiment_saved_metrics/${sharedMetricId}`
+                    )
                     return response as SharedMetric
                 }
 
@@ -94,28 +104,39 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             }
         },
         createSharedMetric: async () => {
-            const response = await api.create(`api/projects/@current/experiment_saved_metrics/`, values.sharedMetric)
-            if (response.id) {
-                lemonToast.success('Shared metric created successfully')
-                actions.reportExperimentSharedMetricCreated(response as SharedMetric)
-                actions.loadSharedMetrics()
-                router.actions.push('/experiments?tab=shared-metrics')
+            try {
+                const response = await api.create(
+                    `api/projects/${values.currentProjectId}/experiment_saved_metrics/`,
+                    values.sharedMetric
+                )
+                if (response.id) {
+                    lemonToast.success('Shared metric created successfully')
+                    actions.reportExperimentSharedMetricCreated(response as SharedMetric)
+                    actions.loadSharedMetrics()
+                    router.actions.push('/experiments?tab=shared-metrics')
+                }
+            } catch (error: any) {
+                lemonToast.error(error.detail || error.data?.name?.[0] || 'Failed to create shared metric')
             }
         },
-        updateSharedMetric: async () => {
+        updateSharedMetric: async ({ redirect = true }: { redirect?: boolean } = {}) => {
             const response = await api.update(
-                `api/projects/@current/experiment_saved_metrics/${values.sharedMetricId}`,
+                `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`,
                 values.sharedMetric
             )
             if (response.id) {
                 lemonToast.success('Shared metric updated successfully')
                 actions.loadSharedMetrics()
-                router.actions.push('/experiments?tab=shared-metrics')
+                if (redirect) {
+                    router.actions.push('/experiments?tab=shared-metrics')
+                }
             }
         },
         deleteSharedMetric: async () => {
             try {
-                await api.delete(`api/projects/@current/experiment_saved_metrics/${values.sharedMetricId}`)
+                await api.delete(
+                    `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`
+                )
                 lemonToast.success('Shared metric deleted successfully')
                 actions.loadSharedMetrics()
                 router.actions.push('/experiments?tab=shared-metrics')
@@ -148,6 +169,36 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 query: getDefaultFunnelMetric(),
             }),
         ],
+        breadcrumbs: [
+            (s) => [s.sharedMetric, s.sharedMetricId],
+            (sharedMetric: Partial<SharedMetric>, sharedMetricId: string | number): Breadcrumb[] => {
+                const isNew = sharedMetricId === 'new'
+                return [
+                    {
+                        key: Scene.Experiments,
+                        name: sceneConfigurations[Scene.Experiments].name || 'Experiments',
+                        path: `${urls.experiments()}?tab=${ExperimentsTabs.SharedMetrics}`,
+                    },
+                    {
+                        key: [Scene.ExperimentsSharedMetric, sharedMetricId],
+                        name: isNew ? 'New shared metric' : sharedMetric?.name || '',
+                    },
+                ]
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.sharedMetric, s.sharedMetricId],
+            (sharedMetric: Partial<SharedMetric>, sharedMetricId: string | number): SidePanelSceneContext | null => {
+                return sharedMetric?.id && sharedMetricId !== 'new'
+                    ? {
+                          activity_scope: ActivityScope.EXPERIMENT,
+                          activity_item_id: `${sharedMetric.id}`,
+                          access_control_resource: 'experiment_saved_metric',
+                          access_control_resource_id: `${sharedMetric.id}`,
+                      }
+                    : null
+            },
+        ],
     }),
 
     urlToAction(({ actions, values }) => ({
@@ -157,7 +208,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
-                    actions.setSharedMetric({ ...values.newSharedMetric, query: getDefaultFunnelMetric() })
+                    actions.setSharedMetric({ ...values.newSharedMetric })
                 }
 
                 if (parsedId !== 'new' && parsedId === values.sharedMetricId) {

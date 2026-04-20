@@ -1,0 +1,17 @@
+{
+  "version": 3,
+  "file": "app.js",
+  "x_custom_extension_field": {"some": "data"},
+  "sections": [
+    {
+      "offset": {"line": 0, "column": 0},
+      "map": {
+        "version": 3,
+        "file": "section.js",
+        "sources": ["foo.js"],
+        "names": ["src"],
+        "mappings": "AAAA"
+      }
+    }
+  ]
+}

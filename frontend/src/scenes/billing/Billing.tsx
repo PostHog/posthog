@@ -6,18 +6,21 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { IconDocument } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
+import { JudgeHog, StarHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { JudgeHog } from 'lib/components/hedgehogs'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
+import { couponLogic } from 'scenes/coupons/couponLogic'
+import { getProductIcon } from 'scenes/onboarding/utils'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -26,13 +29,14 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
 import { BillingHero } from './BillingHero'
+import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
+import { CodeSeatsSection } from './CodeSeatsSection'
 import { CreditCTAHero } from './CreditCTAHero'
 import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
-import { billingLogic } from './billingLogic'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -49,15 +53,18 @@ export function Billing(): JSX.Element {
         showBillingSummary,
         showCreditCTAHero,
         showBillingHero,
+        minimumBillingAccessLevel,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
+    const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic({}))
+    const { memberCount } = useValues(membersLogic)
 
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        minimumAccessLevel: minimumBillingAccessLevel,
         scope: RestrictionScope.Organization,
     })
 
@@ -78,7 +85,7 @@ export function Billing(): JSX.Element {
         router.actions.push(urls.default())
     }
 
-    if (!billing && billingLoading) {
+    if ((!billing && billingLoading) || couponsOverviewLoading) {
         return (
             <>
                 <SpinnerOverlay sceneLevel />
@@ -189,6 +196,31 @@ export function Billing(): JSX.Element {
 
             {!showBillingSummary && <StripePortalButton />}
 
+            {!couponsOverviewLoading && activeCoupons.length > 0 && (
+                <div className="mt-6 max-w-300">
+                    <LemonBanner type="info" hideIcon>
+                        <div className="flex items-center gap-4">
+                            <StarHog className="w-16 h-16 flex-shrink-0" />
+                            <div>
+                                <p className="font-semibold mb-2">You have active coupons!</p>
+                                <ul className="list-disc list-inside space-y-1">
+                                    {activeCoupons.map((coupon) => (
+                                        <li key={coupon.code} className="text-sm">
+                                            <span>{coupon.campaign_name}</span>
+                                            {coupon.expires_at && (
+                                                <span className="text-muted ml-1">
+                                                    · until {dayjs(coupon.expires_at).format('LL')}
+                                                </span>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    </LemonBanner>
+                </div>
+            )}
+
             <LemonDivider className="mt-6 mb-8" />
 
             {featureFlags[FEATURE_FLAGS.BILLING_FORECASTING_ISSUES] && (
@@ -204,7 +236,13 @@ export function Billing(): JSX.Element {
                 <h2>Products</h2>
             </div>
 
-            {products
+            {(memberCount >= 5
+                ? [
+                      platformAndSupportProduct,
+                      ...(products?.filter((product) => product.type !== ProductKey.PLATFORM_AND_SUPPORT) ?? []),
+                  ].filter((product): product is BillingProductV2Type => !!product)
+                : products
+            )
                 ?.filter(
                     (product: BillingProductV2Type) =>
                         !product.inclusion_only || product.addons.find((a) => !a.inclusion_only)
@@ -214,6 +252,33 @@ export function Billing(): JSX.Element {
                         <BillingProduct product={x} />
                     </div>
                 ))}
+
+            {featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING] && (
+                <div className="flex flex-wrap max-w-300 pb-8">
+                    <div className="border border-primary rounded w-full bg-surface-primary">
+                        <div className="border-b border-primary rounded-t p-4">
+                            <div className="flex gap-4 items-center justify-between">
+                                <div className="flex gap-x-2">
+                                    <div>{getProductIcon('IconTerminal', { className: 'text-2xl shrink-0' })}</div>
+                                    <div>
+                                        <h3 className="font-bold mb-0">Code</h3>
+                                        <div>Seat-based billing for PostHog Code.</div>
+                                    </div>
+                                </div>
+                                <LemonButton
+                                    icon={<IconDocument />}
+                                    size="small"
+                                    to="https://posthog.com/docs/posthog-code"
+                                    tooltip="Read the docs"
+                                />
+                            </div>
+                        </div>
+                        <div className="p-8">
+                            <CodeSeatsSection />
+                        </div>
+                    </div>
+                </div>
+            )}
             <div>
                 {billing?.subscription_level == 'paid' && !!platformAndSupportProduct ? (
                     <>

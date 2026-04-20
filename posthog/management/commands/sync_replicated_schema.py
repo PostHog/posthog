@@ -34,7 +34,11 @@ class Command(BaseCommand):
             logger.info("✅ Skipping sync_replicated_schema because is_cloud=true")
             return
 
-        _, create_table_queries, out_of_sync_hosts = self.analyze_cluster_tables()
+        host_tables, create_table_queries, out_of_sync_hosts = self.analyze_cluster_tables()
+
+        if len(host_tables) <= 1:
+            logger.info("✅ Skipping sync_replicated_schema - single node cluster, nothing to sync")
+            return
 
         if len(out_of_sync_hosts) > 0:
             logger.info(
@@ -94,6 +98,11 @@ class Command(BaseCommand):
 
         logger.info("Creating missing tables", missing_tables=missing_tables)
         for table in missing_tables:
+            if table not in create_table_queries:
+                # Table doesn't exist on any host, so we can't get its CREATE query.
+                # This is normal during fresh setups - migrations will create it.
+                logger.warning("Skipping table with no CREATE query available", table=table)
+                continue
             query = create_table_queries[table]
             sync_execute(self.run_on_cluster(query))
 

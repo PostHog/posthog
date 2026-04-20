@@ -2,28 +2,30 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDivider, LemonDropdown, Popover } from '@posthog/lemon-ui'
 
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
+import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { AnyDataNode } from '~/queries/schema/schema-general'
 import { UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
-import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
+import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from '../PropertyFilters/utils'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
 import { isEditableFilter, isEventFilter } from './utils'
 
-type UniversalFiltersProps = {
+export type UniversalFiltersProps = {
     rootKey: string
     group: UniversalFiltersGroup | null
     onChange: (group: UniversalFiltersGroup) => void
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     children?: React.ReactNode
+    endpointFilters?: Record<string, any>
 }
 
 function UniversalFilters({
@@ -32,6 +34,7 @@ function UniversalFilters({
     onChange,
     taxonomicGroupTypes,
     children,
+    endpointFilters,
 }: UniversalFiltersProps): JSX.Element {
     return (
         <BindLogic
@@ -41,6 +44,7 @@ function UniversalFilters({
                 group,
                 onChange,
                 taxonomicGroupTypes,
+                endpointFilters,
             }}
         >
             {children}
@@ -57,7 +61,7 @@ function Group({
     index: number
     children: React.ReactNode
 }): JSX.Element {
-    const { rootKey, taxonomicGroupTypes } = useValues(universalFiltersLogic)
+    const { rootKey, taxonomicGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
     const { replaceGroupValue } = useActions(universalFiltersLogic)
 
     return (
@@ -67,6 +71,7 @@ function Group({
             group={group}
             onChange={(group) => replaceGroupValue(index, group)}
             taxonomicGroupTypes={taxonomicGroupTypes}
+            endpointFilters={endpointFilters}
         >
             {children}
         </UniversalFilters>
@@ -86,42 +91,78 @@ const Value = ({
     index: number
     filter: UniversalFilterValue
     onChange: (property: UniversalFilterValue) => void
-    onRemove: () => void
+    onRemove?: () => void
     initiallyOpen?: boolean
     metadataSource?: AnyDataNode
     className?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
 }): JSX.Element => {
-    const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
+    const { rootKey, taxonomicPropertyFilterGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
 
     const isEvent = isEventFilter(filter)
     const isEditable = isEditableFilter(filter)
 
     const [open, setOpen] = useState<boolean>(isEditable && initiallyOpen)
+    const [changingEvent, setChangingEvent] = useState<boolean>(false)
 
     const pageKey = `${rootKey}.filter_${index}`
+
+    const handleChangeEvent = (
+        taxonomicGroup: { type: TaxonomicFilterGroupType },
+        value: TaxonomicFilterValue,
+        item: { name?: string }
+    ): void => {
+        const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
+        if (entityType) {
+            onChange({ id: value, name: item?.name ?? String(value), type: entityType, properties: [] })
+        }
+        setChangingEvent(false)
+    }
 
     return (
         <Popover
             visible={open}
-            onClickOutside={() => setOpen(false)}
+            onClickOutside={() => {
+                setOpen(false)
+                setChangingEvent(false)
+            }}
             overlay={
                 isEvent ? (
-                    <PropertyFilters
-                        pageKey={pageKey}
-                        propertyFilters={filter.properties}
-                        onChange={(properties) => onChange({ ...filter, properties })}
-                        disablePopover
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                        metadataSource={metadataSource}
-                    />
+                    <div>
+                        {changingEvent ? (
+                            <TaxonomicFilter
+                                onChange={handleChangeEvent}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.Events,
+                                    TaxonomicFilterGroupType.Actions,
+                                ]}
+                            />
+                        ) : (
+                            <>
+                                <div className="px-2 py-1">
+                                    <LemonButton size="xsmall" type="secondary" onClick={() => setChangingEvent(true)}>
+                                        Change event
+                                    </LemonButton>
+                                </div>
+                                <LemonDivider className="my-1" />
+                                <PropertyFilters
+                                    pageKey={pageKey}
+                                    propertyFilters={filter.properties}
+                                    onChange={(properties) => onChange({ ...filter, properties })}
+                                    disablePopover
+                                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                    metadataSource={metadataSource}
+                                />
+                            </>
+                        )}
+                    </div>
                 ) : isEditable ? (
                     <TaxonomicPropertyFilter
                         pageKey={pageKey}
                         index={0}
                         filters={[filter]}
                         onComplete={() => {
-                            if (isValidPropertyFilter(filter) && !filter.key) {
+                            if (onRemove && isValidPropertyFilter(filter) && !filter.key) {
                                 onRemove()
                             }
                         }}
@@ -129,6 +170,7 @@ const Value = ({
                         disablePopover={false}
                         taxonomicGroupTypes={taxonomicPropertyFilterGroupTypes}
                         operatorAllowlist={operatorAllowlist}
+                        endpointFilters={endpointFilters}
                     />
                 ) : null
             }
@@ -153,8 +195,8 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
         <LemonDropdown
             overlay={
                 <TaxonomicFilter
-                    onChange={(taxonomicGroup, value, item, originalQuery) => {
-                        addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                    onChange={(taxonomicGroup, value, item) => {
+                        addGroupFilter(taxonomicGroup, value, item)
                         setDropdownOpen(false)
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}
@@ -188,9 +230,9 @@ const PureTaxonomicFilter = ({
     return (
         <TaxonomicFilter
             {...(fullWidth ? { width: '100%' } : {})}
-            onChange={(taxonomicGroup, value, item, originalQuery) => {
+            onChange={(taxonomicGroup, value, item) => {
                 onChange()
-                addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                addGroupFilter(taxonomicGroup, value, item)
             }}
             taxonomicGroupTypes={taxonomicGroupTypes}
         />

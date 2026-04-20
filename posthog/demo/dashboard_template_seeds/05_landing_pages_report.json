@@ -1,0 +1,173 @@
+{
+    "template_name": "Landing Pages Report",
+    "dashboard_description": "Analyze trends on landing pages, including where users come from, browser, and device type.",
+    "dashboard_filters": {
+        "date_to": null,
+        "date_from": "-30d",
+        "properties": []
+    },
+    "tags": [],
+    "tiles": [
+        {
+            "body": "### How to use this dashboard\n\nFilter by **Current URL** to focus on specific landing pages.\n\nThis seed includes a subset of tiles from the production template.",
+            "type": "TEXT",
+            "color": null,
+            "layouts": {
+                "sm": {
+                    "h": 4,
+                    "i": "257126",
+                    "w": 12,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 2,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 6,
+                    "i": "257126",
+                    "w": 1,
+                    "x": 0,
+                    "y": 50,
+                    "minH": 2,
+                    "minW": 1
+                }
+            }
+        },
+        {
+            "name": "Unique Sessions Trend",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "unique_session",
+                            "name": "$pageview",
+                            "event": "$pageview",
+                            "custom_name": "Unique Sessions"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsAreaGraph",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": true,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown_type": "event"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 7,
+                    "i": "256443",
+                    "w": 12,
+                    "x": 0,
+                    "y": 4,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "256443",
+                    "w": 1,
+                    "x": 0,
+                    "y": 20,
+                    "minH": 5,
+                    "minW": 1
+                }
+            },
+            "description": "Unique sessions on landing page(s)"
+        },
+        {
+            "name": "Most Popular Landing Pages",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "unique_session",
+                            "name": "$pageview",
+                            "event": "$pageview"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsTable",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "compareFilter": {
+                        "compare": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "$current_url",
+                        "breakdown_type": "event",
+                        "breakdown_normalize_url": true
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 8,
+                    "i": "256402",
+                    "w": 6,
+                    "x": 0,
+                    "y": 15,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "256402",
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 1
+                }
+            },
+            "description": "Breakdown of most popular landing pages by unique sessions"
+        }
+    ],
+    "variables": [],
+    "image_url": "https://posthog.com/template_art/website-dash.png",
+    "scope": "global",
+    "availability_contexts": null
+}

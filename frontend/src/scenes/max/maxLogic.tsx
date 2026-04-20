@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { IconBook } from '@posthog/icons'
 
@@ -10,7 +11,8 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual, uuid } from 'lib/utils'
-import { Scene } from 'scenes/sceneTypes'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene, SceneTab } from 'scenes/sceneTypes'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -18,12 +20,36 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
-import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
-import { Breadcrumb, Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
+import { AgentMode, RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
+import {
+    Breadcrumb,
+    Conversation,
+    ConversationDetail,
+    ConversationStatus,
+    RecordingUniversalFilters,
+    SidePanelTab,
+} from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
+import { PENDING_AI_PROMPT_KEY } from './maxThreadLogic'
+import { MaxUIContext } from './maxTypes'
+
+/** Maximum age for restored prompts (5 minutes) */
+const PENDING_PROMPT_MAX_AGE_MS = 5 * 60 * 1000
+
+/** Key for storing pending Max context in sessionStorage */
+export const PENDING_MAX_CONTEXT_KEY = 'posthog.pending_max_context'
+
+/** Maximum age for restored context (5 minutes) */
+const PENDING_CONTEXT_MAX_AGE_MS = 5 * 60 * 1000
+
+/** Stored context structure for sessionStorage */
+interface StoredMaxContext {
+    context: Partial<MaxUIContext>
+    timestamp: number
+}
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -33,6 +59,7 @@ export type ThreadMessage = RootAssistantMessage & {
 
 export interface SuggestionItem {
     content: string
+    requiresUserInput?: boolean
 }
 
 export interface SuggestionGroup {
@@ -50,19 +77,66 @@ const HEADLINES = [
     'What do you want to know today?',
 ]
 
+interface ParsedCommand {
+    mode?: AgentMode | null
+    autoRun: boolean
+    question: string
+}
+
+function parseCommandString(options: string): ParsedCommand {
+    let remaining = options
+
+    // Check for mode parameter (format: mode=<value>:rest), remove it if present
+    if (remaining.startsWith('mode=')) {
+        const colonIndex = remaining.indexOf(':', 5) // After "mode="
+        remaining = colonIndex === -1 ? '' : remaining.slice(colonIndex + 1)
+    }
+
+    // Handle auto-run prefix
+    const autoRun = remaining.startsWith('!')
+    if (autoRun) {
+        remaining = remaining.slice(1)
+    }
+
+    return {
+        autoRun,
+        question: remaining.trim(),
+    }
+}
+
 function handleCommandString(options: string, actions: maxLogicType['actions']): void {
-    if (options.startsWith('!')) {
+    const parsed = parseCommandString(options)
+
+    // Note: The mode parameter is handled directly by maxThreadLogic in its afterMount
+    // to ensure the correct logic instance sets its own mode
+
+    if (parsed.autoRun) {
         actions.setAutoRun(true)
     }
-    const cleanedQuestion = options.replace(/^!/, '')
-    if (cleanedQuestion.trim() !== '') {
-        actions.setQuestion(cleanedQuestion)
+
+    if (parsed.question !== '') {
+        actions.setQuestion(parsed.question)
+    }
+}
+
+const CHAT_TITLE_NEW = 'New chat'
+const CHAT_TITLE_HISTORY = 'Chat history'
+
+function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
+    const scene = sceneLogic.findMounted()
+    if (!scene) {
+        return
+    }
+    const { tabs } = scene.values
+    const tab = tabs.find((t) => t.id === tabId)
+    if (tab && !tab.active) {
+        scene.actions.setTabs(tabs.map((t) => (t.id === tabId ? { ...t, ...props } : t)))
     }
 }
 
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
-    props({} as { tabId: string | 'sidepanel' }),
+    props({} as { tabId: string | 'sidepanel'; onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void }),
     tabAwareScene(),
 
     connect(() => ({
@@ -70,7 +144,14 @@ export const maxLogic = kea<maxLogicType>([
             router,
             ['searchParams'],
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'tools', 'toolSuggestions', 'conversationHistory', 'conversationHistoryLoading'],
+            [
+                'dataProcessingAccepted',
+                'dataProcessingApprovalDisabledReason',
+                'tools',
+                'toolSuggestions',
+                'conversationHistory',
+                'conversationHistoryLoading',
+            ],
             maxSettingsLogic,
             ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
@@ -87,7 +168,11 @@ export const maxLogic = kea<maxLogicType>([
 
     actions({
         setQuestion: (question: string) => ({ question }), // update the form input
-        askMax: (prompt: string | null) => ({ prompt }), // used by maxThreadLogic to start a conversation
+        askMax: (prompt: string | null, addToThread: boolean = true, uiContext?: Partial<MaxUIContext>) => ({
+            prompt,
+            addToThread,
+            uiContext,
+        }), // used by maxThreadLogic to start a conversation
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         openConversation: (conversationId: string) => ({ conversationId }),
         setConversationId: (conversationId: string) => ({ conversationId }),
@@ -176,11 +261,18 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
-        autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun }],
+        autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun, startNewConversation: () => false }],
     }),
 
     selectors({
         tabId: [() => [(_, props) => props?.tabId || ''], (tabId) => tabId],
+        onAcceptSessionFilters: [
+            () => [
+                (_, props) =>
+                    (props?.onAcceptSessionFilters ?? null) as ((filters: RecordingUniversalFilters) => void) | null,
+            ],
+            (cb: ((filters: RecordingUniversalFilters) => void) | null) => cb,
+        ],
         conversation: [
             (s) => [s.conversationHistory, s.conversationId],
             (conversationHistory, conversationId) => {
@@ -199,8 +291,8 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         headline: [
-            (s) => [s.conversation, s.toolHeadlines],
-            (conversation, toolHeadlines) => {
+            (s) => [s.conversation, s.toolHeadlines, s.frontendConversationId],
+            (conversation, toolHeadlines, frontendConversationId) => {
                 if (process.env.STORYBOOK) {
                     return HEADLINES[0] // Preventing UI snapshots from being different every time
                 }
@@ -208,17 +300,25 @@ export const maxLogic = kea<maxLogicType>([
                 return toolHeadlines.length > 0
                     ? toolHeadlines[0]
                     : HEADLINES[
-                          parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length
+                          parseInt((conversation?.id || frontendConversationId).split('-').at(-1) as string, 16) %
+                              HEADLINES.length
                       ]
             },
-            // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
-            { equalityCheck: objectsEqual },
+            // It's important we use a deep equality check for outputs, because we want to avoid needless re-renders
+            { resultEqualityCheck: objectsEqual },
         ],
 
         conversationLoading: [
             (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
             (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
                 return !conversationHistory.length && conversationHistoryLoading && !!conversationId && !conversation
+            },
+        ],
+
+        messagesLoading: [
+            (s) => [s.conversation, s.conversationId],
+            (conversation, conversationId) => {
+                return !!conversationId && !!conversation && conversation.messages === undefined
             },
         ],
 
@@ -235,12 +335,12 @@ export const maxLogic = kea<maxLogicType>([
             (s) => [s.conversationId, s.conversation, s.conversationHistoryVisible],
             (conversationId, conversation, conversationHistoryVisible) => {
                 if (conversationHistoryVisible) {
-                    return 'Chat history'
+                    return CHAT_TITLE_HISTORY
                 }
 
                 // Existing conversation or the first generation is in progress
                 if (conversationId || conversation) {
-                    return conversation?.title ?? 'New chat'
+                    return conversation?.title ?? CHAT_TITLE_NEW
                 }
 
                 return null
@@ -267,12 +367,26 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.conversationId, s.chatTitle, s.conversationHistoryVisible, s.searchParams],
-            (conversationId, chatTitle, conversationHistoryVisible, searchParams): Breadcrumb[] => {
+            (s) => [
+                s.conversationId,
+                s.chatTitle,
+                s.conversationHistoryVisible,
+                s.searchParams,
+                s.activeStreamingThreads,
+            ],
+            (
+                conversationId,
+                chatTitle,
+                conversationHistoryVisible,
+                searchParams,
+                activeStreamingThreads
+            ): Breadcrumb[] => {
+                const isStreaming = activeStreamingThreads > 0
+                const hasConversationBreadcrumb = !conversationHistoryVisible && conversationId
                 return [
                     {
                         key: Scene.Max,
-                        name: 'AI',
+                        name: hasConversationBreadcrumb ? 'AI' : CHAT_TITLE_NEW,
                         path: urls.ai(),
                         iconType: 'chat',
                     },
@@ -280,19 +394,19 @@ export const maxLogic = kea<maxLogicType>([
                         ? [
                               {
                                   key: Scene.Max,
-                                  name: 'Chat history',
+                                  name: CHAT_TITLE_HISTORY,
                                   path: urls.aiHistory(),
                                   iconType: 'chat' as const,
                               },
                           ]
                         : []),
-                    ...(!conversationHistoryVisible && conversationId
+                    ...(hasConversationBreadcrumb
                         ? [
                               {
                                   key: Scene.Max,
                                   name: chatTitle || 'Chat',
                                   path: urls.ai(conversationId),
-                                  iconType: 'chat' as const,
+                                  iconType: isStreaming ? ('loading' as const) : ('chat' as const),
                               },
                           ]
                         : []),
@@ -301,7 +415,18 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        incrActiveStreamingThreads: () => {
+            updateInactiveTab(props.tabId, { iconType: 'loading', badge: false })
+        },
+        decrActiveStreamingThreads: () => {
+            // Reducer runs before listener, so activeStreamingThreads is already decremented.
+            // If still > 0, other streams are active — don't show badge yet.
+            if (values.activeStreamingThreads > 0) {
+                return
+            }
+            updateInactiveTab(props.tabId, { iconType: 'chat', badge: true })
+        },
         // Listen for when the side panel state changes and check for initial prompt
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
             if (tab === SidePanelTab.Max && options && typeof options === 'string') {
@@ -425,8 +550,35 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
+    // Active tab titles are updated by sceneLogic's titleAndIcon subscription (reads breadcrumbs).
+    // This subscription covers inactive tabs, which titleAndIcon doesn't reach.
+    subscriptions(({ props }) => ({
+        chatTitle: (title: string | null) => {
+            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY) {
+                updateInactiveTab(props.tabId, { title })
+            }
+        },
+    })),
+
     afterMount(({ actions, values }) => {
-        // If there is a prefill question from side panel state (from opening Max within the app), use it
+        // Restore pending prompt from sessionStorage (e.g., after OAuth redirect during consent flow)
+        if (!values.question) {
+            try {
+                const stored = sessionStorage.getItem(PENDING_AI_PROMPT_KEY)
+                if (stored) {
+                    const { prompt, timestamp } = JSON.parse(stored)
+                    const isRecent = Date.now() - timestamp < PENDING_PROMPT_MAX_AGE_MS
+                    if (isRecent && prompt) {
+                        actions.setQuestion(prompt)
+                    }
+                    sessionStorage.removeItem(PENDING_AI_PROMPT_KEY)
+                }
+            } catch {
+                // sessionStorage might be unavailable or data malformed
+            }
+        }
+
+        // If there is a prefill question from side panel state (from opening PostHog AI within the app), use it
         if (
             !values.question &&
             sidePanelStateLogic.isMounted() &&
@@ -449,9 +601,31 @@ export const maxLogic = kea<maxLogicType>([
         },
         [urls.ai()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
+                // Clear any existing conversation so the tab title updates
+                if (values.conversationId && values.activeStreamingThreads === 0) {
+                    actions.startNewConversation()
+                }
+
+                let uiContext: Partial<MaxUIContext> | undefined = undefined
+                try {
+                    const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)
+                    if (stored) {
+                        const { context, timestamp }: StoredMaxContext = JSON.parse(stored)
+                        const isRecent = Date.now() - timestamp < PENDING_CONTEXT_MAX_AGE_MS
+                        if (isRecent && context) {
+                            uiContext = context
+                        }
+                        sessionStorage.removeItem(PENDING_MAX_CONTEXT_KEY)
+                    }
+                } catch {
+                    // sessionStorage unavailable or data malformed, agent will handle it
+                }
+
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
-                    actions.askMax(search.ask)
+                    // Pass context directly to askMax to avoid timing issues
+                    // kea-router coerces numeric-looking URL params to numbers
+                    actions.askMax(String(search.ask), true, uiContext)
                 }, 100)
                 return
             }
@@ -478,6 +652,9 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             return [urls.ai(), {}, router.values.location.hash]
         },
+        openConversation: ({ conversationId }) => {
+            return [urls.ai(conversationId), {}, router.values.location.hash]
+        },
         setConversationId: ({ conversationId }) => {
             // Only set the URL parameter if this is a new conversation (using frontendConversationId)
             if (conversationId && conversationId === values.frontendConversationId) {
@@ -493,12 +670,20 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     if (!element) {
         return null
     }
-    const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
-    if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
-        // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
-        return scrollableEl.parentElement
+    let current = element.parentElement
+    while (current) {
+        if (current.tagName === 'MAIN') {
+            return current
+        }
+        if (current instanceof HTMLElement && current.dataset.attr === 'side-panel-content') {
+            return current
+        }
+        if (current instanceof HTMLElement && current.dataset.attr === 'max-scrollable') {
+            return current
+        }
+        current = current.parentElement
     }
-    return scrollableEl
+    return null
 }
 
 export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
@@ -520,6 +705,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
             {
                 content: 'Calculate a conversion rate for <events or actions>…',
+                requiresUserInput: true,
             },
         ],
         tooltip: 'PostHog AI can generate insights from natural language and tweak existing ones.',
@@ -530,6 +716,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'Write an SQL query to…',
+                requiresUserInput: true,
             },
         ],
         url: urls.sqlEditor(),
@@ -541,6 +728,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'Find recordings for…',
+                requiresUserInput: true,
             },
         ],
         url: productUrls.replay(),
@@ -552,24 +740,31 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'How can I set up the session replay in <a framework or language>…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the feature flags in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the experiments in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the data warehouse in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the error tracking in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the LLM analytics in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the product analytics in…',
+                requiresUserInput: true,
             },
         ],
         tooltip: 'PostHog AI can help you set up PostHog SDKs in your stack.',
@@ -577,30 +772,44 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Feature flags',
         icon: iconForType('feature_flag'),
+        url: urls.featureFlags(),
         suggestions: [
             {
                 content: 'Create a flag to gradually roll out…',
+                requiresUserInput: true,
             },
             {
                 content: 'Create a flag that starts at 10% rollout for…',
+                requiresUserInput: true,
             },
             {
                 content: 'Create a multivariate flag for…',
+                requiresUserInput: true,
             },
             {
                 content: 'Create a beta testing flag for…',
+                requiresUserInput: true,
+            },
+            {
+                content: 'Audit my feature flags for issues',
             },
         ],
     },
     {
         label: 'Experiments',
         icon: iconForType('experiment'),
+        url: urls.experiments(),
         suggestions: [
             {
                 content: 'Create an experiment to test…',
+                requiresUserInput: true,
             },
             {
                 content: 'Set up an A/B test with a 70/30 split between control and test for…',
+                requiresUserInput: true,
+            },
+            {
+                content: 'Check if my running experiments are set up correctly',
             },
         ],
     },
@@ -648,6 +857,83 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     },
 ]
 
+export const RESEARCH_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
+    {
+        label: 'User behavior',
+        icon: iconForType('product_analytics'),
+        suggestions: [
+            {
+                content: 'Investigate how retained users behave differently from churned ones',
+            },
+            {
+                content: 'Map the most common user journeys from sign-up to first value moment',
+            },
+            {
+                content: 'Compare behavior patterns between power users and casual users',
+            },
+        ],
+    },
+    {
+        label: 'Growth analysis',
+        icon: iconForType('product_analytics'),
+        suggestions: [
+            {
+                content: 'What are the strongest drivers of user activation?',
+            },
+            {
+                content: 'Compare funnel conversion rates across acquisition channels',
+            },
+            {
+                content: 'Which features correlate most with long-term retention?',
+            },
+        ],
+    },
+    {
+        label: 'Root cause analysis',
+        icon: iconForType('error_tracking'),
+        suggestions: [
+            {
+                content: 'Investigate why <metric> dropped last week',
+                requiresUserInput: true,
+            },
+            {
+                content: 'Find what caused the spike in <event> on <date>',
+                requiresUserInput: true,
+            },
+            {
+                content: 'Analyze where and why users drop off in the onboarding funnel',
+            },
+        ],
+    },
+    {
+        label: 'UX research',
+        icon: iconForType('session_replay'),
+        suggestions: [
+            {
+                content: 'Find session replays showing common user pain points or confusion',
+            },
+            {
+                content: 'Analyze how errors and crashes impact user experience and retention',
+            },
+        ],
+    },
+    {
+        label: 'Data deep dive',
+        icon: iconForType('insight/hog'),
+        suggestions: [
+            {
+                content: 'Build a comprehensive report on power user behavior and characteristics',
+            },
+            {
+                content: 'Run a cohort analysis comparing users by sign-up month',
+            },
+            {
+                content: 'Analyze LLM usage patterns and costs across features',
+            },
+        ],
+    },
+]
+
 /**
  * Merges a new conversation into the conversation history.
  */
@@ -669,8 +955,8 @@ export function mergeConversationHistory(
 }
 
 /**
- * Stream returns a `Conversation` object, which doesn't have a `messages` property.
- * However, when we load the conversation history, we get `ConversationDetail` objects.
+ * Streaming and history list responses return `Conversation` objects, which don't have a `messages` property.
+ * Full thread loads return `ConversationDetail` objects.
  * This function merges the two types so that we can use the same logic for both.
  */
 export function mergeConversations(
@@ -682,7 +968,8 @@ export function mergeConversations(
     }
 
     return {
+        ...oldObj,
         ...newObj,
-        messages: oldObj?.messages ?? [],
+        messages: oldObj?.messages,
     }
 }

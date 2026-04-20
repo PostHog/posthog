@@ -27,6 +27,8 @@ export interface QueryCardProps extends Pick<InsightCardProps, 'highlighted' | '
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
     uniqueKey?: string | number
+    /** Additional controls to show in the top controls area */
+    extraControls?: JSX.Element | null
 }
 
 /** This is like InsightCard, except for presentation of queries that aren't saved insights. */
@@ -42,6 +44,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
         sceneSource,
         attachTo,
         uniqueKey,
+        extraControls,
         ...divProps
     },
     ref
@@ -82,6 +85,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
                             ]}
                         />
                     }
+                    extraControls={extraControls}
                     showEditingControls
                 />
                 <div className="InsightCard__viz">

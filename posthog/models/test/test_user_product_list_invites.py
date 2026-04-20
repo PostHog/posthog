@@ -229,7 +229,7 @@ class TestUserProductListInvites(BaseTest):
         invite = OrganizationInvite.objects.create(
             organization=self.organization,
             target_email="newuser@posthog.com",
-            private_project_access=[{"id": self.team.id, "level": "member"}],
+            private_project_access=[],
         )
 
         # Use the invite (count=3, so top 3 should be synced)
@@ -247,6 +247,71 @@ class TestUserProductListInvites(BaseTest):
         self.assertIn("feature_flags", product_paths)
         self.assertNotIn("experiments", product_paths)
         self.assertLessEqual(len(product_paths), 3)  # Should not exceed count=3
+
+
+class TestUserProductListInvitesWithoutPrivateProjectAccess(BaseTest):
+    def test_invite_user_without_private_project_access_syncs_products(self):
+        """Test that when a user accepts an invite without private_project_access, they still get products synced"""
+        # Create existing team members with products
+        colleague = User.objects.create_user(email="colleague@posthog.com", password="password", first_name="Colleague")
+        colleague.join(organization=self.organization)
+
+        # Create products for colleague
+        UserProductList.objects.create(user=colleague, team=self.team, product_path="product_analytics", enabled=True)
+        UserProductList.objects.create(user=colleague, team=self.team, product_path="session_replay", enabled=True)
+
+        # Create new user to invite
+        new_user = User.objects.create_user(
+            email="newuser@posthog.com", password="password", first_name="New", allow_sidebar_suggestions=True
+        )
+
+        # Create invite WITHOUT private_project_access
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="newuser@posthog.com",
+            private_project_access=None,
+        )
+
+        # Use the invite
+        invite.use(new_user, prevalidated=True)
+
+        # Verify products were synced from colleagues
+        user_products = UserProductList.objects.filter(user=new_user, team=self.team, enabled=True)
+        product_paths = set(user_products.values_list("product_path", flat=True))
+
+        self.assertIn("product_analytics", product_paths)
+        self.assertIn("session_replay", product_paths)
+
+    def test_invite_user_without_private_project_access_backfills_from_other_teams(self):
+        """Test that invite without private_project_access still backfills from user's other teams"""
+        # Create a second organization and team for the user
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        # Create user and add them to other organization
+        user = User.objects.create_user(
+            email="existing@posthog.com", password="password", first_name="Existing", allow_sidebar_suggestions=True
+        )
+        user.join(organization=other_org)
+
+        # Create products for user in other team
+        UserProductList.objects.create(user=user, team=other_team, product_path="product_analytics", enabled=True)
+
+        # Create invite WITHOUT private_project_access
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="existing@posthog.com",
+            private_project_access=None,
+        )
+
+        # Use the invite
+        invite.use(user, prevalidated=True)
+
+        # Verify products were backfilled from other teams
+        user_products = UserProductList.objects.filter(user=user, team=self.team, enabled=True)
+        product_paths = set(user_products.values_list("product_path", flat=True))
+
+        self.assertIn("product_analytics", product_paths)
 
 
 class TestUserProductListTeamCreation(BaseTest):
@@ -287,31 +352,40 @@ class TestUserProductListTeamCreation(BaseTest):
         user_products = UserProductList.objects.filter(user=user, team=new_team)
         self.assertEqual(user_products.count(), 0)
 
-    def test_create_team_no_backfill_if_team_already_has_products(self):
-        """Test that backfill doesn't happen if team already has products"""
-        # Create user with products in existing team
-        user = User.objects.create_user(
-            email="hasproducts@posthog.com",
-            password="password",
-            first_name="HasProducts",
-            allow_sidebar_suggestions=True,
+    def test_create_team_syncs_products_for_all_users_with_access(self):
+        """Test that when a new team is created, all org members get products synced"""
+        # Create existing org members with products in the existing team
+        member1 = User.objects.create_user(
+            email="member1@posthog.com", password="password", first_name="Member1", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
-        UserProductList.objects.create(user=user, team=self.team, product_path="product_analytics", enabled=True)
+        member2 = User.objects.create_user(
+            email="member2@posthog.com", password="password", first_name="Member2", allow_sidebar_suggestions=True
+        )
+        member1.join(organization=self.organization)
+        member2.join(organization=self.organization)
 
-        # Create new team and manually add a product first
-        new_team = Team.objects.create_with_data(initiating_user=user, organization=self.organization, name="New Team")
-        UserProductList.objects.create(user=user, team=new_team, product_path="feature_flags", enabled=True)
+        # Create products for members in existing team
+        UserProductList.objects.create(user=member1, team=self.team, product_path="product_analytics", enabled=True)
+        UserProductList.objects.create(user=member2, team=self.team, product_path="session_replay", enabled=True)
 
-        # Count products before potential backfill
-        initial_count = UserProductList.objects.filter(user=user, team=new_team).count()
+        # Create a new team (without specifying initiating_user to test all members sync)
+        creator = User.objects.create_user(
+            email="creator@posthog.com", password="password", first_name="Creator", allow_sidebar_suggestions=True
+        )
+        creator.join(organization=self.organization)
+        new_team = Team.objects.create_with_data(
+            initiating_user=creator, organization=self.organization, name="New Team"
+        )
 
-        # Try to trigger backfill again (should be no-op since team already has products)
-        UserProductList.backfill_from_other_teams(user, new_team)
+        # Verify member1's products were backfilled to new team
+        member1_products = UserProductList.objects.filter(user=member1, team=new_team, enabled=True)
+        member1_paths = set(member1_products.values_list("product_path", flat=True))
+        self.assertIn("product_analytics", member1_paths)
 
-        # Verify count didn't change
-        final_count = UserProductList.objects.filter(user=user, team=new_team).count()
-        self.assertEqual(initial_count, final_count)
+        # Verify member2's products were backfilled to new team
+        member2_products = UserProductList.objects.filter(user=member2, team=new_team, enabled=True)
+        member2_paths = set(member2_products.values_list("product_path", flat=True))
+        self.assertIn("session_replay", member2_paths)
 
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_access_control_signal_triggers_backfill(self):

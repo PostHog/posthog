@@ -5,6 +5,7 @@ import { ReactNode, useRef, useState } from 'react'
 import { IconFolder, IconFolderOpen } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -80,11 +81,12 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
     const [selectedItem, setSelectedItem] = useState<TreeDataItem | null>(null)
     const { isOpen } = useValues(itemSelectModalLogic)
     const { closeItemSelectModal, submitForm, setFormValue } = useActions(itemSelectModalLogic)
-    const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
-        useValues(projectTreeLogic(props))
+    const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, editingItemId } = useValues(
+        projectTreeLogic(props)
+    )
     const { setSearchTerm, setExpandedSearchFolders, setExpandedFolders, setEditingItemId, rename, toggleFolderOpen } =
         useActions(projectTreeLogic(props))
-
+    const isAIFirst = useFeatureFlag('AI_FIRST')
     const treeRef = useRef<LemonTreeRef>(null)
 
     useOnMountEffect(() => {
@@ -135,7 +137,8 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                       : undefined
                             }
                         >
-                            Add {selectedItem?.name || selectedItem?.displayName}
+                            Add {selectedItem?.name.toLowerCase() || selectedItem?.displayName}{' '}
+                            {isAIFirst ? 'to starred' : 'shortcut'}
                         </LemonButton>
                     </>
                 }
@@ -211,8 +214,6 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                         selectMode="all"
                                         className="px-0 py-1"
                                         data={fullFileSystemFiltered}
-                                        mode="tree"
-                                        tableViewKeys={treeTableKeys}
                                         defaultSelectedFolderOrNodeId=""
                                         isItemActive={() => false}
                                         isItemEditing={(item) => {

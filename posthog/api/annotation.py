@@ -6,15 +6,19 @@ from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters, pagination, serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import Annotation
+from posthog.models import Annotation, Insight
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 @dataclasses.dataclass(frozen=True)
@@ -30,6 +34,8 @@ class AnnotationContext(ActivityContextBase):
 
 class AnnotationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    dashboard_id = serializers.IntegerField(required=False, allow_null=True)
+    dashboard_item = TeamScopedPrimaryKeyRelatedField(queryset=Insight.objects.all(), required=False, allow_null=True)
 
     class Meta:
         model = Annotation
@@ -60,14 +66,46 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "content": {
+                "help_text": "Annotation text shown on charts to describe the change, release, or incident.",
+            },
+            "date_marker": {
+                "help_text": "When this annotation happened (ISO 8601 timestamp). Used to position it on charts.",
+            },
+            "creation_type": {
+                "help_text": "Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.",
+            },
+            "dashboard_id": {
+                "help_text": "Optional dashboard ID to attach this annotation to. Must belong to the current project.",
+            },
+            "dashboard_item": {
+                "help_text": "Optional insight ID to attach this annotation to. Must belong to the current project.",
+            },
+            "deleted": {
+                "help_text": "Soft-delete flag. Set to true to hide the annotation, or false to restore it.",
+            },
+            "scope": {
+                "help_text": (
+                    "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. "
+                    "`recording` is deprecated and rejected."
+                ),
+            },
+        }
 
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
         return super().update(instance, validated_data)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        scope = attrs.get("scope", None)
+        team = self.context["get_team"]()
 
+        dashboard_id = attrs.get("dashboard_id")
+        if dashboard_id is not None:
+            if not Dashboard.objects.filter(id=dashboard_id, team_id=team.id).exists():
+                raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
+
+        scope = attrs.get("scope", None)
         if scope == Annotation.Scope.RECORDING.value:
             raise serializers.ValidationError("Recording scope is deprecated")
 
@@ -76,11 +114,11 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         team = self.context["get_team"]()
+
         annotation = Annotation.objects.create(
             organization_id=team.organization_id,
             team_id=team.id,
             created_by=request.user,
-            dashboard_id=request.data.get("dashboard_id", None),
             **validated_data,
         )
         return annotation
@@ -90,6 +128,7 @@ class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
     default_limit = 1000
 
 
+@extend_schema(tags=["core"])
 class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.

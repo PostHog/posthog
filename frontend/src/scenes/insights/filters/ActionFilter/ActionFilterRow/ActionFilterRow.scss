@@ -19,7 +19,7 @@
     .ActionFilterRow__end {
         display: flex;
         flex: 0;
-        gap: 0.25rem;
+        gap: 1px;
         align-items: center;
         height: 40px;
     }
@@ -28,6 +28,7 @@
         flex: 1;
         flex-wrap: wrap;
         gap: 0.5rem;
+        min-width: 0;
         overflow: hidden;
     }
 }

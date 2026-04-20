@@ -43,6 +43,7 @@ from posthog.models.property import (
     PropertyName,
 )
 from posthog.models.property.property import ValueT
+from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
 from posthog.session_recordings.queries.session_query import SessionQuery
@@ -162,10 +163,18 @@ def parse_prop_clauses(
     if table_formatted != "":
         table_formatted += "."
 
+    _team = None
+
+    def get_team():
+        nonlocal _team
+        if _team is None:
+            _team = Team.objects.only("project_id").get(pk=team_id)
+        return _team
+
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":
             try:
-                cohort = Cohort.objects.get(pk=prop.value)
+                cohort = Cohort.objects.get(pk=cast(str | int, prop.value), team__project_id=get_team().project_id)
             except Cohort.DoesNotExist:
                 final.append(
                     f"{property_operator} 0 = 13"
@@ -175,7 +184,7 @@ def parse_prop_clauses(
                     person_id_query, cohort_filter_params = format_filter_query(
                         cohort,
                         idx,
-                        hogql_context,
+                        cast(HogQLContext, hogql_context),
                         custom_match_field=person_id_joined_alias,
                     )
                     params = {**params, **cohort_filter_params}
@@ -184,7 +193,7 @@ def parse_prop_clauses(
                     person_id_query, cohort_filter_params = format_cohort_subquery(
                         cohort,
                         idx,
-                        hogql_context,
+                        cast(HogQLContext, hogql_context),
                         custom_match_field=f"{person_id_joined_alias}",
                     )
                     params = {**params, **cohort_filter_params}
@@ -319,11 +328,11 @@ def parse_prop_clauses(
                 params[group_type_index_var] = prop.group_type_index
         elif prop.type in ("static-cohort", "precalculated-cohort"):
             cohort_id = cast(int, prop.value)
-            cohort = Cohort.objects.get(pk=cohort_id)
+            cohort = Cohort.objects.get(pk=cohort_id, team__project_id=get_team().project_id)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
             filter_query, filter_params = method(cohort, idx, prepend=prepend)
-            filter_query = f"""{person_id_joined_alias if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'person_id'} IN ({filter_query})"""
+            filter_query = f"""{person_id_joined_alias if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else "person_id"} IN ({filter_query})"""
 
             if has_person_id_joined or person_properties_mode in [
                 PersonPropertiesMode.DIRECT_ON_EVENTS,
@@ -358,23 +367,26 @@ def parse_prop_clauses(
 
 
 def negate_operator(operator: OperatorType) -> OperatorType:
-    return {
-        "is_not": "exact",
-        "exact": "is_not",
-        "icontains": "not_icontains",
-        "not_icontains": "icontains",
-        "regex": "not_regex",
-        "not_regex": "regex",
-        "gt": "lte",
-        "lt": "gte",
-        "gte": "lt",
-        "lte": "gt",
-        "is_set": "is_not_set",
-        "is_not_set": "is_set",
-        "is_date_before": "is_date_after",
-        "is_date_after": "is_date_before",
-        # is_date_exact not yet supported
-    }.get(operator, operator)
+    return cast(
+        OperatorType,
+        {
+            "is_not": "exact",
+            "exact": "is_not",
+            "icontains": "not_icontains",
+            "not_icontains": "icontains",
+            "regex": "not_regex",
+            "not_regex": "regex",
+            "gt": "lte",
+            "lt": "gte",
+            "gte": "lt",
+            "lte": "gt",
+            "is_set": "is_not_set",
+            "is_not_set": "is_set",
+            "is_date_before": "is_date_after",
+            "is_date_after": "is_date_before",
+            # is_date_exact not yet supported
+        }.get(operator, operator),
+    )
 
 
 def prop_filter_json_extract(
@@ -716,7 +728,11 @@ def get_property_string_expr(
     if (
         allow_denormalized_props
         and (
-            materialized_column := get_materialized_column_for_property(table, materialised_table_column, property_name)
+            materialized_column := get_materialized_column_for_property(
+                table,
+                cast(Literal["properties", "group_properties", "person_properties"], materialised_table_column),
+                property_name,
+            )
         )
         and not materialized_column.is_nullable
         and "group" not in materialised_table_column
@@ -894,10 +910,10 @@ class HogQLPropertyChecker(TraversingVisitor):
 
     def visit_field(self, node: ast.Field):
         if len(node.chain) > 1 and node.chain[0] == "properties":
-            self.event_properties.append(node.chain[1])
+            self.event_properties.append(str(node.chain[1]))
 
         if len(node.chain) > 2 and node.chain[0] == "person" and node.chain[1] == "properties":
-            self.person_properties.append(node.chain[2])
+            self.person_properties.append(str(node.chain[2]))
 
         if (
             len(node.chain) > 3
@@ -905,16 +921,16 @@ class HogQLPropertyChecker(TraversingVisitor):
             and node.chain[1] == "person"
             and node.chain[2] == "properties"
         ):
-            self.person_properties.append(node.chain[3])
+            self.person_properties.append(str(node.chain[3]))
 
 
-def extract_tables_and_properties(props: list[Property]) -> TCounter[PropertyIdentifier]:
+def extract_tables_and_properties(props: list[Property], team_id: int) -> TCounter[PropertyIdentifier]:
     counters: list[tuple] = []
     for prop in props:
         if prop.type == "hogql":
             counters.extend(count_hogql_properties(prop.key))
         elif prop.type == "behavioral" and prop.event_type == "actions":
-            action = Action.objects.get(pk=prop.key)
+            action = Action.objects.get(pk=prop.key, team_id=team_id)
             action_counter = get_action_tables_and_properties(action)
             counters.extend(action_counter)
         else:
@@ -940,7 +956,7 @@ def count_hogql_properties(
 def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> tuple[str, dict[str, Any]]:
     if prop.key == "$session_duration":
         try:
-            duration = float(prop.value)
+            duration = float(cast(str | int, prop.value))
         except ValueError:
             raise (exceptions.ValidationError(f"$session_duration value must be a number. Received '{prop.value}'"))
         value = f"session_duration_value{prepend}_{idx}"
@@ -968,7 +984,14 @@ def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
     return prop
 
 
+_ALLOWED_ISSUE_FILTER_KEYS = {"name", "status", "issue_description", "first_seen"}
+
+
 def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFilter):
+    # Allowlist prevents ORM relationship traversal via Django's __ notation
+    if property.key not in _ALLOWED_ISSUE_FILTER_KEYS:
+        raise ValueError(f"Unsupported error tracking filter key: {property.key}")
+
     operator = property.operator
     value = property.value
     field = property.key
@@ -985,6 +1008,7 @@ def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFi
         in [
             PropertyOperator.IS_NOT,
             PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_ICONTAINS_MULTI,
             PropertyOperator.NOT_REGEX,
             PropertyOperator.IS_SET,
             PropertyOperator.NOT_IN,
@@ -1002,6 +1026,8 @@ def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFi
         query += "__isnull"
         value = True
     elif operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
+        query += "__icontains"
+    elif operator == PropertyOperator.ICONTAINS_MULTI or operator == PropertyOperator.NOT_ICONTAINS_MULTI:
         query += "__icontains"
     elif operator == PropertyOperator.REGEX:
         query += "__regex"

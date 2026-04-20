@@ -4,6 +4,8 @@ import { IconExternal } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -18,10 +20,10 @@ export const ErrorTrackingSetupPrompt = ({
     className?: string
 }): JSX.Element => {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const exceptionAutocaptureEnabled = currentTeam && currentTeam.autocapture_exceptions_opt_in
 
-    return hasSentExceptionEventLoading || currentTeamLoading ? (
+    return hasSentExceptionEventLoading || !currentTeam ? (
         <div className="flex justify-center">
             <Spinner />
         </div>
@@ -34,6 +36,10 @@ export const ErrorTrackingSetupPrompt = ({
 
 const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Element | null => {
     const { addProductIntent, updateCurrentTeam } = useActions(teamLogic)
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+        scope: RestrictionScope.Project,
+    })
 
     return (
         <ProductIntroduction
@@ -48,6 +54,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
                 <>
                     <LemonButton
                         type="primary"
+                        disabledReason={restrictionReason}
                         onClick={() => {
                             addProductIntent({
                                 product_type: ProductKey.ERROR_TRACKING,

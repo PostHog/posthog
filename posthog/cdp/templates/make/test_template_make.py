@@ -1,7 +1,5 @@
 import pytest
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.make.template_make import template as template_make
 
@@ -28,25 +26,23 @@ class TestTemplateMake(BaseHogFunctionTemplateTest):
     def test_function_works(self):
         self.run_function(inputs=self._inputs())
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://hook.xxx.make.com/xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "data": {
-                            "eventUuid": "uuid-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                            "event": "$pageview",
-                            "teamId": "teamId-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                            "distinctId": "distinctId-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                            "properties": {"uuid": "person-uuid-xxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
-                        }
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://hook.xxx.make.com/xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
                 },
-            )
+                "body": {
+                    "data": {
+                        "eventUuid": "uuid-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                        "event": "$pageview",
+                        "teamId": "teamId-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                        "distinctId": "distinctId-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                        "properties": {"uuid": "person-uuid-xxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+                    }
+                },
+            },
         )
 
     def test_only_allow_teams_url(self):

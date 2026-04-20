@@ -5,12 +5,15 @@ import { useMemo } from 'react'
 import { IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { useDebouncedNameInputs } from './utils'
 
 export function StepConditionalBranchConfiguration({
     node,
@@ -20,16 +23,28 @@ export function StepConditionalBranchConfiguration({
     const action = node.data
     const { conditions } = action.config
 
-    const { edgesByActionId, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
+    const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
 
-    const nodeEdges = edgesByActionId[action.id]
+    const nodeEdges = edgesByActionId[action.id] ?? []
+
+    const setConditions = (
+        conditions: Extract<HogFlowAction, { type: 'conditional_branch' }>['config']['conditions']
+    ): void => {
+        // For condition modifiers we need to setup the branches as well
+        setWorkflowAction(action.id, {
+            ...action,
+            config: { ...action.config, conditions },
+        })
+    }
+
+    const { localNames: localConditionNames, handleNameChange } = useDebouncedNameInputs(conditions, setConditions)
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []
         const nonBranchEdges: HogFlow['edges'] = []
 
-        nodeEdges.forEach((edge) => {
+        nodeEdges?.forEach((edge) => {
             if (edge.type === 'branch' && edge.from === action.id) {
                 branchEdges.push(edge)
             } else {
@@ -40,29 +55,14 @@ export function StepConditionalBranchConfiguration({
         return [branchEdges.sort((a, b) => (a.index ?? 0) - (b.index ?? 0)), nonBranchEdges]
     }, [nodeEdges, action.id])
 
-    const setConditions = (
-        conditions: Extract<HogFlowAction, { type: 'conditional_branch' }>['config']['conditions']
-    ): void => {
-        // TODO: Find all related edges. We can only delete those that are the same as the continue edge.
-        // All others should be disabled for deletion until the subbranch is removed
-
-        // For condition modifiers we need to setup the branches as well
-        setWorkflowAction(action.id, {
-            ...action,
-            config: { ...action.config, conditions },
-        })
-    }
+    const continueEdge = nodeEdges.find((edge) => edge.type === 'continue' && edge.from === action.id)
 
     const addCondition = (): void => {
-        const continueEdge = nodeEdges.find((edge) => edge.type === 'continue' && edge.from === action.id)
         if (!continueEdge) {
             throw new Error('Continue edge not found')
         }
 
-        setConditions([
-            ...conditions,
-            { filters: { events: [{ id: '$pageview', name: '$pageview', type: 'events' }] } },
-        ])
+        setConditions([...conditions, { filters: {} }])
         setWorkflowActionEdges(action.id, [
             ...branchEdges,
             {
@@ -95,24 +95,39 @@ export function StepConditionalBranchConfiguration({
                             size="xsmall"
                             icon={<IconX />}
                             onClick={() => removeCondition(index)}
-                            disabledReason={selectedNodeCanBeDeleted ? undefined : 'Clean up branching steps first'}
+                            disabledReason={
+                                branchEdges[index]?.to === continueEdge?.to
+                                    ? undefined
+                                    : 'Clean up branching steps first'
+                            }
                         />
                     </div>
 
                     <HogFlowPropertyFilters
-                        actionId={`${action.id}.${index}`}
+                        filtersKey={`condition-branch-condition-${action.id}-${index}`}
                         filters={condition.filters ?? {}}
                         setFilters={(filters) =>
                             setConditions(
-                                conditions.map((condition, i) => (i === index ? { filters: filters ?? {} } : condition))
+                                conditions.map((condition, i) =>
+                                    i === index ? { ...condition, filters: filters ?? {} } : condition
+                                )
                             )
                         }
                         typeKey={`workflow-trigger-${index}`}
                     />
+
+                    <LemonField.Pure label="Condition name (optional)">
+                        <LemonInput
+                            value={localConditionNames[index] || ''}
+                            onChange={(value) => handleNameChange(index, value)}
+                            placeholder={`If condition #${index + 1} matches`}
+                            size="small"
+                        />
+                    </LemonField.Pure>
                 </div>
             ))}
 
-            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()}>
+            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()} className="mt-2">
                 Add condition
             </LemonButton>
         </>

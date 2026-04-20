@@ -1,13 +1,13 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@storybook/testing-library'
 
-import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof App>
+type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/TrendsLine',
     parameters: {
@@ -43,6 +43,17 @@ export const TrendsLine: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json')
 )
 TrendsLine.parameters = {
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
+}
+
+export const TrendsLineSingleDataPoint: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineSingleDataPoint.json')
+)
+TrendsLineSingleDataPoint.parameters = {
     ...meta.parameters,
     testOptions: {
         ...meta.parameters?.testOptions,
@@ -127,6 +138,17 @@ TrendsBar.parameters = {
         waitForSelector: '[data-attr=trend-line-graph] > canvas',
     },
 }
+
+export const TrendsBarSingleDataPoint: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBarSingleDataPoint.json')
+)
+TrendsBarSingleDataPoint.parameters = {
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
+}
 export const TrendsBarEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json'),
     'edit'
@@ -160,4 +182,30 @@ TrendsBarBreakdownEdit.parameters = {
         waitForSelector: '[data-attr=trend-line-graph] > canvas',
     },
 }
+export const TrendsLineMultiEditViewports: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
+    'edit'
+)
+const waitForTrendsCanvasToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
+    let lastHeight = 0
+    await waitFor(
+        () => {
+            const chartCanvas = canvasElement.querySelector('[data-attr=trend-line-graph] > canvas')
+            const currentHeight = chartCanvas ? chartCanvas.getBoundingClientRect().height : 0
+            if (currentHeight === 0 || currentHeight !== lastHeight) {
+                lastHeight = currentHeight
+                throw new Error('trend line canvas height not yet stable')
+            }
+        },
+        { timeout: 3000, interval: 200 }
+    )
+}
+TrendsLineMultiEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+TrendsLineMultiEditViewports.play = waitForTrendsCanvasToStabilize
+
 /* eslint-enable @typescript-eslint/no-var-requires */

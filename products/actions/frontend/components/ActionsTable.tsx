@@ -1,23 +1,23 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { stripHTTP } from 'lib/utils'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -28,25 +28,25 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActionType,
-    AvailableFeature,
     ChartDisplayType,
     FilterLogicalOperator,
-    ReplayTabs,
 } from '~/types'
 
 import { actionsLogic } from '../logics/actionsLogic'
+import { deleteActionWithWarning } from '../utils/deleteAction'
+import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching, isScreenNameFilter } from '../utils/screenName'
 import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
+    // actionsModel is a singleton; params are set on first mount by actionsLogic's connect
+    const { actionsLoading } = useValues(actionsModel)
     const { loadActions, pinAction, unpinAction } = useActions(actionsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
-
-    const { hasAvailableFeature } = useValues(userLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const referenceCountEnabled = !!featureFlags[FEATURE_FLAGS.ACTION_REFERENCE_COUNT]
 
     const tryInInsightsUrl = (action: ActionType): string => {
         const query: InsightVizNode = {
@@ -138,6 +138,22 @@ export function ActionsTable(): JSX.Element {
                                                             </>
                                                         )
                                                 }
+                                            case '$screen': {
+                                                const screenFilter = step.properties?.find(isScreenNameFilter)
+                                                if (screenFilter && 'value' in screenFilter && screenFilter.value) {
+                                                    const operator =
+                                                        'operator' in screenFilter
+                                                            ? (screenFilter.operator as ScreenNameMatching)
+                                                            : 'icontains'
+                                                    return (
+                                                        <>
+                                                            Screen name {SCREEN_NAME_MATCHING_LABEL[operator]}{' '}
+                                                            <strong>{String(screenFilter.value)}</strong>
+                                                        </>
+                                                    )
+                                                }
+                                                return 'Screen'
+                                            }
                                             case '':
                                             case null:
                                             case undefined:
@@ -159,33 +175,41 @@ export function ActionsTable(): JSX.Element {
                 )
             },
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
+        {
+            title: 'Tags',
+            dataIndex: 'tags',
+            width: 250,
+            key: 'tags',
+            render: function renderTags(tags: string[]) {
+                return <ObjectTags tags={tags} staticOnly />
+            },
+        } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
+        ...(referenceCountEnabled
             ? [
                   {
-                      title: 'Tags',
-                      dataIndex: 'tags',
-                      width: 250,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
+                      title: 'Used by',
+                      dataIndex: 'reference_count',
+                      sorter: (a: ActionType, b: ActionType) => (a.reference_count ?? 0) - (b.reference_count ?? 0),
+                      render: function RenderReferenceCount(_, action: ActionType) {
+                          const count = action.reference_count
+                          if (count === undefined) {
+                              return actionsLoading ? (
+                                  <LemonSkeleton className="w-12 h-4" />
+                              ) : (
+                                  <span className="text-secondary">—</span>
+                              )
+                          }
+                          return (
+                              <span className="text-secondary">
+                                  {count > 0 ? `${count} ${count === 1 ? 'reference' : 'references'}` : 'None'}
+                              </span>
+                          )
                       },
                   } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
               ]
             : []),
         createdByColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-        ...(currentTeam?.slack_incoming_webhook
-            ? [
-                  {
-                      title: 'Webhook',
-                      dataIndex: 'post_to_slack',
-                      sorter: (a: ActionType, b: ActionType) => Number(a.post_to_slack) - Number(b.post_to_slack),
-                      render: function RenderActions(post_to_slack): JSX.Element | null {
-                          return post_to_slack ? <IconCheckCircle /> : null
-                      },
-                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-              ]
-            : []),
         {
             width: 0,
             render: function RenderActions(_, action) {
@@ -205,8 +229,8 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton to={urls.duplicateAction(action)} fullWidth>
                                     Duplicate
                                 </LemonButton>
-                                <LemonButton
-                                    to={urls.replay(ReplayTabs.Home, {
+                                <ViewRecordingsPlaylistButton
+                                    filters={{
                                         filter_group: {
                                             type: FilterLogicalOperator.And,
                                             values: [
@@ -223,7 +247,7 @@ export function ActionsTable(): JSX.Element {
                                                 },
                                             ],
                                         },
-                                    })}
+                                    }}
                                     onClick={() => {
                                         addProductIntentForCrossSell({
                                             from: ProductKey.ACTIONS,
@@ -231,13 +255,9 @@ export function ActionsTable(): JSX.Element {
                                             intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
                                         })
                                     }}
-                                    sideIcon={<IconPlayCircle />}
                                     fullWidth
                                     data-attr="action-table-view-recordings"
-                                    targetBlank
-                                >
-                                    View recordings
-                                </LemonButton>
+                                />
                                 <LemonButton to={tryInInsightsUrl(action)} fullWidth targetBlank>
                                     Try out in Insights
                                 </LemonButton>
@@ -250,13 +270,7 @@ export function ActionsTable(): JSX.Element {
                                     <LemonButton
                                         status="danger"
                                         onClick={() => {
-                                            deleteWithUndo({
-                                                endpoint: api.actions.determineDeleteEndpoint(),
-                                                object: action,
-                                                callback: loadActions,
-                                            }).catch((e: any) => {
-                                                lemonToast.error(`Error deleting action: ${e.detail}`)
-                                            })
+                                            void deleteActionWithWarning(action, loadActions)
                                         }}
                                         fullWidth
                                     >

@@ -1,0 +1,95 @@
+name: LLM Gateway CD
+
+on:
+    workflow_dispatch:
+    push:
+        branches:
+            - master
+        paths:
+            - 'services/llm-gateway/**'
+            - '.github/workflows/llm-gateway-cd.yml'
+
+jobs:
+    build:
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
+
+        permissions:
+            contents: read
+            packages: write
+            id-token: write
+
+        outputs:
+            sha: ${{ steps.push.outputs.digest }}
+
+        steps:
+            - name: Check out llm-gateway code
+              uses: actions/checkout@v6
+              with:
+                  sparse-checkout: |
+                      services/llm-gateway/
+                      .github/actions/docker-meta/
+                  sparse-checkout-cone-mode: false
+
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
+              with:
+                  image-name: llm-gateway
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # Legacy path — remove once Helm charts are updated to ghcr.io/posthog/<image>
+                  legacy-images: ghcr.io/posthog/posthog/llm-gateway
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Build and push Docker image
+              id: push
+              if: github.ref == 'refs/heads/master'
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: ./services/llm-gateway/
+                  file: services/llm-gateway/Dockerfile
+                  push: true
+                  platforms: linux/amd64,linux/arm64
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
+                  project: 90mkjhdrjz # llm-gateway depot project
+
+    deploy:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        needs: build
+        permissions: {}
+        steps:
+            - name: get deployer token
+              id: deployer
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: Trigger llm-gateway deployment
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ needs.build.outputs.sha }}"
+                          }
+                        },
+                        "release": "llm-gateway",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": [],
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }

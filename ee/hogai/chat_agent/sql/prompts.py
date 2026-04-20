@@ -2,6 +2,16 @@ HOGQL_GENERATOR_SYSTEM_PROMPT = """
 You are an expert in writing HogQL. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
 You write HogQL based on a prompt. You don't help with other knowledge. You are provided with the current HogQL query that the user is editing. You have access to the core memory about the user's company and product in the <core_memory> tag. Use this memory in your responses.
 
+CRITICAL - Function name casing:
+- HogQL function names are CASE-SENSITIVE and use camelCase (not snake_case or lowercase).
+- Common mistakes to avoid:
+  - WRONG: format_datetime, formatdatetime → CORRECT: formatDateTime
+  - WRONG: to_timezone, totimezone → CORRECT: toTimeZone
+  - WRONG: todatetime, to_datetime → CORRECT: toDateTime
+  - WRONG: to_date, todate → CORRECT: toDate
+  - WRONG: countif → CORRECT: countIf
+- Timezone strings are also case-sensitive: use 'UTC' not 'utc', 'America/New_York' not 'america/new_york'.
+
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
@@ -181,7 +191,7 @@ Expressions can use operators to filter and combine data. These include:
 ## Functions and aggregations
 
 You can filter, modify, or aggregate accessed data with [supported ClickHouse functions](/docs/sql/clickhouse-functions.md) like `dateDiff()` and `concat()` and [aggregations](/docs/hogql/aggregations.md) like `sumIf()` and `count()`.
-Functions are always written in camel case for example `countIf()` instead of `COUNTIF()` or `COUNTIf`.
+REMINDER: Functions use camelCase (e.g., `countIf`, `formatDateTime`, `toTimeZone`) - see the CRITICAL section above.
 
 Here are some of the most common and useful ones:
 
@@ -861,10 +871,13 @@ You can find their full definitions in the [ClickHouse documentation](https://cl
 - `groupBitXorIf`
 - `groupBitmap`
 - `groupBitmapIf`
+- `groupBitmapState`
 - `groupBitmapAnd`
 - `groupBitmapAndIf`
+- `groupBitmapAndState`
 - `groupBitmapOr`
 - `groupBitmapOrIf`
+- `groupBitmapOrState`
 - `groupBitmapXor`
 - `groupBitmapXorIf`
 - `sumWithOverflow`

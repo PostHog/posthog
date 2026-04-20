@@ -23,12 +23,12 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { FilterPanel } from './FilterPanel'
-import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 
 function ExportButton({
     iframeRef,
@@ -332,7 +332,7 @@ function Warnings(): JSX.Element | null {
             action={{
                 type: 'secondary',
                 icon: <IconGear />,
-                onClick: () => openSettingsPanel({ sectionId: 'environment-autocapture', settingId: 'heatmaps' }),
+                onClick: () => openSettingsPanel({ sectionId: 'environment-heatmaps', settingId: 'heatmaps' }),
                 children: 'Configure',
             }}
             dismissKey="heatmaps-might-be-disabled-warning"
@@ -355,12 +355,12 @@ export function HeatmapsBrowser(): JSX.Element {
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <SceneContent>
                 <Warnings />
-                <div className="overflow-hidden w-full h-screen">
+                <div className="w-full">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
                     <FilterPanel />
                     <LemonDivider className="my-4" />
-                    <div className="relative flex flex-1 overflow-hidden border min-h-screen">
+                    <div className="relative border">
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : displayUrl ? (

@@ -1,20 +1,129 @@
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use anyhow::{Context, Result};
-use num_cpus;
-use once_cell::sync::Lazy;
 use rocksdb::{
     checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
-    DBWithThreadMode, MultiThreaded, Options, SliceTransform, WriteBatch, WriteBufferManager,
+    DBCompressionType, DBWithThreadMode, MultiThreaded, Options, WriteBatch, WriteBufferManager,
     WriteOptions,
 };
 use std::time::Instant;
+use tracing::error;
 
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::metrics_consts::*;
+
+// ── RocksDbConfig defaults (env-overridable via Config) ─────────────────────
+
+const DEFAULT_SHARED_CACHE_SIZE_BYTES: usize = 2048 * 1024 * 1024; // 2 GB
+const DEFAULT_TOTAL_WRITE_BUFFER_SIZE_BYTES: usize = 2048 * 1024 * 1024; // 2 GB across ALL stores
+const DEFAULT_MAX_BACKGROUND_JOBS_CAP: i32 = 2;
+const DEFAULT_PARALLELISM_FALLBACK: usize = 2;
+const DEFAULT_WRITE_BUFFER_SIZE_BYTES: usize = 64 * 1024 * 1024; // 64 MB per memtable
+const DEFAULT_TARGET_FILE_SIZE_BASE_BYTES: u64 = 256 * 1024 * 1024; // 256 MB SST files
+const DEFAULT_MAX_OPEN_FILES: i32 = 1024;
+// L0 compaction thresholds — higher values batch more L0 files before compaction,
+// reducing compaction frequency at the cost of higher read amplification.
+const DEFAULT_L0_COMPACTION_TRIGGER: i32 = 8; // RocksDB default: 4
+const DEFAULT_L0_SLOWDOWN_WRITES_TRIGGER: i32 = 20;
+const DEFAULT_L0_STOP_WRITES_TRIGGER: i32 = 36;
+
+// ── rocksdb_options() fixed settings (not env-overridable) ──────────────────
+
+/// Bloom filter bits per key — 10 bits ≈ 1% false-positive rate.
+const BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
+/// Timestamp key prefix length for SliceTransform (8-byte epoch seconds).
+pub const TIMESTAMP_PREFIX_LEN: usize = 8;
+/// 2 write buffers: one active for writes, one flushing to disk.
+const MAX_WRITE_BUFFER_NUMBER: i32 = 2;
+/// Merge every buffer immediately — avoids batching delay before flush.
+const MIN_WRITE_BUFFER_NUMBER_TO_MERGE: i32 = 1;
+/// Periodic fsync interval for SST and WAL data.
+const BYTES_PER_SYNC: u64 = 1024 * 1024; // 1 MB
+/// Readahead buffer for compaction I/O.
+const COMPACTION_READAHEAD_SIZE: usize = 2 * 1024 * 1024; // 2 MB
+
+// Universal compaction tuning — we don't call optimize_universal_style_compaction()
+// because it forces Snappy compression. Instead, manual config with relaxed triggers
+// to reduce compaction frequency on slow PVC storage.
+const UNIVERSAL_SIZE_RATIO: i32 = 10; // Allow 10% size difference before compacting (default: 1)
+const UNIVERSAL_MIN_MERGE_WIDTH: i32 = 2;
+const UNIVERSAL_MAX_MERGE_WIDTH: i32 = 16;
+const UNIVERSAL_MAX_SIZE_AMPLIFICATION_PERCENT: i32 = 200; // Allow 2x space amplification
+const DEFAULT_UNIVERSAL_COMPRESSION_SIZE_PERCENT: i32 = -1; // Compress all levels
+
+// ── Compression type parsing ─────────────────────────────────────────────────
+
+pub fn parse_compression_type(s: &str) -> Result<DBCompressionType> {
+    match s.to_lowercase().trim() {
+        "none" => Ok(DBCompressionType::None),
+        "snappy" => Ok(DBCompressionType::Snappy),
+        "zlib" => Ok(DBCompressionType::Zlib),
+        "lz4" => Ok(DBCompressionType::Lz4),
+        "lz4hc" => Ok(DBCompressionType::Lz4hc),
+        "zstd" => Ok(DBCompressionType::Zstd),
+        other => anyhow::bail!("unknown compression type: {other}"),
+    }
+}
+
+pub fn parse_compression_per_level(s: &str) -> Result<Vec<DBCompressionType>> {
+    s.split(',').map(parse_compression_type).collect()
+}
+
+/// RocksDB tuning knobs exposed as env vars for per-deploy overrides.
+/// Concrete types — all values fully resolved at construction time.
+/// Tests use `RocksDbConfig::default()` which mirrors the constants above.
+#[derive(Debug, Clone)]
+pub struct RocksDbConfig {
+    pub shared_cache_size_bytes: usize,
+    pub total_write_buffer_size_bytes: usize,
+    pub max_background_jobs: i32,
+    pub write_buffer_size_bytes: usize,
+    pub target_file_size_base_bytes: u64,
+    pub max_open_files: i32,
+    pub l0_compaction_trigger: i32,
+    pub l0_slowdown_writes_trigger: i32,
+    pub l0_stop_writes_trigger: i32,
+    /// Whether the write buffer manager should stall writes when memory is full.
+    /// false = backpressure handled at Kafka level instead.
+    pub write_buffer_manager_allow_stall: bool,
+    /// Default compression type applied to all SST levels when compression_per_level is None.
+    pub compression_type: DBCompressionType,
+    /// Per-level compression overrides. When set, takes precedence over compression_type.
+    /// In Universal compaction, universal_compression_size_percent must be >= 0 for this to take effect.
+    pub compression_per_level: Option<Vec<DBCompressionType>>,
+    /// Compression override for the bottommost sorted run (e.g. Zstd for cold data).
+    pub bottommost_compression_type: Option<DBCompressionType>,
+    /// Controls what fraction of data is compressed in Universal compaction.
+    /// -1 = compress all (per-level settings ignored), >= 0 = enable per-level compression.
+    pub universal_compression_size_percent: i32,
+}
+
+impl Default for RocksDbConfig {
+    fn default() -> Self {
+        let num_threads = std::thread::available_parallelism()
+            .map(|p| p.get())
+            .unwrap_or(DEFAULT_PARALLELISM_FALLBACK);
+        Self {
+            shared_cache_size_bytes: DEFAULT_SHARED_CACHE_SIZE_BYTES,
+            total_write_buffer_size_bytes: DEFAULT_TOTAL_WRITE_BUFFER_SIZE_BYTES,
+            max_background_jobs: std::cmp::min(num_threads as i32, DEFAULT_MAX_BACKGROUND_JOBS_CAP),
+            write_buffer_size_bytes: DEFAULT_WRITE_BUFFER_SIZE_BYTES,
+            target_file_size_base_bytes: DEFAULT_TARGET_FILE_SIZE_BASE_BYTES,
+            max_open_files: DEFAULT_MAX_OPEN_FILES,
+            l0_compaction_trigger: DEFAULT_L0_COMPACTION_TRIGGER,
+            l0_slowdown_writes_trigger: DEFAULT_L0_SLOWDOWN_WRITES_TRIGGER,
+            l0_stop_writes_trigger: DEFAULT_L0_STOP_WRITES_TRIGGER,
+            write_buffer_manager_allow_stall: false,
+            compression_type: DBCompressionType::Lz4,
+            compression_per_level: None,
+            bottommost_compression_type: None,
+            universal_compression_size_percent: DEFAULT_UNIVERSAL_COMPRESSION_SIZE_PERCENT,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct RocksDbStore {
@@ -23,93 +132,126 @@ pub struct RocksDbStore {
     metrics: MetricsHelper,
 }
 
-// Shared block cache for all RocksDB instances (1GB default)
-static SHARED_BLOCK_CACHE: Lazy<Arc<Cache>> = Lazy::new(|| {
-    let cache_size = std::env::var("ROCKSDB_SHARED_CACHE_SIZE")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(2048 * 1024 * 1024); // 2GB default
-
-    Arc::new(Cache::new_lru_cache(cache_size))
-});
+// Shared block cache for all RocksDB instances — initialized via init_shared_resources()
+static SHARED_BLOCK_CACHE: OnceLock<Arc<Cache>> = OnceLock::new();
 
 // Shared write buffer manager to limit total memory used for write buffers
-static SHARED_WRITE_BUFFER_MANAGER: Lazy<Arc<WriteBufferManager>> = Lazy::new(|| {
-    let total_write_buffer_size = std::env::var("ROCKSDB_TOTAL_WRITE_BUFFER_SIZE")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(2048 * 1024 * 1024); // 2GB total for ALL stores
+static SHARED_WRITE_BUFFER_MANAGER: OnceLock<Arc<WriteBufferManager>> = OnceLock::new();
 
-    // false = don't allow stall (we'll handle backpressure at Kafka level)
-    Arc::new(WriteBufferManager::new_write_buffer_manager(
-        total_write_buffer_size,
-        false,
-    ))
-});
+/// Initialize shared RocksDB resources (block cache, write buffer manager).
+/// Idempotent — safe to call multiple times; first call wins.
+/// Called explicitly in Service::new() and as a fallback in rocksdb_options().
+pub fn init_shared_resources(config: &RocksDbConfig) {
+    SHARED_BLOCK_CACHE
+        .get_or_init(|| Arc::new(Cache::new_lru_cache(config.shared_cache_size_bytes)));
 
-pub fn block_based_table_factory() -> BlockBasedOptions {
-    // Optimize for point lookups (dedup check)
+    SHARED_WRITE_BUFFER_MANAGER.get_or_init(|| {
+        Arc::new(WriteBufferManager::new_write_buffer_manager(
+            config.total_write_buffer_size_bytes,
+            config.write_buffer_manager_allow_stall,
+        ))
+    });
+}
+
+fn block_based_table_options() -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
-    // Set bloom filter to 10 bits per key, not approximate
-    // Bloom filter is a probabilistic data structure that allows for fast lookups
-    // but with a small probability of false positives, we will use this
-    // to avoid full lookups
-    block_opts.set_bloom_filter(10.0, false);
+    // Bloom filter reduces full-key lookups during dedup checks
+    block_opts.set_bloom_filter(BLOOM_FILTER_BITS_PER_KEY, false);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_whole_key_filtering(true);
     block_opts.set_partition_filters(true);
     block_opts.set_pin_top_level_index_and_filter(true);
+    // Use shared block cache across all stores and column families
+    block_opts.set_block_cache(
+        SHARED_BLOCK_CACHE
+            .get()
+            .expect("shared block cache not initialized"),
+    );
     block_opts
 }
 
-fn rocksdb_options() -> Options {
-    let num_threads = std::cmp::max(2, num_cpus::get()); // Avoid setting to 0 or 1
+/// Build column family options with all tuning from `RocksDbConfig`.
+/// CF options don't inherit from DB options, so this must explicitly set
+/// every option that matters for the CF's performance and compression.
+pub fn column_family_options(config: &RocksDbConfig) -> Options {
+    // Ensure shared resources are initialized (idempotent fallback for tests)
+    init_shared_resources(config);
 
     let mut opts = Options::default();
+
+    opts.set_block_based_table_factory(&block_based_table_options());
+
+    // Write buffer tuning — larger buffers = fewer flushes = less I/O on PVC storage.
+    opts.set_write_buffer_size(config.write_buffer_size_bytes);
+    opts.set_max_write_buffer_number(MAX_WRITE_BUFFER_NUMBER);
+    opts.set_min_write_buffer_number_to_merge(MIN_WRITE_BUFFER_NUMBER_TO_MERGE);
+
+    opts.set_target_file_size_base(config.target_file_size_base_bytes);
+
+    // Universal compaction: lower write amplification for write-heavy workloads
+    opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
+    let mut universal_opts = rocksdb::UniversalCompactOptions::default();
+    universal_opts.set_size_ratio(UNIVERSAL_SIZE_RATIO);
+    universal_opts.set_min_merge_width(UNIVERSAL_MIN_MERGE_WIDTH);
+    universal_opts.set_max_merge_width(UNIVERSAL_MAX_MERGE_WIDTH);
+    universal_opts.set_max_size_amplification_percent(UNIVERSAL_MAX_SIZE_AMPLIFICATION_PERCENT);
+    universal_opts.set_compression_size_percent(config.universal_compression_size_percent);
+    opts.set_universal_compaction_options(&universal_opts);
+
+    // L0 compaction triggers
+    opts.set_level_zero_file_num_compaction_trigger(config.l0_compaction_trigger);
+    opts.set_level_zero_slowdown_writes_trigger(config.l0_slowdown_writes_trigger);
+    opts.set_level_zero_stop_writes_trigger(config.l0_stop_writes_trigger);
+
+    // Compression
+    if let Some(ref per_level) = config.compression_per_level {
+        opts.set_compression_per_level(per_level);
+    } else {
+        opts.set_compression_type(config.compression_type);
+    }
+    if let Some(bottommost) = config.bottommost_compression_type {
+        opts.set_bottommost_compression_type(bottommost);
+        if bottommost == DBCompressionType::Zstd {
+            opts.set_bottommost_zstd_max_train_bytes(0, true);
+        }
+    }
+
+    opts
+}
+
+fn rocksdb_options(config: &RocksDbConfig) -> Options {
+    // Start with column_family_options() as the base — these settings apply to the
+    // default CF and are shared with custom CFs via column_family_options().
+    let mut opts = column_family_options(config);
+
+    // DB-level settings (not per-CF)
     opts.create_if_missing(true);
-    // Enable atomic flush to ensure consistency between column families
     opts.set_atomic_flush(true);
     opts.create_missing_column_families(true);
 
-    // Level style compaction with universal style for TTL-like use case
-    opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
-    opts.optimize_universal_style_compaction(512 * 1024 * 1024); // 512MB
+    // CRITICAL: Use shared write buffer manager to limit total memory across all stores
+    opts.set_write_buffer_manager(
+        SHARED_WRITE_BUFFER_MANAGER
+            .get()
+            .expect("shared write buffer manager not initialized"),
+    );
 
-    let mut block_opts = block_based_table_factory();
-    // Timestamp CF
-    let mut ts_cf = Options::default();
-    ts_cf.set_block_based_table_factory(&block_opts);
-    ts_cf.set_prefix_extractor(SliceTransform::create_fixed_prefix(8));
+    // Limit background jobs to reduce I/O contention when many partitions share a disk
+    opts.increase_parallelism(config.max_background_jobs);
+    opts.set_max_background_jobs(config.max_background_jobs);
 
-    // CRITICAL: Use shared block cache across all stores
-    block_opts.set_block_cache(&SHARED_BLOCK_CACHE);
-
-    opts.set_block_based_table_factory(&block_opts);
-
-    // CRITICAL: Use shared write buffer manager to limit total memory
-    opts.set_write_buffer_manager(&SHARED_WRITE_BUFFER_MANAGER);
-
-    // Reduced memory budget per store (with 50 partitions per pod)
-    opts.set_write_buffer_size(8 * 1024 * 1024); // Reduced to 8MB per memtable
-    opts.set_max_write_buffer_number(3); // Max 3 buffers = 24MB per partition
-    opts.set_target_file_size_base(128 * 1024 * 1024); // SST files ~128MB
-
-    // Parallelism
-    opts.increase_parallelism(num_threads as i32);
-    opts.set_max_background_jobs(num_threads as i32);
-
-    // IO & safety
     opts.set_paranoid_checks(true);
-    opts.set_bytes_per_sync(1024 * 1024);
-    opts.set_wal_bytes_per_sync(1024 * 1024);
-    opts.set_use_direct_reads(true);
-    opts.set_use_direct_io_for_flush_and_compaction(true);
-    opts.set_compaction_readahead_size(2 * 1024 * 1024);
+    opts.set_bytes_per_sync(BYTES_PER_SYNC);
+    opts.set_wal_bytes_per_sync(BYTES_PER_SYNC);
 
-    // Reduce background IO impact
+    // Let OS page cache buffer writes — critical for PVC storage
+    opts.set_use_direct_reads(false);
+    opts.set_use_direct_io_for_flush_and_compaction(false);
+    opts.set_compaction_readahead_size(COMPACTION_READAHEAD_SIZE);
+
     opts.set_disable_auto_compactions(false);
-    opts.set_max_open_files(1024); // Reduced from 500 for 50 partitions per pod
+    opts.set_max_open_files(config.max_open_files);
 
     // CRITICAL: Disable mmap with many partitions to avoid virtual memory explosion
     opts.set_allow_mmap_reads(false);
@@ -123,9 +265,10 @@ impl RocksDbStore {
         path: P,
         cf_descriptors: Vec<ColumnFamilyDescriptor>,
         metrics: MetricsHelper,
+        rocksdb_config: &RocksDbConfig,
     ) -> Result<Self> {
         let path_ref = path.as_ref();
-        let opts = rocksdb_options();
+        let opts = rocksdb_options(rocksdb_config);
 
         let db =
             DBWithThreadMode::<MultiThreaded>::open_cf_descriptors(&opts, path_ref, cf_descriptors)
@@ -258,15 +401,28 @@ impl RocksDbStore {
 
     fn put_batch_internal(&self, cf_name: &str, entries: Vec<(&[u8], &[u8])>) -> Result<()> {
         let cf = self.get_cf_handle(cf_name)?;
+        let entry_count = entries.len();
         let mut batch = WriteBatch::default();
         for (key, value) in entries {
             batch.put_cf(&cf, key, value);
         }
+        let batch_size_bytes = batch.size_in_bytes();
         let mut write_opts = WriteOptions::default();
         write_opts.set_sync(false);
-        self.db
-            .write_opt(batch, &write_opts)
-            .context("Failed to put batch")
+        self.db.write_opt(batch, &write_opts).map_err(|e| {
+            error!(
+                cf_name = cf_name,
+                entry_count = entry_count,
+                batch_size_bytes = batch_size_bytes,
+                db_path = %self.path_location.display(),
+                rocksdb_error = ?e,
+                "RocksDB write_opt failed"
+            );
+            anyhow::Error::from(e).context(format!(
+                "Failed to put batch ({} entries, {} bytes)",
+                entry_count, batch_size_bytes
+            ))
+        })
     }
 
     pub fn delete_range(&self, cf_name: &str, start: &[u8], end: &[u8]) -> Result<()> {
@@ -279,6 +435,15 @@ impl RocksDbStore {
     pub fn delete(&self, cf_name: &str, key: &[u8]) -> Result<()> {
         let cf = self.get_cf_handle(cf_name)?;
         self.db.delete_cf(&cf, key).context("Failed to delete key")
+    }
+
+    /// Trigger compaction for a column family within a key range.
+    /// This is non-blocking - compaction runs asynchronously in the background.
+    /// After delete_range, this helps RocksDB prioritize reclaiming space from tombstones.
+    pub fn compact_range(&self, cf_name: &str, start: Option<&[u8]>, end: Option<&[u8]>) {
+        if let Ok(cf) = self.get_cf_handle(cf_name) {
+            self.db.compact_range_cf(&cf, start, end);
+        }
     }
 
     pub fn get_cf_handle(&self, cf_name: &str) -> Result<Arc<BoundColumnFamily<'_>>> {
@@ -301,6 +466,8 @@ impl RocksDbStore {
     /// Update database metrics (size, SST file count, etc.)
     /// This should be called periodically to emit current database state
     pub fn update_db_metrics(&self, cf_name: &str) -> Result<()> {
+        let cf = self.get_cf_handle(cf_name)?;
+
         // Update database size metric with column family label
         let db_size = self.get_db_size(cf_name)?;
         self.metrics
@@ -314,6 +481,17 @@ impl RocksDbStore {
             .gauge(ROCKSDB_SST_FILES_COUNT_GAUGE)
             .with_label("column_family", cf_name)
             .set(sst_files.len() as f64);
+
+        // Update estimated key count metric
+        if let Ok(Some(estimate_keys)) = self
+            .db
+            .property_int_value_cf(&cf, "rocksdb.estimate-num-keys")
+        {
+            self.metrics
+                .gauge(ROCKSDB_ESTIMATE_NUM_KEYS_GAUGE)
+                .with_label("column_family", cf_name)
+                .set(estimate_keys as f64);
+        }
 
         Ok(())
     }
@@ -349,7 +527,7 @@ impl RocksDbStore {
             Ok(_) => Ok(()),
             Err(e) => {
                 self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
-                Err(anyhow::anyhow!("Failed to flush: {}", e))
+                Err(anyhow::Error::from(e).context("Failed to flush"))
             }
         }
     }
@@ -368,7 +546,7 @@ impl RocksDbStore {
     pub fn flush_wal(&self, sync: bool) -> Result<()> {
         self.db
             .flush_wal(sync)
-            .map_err(|e| anyhow::anyhow!("Failed to flush WAL (sync={}): {}", sync, e))
+            .with_context(|| format!("Failed to flush WAL (sync={sync})"))
     }
 
     /// Get the latest sequence number from the database
@@ -473,7 +651,13 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let cf_descriptor = ColumnFamilyDescriptor::new(TEST_CF, Options::default());
         let metrics = MetricsHelper::new().with_label("test", "true");
-        let store = RocksDbStore::new(temp_dir.path(), vec![cf_descriptor], metrics).unwrap();
+        let store = RocksDbStore::new(
+            temp_dir.path(),
+            vec![cf_descriptor],
+            metrics,
+            &RocksDbConfig::default(),
+        )
+        .unwrap();
         (store, temp_dir)
     }
 
@@ -637,9 +821,13 @@ mod tests {
         // Create original store and add data
         {
             let cf_descriptor = ColumnFamilyDescriptor::new(TEST_CF, Options::default());
-            let original_store =
-                RocksDbStore::new(&original_path, vec![cf_descriptor], MetricsHelper::new())
-                    .unwrap();
+            let original_store = RocksDbStore::new(
+                &original_path,
+                vec![cf_descriptor],
+                MetricsHelper::new(),
+                &RocksDbConfig::default(),
+            )
+            .unwrap();
 
             original_store.put(TEST_CF, b"key1", b"value1").unwrap();
             original_store.put(TEST_CF, b"key2", b"value2").unwrap();
@@ -650,8 +838,13 @@ mod tests {
 
         // Open new store from checkpoint
         let cf_descriptor = ColumnFamilyDescriptor::new(TEST_CF, Options::default());
-        let recovered_store =
-            RocksDbStore::new(&checkpoint_path, vec![cf_descriptor], MetricsHelper::new()).unwrap();
+        let recovered_store = RocksDbStore::new(
+            &checkpoint_path,
+            vec![cf_descriptor],
+            MetricsHelper::new(),
+            &RocksDbConfig::default(),
+        )
+        .unwrap();
 
         // Verify data is recovered
         let keys = vec![b"key1".as_slice(), b"key2".as_slice()];
@@ -722,7 +915,13 @@ mod tests {
         let checkpoint2_path = temp_dir.path().join("checkpoint2");
 
         let cf_descriptor = ColumnFamilyDescriptor::new(TEST_CF, Options::default());
-        let store = RocksDbStore::new(&db_path, vec![cf_descriptor], MetricsHelper::new()).unwrap();
+        let store = RocksDbStore::new(
+            &db_path,
+            vec![cf_descriptor],
+            MetricsHelper::new(),
+            &RocksDbConfig::default(),
+        )
+        .unwrap();
 
         // Phase 1: Add initial data
         store.put(TEST_CF, b"key1", b"value1").unwrap();
@@ -751,5 +950,90 @@ mod tests {
 
         // Delta should account for all files in phase2 (either added or unchanged)
         assert!(total_delta_files >= total_phase2_files || sst_files_phase2.is_empty());
+    }
+
+    #[test]
+    fn test_parse_compression_type_valid() {
+        assert_eq!(
+            parse_compression_type("none").unwrap(),
+            DBCompressionType::None
+        );
+        assert_eq!(
+            parse_compression_type("lz4").unwrap(),
+            DBCompressionType::Lz4
+        );
+        assert_eq!(
+            parse_compression_type("lz4hc").unwrap(),
+            DBCompressionType::Lz4hc
+        );
+        assert_eq!(
+            parse_compression_type("zstd").unwrap(),
+            DBCompressionType::Zstd
+        );
+        assert_eq!(
+            parse_compression_type("snappy").unwrap(),
+            DBCompressionType::Snappy
+        );
+        assert_eq!(
+            parse_compression_type("zlib").unwrap(),
+            DBCompressionType::Zlib
+        );
+    }
+
+    #[test]
+    fn test_parse_compression_type_case_insensitive() {
+        assert_eq!(
+            parse_compression_type("LZ4").unwrap(),
+            DBCompressionType::Lz4
+        );
+        assert_eq!(
+            parse_compression_type("Zstd").unwrap(),
+            DBCompressionType::Zstd
+        );
+        assert_eq!(
+            parse_compression_type("  lz4  ").unwrap(),
+            DBCompressionType::Lz4
+        );
+    }
+
+    #[test]
+    fn test_parse_compression_type_invalid() {
+        assert!(parse_compression_type("brotli").is_err());
+        assert!(parse_compression_type("").is_err());
+    }
+
+    #[test]
+    fn test_parse_compression_per_level() {
+        let levels = parse_compression_per_level("none,none,lz4,lz4,lz4,lz4,lz4").unwrap();
+        assert_eq!(
+            levels,
+            vec![
+                DBCompressionType::None,
+                DBCompressionType::None,
+                DBCompressionType::Lz4,
+                DBCompressionType::Lz4,
+                DBCompressionType::Lz4,
+                DBCompressionType::Lz4,
+                DBCompressionType::Lz4,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_compression_per_level_mixed() {
+        let levels = parse_compression_per_level("none,lz4,zstd").unwrap();
+        assert_eq!(
+            levels,
+            vec![
+                DBCompressionType::None,
+                DBCompressionType::Lz4,
+                DBCompressionType::Zstd,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_compression_per_level_invalid_entry() {
+        assert!(parse_compression_per_level("none,invalid,lz4").is_err());
     }
 }

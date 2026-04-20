@@ -2,12 +2,18 @@ import { AnyPropertyFilter } from '~/types'
 
 import { PropertyFilterButton } from './PropertyFilterButton'
 
-const PropertyFiltersDisplay = ({ filters }: { filters: AnyPropertyFilter[] }): JSX.Element => {
+const PropertyFiltersDisplay = ({
+    filters,
+    compact = false,
+}: {
+    filters: AnyPropertyFilter[]
+    compact?: boolean
+}): JSX.Element => {
     return (
         <div className="PropertyFilters flex-wrap">
             {filters &&
                 filters.map((item) => {
-                    return <PropertyFilterButton key={item.key} item={item} />
+                    return <PropertyFilterButton key={item.key} item={item} compact={compact} />
                 })}
         </div>
     )

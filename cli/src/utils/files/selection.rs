@@ -1,87 +1,58 @@
-use std::{fmt::Display, path::PathBuf};
+use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use walkdir::DirEntry;
 
-type FileFilter = Box<dyn Fn(&DirEntry) -> bool>;
-
-pub struct FileSelection {
-    directory: PathBuf,
-    include: Vec<String>,
-    exclude: Vec<String>,
-    filters: Vec<FileFilter>,
-}
-
-impl Display for FileSelection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.directory.display())
-    }
-}
+pub struct FileSelection(Box<dyn Iterator<Item = DirEntry>>);
 
 impl FileSelection {
-    pub fn new(directory: PathBuf, include: Vec<String>, exclude: Vec<String>) -> Self {
-        FileSelection {
-            directory,
-            include,
-            exclude,
-            filters: Vec::new(),
+    pub fn from_roots(files: Vec<PathBuf>) -> Self {
+        Self(Box::new(files.into_iter().flat_map(|file| {
+            walkdir::WalkDir::new(file)
+                .into_iter()
+                .filter_map(|entry| entry.ok())
+        })))
+    }
+
+    pub fn include(mut self, include: Vec<String>) -> Result<Self> {
+        if include.is_empty() {
+            return Ok(self);
         }
+        let include_set = build_glob_set(include)?;
+        self.0 = Box::new(
+            self.0
+                .filter(move |entry| include_set.is_match(entry.path())),
+        );
+        Ok(self)
     }
 
-    pub fn filter(mut self, filter: impl Fn(&DirEntry) -> bool + 'static) -> Self {
-        self.filters.push(Box::new(filter));
-        self
-    }
-
-    pub fn try_into_iter(self) -> Result<impl Iterator<Item = DirEntry>> {
-        self.validate()?;
-        let include_set = build_glob_set(self.include)?;
-        let exclude_set = build_glob_set(self.exclude)?;
-        let walker = walkdir::WalkDir::new(self.directory);
-        let inner = walker
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(move |entry| {
-                if let Some(include_set) = &include_set {
-                    if !include_set.is_match(entry.path()) {
-                        return false;
-                    }
-                }
-
-                if let Some(exclude_set) = &exclude_set {
-                    if exclude_set.is_match(entry.path()) {
-                        return false;
-                    }
-                }
-
-                for filter in &self.filters {
-                    if !filter(entry) {
-                        return false;
-                    }
-                }
-
-                true
-            });
-        Ok(inner)
-    }
-
-    fn validate(&self) -> Result<()> {
-        if !self.directory.exists() {
-            bail!("Directory does not exist");
+    pub fn exclude(mut self, exclude: Vec<String>) -> Result<Self> {
+        if exclude.is_empty() {
+            return Ok(self);
         }
-        Ok(())
+        let exclude_set = build_glob_set(exclude)?;
+        self.0 = Box::new(
+            self.0
+                .filter(move |entry| !exclude_set.is_match(entry.path())),
+        );
+        Ok(self)
     }
 }
 
-fn build_glob_set(patterns: Vec<String>) -> Result<Option<GlobSet>> {
-    if patterns.is_empty() {
-        return Ok(None);
+impl IntoIterator for FileSelection {
+    type Item = DirEntry;
+    type IntoIter = Box<dyn Iterator<Item = DirEntry>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0
     }
+}
+
+fn build_glob_set(patterns: Vec<String>) -> Result<GlobSet> {
     let mut builder = GlobSetBuilder::new();
     for glob in patterns.iter() {
         builder.add(Glob::new(glob)?);
     }
     let set: globset::GlobSet = builder.build()?;
-    Ok(Some(set))
+    Ok(set)
 }

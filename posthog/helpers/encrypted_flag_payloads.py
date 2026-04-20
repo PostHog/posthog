@@ -6,13 +6,16 @@ from posthog.temporal.common.codec import EncryptionCodec
 REDACTED_PAYLOAD_VALUE = '"********* (encrypted)"'
 
 
-def get_decrypted_flag_payloads(request, encrypted_payloads: dict) -> dict:
+def get_decrypted_flag_payloads_protected(request, encrypted_payloads: dict) -> dict:
     # We only decode encrypted flag payloads if the request is made with a personal API key
     is_personal_api_request = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+    return get_decrypted_flag_payloads(encrypted_payloads, should_decrypt=is_personal_api_request)
 
+
+def get_decrypted_flag_payloads(encrypted_payloads: dict, should_decrypt: bool) -> dict:
     decrypted_payloads = {}
     for key, value in (encrypted_payloads or {}).items():
-        decrypted_payloads[key] = get_decrypted_flag_payload(value, should_decrypt=is_personal_api_request)
+        decrypted_payloads[key] = get_decrypted_flag_payload(value, should_decrypt=should_decrypt)
 
     return decrypted_payloads
 

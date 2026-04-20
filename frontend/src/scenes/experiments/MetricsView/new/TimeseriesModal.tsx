@@ -1,18 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconInfo } from '@posthog/icons'
+import { IconClock, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { urls } from 'scenes/urls'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
-import { VariantTag } from '../../ExperimentView/components'
+import { hasEnded, isLaunched } from '../../experimentsLogic'
 import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
+import { VariantTag } from '../../ExperimentView/components'
 import { MetricTitle } from '../shared/MetricTitle'
 import { ExperimentVariantResult } from '../shared/utils'
 import { ElapsedTime } from './ElapsedTime'
@@ -43,9 +45,9 @@ export function TimeseriesModal({
     }, [chartData, variantResult.key])
 
     const isStaleExperiment =
-        !experiment.start_date || experiment.end_date
-            ? false
-            : dayjs(experiment.start_date).isBefore(dayjs().subtract(90, 'days'))
+        isLaunched(experiment) && !hasEnded(experiment)
+            ? dayjs(experiment.start_date).isBefore(dayjs().subtract(30, 'days'))
+            : false
 
     const handleRecalculate = (): void => {
         LemonDialog.open({
@@ -75,16 +77,16 @@ export function TimeseriesModal({
             onClose={onClose}
             width={1000}
             title={
-                <div className="flex items-center gap-2 text-sm">
-                    <div className="flex items-center">
+                <div className="flex items-center gap-2 text-sm min-w-0">
+                    <div className="flex items-center shrink-0">
                         <span>Time series</span>
                     </div>
-                    <LemonDivider vertical className="h-4 self-stretch" />
-                    <div className="flex items-center">
+                    <LemonDivider vertical className="h-4 self-stretch shrink-0" />
+                    <div className="min-w-0 [&_span]:!line-clamp-1">
                         <MetricTitle metric={metric} />
                     </div>
-                    <LemonDivider vertical className="h-4 self-stretch" />
-                    <div className="flex items-center">
+                    <LemonDivider vertical className="h-4 self-stretch shrink-0" />
+                    <div className="flex items-center shrink-0">
                         <VariantTag variantKey={variantResult.key} />
                     </div>
                 </div>
@@ -112,7 +114,7 @@ export function TimeseriesModal({
                                     <div className="flex items-center justify-between">
                                         <div className="flex-1">
                                             <div className="text-sm">
-                                                This experiment has been running for more than 90 days. Automatic
+                                                This experiment has been running for more than 30 days. Automatic
                                                 timeseries updates are disabled. You can still manually recalculate the
                                                 data.
                                             </div>
@@ -163,17 +165,21 @@ export function TimeseriesModal({
                                 }
                             />
                         </div>
-                        {hasTimeseriesData ? (
-                            processedChartData ? (
-                                <VariantTimeseriesChart chartData={processedChartData} />
-                            ) : (
-                                <div className="p-10 text-center text-muted">
-                                    No timeseries data available for this variant
-                                </div>
-                            )
+                        {hasTimeseriesData && processedChartData ? (
+                            <VariantTimeseriesChart
+                                chartData={processedChartData}
+                                isRatioMetric={isExperimentRatioMetric(metric)}
+                            />
                         ) : (
-                            <div className="p-10 text-center text-muted -translate-y-6">
-                                No timeseries data available
+                            <div className="py-10 text-center text-muted flex flex-col items-center gap-2 max-w-80 mx-auto">
+                                <IconClock className="text-2xl" />
+                                <div>
+                                    Timeseries data is calculated once per day. Check your calculation time in{' '}
+                                    <Link to={`${urls.experiments()}?tab=settings`} target="_blank">
+                                        settings
+                                    </Link>
+                                    .
+                                </div>
                             </div>
                         )}
                     </div>

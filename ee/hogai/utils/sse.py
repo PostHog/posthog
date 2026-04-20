@@ -1,7 +1,7 @@
 import json
 from typing import cast
 
-from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent, AssistantUpdateEvent
+from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent, AssistantUpdateEvent, SubagentUpdateEvent
 
 from posthog.sync import database_sync_to_async
 
@@ -20,7 +20,7 @@ class AssistantSSESerializer:
         elif event_type == AssistantEventType.STATUS:
             return self._serialize_status(cast(AssistantGenerationStatusEvent, event_data))
         elif event_type == AssistantEventType.UPDATE:
-            return self._serialize_update(cast(AssistantUpdateEvent, event_data))
+            return self._serialize_update(cast(AssistantUpdateEvent | SubagentUpdateEvent, event_data))
         else:
             raise ValueError(f"Unknown event type: {event_type}")
 
@@ -34,7 +34,7 @@ class AssistantSSESerializer:
         output += f"data: {status.model_dump_json(exclude_none=True)}\n\n"
         return output
 
-    def _serialize_update(self, update: AssistantUpdateEvent) -> str:
+    def _serialize_update(self, update: AssistantUpdateEvent | SubagentUpdateEvent) -> str:
         output = f"event: {AssistantEventType.UPDATE}\n"
         output += f"data: {update.model_dump_json(exclude_none=True)}\n\n"
         return output

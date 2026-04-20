@@ -1,9 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import { settingsSceneLogic } from './settingsSceneLogic'
@@ -33,26 +30,11 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).toEqual({ 'person-display-name': true })
     })
 
-    it('handles environment vs. project level based on feature flag', async () => {
-        // Test when environments feature flag is disabled
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ENVIRONMENTS]: false })
-
-        router.actions.push('/settings/environment')
-        await expectLogic(logic).toMatchValues({
-            selectedLevel: 'project',
-            selectedSectionId: null,
-        })
-
+    it('redirects environment URLs to project', async () => {
         router.actions.push('/settings/environment-autocapture')
         await expectLogic(logic).toMatchValues({
             selectedLevel: 'project',
             selectedSectionId: 'project-autocapture',
-        })
-
-        router.actions.push('/settings/project')
-        await expectLogic(logic).toMatchValues({
-            selectedLevel: 'project',
-            selectedSectionId: null,
         })
 
         router.actions.push('/settings/project-autocapture')
@@ -61,45 +43,45 @@ describe('settingsSceneLogic', () => {
             selectedSectionId: 'project-autocapture',
         })
 
-        // Test when environments feature flag is enabled
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ENVIRONMENTS]: true })
-
-        router.actions.push('/settings/environment')
-        await expectLogic(logic).toMatchValues({
-            selectedLevel: 'environment',
-            selectedSectionId: null,
-        })
-
-        router.actions.push('/settings/environment-autocapture')
-        await expectLogic(logic).toMatchValues({
-            selectedLevel: 'environment',
-            selectedSectionId: 'environment-autocapture',
-        })
-
-        router.actions.push('/settings/project')
-        await expectLogic(logic).toMatchValues({
-            selectedLevel: 'environment',
-            selectedSectionId: null,
-        })
-
-        router.actions.push('/settings/project-autocapture')
-        await expectLogic(logic).toMatchValues({
-            selectedLevel: 'environment',
-            selectedSectionId: 'environment-autocapture',
-        })
-
-        // Test that details sections aren't affected by feature flag
+        // Test that details sections work correctly
         router.actions.push('/settings/project-details')
         await expectLogic(logic).toMatchValues({
             selectedLevel: 'project',
             selectedSectionId: 'project-details',
         })
 
-        // Test that danger zone sections aren't affected by feature flag
+        // Test that danger zone sections work correctly
         router.actions.push('/settings/project-danger-zone')
         await expectLogic(logic).toMatchValues({
             selectedLevel: 'project',
             selectedSectionId: 'project-danger-zone',
         })
+    })
+
+    it('redirects level-only URLs to first section', async () => {
+        router.actions.push('/settings/environment')
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+        })
+        // Should redirect to first section (project-details)
+        expect(router.values.location.pathname).toContain('/settings/project-details')
+
+        router.actions.push('/settings/project')
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-details')
+
+        router.actions.push('/settings/organization')
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'organization',
+        })
+        expect(router.values.location.pathname).toContain('/settings/organization-details')
+
+        router.actions.push('/settings/user')
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'user',
+        })
+        expect(router.values.location.pathname).toContain('/settings/user-profile')
     })
 })

@@ -1,9 +1,12 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
+import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { urls } from 'scenes/urls'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema/schema-general'
@@ -21,6 +24,7 @@ export function WebOverview(props: {
     uniqueKey?: string | number
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
+    const { featureFlags } = useValues(featureFlagLogic)
     const [_key] = useState(() => `WebOverview.${uniqueNode++}`)
     const key = props.uniqueKey ? String(props.uniqueKey) : _key
     const logic = dataNodeLogic({
@@ -33,6 +37,8 @@ export function WebOverview(props: {
     })
     const { response, responseLoading } = useValues(logic)
     useAttachedLogic(logic, props.attachTo)
+
+    const { hasReverseProxy } = useValues(reverseProxyCheckerLogic)
 
     const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 
@@ -47,15 +53,23 @@ export function WebOverview(props: {
         'usedPreAggregatedTables' in response &&
         response.usedPreAggregatedTables
 
+    const showWarning = hasReverseProxy === false && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]
+
     // Convert WebOverviewItem to OverviewItem
+    // Handle both `results` (from direct query response) and `result` (from cached insight)
+    const resultsArray = webOverviewQueryResponse?.results ?? (response as any)?.result
     const overviewItems: OverviewItem[] =
-        webOverviewQueryResponse?.results?.map((item) => ({
+        resultsArray?.map((item: any) => ({
             key: item.key,
             value: item.value,
             previous: item.previous,
             changeFromPreviousPct: item.changeFromPreviousPct,
             kind: item.kind,
             isIncreaseBad: item.isIncreaseBad,
+            warning: showWarning
+                ? `${capitalizeFirstLetter(item.key)} counts may be underreported. Set up a reverse proxy so that events are less likely to be intercepted by tracking blockers.`
+                : undefined,
+            warningLink: showWarning ? 'https://posthog.com/docs/advanced/proxy' : undefined,
         })) || []
 
     return (
@@ -66,10 +80,6 @@ export function WebOverview(props: {
             samplingRate={samplingRate}
             usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
             labelFromKey={labelFromKey}
-            settingsLinkFromKey={settingsLinkFromKey}
-            dashboardLinkFromKey={dashboardLinkFromKey}
-            filterEmptyItems={filterEmptyRevenue}
-            showBetaTags={(key) => key === 'revenue' || key === 'conversion revenue'}
         />
     )
 }
@@ -94,38 +104,10 @@ const labelFromKey = (key: string): string => {
             return 'Total conversions'
         case 'unique conversions':
             return 'Unique conversions'
-        case 'revenue':
-            return 'Revenue'
-        case 'conversion revenue':
-            return 'Conversion revenue'
         default:
             return key
                 .split(' ')
                 .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
                 .join(' ')
     }
-}
-
-const settingsLinkFromKey = (key: string): string | null => {
-    switch (key) {
-        case 'revenue':
-        case 'conversion revenue':
-            return urls.revenueSettings()
-        default:
-            return null
-    }
-}
-
-const dashboardLinkFromKey = (key: string): string | null => {
-    switch (key) {
-        case 'revenue':
-        case 'conversion revenue':
-            return urls.revenueAnalytics()
-        default:
-            return null
-    }
-}
-
-const filterEmptyRevenue = (item: OverviewItem): boolean => {
-    return !(['revenue', 'conversion revenue'].includes(item.key) && item.value == null && item.previous == null)
 }

@@ -24,6 +24,9 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Image]: 'Images',
     [NotebookNodeType.Person]: 'Persons',
     [NotebookNodeType.Query]: 'Queries',
+    [NotebookNodeType.Python]: 'Python',
+    [NotebookNodeType.DuckSQL]: 'SQL (DuckDB)',
+    [NotebookNodeType.HogQLSQL]: 'SQL (HogQL)',
     [NotebookNodeType.Recording]: 'Session recordings',
     [NotebookNodeType.RecordingPlaylist]: 'Session replay playlists',
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',
@@ -35,6 +38,8 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.UsageMetrics]: 'Usage metrics',
     [NotebookNodeType.ZendeskTickets]: 'Zendesk tickets',
     [NotebookNodeType.RelatedGroups]: 'Related groups',
+    [NotebookNodeType.CustomerJourney]: 'Customer journey',
+    [NotebookNodeType.SupportTickets]: 'Support tickets',
 }
 
 export function ContainsTypeFilters({

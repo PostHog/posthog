@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import {
@@ -13,19 +14,20 @@ import {
     DataWarehouseActivityRecord,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
+    DataWarehouseSavedQuery,
     DataWarehouseSourceRowCount,
 } from '~/types'
 
-import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
-import { externalDataSourcesLogic } from './externalDataSourcesLogic'
-import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
-const REFRESH_INTERVAL = 10000
+import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
+import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
 
 export enum DataWarehouseTab {
     OVERVIEW = 'overview',
-    SOURCES = 'sources',
-    VIEWS = 'views',
+    DASHBOARD = 'dashboard',
+    MODELING = 'modeling',
+    SETTINGS = 'settings',
 }
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
@@ -33,19 +35,19 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['dataWarehouseTables', 'views', 'databaseLoading'],
-            externalDataSourcesLogic,
+            ['database', 'dataWarehouseTables', 'databaseLoading'],
+            sourcesDataLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
             ['billingPeriodUTC', 'billing'],
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueryMapById'],
+            ['dataWarehouseSavedQueries'],
         ],
         actions: [
             databaseTableListLogic,
             ['loadDatabase'],
-            externalDataSourcesLogic,
-            ['loadSources', 'loadSourcesSuccess'],
+            sourcesDataLogic,
+            ['loadSources'],
             billingLogic,
             ['loadBilling'],
         ],
@@ -89,6 +91,15 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             {
                 loadJobStats: async ({ days }: DataWarehouseJobStatsRequestPayload) => {
                     return await api.dataWarehouse.jobStats({ days })
+                },
+            },
+        ],
+        dataOpsDashboardId: [
+            null as number | null,
+            {
+                loadDataOpsDashboardId: async () => {
+                    const response = await api.dataWarehouse.dataOpsDashboard()
+                    return response.dashboard_id
                 },
             },
         ],
@@ -210,20 +221,20 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 return databaseLoading || dataWarehouseSourcesLoading
             },
         ],
-        materializedViews: [
-            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
-            (views, dataWarehouseSavedQueryMapById) => {
-                return views.filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
-            },
-        ],
         dataWarehouseProduct: [
             (s) => [s.billing],
             (billing): BillingProductV2Type | null => {
                 return billing?.products?.find((product) => product.type === 'data_warehouse') || null
             },
         ],
+        materializedViews: [
+            (s) => [s.dataWarehouseSavedQueries],
+            (queries: DataWarehouseSavedQuery[]) => {
+                return queries.filter((q) => q.is_materialized)
+            },
+        ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions }) => ({
         setActivityRunningCurrentPage: () => {
             actions.checkAutoLoadMoreRunning()
         },
@@ -290,26 +301,42 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 posthog.captureException(error)
             }
         },
-        loadSourcesSuccess: () => {
-            // Remove any existing refresh timeout
-            cache.disposables.dispose('refreshTimeout')
-
-            if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.loadSources(null)
-                    }, REFRESH_INTERVAL)
-                    return () => clearTimeout(timerId)
-                }, 'refreshTimeout')
+        setActiveTab: ({ tab }) => {
+            if (tab === DataWarehouseTab.DASHBOARD && values.dataOpsDashboardId === null) {
+                actions.loadDataOpsDashboardId()
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadSources(null)
+    afterMount(({ actions, values }) => {
+        if (!values.database && !values.databaseLoading) {
+            actions.loadDatabase()
+        }
+        actions.loadSources()
         actions.loadRunningActivityResponse()
         actions.loadCompletedActivityResponse()
         actions.loadTotalRowsStats()
         actions.loadJobStats({ days: 7 })
         actions.loadBilling()
     }),
+    urlToAction(({ actions, values }) => ({
+        [urls.dataOps()]: (_, searchParams) => {
+            const tab = searchParams.tab as DataWarehouseTab | undefined
+            if (tab && Object.values(DataWarehouseTab).includes(tab) && tab !== values.activeTab) {
+                actions.setActiveTab(tab)
+            } else if (!tab && values.activeTab !== DataWarehouseTab.OVERVIEW) {
+                actions.setActiveTab(DataWarehouseTab.OVERVIEW)
+            }
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setActiveTab: () => {
+            const searchParams = { ...router.values.searchParams }
+            if (values.activeTab === DataWarehouseTab.OVERVIEW) {
+                delete searchParams.tab
+            } else {
+                searchParams.tab = values.activeTab
+            }
+            return [urls.dataOps(), searchParams]
+        },
+    })),
 ])

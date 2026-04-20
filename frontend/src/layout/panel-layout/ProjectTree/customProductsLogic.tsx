@@ -1,37 +1,37 @@
-import { kea, path, selectors } from 'kea'
-import { lazyLoaders } from 'kea-loaders'
+import { kea, path } from 'kea'
+import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { getAppContext } from 'lib/utils/getAppContext'
+
+import type { UserProductListItem } from '~/queries/schema/schema-general'
 
 import type { customProductsLogicType } from './customProductsLogicType'
 
-export interface UserProductListItem {
-    id: string
-    product_path: string
-    enabled: boolean
-    created_at: string
-    updated_at: string
-}
-
 export const customProductsLogic = kea<customProductsLogicType>([
     path(['layout', 'panel-layout', 'ProjectTree', 'customProductsLogic']),
-    lazyLoaders({
+    loaders(() => ({
         customProducts: [
-            [] as UserProductListItem[],
+            getAppContext()?.custom_products ?? [],
             {
                 loadCustomProducts: async (): Promise<UserProductListItem[]> => {
                     const response = await api.userProductList.list()
-                    return response.results
+
+                    return response.results ?? []
+                },
+                seed: async (): Promise<UserProductListItem[]> => {
+                    const response = await api.userProductList.seed()
+
+                    const { results = [] } = response
+                    if (results.length === 0) {
+                        lemonToast.error('No recommended products found')
+                    }
+
+                    return results
                 },
             },
         ],
-    }),
-    selectors({
-        customProductPaths: [
-            (s) => [s.customProducts],
-            (customProducts: UserProductListItem[]): Set<string> => {
-                return new Set(customProducts.map((item) => item.product_path))
-            },
-        ],
-    }),
+    })),
 ])

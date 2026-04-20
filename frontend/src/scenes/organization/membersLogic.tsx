@@ -5,12 +5,12 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'
@@ -144,9 +144,8 @@ export const membersLogic = kea<membersLogicType>([
         membersFuse: [
             (s) => [s.meFirstMembers],
             (members): MembersFuse =>
-                new Fuse<OrganizationMemberType>(members ?? [], {
+                createFuse<OrganizationMemberType>(members ?? [], {
                     keys: ['user.first_name', 'user.last_name', 'user.email'],
-                    threshold: 0.3,
                 }),
         ],
         filteredMembers: [
@@ -179,11 +178,6 @@ export const membersLogic = kea<membersLogicType>([
                 actions.loadAllMembers()
             } else {
                 actions.loadMemberUpdates()
-            }
-        },
-        loadAllMembersSuccess: ({ members }) => {
-            if (members && members.length > 1) {
-                activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
             }
         },
     })),

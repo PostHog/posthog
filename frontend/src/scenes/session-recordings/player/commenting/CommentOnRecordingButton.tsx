@@ -101,7 +101,7 @@ export function EmojiCommentOnRecordingButton({ className }: { className?: strin
             visible={quickEmojiIsOpen}
             closeOnClickInside={false}
             onClickOutside={() => {
-                setQuickEmojiIsOpen(!quickEmojiIsOpen)
+                setQuickEmojiIsOpen(false)
             }}
             onVisibilityChange={(visible) => {
                 setQuickEmojiIsOpen(visible)

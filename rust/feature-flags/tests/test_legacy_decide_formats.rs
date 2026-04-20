@@ -5,7 +5,8 @@ use crate::common::*;
 
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
-    insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_redis_client,
+    insert_config_in_hypercache, insert_flags_for_team_in_redis, insert_new_team_in_redis,
+    setup_redis_client,
 };
 
 pub mod common;
@@ -87,13 +88,14 @@ async fn test_legacy_decide_v1_format() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flags_json.to_string())).await?;
+
+    // Insert config into hypercache (required for default config=true behavior)
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -103,8 +105,8 @@ async fn test_legacy_decide_v1_format() -> Result<()> {
     });
 
     // Make request with X-Original-Endpoint header and v=1 query param
-    let client = reqwest::Client::new();
-    let res = client
+    let http_client = reqwest::Client::new();
+    let res = http_client
         .post(format!("http://{}/flags?v=1", server.addr))
         .header("X-Original-Endpoint", "decide")
         .json(&payload)
@@ -219,13 +221,14 @@ async fn test_legacy_decide_v2_format() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flags_json.to_string())).await?;
+
+    // Insert config into hypercache (required for default config=true behavior)
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -235,8 +238,8 @@ async fn test_legacy_decide_v2_format() -> Result<()> {
     });
 
     // Make request with X-Original-Endpoint header and v=2 query param
-    let client = reqwest::Client::new();
-    let res = client
+    let http_client = reqwest::Client::new();
+    let res = http_client
         .post(format!("http://{}/flags?v=2", server.addr))
         .header("X-Original-Endpoint", "decide")
         .json(&payload)
@@ -313,13 +316,14 @@ async fn test_decide_header_changes_version_interpretation() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flags_json.to_string())).await?;
+
+    // Insert config into hypercache (required for default config=true behavior)
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -330,8 +334,8 @@ async fn test_decide_header_changes_version_interpretation() -> Result<()> {
 
     // Request with v=1 query param and X-Original-Endpoint header
     // With decide endpoint, v=1 should map to DecideV1
-    let client = reqwest::Client::new();
-    let res = client
+    let http_client = reqwest::Client::new();
+    let res = http_client
         .post(format!("http://{}/flags?v=1", server.addr))
         .header("X-Original-Endpoint", "decide")
         .json(&payload)

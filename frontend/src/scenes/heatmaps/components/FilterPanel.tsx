@@ -2,18 +2,19 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { SectionSetting } from 'lib/components/heatmaps/HeatMapsSettings'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+
+import { HeatmapType } from '~/types'
 
 const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
     const [debouncedLoading, setDebouncedLoading] = useState(false)
@@ -30,8 +31,8 @@ const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
 }
 
 export function ViewportChooser(): JSX.Element {
-    const { widthOverride } = useValues(heatmapLogic)
-    const { setIframeWidth } = useActions(heatmapLogic)
+    const { widthOverride } = useValues(heatmapDataLogic({ context: 'in-app' }))
+    const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
 
     const options = [
         {
@@ -78,8 +79,8 @@ export function ViewportChooser(): JSX.Element {
             <span>Screen width:</span>
             <LemonSelect
                 size="small"
-                onChange={setIframeWidth}
-                value={widthOverride ? widthOverride : undefined}
+                onChange={setWindowWidthOverride}
+                value={widthOverride}
                 data-attr="viewport-chooser"
                 options={allOptions.map(({ value, icon }) => ({
                     value,
@@ -99,7 +100,13 @@ export function ViewportChooser(): JSX.Element {
  * values and actions are passed as props because they are different
  * between fixed and embedded mode
  */
-export function FilterPanel(): JSX.Element {
+export function FilterPanel({
+    captureMethod,
+    onCaptureMethodChange,
+}: {
+    captureMethod?: HeatmapType
+    onCaptureMethodChange?: (type: HeatmapType) => void
+}): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const {
         heatmapFilters,
@@ -151,6 +158,28 @@ export function FilterPanel(): JSX.Element {
                                         heatmapFixedPositionMode={heatmapFixedPositionMode}
                                         setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
                                     />
+                                    {captureMethod && onCaptureMethodChange && (
+                                        <SectionSetting
+                                            title="Capture method"
+                                            info="Screenshot generates a full-page screenshot. Iframe loads your site directly."
+                                        >
+                                            <LemonSegmentedButton
+                                                onChange={onCaptureMethodChange}
+                                                value={captureMethod}
+                                                options={[
+                                                    {
+                                                        value: 'screenshot',
+                                                        label: 'Screenshot',
+                                                    },
+                                                    {
+                                                        value: 'iframe',
+                                                        label: 'Iframe',
+                                                    },
+                                                ]}
+                                                size="small"
+                                            />
+                                        </SectionSetting>
+                                    )}
                                     <SectionSetting
                                         title="Internal and test users filter"
                                         info="Filter out internal and test users"
@@ -187,9 +216,7 @@ export function FilterPanel(): JSX.Element {
                         </Popover>
                     </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                    <ViewportChooser />
-                </div>
+                <ViewportChooser />
             </div>
             {heatmapEmpty ? (
                 <LemonBanner type="info" className="mb-2">

@@ -1,7 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconCopy } from '@posthog/icons'
+import { IconCopy, IconTrends } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -10,21 +10,27 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { useSortableColumns } from './hooks/useSortableColumns'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 
 export function LLMAnalyticsErrors(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setErrorsSort } = useActions(llmAnalyticsLogic)
-    const { errorsQuery, errorsSort } = useValues(llmAnalyticsLogic)
+    const sharedLogic = useMountedLogic(llmAnalyticsSharedLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { setErrorsSort } = useActions(llmAnalyticsErrorsLogic)
+    const { errorsQuery, errorsSort, buildErrorTrendQuery, buildAllErrorsTrendQuery } =
+        useValues(llmAnalyticsErrorsLogic)
     const { searchParams } = useValues(router)
 
     const { renderSortableColumnTitle } = useSortableColumns(errorsSort, setErrorsSort)
 
     return (
         <DataTable
+            attachTo={sharedLogic}
             query={{
                 ...errorsQuery,
                 showSavedFilters: true,
@@ -41,6 +47,20 @@ export function LLMAnalyticsErrors(): JSX.Element {
                 setPropertyFilters(filters.properties || [])
             }}
             context={{
+                customActions: [
+                    <Tooltip title="View error trends over time" key="trends">
+                        <LemonButton
+                            icon={<IconTrends />}
+                            size="small"
+                            type="secondary"
+                            to={urls.insightNew({ query: buildAllErrorsTrendQuery })}
+                            targetBlank
+                            data-attr="llma-errors-all-trends-click"
+                        >
+                            Error trends
+                        </LemonButton>
+                    </Tooltip>,
+                ],
                 columns: {
                     error: {
                         renderTitle: () => (
@@ -58,14 +78,6 @@ export function LLMAnalyticsErrors(): JSX.Element {
                             const displayValue =
                                 errorString.length > 80 ? errorString.slice(0, 77) + '...' : errorString
 
-                            // Extract the first 3 chunks of text between placeholders for filtering
-                            // These chunks are the stable parts of the error message
-                            const tokens = errorString
-                                .split(/<ID>|<TIMESTAMP>|<PATH>|<RESPONSE_ID>|<TOOL_CALL_ID>|<TOKEN_COUNT>|<N>/)
-                                .map((token) => token.trim())
-                                .filter((token) => token.length >= 3) // Only keep meaningful chunks
-                                .slice(0, 3) // Take first 3 chunks
-
                             return (
                                 <div className="flex items-center gap-1">
                                     <Tooltip title={errorString}>
@@ -74,27 +86,43 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                                 combineUrl(urls.llmAnalyticsTraces(), {
                                                     ...searchParams,
                                                     filters: [
-                                                        // First filter: only show traces with errors
                                                         {
                                                             type: PropertyFilterType.Event,
                                                             key: '$ai_is_error',
                                                             operator: PropertyOperator.Exact,
                                                             value: 'true',
                                                         },
-                                                        // Then filter by key words from the error
-                                                        ...tokens.map((token) => ({
+                                                        {
                                                             type: PropertyFilterType.Event,
-                                                            key: '$ai_error',
-                                                            operator: PropertyOperator.IContains,
-                                                            value: token,
-                                                        })),
+                                                            key: '$ai_error_normalized',
+                                                            operator: PropertyOperator.Exact,
+                                                            // Escape backslashes and quotes to match HogQL's JSONExtractRaw extraction
+                                                            value: errorString
+                                                                .replace(/\\/g, '\\\\')
+                                                                .replace(/"/g, '\\"'),
+                                                        },
                                                     ],
                                                 }).url
                                             }
                                             className="font-mono text-sm"
+                                            data-attr="llm-errors-row-click"
                                         >
                                             {displayValue}
                                         </Link>
+                                    </Tooltip>
+                                    <Tooltip title={`View ${displayValue} trend over time`}>
+                                        <LemonButton
+                                            icon={<IconTrends />}
+                                            size="xsmall"
+                                            to={urls.insightNew({
+                                                query: {
+                                                    kind: NodeKind.InsightVizNode,
+                                                    source: buildErrorTrendQuery(errorString),
+                                                } as InsightVizNode,
+                                            })}
+                                            targetBlank
+                                            data-attr="llma-errors-trend-click"
+                                        />
                                     </Tooltip>
                                     <LemonButton
                                         size="xsmall"

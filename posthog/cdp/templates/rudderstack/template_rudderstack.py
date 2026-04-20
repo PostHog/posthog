@@ -50,7 +50,7 @@ fun getPayload() {
     if (not empty(event.uuid)) rudderPayload.messageId := event.uuid
     if (not empty(event.timestamp)) rudderPayload.originalTimestamp := event.timestamp
     if (not empty(inputs.identifier)) rudderPayload.userId := inputs.identifier
-    if (not empty(event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.properties.distinct_id)) rudderPayload.anonymousId := event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.properties.distinct_id
+    if (not empty(event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id)) rudderPayload.anonymousId := event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id
 
     if (event.event in ('$identify', '$set')) {
         rudderPayload.type := 'identify'
@@ -97,7 +97,10 @@ fun getPayload() {
     }
 }
 
-fetch(f'{replaceAll(inputs.host, '/v1/batch', '')}/v1/batch', getPayload())
+let res := fetch(f'{replaceAll(inputs.host, '/v1/batch', '')}/v1/batch', getPayload())
+if (res.status != 200 or res.body.ok == false) {
+  throw Error(f'Failed to post message to Rudderstack: {res.status}: {res.body}');
+}
 """.strip(),
     inputs_schema=[
         {

@@ -1,7 +1,5 @@
-use std::{
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{Duration, Instant},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use axum::{
     body::Body,
@@ -11,6 +9,7 @@ use axum::{
     response::IntoResponse,
     routing::Router,
 };
+use common_metrics::normalize_unmatched_path;
 use metrics::gauge;
 
 // Global atomic counter for active connections
@@ -42,12 +41,11 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
         matched_path.as_str().to_owned()
     } else {
-        req.uri().path().to_owned()
+        normalize_unmatched_path(req.uri().path())
     };
 
     let method = req.method().clone();
 
-    // Track active connections
     let connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     gauge!(METRIC_CAPTURE_ACTIVE_CONNECTIONS).set(connections as f64);
     let _guard = ConnectionGuard;
@@ -80,12 +78,51 @@ where
 {
     if let Some(request_timeout_seconds) = request_timeout_seconds {
         let timeout_duration = Duration::from_secs(request_timeout_seconds);
+        tracing::info!(
+            "Applying request timeout middleware with duration: {:?}",
+            timeout_duration
+        );
 
         return router.layer(axum::middleware::from_fn(
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
                 let start = std::time::Instant::now();
                 let method = req.method().to_string();
-                let path = req.uri().path().to_string();
+                let path = if let Some(matched) = req.extensions().get::<MatchedPath>() {
+                    matched.as_str().to_owned()
+                } else {
+                    normalize_unmatched_path(req.uri().path())
+                };
+                let client_ip = req
+                    .headers()
+                    .get("X-Forwarded-For")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.split(',').next())
+                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.trim().to_string());
+                let request_id = req
+                    .headers()
+                    .get("X-REQUEST-ID")
+                    .and_then(|v| v.to_str().ok())
+                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.to_string());
+                let content_type = req
+                    .headers()
+                    .get("Content-Type")
+                    .and_then(|v| v.to_str().ok())
+                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.to_string());
+                let content_length = req
+                    .headers()
+                    .get("Content-Length")
+                    .and_then(|v| v.to_str().ok())
+                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.to_string());
+                let user_agent = req
+                    .headers()
+                    .get("User-Agent")
+                    .and_then(|v| v.to_str().ok())
+                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.to_string());
+                let envoy_ip = req
+                    .headers()
+                    .get("X-Envoy-External-Address")
+                    .and_then(|v| v.to_str().ok())
+                    .map_or_else(|| "UNKNOWN".to_string(), |s| s.to_string());
 
                 match tokio::time::timeout(timeout_duration, next.run(req)).await {
                     Ok(response) => {
@@ -122,6 +159,12 @@ where
                         tracing::warn!(
                             method = method,
                             path = path,
+                            request_id = request_id,
+                            client_ip = client_ip,
+                            envoy_ip = envoy_ip,
+                            content_type = content_type,
+                            content_length = content_length,
+                            user_agent = user_agent,
                             timeout_threshold_seconds = request_timeout_seconds,
                             threshold_exceeded = threshold_exceeded,
                             elapsed_seconds = elapsed.as_secs_f64(),
@@ -138,5 +181,6 @@ where
     }
 
     // no timeout configured
+    tracing::info!("No request timeout middleware applied");
     router
 }

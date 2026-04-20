@@ -2,7 +2,6 @@ import uuid
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from io import BytesIO
 from math import ceil
 
 from django.conf import settings
@@ -12,7 +11,6 @@ import structlog
 from google.genai import Client
 from google.genai.errors import APIError
 from google.genai.types import Blob, Content, Part, VideoMetadata
-from pymediainfo import MediaInfo
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.models.exported_asset import ExportedAsset
@@ -21,16 +19,14 @@ from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
+from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
 
 from ee.hogai.session_summaries.constants import (
-    DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-    VALIDATION_VIDEO_DURATION,
-    VALIDATION_VIDEO_PLAYBACK_SPEED,
-    VALIDATION_VIDEO_RENDERING_DELAY,
+    MOMENT_VIDEO_EXPORT_FORMAT,
+    SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
 )
 
 logger = structlog.get_logger(__name__)
@@ -130,34 +126,27 @@ class SessionMomentsLLMAnalyzer:
             logger.exception(exception_message)
             # Remove all the generated videos to not bloat the database
             asset_ids = list(moment_to_asset_id.values())
+            # nosemgrep: idor-lookup-without-team (internal AI pipeline, IDs from team-scoped context)
             await ExportedAsset.objects.filter(id__in=asset_ids).adelete()
             raise Exception(exception_message)
         return moment_to_asset_id
-
-    def _generate_moment_video_filename(self, moment_id: str) -> str:
-        """Generate a filename for a moment video"""
-        return f"session-moment_{self.session_id}_{moment_id}"
 
     async def _generate_video_for_single_moment(
         self, moment: SessionMomentInput, expires_after_days: int
     ) -> int | Exception:
         """Generate a video for an event in Replay session and return the asset ID"""
         try:
-            moment_filename = self._generate_moment_video_filename(moment_id=moment.moment_id)
             created_at = now()
             expires_after = created_at + timedelta(days=expires_after_days)
             exported_asset = await ExportedAsset.objects.acreate(
                 team_id=self.team_id,
-                export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                export_format=MOMENT_VIDEO_EXPORT_FORMAT,
                 export_context={
                     "session_recording_id": self.session_id,
                     "timestamp": moment.timestamp_s,
-                    "filename": moment_filename,
                     "duration": moment.duration_s,
-                    # Speed up to reduce the rendering time
-                    "playback_speed": VALIDATION_VIDEO_PLAYBACK_SPEED,
-                    # Keeping default values
-                    "mode": "screenshot",
+                    "playback_speed": SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
+                    "show_metadata_footer": True,
                 },
                 created_by=self.user,
                 created_at=created_at,
@@ -166,12 +155,13 @@ class SessionMomentsLLMAnalyzer:
             # Generate a video through Temporal workflow
             client = await async_connect()
             await client.execute_workflow(
-                VideoExportWorkflow.run,
-                VideoExportInputs(exported_asset_id=exported_asset.id),
+                "rasterize-recording",
+                RasterizeRecordingInputs(exported_asset_id=exported_asset.id),
                 id=f"session-moment-video-export_{self.session_id}_{moment.moment_id}_{uuid.uuid4()}",
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                execution_timeout=timedelta(minutes=30),
             )
             # Return the asset ID for later retrieval
             return exported_asset.id
@@ -184,6 +174,7 @@ class SessionMomentsLLMAnalyzer:
         try:
             content: bytes | None = None
             # Fetch the asset from the database
+            # nosemgrep: idor-lookup-without-team (asset_id from internal _export_moment_video, not user input)
             asset = await ExportedAsset.objects.aget(id=asset_id)
             # Get content from either database or object storage
             if asset.content:
@@ -204,20 +195,6 @@ class SessionMomentsLLMAnalyzer:
         except ExportedAsset.DoesNotExist:
             return None
 
-    @staticmethod
-    def _get_webm_duration(video_bytes: bytes) -> int | None:
-        """Extract duration in milliseconds from WEBM video bytes to understand when the export UI finished rendering"""
-        try:
-            media_info = MediaInfo.parse(BytesIO(video_bytes))
-            for track in media_info.tracks:
-                if track.track_type == "General":
-                    # Convert ms to seconds, ceil to avoid grey "not-rendered" frames at the start
-                    return ceil(track.duration / 1000.0)
-            return None
-        except Exception as e:
-            logger.exception(f"Error extracting video duration: {e}")
-            return None
-
     async def _analyze_single_moment_video_with_llm(
         self,
         asset_id: int,
@@ -233,20 +210,12 @@ class SessionMomentsLLMAnalyzer:
                     f"No video bytes found for asset {asset_id} for moment {moment_id} of session {self.session_id} of team {self.team_id}"
                 )
                 return None
-            # Calculate how many seconds to skip from the start, as Puppeteer needs time to render the export UI
-            total_video_duration = self._get_webm_duration(video_bytes=video_bytes)
-            start_offset_s = (
-                total_video_duration - VALIDATION_VIDEO_DURATION + VALIDATION_VIDEO_RENDERING_DELAY
-                if total_video_duration
-                else None
-            )
-            # Analyze the video with LLM
+            # Analyze the video with LLM — no start_offset needed since the rasterizer
+            # produces clean videos without warm-up periods
             content = await self._provider.understand_video(
                 video_bytes=video_bytes,
-                mime_type=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                mime_type=MOMENT_VIDEO_EXPORT_FORMAT,
                 prompt=prompt,
-                start_offset_s=start_offset_s,
-                # No end offset is required, as we expect the export rendering to stop right after the video was played
                 trace_id=self.trace_id,
             )
             if not content:
@@ -261,6 +230,7 @@ class SessionMomentsLLMAnalyzer:
             )
             # If the LLM validation fails - ensure to remove the generated video to not bloat the database,
             # as it would be linked to the summary (to reuse) only after the LLM video validation is completed
+            # nosemgrep: idor-lookup-without-team (internal AI pipeline, IDs from team-scoped context)
             await ExportedAsset.objects.filter(id=asset_id).adelete()
             return err  # Let caller handle the error
 

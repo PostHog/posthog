@@ -48,6 +48,7 @@ from .klaviyo.template_klaviyo import (
     template_user as klaviyo_user,
 )
 from .knock.template_knock import template as knock
+from .kudosity.template_kudosity import template as kudosity
 from .loops.template_loops import (
     TemplateLoopsMigrator,
     template as loops,
@@ -62,6 +63,7 @@ from .mailjet.template_mailjet import (
 from .make.template_make import template as make
 from .meta_ads.template_meta_ads import template as meta_ads
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
+from .onesignal.template_onesignal import template as onesignal
 from .posthog.template_posthog import (
     TemplatePostHogMigrator,
     template as posthog,
@@ -112,6 +114,7 @@ HOG_FUNCTION_TEMPLATES = [
     klaviyo_event,
     klaviyo_user,
     knock,
+    kudosity,
     loops,
     loops_send_event,
     mailchimp,
@@ -121,6 +124,7 @@ HOG_FUNCTION_TEMPLATES = [
     make,
     meta_ads,
     microsoft_teams,
+    onesignal,
     posthog,
     reddit_pixel,
     rudderstack,

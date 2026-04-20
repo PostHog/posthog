@@ -4,7 +4,16 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
-import { IconBug, IconCursorClick, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
+import {
+    IconAIText,
+    IconBug,
+    IconCursorClick,
+    IconHourglass,
+    IconKeyboard,
+    IconLive,
+    IconPlusSmall,
+} from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -24,6 +33,7 @@ import { urls } from 'scenes/urls'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
+import { sessionSummaryProgressLogic } from '../player/player-meta/sessionSummaryProgressLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import {
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
@@ -146,7 +156,12 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
             ) : (
                 recordingProperties.map(({ property, value, label }) => (
                     <Tooltip key={property} title={label}>
-                        <PropertyIcon className={iconClassNames} property={property} value={value} />
+                        <span className="flex items-center gap-x-0.5">
+                            <PropertyIcon className={iconClassNames} property={property} value={value} />
+                            <span className="SessionRecordingPreview__property-label text-secondary truncate">
+                                {label}
+                            </span>
+                        </span>
                     </Tooltip>
                 ))
             )}
@@ -247,6 +262,56 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
     )
 }
 
+const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
+    recording,
+}: {
+    recording: SessionRecordingType
+}): JSX.Element | null {
+    const { loadingBySessionId, summaryBySessionId } = useValues(sessionSummaryProgressLogic)
+    const { startSummarization } = useActions(sessionSummaryProgressLogic)
+
+    const isSummarizing = !!loadingBySessionId[recording.id]
+    const summaryOutcome = recording.summary_outcome ?? summaryBySessionId[recording.id]?.session_outcome ?? null
+    const hasSummary = !!summaryOutcome?.description
+
+    if (isSummarizing) {
+        return (
+            <Tooltip title="Generating summary…">
+                <Spinner className="shrink-0 text-lg mb-1" />
+            </Tooltip>
+        )
+    }
+    if (hasSummary && summaryOutcome) {
+        return (
+            <Tooltip title={summaryOutcome.description}>
+                <IconAIText
+                    className={clsx(
+                        'shrink-0 text-lg mb-1',
+                        summaryOutcome.success === false ? 'text-danger' : 'text-success'
+                    )}
+                />
+            </Tooltip>
+        )
+    }
+    return (
+        <LemonButton
+            type="tertiary"
+            size="xxsmall"
+            noPadding
+            icon={<IconPlusSmall className="text-[var(--warning)] text-lg" />}
+            tooltip="Summarize this recording"
+            aria-label="Summarize this recording"
+            data-attr="summarize-recording-from-list"
+            className="shrink-0 border border-dashed border-[var(--warning)] text-[var(--warning)] hover:bg-[var(--warning)]/10 mb-1"
+            onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                startSummarization(recording.id)
+            }}
+        />
+    )
+})
+
 export const SessionRecordingPreview = memo(
     function SessionRecordingPreview({
         recording,
@@ -257,6 +322,8 @@ export const SessionRecordingPreview = memo(
 
         const { filters } = useValues(sessionRecordingsPlaylistLogic)
         const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
+        const { featureFlags } = useValues(featureFlagLogic)
+        const summaryEnabled = !!featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]
 
         const recordingProperties = recordingPropertiesById[recording.id]
         const loading = !recordingProperties && recordingPropertiesLoading
@@ -307,12 +374,18 @@ export const SessionRecordingPreview = memo(
                                         <span className="flex gap-x-0.5">
                                             <IconCursorClick className={iconClassNames} />
                                             <span>{recording.click_count}</span>
+                                            <span className="SessionRecordingPreview__activity-label text-secondary">
+                                                clicks
+                                            </span>
                                         </span>
                                     </Tooltip>
                                     <Tooltip className="flex items-center" title="Key presses">
                                         <span className="flex gap-x-0.5">
                                             <IconKeyboard className={iconClassNames} />
                                             <span>{recording.keypress_count}</span>
+                                            <span className="SessionRecordingPreview__activity-label text-secondary">
+                                                keys
+                                            </span>
                                         </span>
                                     </Tooltip>
                                 </div>
@@ -338,13 +411,15 @@ export const SessionRecordingPreview = memo(
                             )}
                         </div>
 
-                        <FirstURL startUrl={recording.start_url} />
+                        <div className="flex items-center justify-between">
+                            <FirstURL startUrl={recording.start_url} />
+                            {summaryEnabled && <RecordingSummaryIcon recording={recording} />}
+                        </div>
                     </div>
 
                     <div
                         className={clsx(
                             'min-w-6 flex flex-col gap-x-0.5 items-center',
-                            // need different margin if the first item is an icon
                             recording.ongoing ? 'mt-1' : 'mt-2'
                         )}
                     >

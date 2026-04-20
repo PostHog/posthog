@@ -59,6 +59,7 @@ fn test_props(fingerprint: Fingerprint) -> FingerprintedErrProps {
         proposed_issue_name: None,
         proposed_issue_description: None,
         proposed_fingerprint: String::new(),
+        handled: None,
         other: HashMap::new(),
     }
 }

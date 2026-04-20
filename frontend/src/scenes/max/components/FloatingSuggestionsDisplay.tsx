@@ -3,27 +3,31 @@ import { router } from 'kea-router'
 
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { QUESTION_SUGGESTIONS_DATA, SuggestionGroup, maxLogic } from '../maxLogic'
+import { cn } from 'lib/utils/css-classes'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+
+import { SuggestionGroup, SuggestionItem, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { checkSuggestionRequiresUserInput, stripSuggestionPlaceholders } from '../utils'
 
 function useSuggestionHandling(): {
     handleSuggestionGroupClick: (group: SuggestionGroup) => void
-    handleSuggestionClick: (suggestion: { content: string }) => void
+    handleSuggestionClick: (suggestion: SuggestionItem) => void
 } {
     const { setQuestion, focusInput, setActiveGroup } = useActions(maxLogic)
     const { askMax } = useActions(maxThreadLogic)
 
     const handleSuggestionGroupClick = (group: SuggestionGroup): void => {
-        // If it's a product-based skill, open the URL first
-        if (group.url && !router.values.currentLocation.pathname.includes(group.url)) {
+        // If it's a product-based skill, open the URL first (but not when on /ai route)
+        const cleanPath = removeProjectIdIfPresent(router.values.currentLocation.pathname)
+        const isOnAiRoute = cleanPath.startsWith('/ai')
+        if (group.url && !isOnAiRoute && !cleanPath.includes(group.url)) {
             router.actions.push(group.url)
         }
 
         // If there's only one suggestion, we can just ask Max directly
         if (group.suggestions.length <= 1) {
-            if (checkSuggestionRequiresUserInput(group.suggestions[0].content)) {
-                setQuestion(stripSuggestionPlaceholders(group.suggestions[0].content))
+            if (group.suggestions[0].requiresUserInput) {
+                setQuestion(group.suggestions[0].content)
                 focusInput()
             } else {
                 setQuestion(group.suggestions[0].content)
@@ -34,9 +38,9 @@ function useSuggestionHandling(): {
         }
     }
 
-    const handleSuggestionClick = (suggestion: { content: string }): void => {
-        if (checkSuggestionRequiresUserInput(suggestion.content)) {
-            setQuestion(stripSuggestionPlaceholders(suggestion.content))
+    const handleSuggestionClick = (suggestion: SuggestionItem): void => {
+        if (suggestion.requiresUserInput) {
+            setQuestion(suggestion.content)
             focusInput()
         } else {
             setQuestion(suggestion.content)
@@ -53,6 +57,8 @@ function useSuggestionHandling(): {
 
 interface FloatingSuggestionsDisplayProps {
     dataProcessingAccepted: boolean
+    dataProcessingApprovalDisabledReason?: string | null
+    suggestionsData: readonly SuggestionGroup[]
     type?: 'primary' | 'secondary' | 'tertiary'
     additionalSuggestions?: React.ReactNode[]
 }
@@ -60,42 +66,48 @@ interface FloatingSuggestionsDisplayProps {
 export function FloatingSuggestionsDisplay({
     type = 'secondary',
     dataProcessingAccepted,
+    dataProcessingApprovalDisabledReason,
+    suggestionsData,
     additionalSuggestions,
 }: FloatingSuggestionsDisplayProps): JSX.Element | null {
     const { activeSuggestionGroup } = useValues(maxLogic)
     const { handleSuggestionGroupClick } = useSuggestionHandling()
 
     return (
-        <div className="mt-1 mx-1">
+        <div className={cn('mt-1 mx-1', activeSuggestionGroup && 'fade-out pointer-events-none')}>
             {/* Main suggestion groups */}
-            {!activeSuggestionGroup && (
-                <>
-                    <Tooltip title={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}>
-                        <ul className="flex items-center justify-center flex-wrap gap-1.5">
-                            {QUESTION_SUGGESTIONS_DATA.map((group) => (
-                                <li key={group.label}>
-                                    <LemonButton
-                                        key={group.label}
-                                        onClick={() => handleSuggestionGroupClick(group)}
-                                        size="xsmall"
-                                        type={type}
-                                        icon={group.icon}
-                                        center={false}
-                                        fullWidth={true}
-                                        tooltip={!dataProcessingAccepted ? undefined : group.tooltip}
-                                        disabled={!dataProcessingAccepted}
-                                    >
-                                        {group.label}
-                                    </LemonButton>
-                                </li>
-                            ))}
-                            {additionalSuggestions?.map((suggestion, index) => (
-                                <li key={index}>{suggestion}</li>
-                            ))}
-                        </ul>
-                    </Tooltip>
-                </>
-            )}
+            <>
+                <Tooltip
+                    title={
+                        !dataProcessingAccepted
+                            ? dataProcessingApprovalDisabledReason || 'Please accept AI data processing'
+                            : undefined
+                    }
+                >
+                    <ul className="flex items-center justify-center flex-wrap gap-1.5">
+                        {suggestionsData.map((group) => (
+                            <li key={group.label}>
+                                <LemonButton
+                                    key={group.label}
+                                    onClick={() => handleSuggestionGroupClick(group)}
+                                    size="xsmall"
+                                    type={type}
+                                    icon={group.icon}
+                                    center={false}
+                                    fullWidth={true}
+                                    tooltip={!dataProcessingAccepted ? undefined : group.tooltip}
+                                    disabled={!dataProcessingAccepted}
+                                >
+                                    {group.label}
+                                </LemonButton>
+                            </li>
+                        ))}
+                        {additionalSuggestions?.map((suggestion, index) => (
+                            <li key={index}>{suggestion}</li>
+                        ))}
+                    </ul>
+                </Tooltip>
+            </>
         </div>
     )
 }

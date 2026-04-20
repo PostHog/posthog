@@ -2,11 +2,12 @@ import json
 import hashlib
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, get_args
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
 
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
@@ -16,7 +17,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
-from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    ActivityScope,
+    apply_activity_visibility_restrictions,
+)
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
 
@@ -90,7 +95,49 @@ class ActivityLogPagination(BasePagination):
         else:
             return self.cursor_pagination.get_paginated_response(data)
 
+    def get_paginated_response_schema(self, schema):
+        return self.page_number_pagination.get_paginated_response_schema(schema)
 
+
+class ActivityLogScopeField(serializers.ChoiceField):
+    def __init__(self, **kwargs):
+        choices = get_args(ActivityScope)
+        super().__init__(choices=choices, **kwargs)
+
+
+class ActivityLogQueryParamsSerializer(serializers.Serializer):
+    user = serializers.UUIDField(
+        required=False,
+        help_text="Filter by user UUID who performed the action.",
+    )
+    scope = ActivityLogScopeField(
+        required=False,
+        help_text='Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".',
+    )
+    scopes = serializers.ListField(
+        child=ActivityLogScopeField(),
+        required=False,
+        help_text='Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".',
+    )
+    item_id = serializers.CharField(
+        required=False,
+        help_text="Filter by the ID of the affected resource.",
+    )
+    page = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1000,
+        default=100,
+        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+    )
+
+
+@extend_schema(tags=["activity_logs", "platform_features"])
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
@@ -98,18 +145,22 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     pagination_class = ActivityLogPagination
     filter_rewrite_rules = {"project_id": "team_id"}
 
+    @extend_schema(parameters=[ActivityLogQueryParamsSerializer])
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
     def _should_skip_parents_filter(self) -> bool:
         """
-        Skip parent filtering when include_organization_scoped=1.
+        Skip parent filtering when team has receive_org_level_activity_logs enabled.
         We'll apply custom org-scoped filtering in safely_get_queryset instead.
         """
-        return self.request.query_params.get("include_organization_scoped") == "1"
+        return bool(self.team.receive_org_level_activity_logs)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
 
         queryset = apply_organization_scoped_filter(
-            queryset, params.get("include_organization_scoped") == "1", self.team_id, self.organization.id
+            queryset, bool(self.team.receive_org_level_activity_logs), self.team_id, self.organization.id
         )
 
         if params.get("user"):
@@ -134,18 +185,48 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         return queryset
 
 
+class OptionalBooleanField(serializers.BooleanField):
+    """BooleanField that returns None when missing instead of False."""
+
+    default_empty_html = None
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("allow_null", True)
+        super().__init__(**kwargs)
+
+
+@extend_schema_field({"type": "string"})
+class JSONStringFilterField(serializers.JSONField):
+    """JSONField exposed as a JSON-encoded string in the schema (for query string clients)."""
+
+    pass
+
+
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     start_date = serializers.DateTimeField(required=False)
     end_date = serializers.DateTimeField(required=False)
     users = serializers.ListField(child=serializers.UUIDField(), required=False, default=[])
     scopes = serializers.ListField(child=serializers.CharField(), required=False, default=[])
     activities = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    clients = serializers.ListField(child=serializers.CharField(), required=False, default=[])
     search_text = serializers.CharField(required=False, allow_blank=True)
-    detail_filters = serializers.JSONField(required=False, default={})
+    detail_filters = JSONStringFilterField(required=False)
     hogql_filter = serializers.CharField(required=False, allow_blank=True)
-    was_impersonated = serializers.BooleanField(required=False)
-    is_system = serializers.BooleanField(required=False)
+    was_impersonated = OptionalBooleanField(required=False)
+    is_system = OptionalBooleanField(required=False)
     item_ids = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    page = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1000,
+        default=100,
+        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+    )
 
 
 class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
@@ -169,6 +250,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "scope",
             "item_id",
             "detail",
+            "client",
             "created_at",
         ]
 
@@ -176,20 +258,37 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
         return json.dumps(obj.detail) if obj.detail else ""
 
 
+class StaticFiltersSerializer(serializers.Serializer):
+    users = serializers.ListField(child=serializers.DictField(), help_text="Users who have logged activity.")
+    scopes = serializers.ListField(child=serializers.DictField(), help_text="Available activity scopes.")
+    activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
+    clients = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="API clients that have generated activity (from x-posthog-client header).",
+    )
+
+
+class AvailableFiltersResponseSerializer(serializers.Serializer):
+    static_filters = StaticFiltersSerializer(help_text="Pre-computed filter options for scopes, activities, and users.")
+    detail_fields = serializers.DictField(help_text="Discovered detail fields and their value distributions.")
+
+
+@extend_schema(tags=["platform_features"])
 class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
     logger = logging.getLogger(__name__)
     filter_rewrite_rules = {"project_id": "team_id"}
     scope_object = "activity_log"
+    scope_object_read_actions = ["list", "retrieve", "available_filters"]
     queryset = ActivityLog.objects.all()
 
     def _should_skip_parents_filter(self) -> bool:
         """
-        Skip parent filtering when include_organization_scoped=1.
+        Skip parent filtering when team has receive_org_level_activity_logs enabled.
         We'll apply custom org-scoped filtering in safely_get_queryset instead.
         """
-        return self.request.query_params.get("include_organization_scoped") == "1"
+        return bool(self.team.receive_org_level_activity_logs)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -238,7 +337,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         queryset = apply_organization_scoped_filter(
             queryset,
-            self.request.query_params.get("include_organization_scoped") == "1",
+            bool(self.team.receive_org_level_activity_logs),
             self.team_id,
             self.organization.id,
         )
@@ -247,6 +346,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         lookback_date = get_activity_log_lookback_restriction(self.organization)
         if lookback_date:
             queryset = queryset.filter(created_at__gte=lookback_date)
+
+        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
 
         return queryset.order_by("-created_at")
 
@@ -257,6 +358,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         return super().get_serializer_class()
 
+    @extend_schema(parameters=[AdvancedActivityLogFiltersSerializer])
     def list(self, request, *args, **kwargs):
         filters_serializer = AdvancedActivityLogFiltersSerializer(data=request.query_params)
         filters_serializer.is_valid(raise_exception=True)
@@ -273,6 +375,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @extend_schema(responses={200: AvailableFiltersResponseSerializer})
     @action(detail=False, methods=["GET"])
     def available_filters(self, request, **kwargs):
         queryset = self.get_queryset()
@@ -297,8 +400,6 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             return Response({"error": "Filters are invalid"}, status=400)
 
         query_params = {}
-        if self.request.query_params.get("include_organization_scoped"):
-            query_params["include_organization_scoped"] = "1"
 
         # Transform body params to query params to include the filters in the export path
         for key, value in filters_serializer.validated_data.items():

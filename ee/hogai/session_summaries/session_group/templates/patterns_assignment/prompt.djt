@@ -118,6 +118,7 @@ Weak Match (do not assign):
 - Only assign if match strength is Strong or clearly Moderate
 - If an event strongly matches multiple patterns, assign to the most specific pattern
 - Never assign the same event to multiple patterns
+- CRITICAL: Each session can contribute only ONE event per pattern. If multiple events from the same session match a pattern, select the single most representative one that best demonstrates the pattern
 - If uncertain, prefer no assignment over incorrect assignment
 
 # Step 4: Quality Verification
@@ -130,6 +131,7 @@ Weak Match (do not assign):
 
 4.2. Cross-Pattern Check:
 - Ensure no event is assigned to multiple patterns
+- Ensure no session has more than one event assigned to the same pattern
 - Verify related events are grouped appropriately
 - Check that assignment distribution makes sense
 

@@ -5,10 +5,10 @@ import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { pluralize } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { AccessControlLevel, OrganizationInviteType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
@@ -70,7 +70,7 @@ export const inviteLogic = kea<inviteLogicType>([
                         payload.forEach((payload) => (payload.message = values.message))
                     }
                     return await api.create<OrganizationInviteType[]>(
-                        'api/organizations/@current/invites/bulk/',
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/bulk/`,
                         payload
                     )
                 },
@@ -108,13 +108,15 @@ export const inviteLogic = kea<inviteLogicType>([
                     return organizationLogic.values.currentOrganization
                         ? (
                               await api.get<PaginatedResponse<OrganizationInviteType>>(
-                                  'api/organizations/@current/invites/'
+                                  `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/`
                               )
                           ).results
                         : []
                 },
                 deleteInvite: async (invite: OrganizationInviteType) => {
-                    await api.delete(`api/organizations/@current/invites/${invite.id}/`)
+                    await api.delete(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/${invite.id}/`
+                    )
                     preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
                     lemonToast.success(`Invite for ${invite.target_email} has been canceled`)
                     return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
@@ -221,7 +223,7 @@ export const inviteLogic = kea<inviteLogicType>([
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembersInternal.length
             if (values.preflight?.email_service_available) {
-                lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
+                lemonToast.success(`Invited ${pluralize(inviteCount, 'new team member')}`)
             } else {
                 lemonToast.success('Team invite links generated')
             }
@@ -231,13 +233,6 @@ export const inviteLogic = kea<inviteLogicType>([
 
             if (values.preflight?.email_service_available) {
                 actions.hideInviteModal()
-            }
-
-            if (inviteCount > 0) {
-                // We want to avoid this updating the team before the onboarding is finished
-                setTimeout(() => {
-                    activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
-                }, 1000)
             }
         },
         addProjectAccess: ({ projectId }) => {

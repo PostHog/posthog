@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+pub mod apple;
 pub mod custom;
 pub mod dart;
 pub mod go;
@@ -7,6 +8,7 @@ pub mod hermes;
 pub mod java;
 pub mod js;
 pub mod node;
+pub mod php;
 pub mod python;
 pub mod ruby;
 pub mod utils;

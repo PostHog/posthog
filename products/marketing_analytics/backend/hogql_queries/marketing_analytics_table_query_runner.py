@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Literal, Optional, cast
+from typing import Optional
 
 import structlog
 
@@ -7,6 +7,7 @@ from posthog.schema import (
     CachedMarketingAnalyticsTableQueryResponse,
     DateRange,
     MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
@@ -22,6 +23,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_conf
 from .constants import (
     BASE_COLUMN_MAPPING,
     DEFAULT_LIMIT,
+    DRILL_DOWN_LEVEL_CONFIG,
     PAGINATION_EXTRA,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
     to_marketing_analytics_data,
@@ -100,6 +102,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             hasMore=has_more,
             limit=requested_limit,
             offset=self.query.offset or 0,
+            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
         )
 
     def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
@@ -143,6 +146,39 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
     ) -> ast.JoinExpr:
         """Build the join expression for comparing current and previous periods"""
+        level = self.config.drill_down_level
+
+        campaign_alias = self.config.get_campaign_column_alias()
+
+        if level in (
+            MarketingAnalyticsDrillDownLevel.CHANNEL,
+            MarketingAnalyticsDrillDownLevel.SOURCE,
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            join_condition: ast.Expr = ast.CompareOperation(
+                left=ast.Field(chain=["current_period", campaign_alias]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Field(chain=["previous_period", campaign_alias]),
+            )
+        else:
+            # Campaign level joins on both Campaign + Source
+            join_condition = ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["current_period", campaign_alias]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Field(chain=["previous_period", campaign_alias]),
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["current_period", MarketingAnalyticsBaseColumns.SOURCE.value]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Field(chain=["previous_period", MarketingAnalyticsBaseColumns.SOURCE.value]),
+                    ),
+                ]
+            )
+
         return ast.JoinExpr(
             table=current_period_query,
             alias="current_period",
@@ -151,22 +187,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 alias="previous_period",
                 join_type="LEFT JOIN",
                 constraint=ast.JoinConstraint(
-                    expr=ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["current_period", MarketingAnalyticsBaseColumns.CAMPAIGN.value]),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=["previous_period", MarketingAnalyticsBaseColumns.CAMPAIGN.value]
-                                ),
-                            ),
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["current_period", MarketingAnalyticsBaseColumns.SOURCE.value]),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(chain=["previous_period", MarketingAnalyticsBaseColumns.SOURCE.value]),
-                            ),
-                        ]
-                    ),
+                    expr=join_condition,
                     constraint_type="ON",
                 ),
             ),
@@ -249,23 +270,38 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     def _build_select_columns_mapping(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> dict[str, ast.Expr]:
-        all_columns: dict[str, ast.Expr] = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
+        level = self.config.drill_down_level
+        excluded = DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
+
+        if excluded:
+            all_columns = self._build_aggregated_level_columns(excluded)
+        else:
+            all_columns = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
 
         # Add conversion goal columns using the aggregator
         if conversion_aggregator:
-            # For FULL OUTER JOIN: use COALESCE to show conversion goal UTM values when campaign costs are empty
-            if self.query.includeAllConversions:
-                coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns()
-                all_columns.update(coalesce_columns)
-
-            # Add conversion goal columns
             conversion_columns = conversion_aggregator.get_conversion_goal_columns()
             all_columns.update(conversion_columns)
 
         return all_columns
 
+    def _build_aggregated_level_columns(self, excluded: frozenset) -> dict[str, ast.Expr]:
+        """Build column mapping for aggregated views (channel/source level).
+        The CTE repurposes campaign_name to hold the grouping value.
+        """
+        columns: dict[str, ast.Expr] = {}
+        alias = self.config.get_campaign_column_alias()
+        base_expr = BASE_COLUMN_MAPPING[MarketingAnalyticsBaseColumns.CAMPAIGN]
+        columns[alias] = ast.Alias(alias=alias, expr=base_expr.expr) if isinstance(base_expr, ast.Alias) else base_expr
+        for col_key, col_expr in BASE_COLUMN_MAPPING.items():
+            if col_key not in excluded and col_key != MarketingAnalyticsBaseColumns.CAMPAIGN:
+                columns[str(col_key)] = col_expr
+        return columns
+
     def _build_select_query(self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None) -> ast.SelectQuery:
         """Build the complete SELECT query with base columns and conversion goal columns"""
+        level = self.config.drill_down_level
+
         # Get conversion goal components
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
 
@@ -274,28 +310,57 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         # Add single unified conversion goals join if we have conversion goals
         if conversion_aggregator:
-            join_type = "FULL OUTER JOIN" if self.query.includeAllConversions else "LEFT JOIN"
-            unified_join = ast.JoinExpr(
-                join_type=join_type,
-                table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
-                alias=self.config.unified_conversion_goals_cte_alias,
-                constraint=ast.JoinConstraint(
+            if level in (
+                MarketingAnalyticsDrillDownLevel.CHANNEL,
+                MarketingAnalyticsDrillDownLevel.SOURCE,
+                MarketingAnalyticsDrillDownLevel.MEDIUM,
+                MarketingAnalyticsDrillDownLevel.CONTENT,
+                MarketingAnalyticsDrillDownLevel.TERM,
+            ):
+                join_type = "FULL OUTER JOIN"
+                join_constraint = ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Field(
+                            chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
+                        ),
+                    ),
+                    constraint_type="ON",
+                )
+                # Replace grouping columns with COALESCE to handle NULLs from FULL OUTER JOIN
+                coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns()
+                for key, coalesce_col in coalesce_columns.items():
+                    conversion_columns_mapping[key] = coalesce_col
+
+                # Leave campaign_costs metric columns as NULL for conversion-only rows
+                # so the frontend displays "-" instead of 0 for cost/clicks/impressions etc.
+            else:
+                # Campaign level — LEFT JOIN on match_key + source
+                join_type = "LEFT JOIN"
+                join_constraint = ast.JoinConstraint(
                     expr=ast.And(
                         exprs=[
                             ast.CompareOperation(
                                 left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)
                                 ),
                                 op=ast.CompareOperationOp.Eq,
                                 right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
+                                    chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)
                                 ),
                             ),
                             self._build_flexible_source_join_condition(),
                         ]
                     ),
                     constraint_type="ON",
-                ),
+                )
+
+            unified_join = ast.JoinExpr(
+                join_type=join_type,
+                table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
+                alias=self.config.unified_conversion_goals_cte_alias,
+                constraint=join_constraint,
             )
             from_clause.next_join = unified_join
 
@@ -324,7 +389,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 if column_name in select_columns:
                     order_by_exprs.append(
                         ast.OrderExpr(
-                            expr=ast.Field(chain=[column_name]), order=cast(Literal["ASC", "DESC"], str(order_by))
+                            expr=ast.Field(chain=[column_name]),
+                            order="DESC" if str(order_by).upper() == "DESC" else "ASC",
                         )
                     )
         else:
@@ -332,6 +398,16 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 # Build default order by: Total Cost DESC
                 default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.COST.value])
                 order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
+
+        # Add ID as tiebreaker for deterministic ordering when rows share the same sort key
+        already_sorted_columns = {expr.expr.chain[0] for expr in order_by_exprs if isinstance(expr.expr, ast.Field)}
+        if (
+            MarketingAnalyticsBaseColumns.ID.value in select_columns
+            and MarketingAnalyticsBaseColumns.ID.value not in already_sorted_columns
+        ):
+            order_by_exprs.append(
+                ast.OrderExpr(expr=ast.Field(chain=[MarketingAnalyticsBaseColumns.ID.value]), order="ASC")
+            )
 
         return order_by_exprs
 

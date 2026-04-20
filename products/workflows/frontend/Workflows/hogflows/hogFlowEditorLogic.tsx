@@ -10,30 +10,127 @@ import {
     applyNodeChanges,
     getOutgoers,
 } from '@xyflow/react'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import type { DragEvent, RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
-import { getFormattedNodes } from './autolayout'
-import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
+import { getFormattedNodes } from './react_flow_utils/autolayout'
+import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
+import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
-import { getSmartStepPath } from './steps/SmartEdge'
 import { StepViewNodeHandle } from './steps/types'
-import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
+import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string =>
     `${edge.from}->${edge.to} ${edge.type} ${edge.index ?? ''}`.trim()
+
+/**
+ * Helper to get branch label with custom name fallback
+ */
+const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'][0]): string => {
+    if (!action) {
+        return `If condition #${(edge.index || 0) + 1} matches`
+    }
+
+    switch (action.type) {
+        case 'wait_until_condition': {
+            const waitAction = action as Extract<HogFlowAction, { type: 'wait_until_condition' }>
+            const customName = waitAction.config.condition?.name
+            return customName || 'If condition matches'
+        }
+        case 'random_cohort_branch': {
+            const cohortAction = action as Extract<HogFlowAction, { type: 'random_cohort_branch' }>
+            const cohort = cohortAction.config.cohorts?.[edge.index || 0]
+            return cohort?.name || `If cohort #${(edge.index || 0) + 1} matches`
+        }
+        case 'conditional_branch': {
+            const branchAction = action as Extract<HogFlowAction, { type: 'conditional_branch' }>
+            const condition = branchAction.config.conditions?.[edge.index || 0]
+            return condition?.name || `If condition #${(edge.index || 0) + 1} matches`
+        }
+        default:
+            return `If condition #${(edge.index || 0) + 1} matches`
+    }
+}
+
+/**
+ * Computes the new edges after moving a node to a new position in the graph.
+ * Extracted into pure function to be easier to test.
+ */
+export function computeMoveEdges(
+    edges: HogFlow['edges'],
+    movingNodeId: string,
+    targetEdge: HogFlow['edges'][0],
+    isBranchJoinDropzone: boolean
+): HogFlow['edges'] | null {
+    const incomingEdges = edges.filter((e) => e.to === movingNodeId)
+    const outgoingEdge = edges.find((e) => e.from === movingNodeId)
+
+    if (!outgoingEdge || incomingEdges.length === 0) {
+        return null
+    }
+
+    // Step 1: Bypass the node — incoming edges point to the node's outgoer, outgoing edge removed
+    let newEdges = edges
+        .map((e) => (e.to === movingNodeId ? { ...e, to: outgoingEdge.to } : e))
+        .filter((e) => e.from !== movingNodeId)
+
+    // Step 2: Find the target edge(s) to insert into.
+    // We match by from/type/index (not the full edge ID) because step 1 may have
+    // changed the 'to' field of the target edge if the moving node was its target.
+    let edgesToSplitIndexes: number[] = []
+
+    if (isBranchJoinDropzone) {
+        const newTarget = targetEdge.to === movingNodeId ? outgoingEdge.to : targetEdge.to
+        edgesToSplitIndexes = newEdges
+            .map((edge, index) => ({ edge, index }))
+            .filter(({ edge }) => edge.to === newTarget)
+            .map(({ index }) => index)
+    } else {
+        edgesToSplitIndexes = [
+            newEdges.findIndex(
+                (edge) =>
+                    edge.from === targetEdge.from && edge.type === targetEdge.type && edge.index === targetEdge.index
+            ),
+        ]
+    }
+
+    if (edgesToSplitIndexes.length === 0 || edgesToSplitIndexes.includes(-1)) {
+        return null
+    }
+
+    // Step 3: Split the target edge(s) — sources → movingNode → original target
+    const edgesToSplit = edgesToSplitIndexes.map((i) => newEdges[i])
+    const insertionTarget = edgesToSplit[0].to
+
+    edgesToSplitIndexes.sort((a, b) => b - a).forEach((i) => newEdges.splice(i, 1))
+
+    for (const edge of edgesToSplit) {
+        newEdges.push({ ...edge, to: movingNodeId })
+    }
+
+    newEdges.push({
+        from: movingNodeId,
+        to: insertionTarget,
+        type: 'continue',
+        index: undefined,
+    } as HogFlow['edges'][0])
+
+    return newEdges
+}
 
 export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
@@ -46,51 +143,64 @@ export type HogFlowEditorActionMetrics = {
 
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
+    output_variable?: HogFlowAction['output_variable']
 }
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
-    key((props) => `${props.id}`),
-    connect((props: WorkflowLogicProps) => ({
+    key((props) => `hog-flow-editor-${props.id}-${props.tabId}`),
+    connect(() => ({
         values: [
-            workflowLogic(props),
+            workflowLogic,
             ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
         ],
         actions: [
-            workflowLogic(props),
+            workflowLogic,
             ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
     })),
     actions({
-        onEdgesChange: (edges: EdgeChange<Edge>[]) => ({ edges }),
+        onEdgesChange: (edges: EdgeChange<HogFlowActionEdge>[]) => ({ edges }),
         onNodesChange: (nodes: NodeChange<HogFlowActionNode>[]) => ({ nodes }),
         onNodesDelete: (deleted: HogFlowActionNode[]) => ({ deleted }),
         setNodes: (nodes: HogFlowActionNode[]) => ({ nodes }),
-        setDropzoneNodes: (dropzoneNodes: Node<{ edge: Edge }>[]) => ({ dropzoneNodes }),
+        setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => ({
+            dropzoneNodes,
+        }),
+        showDropzones: true,
+        hideDropzones: true,
         setNodesRaw: (nodes: HogFlowActionNode[]) => ({ nodes }),
-        setEdges: (edges: Edge[]) => ({ edges }),
+        setEdges: (edges: HogFlowActionEdge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
             reactFlowInstance,
         }),
         setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
-        onDragStart: true,
         onDragOver: (event: DragEvent) => ({ event }),
-        onDrop: (event: DragEvent) => ({ event }),
-        setNewDraggingNode: (newDraggingNode: CreateActionType | null) => ({ newDraggingNode }),
+        onDrop: (event?: DragEvent) => ({ event }),
+        setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
+        setAnimatingEdgePair: (from: string, to: string) => ({ from, to }),
+        clearAnimatingEdgePair: true,
+        startCopyingNode: (node: HogFlowActionNode) => ({ node }),
+        stopCopyingNode: true,
+        copyNodeToHighlightedDropzone: true,
+        startMovingNode: (node: HogFlowActionNode) => ({ node }),
+        stopMovingNode: true,
+        moveNodeToHighlightedDropzone: true,
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
             timezone: string
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
+        handlePaneClick: true,
     }),
     reducers(() => ({
         mode: [
@@ -106,7 +216,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         dropzoneNodes: [
-            [] as Node<{ edge: Edge }>[],
+            [] as DropzoneNode[],
             {
                 setDropzoneNodes: (_, { dropzoneNodes }) => dropzoneNodes,
             },
@@ -118,7 +228,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         edges: [
-            [] as Edge[],
+            [] as HogFlowActionEdge[],
             {
                 setEdges: (_, { edges }) => edges,
             },
@@ -129,14 +239,34 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
             },
         ],
-
-        newDraggingNode: [
-            null as CreateActionType | null,
+        isCopyingNode: [
+            false,
             {
-                setNewDraggingNode: (_, { newDraggingNode }) => newDraggingNode,
+                startCopyingNode: () => true,
+                stopCopyingNode: () => false,
             },
         ],
-
+        isMovingNode: [
+            false,
+            {
+                startMovingNode: () => true,
+                stopMovingNode: () => false,
+            },
+        ],
+        movingNodeId: [
+            null as string | null,
+            {
+                startMovingNode: (_, { node }) => node.id,
+                stopMovingNode: () => null,
+            },
+        ],
+        nodeToBeAdded: [
+            null as CreateActionType | HogFlowActionNode | null,
+            {
+                setNodeToBeAdded: (_, { nodeToBeAdded }) => nodeToBeAdded,
+                startCopyingNode: (_, { node }) => node.data,
+            },
+        ],
         reactFlowInstance: [
             null as ReactFlowInstance<Node, Edge> | null,
             {
@@ -147,6 +277,15 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             null as RefObject<HTMLDivElement> | null,
             {
                 setReactFlowWrapper: (_, { reactFlowWrapper }) => reactFlowWrapper,
+            },
+        ],
+        animatingEdgePair: [
+            null as string | null,
+            {
+                setAnimatingEdgePair: (_: string | null, { from, to }: { from: string; to: string }) =>
+                    `${from}->${to}`,
+                clearAnimatingEdgePair: () => null,
+                setMode: () => null,
             },
         ],
     })),
@@ -185,6 +324,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 return new Set(outgoingNodes.map((node) => node.id)).size === 1
             },
         ],
+        selectedNodeCanBeCopiedOrMoved: [
+            (s) => [s.selectedNode, s.selectedNodeCanBeDeleted],
+            (selectedNode, selectedNodeCanBeDeleted) => {
+                if (!selectedNodeCanBeDeleted) {
+                    return false
+                }
+
+                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
+                return !branchingTypes.includes(selectedNode?.data.type ?? '')
+            },
+        ],
     }),
     loaders(() => ({
         actionMetricsById: [
@@ -195,14 +345,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const _params: AppMetricsTotalsRequest = {
                         ...params,
                         breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: [
-                            'succeeded',
-                            'failed',
-                            'filtered',
-                            'disabled_permanently',
-                            'rate_limited',
-                            'triggered',
-                        ],
+                        metricName: ['succeeded', 'failed', 'rate_limited', 'triggered'],
                     }
                     const response = await loadAppMetricsTotals(_params, timezone)
                     await breakpoint(10)
@@ -219,11 +362,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
                             if (['succeeded', 'failed'].includes(metricName)) {
                                 instanceId = EXIT_NODE_ID
-                            } else if (
-                                ['filtered', 'disabled_permanently', 'rate_limited', 'triggered'].includes(metricName)
-                            ) {
+                            } else if (['rate_limited', 'triggered'].includes(metricName)) {
                                 instanceId = TRIGGER_NODE_ID
-                                if (['disabled_permanently', 'rate_limited'].includes(metricName)) {
+                                if (['rate_limited'].includes(metricName)) {
                                     metricName = 'failed'
                                 }
                                 if (['triggered'].includes(metricName)) {
@@ -248,322 +389,532 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions }) => ({
-        onEdgesChange: ({ edges }) => {
-            actions.setEdges(applyEdgeChanges(edges, values.edges))
-        },
-        onNodesChange: ({ nodes }) => {
-            actions.setNodes(applyNodeChanges(nodes, values.nodes))
-        },
+    listeners(({ values, actions }) => {
+        let animationTimeout: ReturnType<typeof setTimeout> | null = null
+        return {
+            onEdgesChange: ({ edges }) => {
+                actions.setEdges(applyEdgeChanges(edges, values.edges))
+            },
+            onNodesChange: ({ nodes }) => {
+                actions.setNodes(applyNodeChanges(nodes, values.nodes))
+            },
+            setAnimatingEdgePair: () => {
+                if (animationTimeout) {
+                    clearTimeout(animationTimeout)
+                }
+                animationTimeout = setTimeout(() => {
+                    animationTimeout = null
+                    actions.clearAnimatingEdgePair()
+                }, 1500)
+            },
 
-        resetFlowFromHogFlow: ({ hogFlow }) => {
-            try {
-                const edges: Edge[] = hogFlow.edges.map((edge) => {
-                    const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
-                    const edgeSourceAction = hogFlow.actions.find((action) => action.id === edge.from)
-                    const branchResourceName = () => {
-                        switch (edgeSourceAction?.type) {
-                            case 'wait_until_condition':
-                                return 'condition'
-                            case 'random_cohort_branch':
-                                return `cohort #${(edge.index || 0) + 1}`
-                            default:
-                                return `condition #${(edge.index || 0) + 1}`
+            resetFlowFromHogFlow: ({ hogFlow }) => {
+                try {
+                    const edges: HogFlowActionEdge[] = hogFlow.edges.map((edge) => {
+                        const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
+                        const edgeSourceAction = hogFlow.actions.find((action) => action.id === edge.from)
+
+                        return {
+                            // Only these values are set by the user
+                            source: edge.from,
+                            target: edge.to,
+
+                            // All other values are derived
+                            id: getEdgeId(edge),
+                            type: 'smart',
+                            deletable: false,
+                            reconnectable: false,
+                            selectable: false,
+                            focusable: false,
+                            markerEnd: {
+                                type: MarkerType.ArrowClosed,
+                            },
+                            data: {
+                                edge,
+                                label: isOnlyEdgeForNode
+                                    ? undefined
+                                    : edge.type === 'continue'
+                                      ? `No match`
+                                      : getBranchLabel(edgeSourceAction, edge),
+                            },
+                            labelShowBg: false,
+                            targetHandle: `target_${edge.to}`,
+                            sourceHandle:
+                                edge.type === 'continue'
+                                    ? `continue_${edge.from}`
+                                    : `branch_${edge.from}_${edge.index}`,
                         }
-                    }
+                    })
 
-                    return {
-                        // Only these values are set by the user
-                        source: edge.from,
-                        target: edge.to,
+                    const handlesByIdByNodeId: Record<string, Record<string, StepViewNodeHandle>> = {}
 
-                        // All other values are derived
-                        id: getEdgeId(edge),
-                        type: 'smart',
-                        deletable: false,
-                        reconnectable: false,
-                        selectable: false,
-                        focusable: false,
-                        markerEnd: {
-                            type: MarkerType.ArrowClosed,
-                        },
-                        data: {
-                            edge,
-                            label: isOnlyEdgeForNode
-                                ? undefined
-                                : edge.type === 'continue'
-                                  ? `No match`
-                                  : `If ${branchResourceName()} matches`,
-                        },
-                        labelShowBg: false,
-                        targetHandle: `target_${edge.to}`,
-                        sourceHandle:
-                            edge.type === 'continue' ? `continue_${edge.from}` : `branch_${edge.from}_${edge.index}`,
-                    }
-                })
-
-                const handlesByIdByNodeId: Record<string, Record<string, StepViewNodeHandle>> = {}
-
-                edges.forEach((edge) => {
-                    if (!handlesByIdByNodeId[edge.source]) {
-                        handlesByIdByNodeId[edge.source] = {}
-                    }
-                    if (!handlesByIdByNodeId[edge.target]) {
-                        handlesByIdByNodeId[edge.target] = {}
-                    }
-
-                    handlesByIdByNodeId[edge.source][edge.sourceHandle ?? ''] = {
-                        id: edge.sourceHandle,
-                        type: 'source',
-                        position: Position.Bottom,
-                        ...BOTTOM_HANDLE_POSITION,
-                    }
-
-                    handlesByIdByNodeId[edge.target][edge.targetHandle ?? ''] = {
-                        id: edge.targetHandle,
-                        type: 'target',
-                        position: Position.Top,
-                        ...TOP_HANDLE_POSITION,
-                    }
-                })
-
-                const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
-                    const step = getHogFlowStep(action, values.hogFunctionTemplatesById)
-
-                    if (!step) {
-                        // Migrate old function actions to the basic functon action type
-                        if (action.type.startsWith('function_')) {
-                            action.type = 'function'
+                    edges.forEach((edge) => {
+                        if (!handlesByIdByNodeId[edge.source]) {
+                            handlesByIdByNodeId[edge.source] = {}
                         }
-                    }
+                        if (!handlesByIdByNodeId[edge.target]) {
+                            handlesByIdByNodeId[edge.target] = {}
+                        }
 
-                    return {
-                        id: action.id,
-                        type: 'action',
-                        data: action,
-                        position: { x: 0, y: 0 },
-                        handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
-                        deletable: !['trigger', 'exit'].includes(action.type),
-                        selectable: true,
-                        draggable: false,
-                        connectable: false,
-                    }
-                })
+                        handlesByIdByNodeId[edge.source][edge.sourceHandle ?? ''] = {
+                            id: edge.sourceHandle,
+                            type: 'source',
+                            position: Position.Bottom,
+                            ...BOTTOM_HANDLE_POSITION,
+                        }
 
-                actions.setEdges(edges)
-                actions.setNodes(nodes)
-            } catch (error) {
-                console.error('Error resetting flow from hog flow', error)
-                lemonToast.error('Error updating workflow')
-            }
-        },
+                        handlesByIdByNodeId[edge.target][edge.targetHandle ?? ''] = {
+                            id: edge.targetHandle,
+                            type: 'target',
+                            position: Position.Top,
+                            ...TOP_HANDLE_POSITION,
+                        }
+                    })
 
-        setNodes: async ({ nodes }) => {
-            const formattedNodes = await getFormattedNodes(nodes, values.edges)
+                    const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
+                        const step = getHogFlowStep(action, values.hogFunctionTemplatesById)
 
-            actions.setNodesRaw(formattedNodes)
-        },
+                        if (!step) {
+                            // Migrate old function actions to the basic functon action type
+                            if (action.type.startsWith('function_')) {
+                                action.type = 'function'
+                            }
+                        }
 
-        onNodesDelete: ({ deleted }) => {
-            if (deleted.some((node) => node.id === values.selectedNodeId)) {
-                actions.setSelectedNodeId(null)
-            }
+                        return {
+                            id: action.id,
+                            type: 'action',
+                            data: action,
+                            position: { x: 0, y: 0 },
+                            handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
+                            deletable: !['trigger', 'exit'].includes(action.type),
+                            selectable: true,
+                            draggable: false,
+                            connectable: false,
+                        }
+                    })
 
-            const deletedNodeIds = deleted.map((node) => node.id)
+                    actions.setEdges(edges)
+                    actions.setNodes(nodes)
+                } catch (error) {
+                    console.error('Error resetting flow from hog flow', error)
+                    lemonToast.error('Error updating workflow')
+                }
+            },
 
-            // Find all edges connected to the deleted node then reconnect them to avoid orphaned nodes
-            const updatedEdges = values.workflow.edges
-                .map((hogFlowEdge) => {
-                    if (deletedNodeIds.includes(hogFlowEdge.to)) {
-                        // Find the deleted node
-                        const deletedNode = deleted.find((node) => node.id === hogFlowEdge.to)
-                        if (deletedNode) {
-                            // Find the first outgoer of the deleted node
-                            const outgoers = getOutgoers(deletedNode, values.nodes, values.edges)
-                            if (outgoers.length > 0) {
-                                // Change target to the first outgoer
-                                return {
-                                    ...hogFlowEdge,
-                                    to: outgoers[0].id,
+            setNodes: async ({ nodes }) => {
+                const formattedNodes = await getFormattedNodes(nodes, values.edges)
+
+                actions.setNodesRaw(formattedNodes)
+            },
+
+            onNodesDelete: ({ deleted }) => {
+                if (deleted.some((node) => node.id === values.selectedNodeId)) {
+                    actions.setSelectedNodeId(null)
+                }
+
+                const deletedNodeIds = deleted.map((node) => node.id)
+
+                // Find all edges connected to the deleted node then reconnect them to avoid orphaned nodes
+                const updatedEdges = values.workflow.edges
+                    .map((hogFlowEdge) => {
+                        if (deletedNodeIds.includes(hogFlowEdge.to)) {
+                            // Find the deleted node
+                            const deletedNode = deleted.find((node) => node.id === hogFlowEdge.to)
+                            if (deletedNode) {
+                                // Find the first outgoer of the deleted node
+                                const outgoers = getOutgoers(deletedNode, values.nodes, values.edges)
+                                if (outgoers.length > 0) {
+                                    // Change target to the first outgoer
+                                    return {
+                                        ...hogFlowEdge,
+                                        to: outgoers[0].id,
+                                    }
                                 }
                             }
                         }
+                        return hogFlowEdge
+                    })
+                    .filter(
+                        (hogFlowEdge) =>
+                            !deletedNodeIds.includes(hogFlowEdge.from) && !deletedNodeIds.includes(hogFlowEdge.to)
+                    )
+
+                // Update workflow actions to match the new flow
+                const updatedActions = values.workflow.actions.filter((action) => !deletedNodeIds.includes(action.id))
+
+                actions.setWorkflowInfo({ actions: updatedActions, edges: updatedEdges })
+            },
+
+            showDropzones: () => {
+                const { nodes, edges, isMovingNode, movingNodeId } = values
+
+                const dropzoneNodes: DropzoneNode[] = []
+
+                const skipEdgeIds: Set<string> = new Set()
+                if (isMovingNode && movingNodeId) {
+                    const incomingEdges = edges.filter((e) => e.target === movingNodeId)
+                    const outgoingEdges = edges.filter((e) => e.source === movingNodeId)
+                    // Only skip in the simple linear case (1 incoming, 1 outgoing)
+                    // where placing on adjacent edges would result in the same position
+                    if (incomingEdges.length === 1 && outgoingEdges.length === 1) {
+                        skipEdgeIds.add(incomingEdges[0].id)
+                        skipEdgeIds.add(outgoingEdges[0].id)
                     }
-                    return hogFlowEdge
-                })
-                .filter(
-                    (hogFlowEdge) =>
-                        !deletedNodeIds.includes(hogFlowEdge.from) && !deletedNodeIds.includes(hogFlowEdge.to)
-                )
-
-            // Update workflow actions to match the new flow
-            const updatedActions = values.workflow.actions.filter((action) => !deletedNodeIds.includes(action.id))
-
-            actions.setWorkflowInfo({ actions: updatedActions, edges: updatedEdges })
-        },
-
-        onDragStart: () => {
-            const { nodes, edges } = values
-
-            const dropzoneNodes: Node<{ edge: Edge }>[] = []
-
-            edges.forEach((edge) => {
-                const sourceNode = nodes.find((n) => n.id === edge.source)
-                const targetNode = nodes.find((n) => n.id === edge.target)
-
-                if (sourceNode && targetNode) {
-                    const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
-                    const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
-
-                    const [, labelX, labelY] = getSmartStepPath({
-                        sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
-                        sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
-                        targetX: targetNode.position.x + (targetHandle?.x || 0),
-                        targetY: targetNode.position.y + (targetHandle?.y || 0),
-                        edges,
-                        currentEdgeId: edge.id,
-                    })
-
-                    dropzoneNodes.push({
-                        id: `dropzone_edge_${edge.id}`,
-                        type: 'dropzone',
-                        position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
-                        data: {
-                            edge,
-                        },
-                        draggable: false,
-                        selectable: false,
-                    })
-                }
-            })
-
-            actions.setDropzoneNodes(dropzoneNodes)
-        },
-
-        onDragOver: ({ event }) => {
-            event.preventDefault()
-            event.dataTransfer.dropEffect = 'move'
-        },
-
-        onDrop: ({ event }) => {
-            event.preventDefault()
-            const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
-
-            if (values.newDraggingNode && dropzoneNode) {
-                const edgeToInsertNodeInto = dropzoneNode?.data.edge
-                const partialNewAction = values.newDraggingNode
-
-                const newAction = {
-                    id: `action_${partialNewAction.type}_${uuid()}`,
-                    type: partialNewAction.type,
-                    name: partialNewAction.name,
-                    description: partialNewAction.description,
-                    config: partialNewAction.config,
-                    created_at: Date.now(),
-                    updated_at: Date.now(),
-                } as HogFlowAction
-
-                const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
-
-                const branchEdges = partialNewAction.branchEdges ?? 0
-
-                if (!step) {
-                    throw new Error(`Step not found for action type: ${newAction}`)
                 }
 
-                const edgeToBeReplacedIndex = values.workflow.edges.findIndex(
-                    (edge) => getEdgeId(edge) === edgeToInsertNodeInto.id
-                )
+                edges.forEach((edge) => {
+                    if (skipEdgeIds.has(edge.id)) {
+                        return
+                    }
+                    const sourceNode = nodes.find((n) => n.id === edge.source)
+                    const targetNode = nodes.find((n) => n.id === edge.target)
 
-                if (edgeToBeReplacedIndex === -1) {
-                    throw new Error('Edge to be replaced not found')
-                }
+                    if (sourceNode && targetNode) {
+                        const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
+                        const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
 
-                // We add the new action with two new edges - the continue edge and the target edge
-                // We also then check for any other missing edges based on the
+                        const [, labelX, labelY] = getSmartStepPath({
+                            sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
+                            sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
+                            targetX: targetNode.position.x + (targetHandle?.x || 0),
+                            targetY: targetNode.position.y + (targetHandle?.y || 0),
+                            edges,
+                            currentEdgeId: edge.id,
+                        })
 
-                const newEdges: HogFlow['edges'] = [...values.workflow.edges]
+                        dropzoneNodes.push({
+                            id: `dropzone_edge_${edge.id}`,
+                            type: 'dropzone',
+                            position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                            data: {
+                                edge,
+                            },
+                            draggable: false,
+                            selectable: false,
+                        })
 
-                // First remove the edge to be replaced
-                const edgeToBeReplaced = values.workflow.edges[edgeToBeReplacedIndex]
+                        // If multiple edges share the same target, add a single dropzone near the target node
+                        // to allow branch convergence (fan-in). This covers both branch edges directly
+                        // from a conditional node and continue edges from downstream nodes in parallel paths.
+                        const hasSiblingEdges = edges.filter((e) => e.data?.edge.to === edge.target).length > 1
+                        if (hasSiblingEdges) {
+                            // Use an ID that we can consistently look up for the branch join point to avoid duplicate dropzones
+                            const branchJoinDropzoneTargetId = `dropzone_target_${edge.target}_branch_join`
+                            // Avoid duplicating dropzones for multiple branch edges to the same target
+                            if (dropzoneNodes.find((n) => n.id === branchJoinDropzoneTargetId)) {
+                                return
+                            }
 
-                newEdges.splice(edgeToBeReplacedIndex, 1)
-
-                // Push the source edge first
-                newEdges.push({
-                    ...edgeToBeReplaced,
-                    to: newAction.id,
+                            // Add a dropzone near the target node to allow merging parallel branches
+                            dropzoneNodes.push({
+                                id: branchJoinDropzoneTargetId,
+                                type: 'dropzone',
+                                position: {
+                                    x: targetNode.position.x,
+                                    y: targetNode.position.y - NODE_HEIGHT,
+                                },
+                                data: {
+                                    edge,
+                                    isBranchJoinDropzone: true,
+                                },
+                                draggable: false,
+                                selectable: false,
+                            })
+                        }
+                    }
                 })
 
-                // Then any branch edges
-                for (let i = 0; i < branchEdges; i++) {
-                    // Add in branching edges
+                actions.setDropzoneNodes(dropzoneNodes)
+            },
+
+            hideDropzones: () => {
+                actions.setDropzoneNodes([])
+            },
+
+            onDragOver: ({ event }) => {
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+            },
+
+            onDrop: ({ event }) => {
+                event?.preventDefault()
+                const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
+
+                if (values.nodeToBeAdded && dropzoneNode) {
+                    const edgeToInsertNodeInto = dropzoneNode?.data.edge
+
+                    // Check if nodeToBeAdded is a HogFlowActionNode (has 'data' property) or CreateActionType
+                    const isHogFlowActionNode = 'data' in values.nodeToBeAdded
+                    const partialNewAction = isHogFlowActionNode
+                        ? (values.nodeToBeAdded as HogFlowActionNode).data
+                        : (values.nodeToBeAdded as CreateActionType)
+
+                    const newAction = {
+                        id: isHogFlowActionNode
+                            ? (values.nodeToBeAdded as HogFlowActionNode).id
+                            : `action_${partialNewAction.type}_${uuid()}`,
+                        type: partialNewAction.type,
+                        name: partialNewAction.name,
+                        description: partialNewAction.description,
+                        config: partialNewAction.config,
+                        created_at: Date.now(),
+                        updated_at: Date.now(),
+                        ...(!isHogFlowActionNode && (partialNewAction as CreateActionType).output_variable
+                            ? { output_variable: (partialNewAction as CreateActionType).output_variable }
+                            : {}),
+                    } as HogFlowAction
+
+                    const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
+
+                    const branchEdges = isHogFlowActionNode
+                        ? 0
+                        : ((partialNewAction as CreateActionType).branchEdges ?? 0)
+                    const isBranchJoinDropzone = dropzoneNode?.data.isBranchJoinDropzone ?? false
+
+                    if (!step) {
+                        throw new Error(`Step not found for action type: ${newAction}`)
+                    }
+
+                    let edgesToBeReplacedIndexes = []
+
+                    if (isBranchJoinDropzone) {
+                        // There are multiple edges that need to be replaced here to join the branches on new node
+
+                        /**
+                         * If isBranchJoinDropzone is set, we know to connect this new node on top with all previous target's sources
+                         * and below with the original edges' shared target
+                         */
+                        edgesToBeReplacedIndexes = values.workflow.edges
+                            .map((edge, index) => ({
+                                edge,
+                                index,
+                            }))
+                            .filter(({ edge }) => edge.to === edgeToInsertNodeInto.target)
+                            .map(({ index }) => index)
+                    } else {
+                        // There is just the one *very specific* (i.e. getEdgeId must be used) target edge that needs to be replaced
+                        edgesToBeReplacedIndexes = [
+                            values.workflow.edges.findIndex((edge) => getEdgeId(edge) === edgeToInsertNodeInto.id),
+                        ]
+                    }
+
+                    if (edgesToBeReplacedIndexes.length === 0) {
+                        throw new Error('Edge to be replaced not found')
+                    }
+
+                    // We add the new action with two new edges - the continue edge and the target edge
+                    // We also then check for any other missing edges based on the type of edge being replaced
+
+                    const newEdges: HogFlow['edges'] = [...values.workflow.edges]
+
+                    // First remove the edge to be replaced
+                    const edgesToBeReplaced = edgesToBeReplacedIndexes.map((index) => values.workflow.edges[index])
+
+                    // Sort indexes in descending order to avoid index shifting during removal
+                    edgesToBeReplacedIndexes
+                        .sort((a, b) => b - a)
+                        .forEach((index) => {
+                            newEdges.splice(index, 1)
+                        })
+
+                    for (const edgeToBeReplaced of edgesToBeReplaced) {
+                        // Push the source edge first
+                        newEdges.push({
+                            ...edgeToBeReplaced,
+                            to: newAction.id,
+                        })
+                    }
+
+                    // Then any branch edges (once, not per incoming edge)
+                    for (let i = 0; i < branchEdges; i++) {
+                        // Add in branching edges
+                        newEdges.push({
+                            ...edgesToBeReplaced[0],
+                            index: i,
+                            type: 'branch',
+                            from: newAction.id,
+                        })
+                    }
+
+                    // Finally the last continue edge
                     newEdges.push({
-                        ...edgeToBeReplaced,
-                        index: i,
-                        type: 'branch',
+                        ...edgesToBeReplaced[0],
+                        index: undefined,
+                        type: 'continue',
                         from: newAction.id,
                     })
+
+                    // Auto-create workflow variables if the action has a default output_variable
+                    let updatedVariables = values.workflow.variables
+                    const outputVars = Array.isArray(newAction.output_variable)
+                        ? newAction.output_variable
+                        : newAction.output_variable
+                          ? [newAction.output_variable]
+                          : []
+
+                    for (const outputVar of outputVars) {
+                        if (!outputVar.key) {
+                            continue
+                        }
+                        const prefix = outputVar.key
+                        if (outputVar.spread) {
+                            // Create individual variables for each expected property
+                            const spreadFields: [string, string][] = [
+                                ['status', 'Status'],
+                                ['priority', 'Priority'],
+                                ['number', 'Number'],
+                                ['channel_source', 'Channel source'],
+                                ['last_message_at', 'Last message at'],
+                                ['last_message_text', 'Last message text'],
+                                ['unread_team_count', 'Unread team'],
+                                ['unread_customer_count', 'Unread customer'],
+                                ['sla', 'SLA'],
+                                ['assignee', 'Assignee'],
+                                ['url', 'URL'],
+                                ['tags', 'Tags'],
+                                ['slack_channel_id', 'Slack channel ID'],
+                                ['slack_thread_ts', 'Slack thread timestamp'],
+                                ['slack_team_id', 'Slack team ID'],
+                                ['email_subject', 'Email subject'],
+                                ['email_from', 'Email from'],
+                                ['email_to', 'Email to'],
+                                ['cc_participants', 'CC participants'],
+                            ]
+
+                            const newVars = spreadFields
+                                .map(([prop, label]) => ({
+                                    key: `${prefix}_${prop}`,
+                                    label,
+                                    type: 'string' as const,
+                                    default: '',
+                                }))
+                                .filter(({ key }) => !updatedVariables?.some((v) => v.key === key))
+
+                            if (newVars.length > 0) {
+                                updatedVariables = [...(updatedVariables || []), ...newVars]
+                            }
+                        } else if (!updatedVariables?.some((v) => v.key === prefix)) {
+                            updatedVariables = [
+                                ...(updatedVariables || []),
+                                { key: prefix, label: prefix, type: 'string' as const, default: '' },
+                            ]
+                        }
+                    }
+
+                    const oldActions = values.workflow.actions
+                    const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
+
+                    actions.setWorkflowInfo({ actions: newActions, edges: newEdges, variables: updatedVariables })
+                    actions.setNodeToBeAdded(null)
+                    actions.setSelectedNodeId(newAction.id)
+                }
+                // We can clear the dropzones now
+                actions.hideDropzones()
+            },
+            setReactFlowInstance: () => {
+                // TRICKY: Slight race condition here where the react flow instance is not set yet
+                setTimeout(() => {
+                    actions.fitView({ duration: 0 })
+                }, 100)
+            },
+            setSelectedNodeId: ({ selectedNodeId }) => {
+                if (selectedNodeId) {
+                    actions.fitView({ noZoom: true })
+                }
+            },
+            fitView: ({ duration, noZoom }) => {
+                const { reactFlowWrapper, reactFlowInstance } = values
+                if (!reactFlowWrapper?.current || !reactFlowInstance) {
+                    return
+                }
+                // This is a rough estimate which we could improve by getting from the actual panel
+                const PANEL_WIDTH = 580
+                // Get the width of the wrapper
+                const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect()?.width ?? 0
+                // Get the width of the thing we are going to fit to the view
+                const nodesWidth =
+                    reactFlowInstance.getNodesBounds(values.selectedNode ? [values.selectedNode] : values.nodes)
+                        ?.width ?? 0
+                // Adjust the width for the zoom factor to be relative to the wrapper width
+                const nodesWidthAdjusted = nodesWidth * reactFlowInstance.getZoom()
+                // Calculate the padding right to fit the panel width to the wrapper width
+                // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
+                const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - PANEL_WIDTH) / 2
+
+                reactFlowInstance.fitView({
+                    padding: {
+                        right: `${paddingRight}px`,
+                    },
+                    maxZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
+                    minZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
+                    nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
+                    duration: duration ?? 100,
+                })
+            },
+            startCopyingNode: () => {
+                actions.showDropzones()
+            },
+            stopCopyingNode: () => {
+                actions.hideDropzones()
+            },
+            copyNodeToHighlightedDropzone: () => {
+                actions.onDrop()
+                actions.stopCopyingNode()
+            },
+            startMovingNode: () => {
+                actions.showDropzones()
+            },
+            stopMovingNode: () => {
+                actions.hideDropzones()
+            },
+            moveNodeToHighlightedDropzone: () => {
+                // Uses computeMoveEdges (pure function) to manipulate edges in a single
+                // setWorkflowInfo call rather than onNodesDelete + onDrop (like copy does).
+                // This preserves node identity and avoids a race condition where two async
+                // layout computations from separate setWorkflowInfo calls complete out of order.
+                const movingNodeId = values.movingNodeId!
+                const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
+                if (!dropzoneNode) {
+                    actions.stopMovingNode()
+                    return
                 }
 
-                // Finally the continue edge
-                newEdges.push({
-                    ...edgeToBeReplaced,
-                    index: undefined,
-                    type: 'continue',
-                    from: newAction.id,
-                })
+                const targetHogFlowEdge = dropzoneNode.data.edge.data?.edge
+                if (!targetHogFlowEdge) {
+                    actions.stopMovingNode()
+                    return
+                }
 
-                const oldActions = values.workflow.actions
-                const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
+                const isBranchJoinDropzone = dropzoneNode.data.isBranchJoinDropzone ?? false
+                const newEdges = computeMoveEdges(
+                    values.workflow.edges,
+                    movingNodeId,
+                    targetHogFlowEdge,
+                    isBranchJoinDropzone
+                )
 
-                actions.setWorkflowInfo({ actions: newActions, edges: newEdges })
-                actions.setNewDraggingNode(null)
-                actions.setSelectedNodeId(newAction.id)
-            }
-            // We can clear the dropzones now
-            actions.setDropzoneNodes([])
-        },
-        setReactFlowInstance: () => {
-            // TRICKY: Slight race condition here where the react flow instance is not set yet
-            setTimeout(() => {
-                actions.fitView({ duration: 0 })
-            }, 100)
-        },
-        setSelectedNodeId: ({ selectedNodeId }) => {
-            if (selectedNodeId) {
-                actions.fitView({ noZoom: true })
-            }
-        },
-        fitView: ({ duration, noZoom }) => {
-            const { reactFlowWrapper, reactFlowInstance } = values
-            if (!reactFlowWrapper?.current || !reactFlowInstance) {
-                return
-            }
-            // This is a rough estimate which we could improve by getting from the actual panel
-            const PANEL_WIDTH = 580
-            // Get the width of the wrapper
-            const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect()?.width ?? 0
-            // Get the width of the thing we are going to fit to the view
-            const nodesWidth =
-                reactFlowInstance.getNodesBounds(values.selectedNode ? [values.selectedNode] : values.nodes)?.width ?? 0
-            // Adjust the width for the zoom factor to be relative to the wrapper width
-            const nodesWidthAdjusted = nodesWidth * reactFlowInstance.getZoom()
-            // Calculate the padding right to fit the panel width to the wrapper width
-            // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
-            const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - PANEL_WIDTH) / 2
+                if (!newEdges) {
+                    actions.stopMovingNode()
+                    return
+                }
 
-            reactFlowInstance.fitView({
-                padding: {
-                    right: `${paddingRight}px`,
-                },
-                maxZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
-                minZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
-                nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
-                duration: duration ?? 100,
-            })
-        },
-    })),
+                actions.setWorkflowInfo({ actions: values.workflow.actions, edges: newEdges })
+                actions.setSelectedNodeId(movingNodeId)
+                actions.hideDropzones()
+                actions.stopMovingNode()
+            },
+            handlePaneClick: () => {
+                actions.setSelectedNodeId(null)
+                if (values.isCopyingNode) {
+                    actions.stopCopyingNode()
+                }
+                if (values.isMovingNode) {
+                    actions.stopMovingNode()
+                }
+            },
+        }
+    }),
 
     subscriptions(({ actions }) => ({
         workflow: (hogFlow?: HogFlow) => {
@@ -573,7 +924,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const syncProperty = (
             key: string,
             value: string | null
@@ -593,7 +944,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             setMode: () => syncProperty('mode', values.mode),
         }
     }),
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
             const { node = null, mode } = search
             if (node !== values.selectedNodeId) {
@@ -608,4 +959,29 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             [urls.workflow(':id', ':tab')]: reactToTabChange,
         }
     }),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            const handleKeyDown = (e: KeyboardEvent): void => {
+                if (e.key === 'Escape') {
+                    if (values.isCopyingNode) {
+                        actions.stopCopyingNode()
+                    }
+                    if (values.isMovingNode) {
+                        actions.stopMovingNode()
+                    }
+                }
+            }
+
+            document.addEventListener('keydown', handleKeyDown)
+
+            // Store the handler so we can clean it up
+            ;(actions as any)._keydownHandler = handleKeyDown
+        },
+        beforeUnmount: () => {
+            const handler = (actions as any)._keydownHandler
+            if (handler) {
+                document.removeEventListener('keydown', handler)
+            }
+        },
+    })),
 ])

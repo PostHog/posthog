@@ -5,6 +5,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.types import StreamWriter
 
+from posthog.schema import AssistantToolCall
+
 from ee.hogai.utils.types.base import (
     AssistantActionUnion,
     AssistantDispatcherEvent,
@@ -75,7 +77,7 @@ class AssistantDispatcher:
         """
         self.dispatch(MessageAction(message=message))
 
-    def update(self, content: str):
+    def update(self, content: str | AssistantToolCall):
         """Dispatch a transient update message to the stream that will be associated with a tool call in the UI."""
         self.dispatch(UpdateAction(content=content))
 

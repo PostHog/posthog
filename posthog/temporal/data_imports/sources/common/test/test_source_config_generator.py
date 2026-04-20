@@ -5,7 +5,6 @@ from posthog.test.base import ClickhouseTestMixin
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
@@ -13,6 +12,7 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
@@ -75,7 +75,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         label="select label",
                         required=True,
                         defaultValue="1",
-                        options=[Option(label="Yes", value="1"), Option(label="No", value="0")],
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="1"),
+                            SourceFieldSelectConfigOption(label="No", value="0"),
+                        ],
                     ),
                     SourceFieldSelectConfig(
                         name="select_with_fields",
@@ -83,7 +86,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         required=True,
                         defaultValue="1",
                         options=[
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 1",
                                 value="option_1",
                                 fields=cast(
@@ -99,7 +102,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     ],
                                 ),
                             ),
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 2",
                                 value="option_2",
                                 fields=cast(
@@ -313,7 +316,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         required=True,
                         defaultValue="option_1",
                         options=[
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 1",
                                 value="option_1",
                                 fields=cast(
@@ -329,7 +332,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     ],
                                 ),
                             ),
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 2",
                                 value="option_2",
                                 fields=cast(
@@ -370,7 +373,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         label="select label",
                         required=True,
                         defaultValue="1",
-                        options=[Option(label="Yes", value="1"), Option(label="No", value="0")],
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="1"),
+                            SourceFieldSelectConfigOption(label="No", value="0"),
+                        ],
                     ),
                 ],
             ),
@@ -417,6 +423,31 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
 
         output = self._run({ExternalDataSourceType.STRIPE: config})
         assert "int_value: int = config.value(converter=int)" in output
+
+    def test_source_config_optional_number_uses_str_to_optional_int(self):
+        """Optional NUMBER fields should use str_to_optional_int to handle empty strings from frontend."""
+        config = SourceConfig(
+            name=SchemaExternalDataSourceType.STRIPE,
+            iconPath="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="optional_int_value",
+                        label="optional int",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder="90",
+                    ),
+                ],
+            ),
+        )
+
+        output = self._run({ExternalDataSourceType.STRIPE: config})
+        assert (
+            "optional_int_value: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)"
+            in output
+        )
 
     def test_source_config_nested_class(self):
         config = SourceConfig(

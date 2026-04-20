@@ -2,10 +2,12 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,12 +16,17 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { isValidBreakdown } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
-import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
+import {
+    AggregationColumnItem,
+    AggregationColumnTitle,
+    CALC_COLUMN_LABELS,
+    getAggregatedValue,
+} from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
@@ -29,6 +36,8 @@ import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColum
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
+
+export const MAX_VALUE_COLUMNS = 100
 
 export interface InsightsTableProps {
     /** Key for the entityFilterLogic */
@@ -70,7 +79,7 @@ export function InsightsTable({
     isMainInsightView = false,
     editMode,
 }: InsightsTableProps): JSX.Element {
-    const { insightProps, isInDashboardContext, insight, editingDisabledReason } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -82,15 +91,19 @@ export function InsightsTable({
         interval,
         breakdownFilter,
         trendsFilter,
-        isSingleSeries,
+        isSingleSeriesDefinition,
         getTrendsColor,
         getTrendsHidden,
         insightData,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
-    const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
-    const { setDetailedResultsAggregationType } = useActions(insightsTableDataLogic(insightProps))
-    const { weekStartDay, timezone } = useValues(teamLogic)
+    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned, getPreviousResult, displayResults } =
+        useValues(insightsTableDataLogic(insightProps))
+    const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
+    const { weekStartDay, timezone, baseCurrency } = useValues(teamLogic)
+    const [maxVisibleColumns, setMaxVisibleColumns] = useState(MAX_VALUE_COLUMNS)
+
+    const isCompareTable = isMainInsightView && !!compareFilter?.compare
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -108,11 +121,33 @@ export function InsightsTable({
     const hasCheckboxes =
         isLegend &&
         (!display ||
-            ![ChartDisplayType.BoldNumber, ChartDisplayType.WorldMap, ChartDisplayType.CalendarHeatmap].includes(
-                display
-            ))
+            ![
+                ChartDisplayType.BoldNumber,
+                ChartDisplayType.WorldMap,
+                ChartDisplayType.CalendarHeatmap,
+                ChartDisplayType.BoxPlot,
+            ].includes(display))
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
+
+    // When there's only one series definition and a single breakdown, the "Series" column would
+    // redundantly show the same event name on every row. Instead, merge the breakdown
+    // info into the first column and skip the separate "Breakdown" column.
+    const isSingleSeriesWithBreakdown =
+        isSingleSeriesDefinition &&
+        isValidBreakdown(breakdownFilter) &&
+        !(breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 1)
+
+    const formatItemBreakdownLabel = isValidBreakdown(breakdownFilter)
+        ? (item: IndexedTrendResult): string =>
+              formatBreakdownLabel(
+                  Array.isArray(item.breakdown_value) ? item.breakdown_value[0] : item.breakdown_value,
+                  breakdownFilter,
+                  allCohorts?.results,
+                  formatPropertyValueForDisplay,
+                  breakdownFilter.breakdowns ? 0 : undefined
+              )
+        : undefined
 
     columns.push({
         title: (
@@ -123,24 +158,44 @@ export function InsightsTable({
                         canCheckUncheckSeries={canCheckUncheckSeries}
                         getTrendsHidden={getTrendsHidden}
                         toggleAllResultsHidden={toggleAllResultsHidden}
-                        disabledReason={editingDisabledReason}
+                        disabledReason={
+                            !canCheckUncheckSeries ? 'You need editor access to modify this insight.' : undefined
+                        }
                     />
                 )}
-                <span>Series</span>
+                {isSingleSeriesWithBreakdown ? (
+                    breakdownFilter?.breakdown ? (
+                        <BreakdownColumnTitle breakdownFilter={breakdownFilter} />
+                    ) : (
+                        <MultipleBreakdownColumnTitle>
+                            {extractDisplayLabel(breakdownFilter?.breakdowns?.[0]?.property?.toString() ?? '')}
+                        </MultipleBreakdownColumnTitle>
+                    )
+                ) : (
+                    <span>Series</span>
+                )}
             </div>
         ),
         render: (_, item) => {
-            const label = (
+            const label = isSingleSeriesWithBreakdown ? (
+                <BreakdownColumnItem
+                    item={item}
+                    formatItemBreakdownLabel={formatItemBreakdownLabel!}
+                    breakdownFilter={breakdownFilter}
+                />
+            ) : (
                 <SeriesColumnItem
                     item={item}
                     indexedResults={indexedResults}
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     seriesNameTooltip={seriesNameTooltip}
                     handleEditClick={handleSeriesEditClick}
-                    hasMultipleSeries={!isSingleSeries}
+                    hasMultipleSeries={!isSingleSeriesDefinition}
                     hasBreakdown={isValidBreakdown(breakdownFilter)}
+                    hideCompare={isCompareTable}
                 />
             )
+
             return hasCheckboxes ? (
                 <SeriesCheckColumnItem
                     item={item}
@@ -148,7 +203,9 @@ export function InsightsTable({
                     isHidden={getTrendsHidden(item)}
                     toggleResultHidden={toggleResultHidden}
                     label={<div className="ml-2 font-normal">{label}</div>}
-                    disabledReason={editingDisabledReason}
+                    disabledReason={
+                        !canCheckUncheckSeries ? 'You need editor access to modify this insight.' : undefined
+                    }
                 />
             ) : (
                 label
@@ -156,36 +213,47 @@ export function InsightsTable({
         },
         key: 'label',
         sorter: (a, b) => {
+            if (isSingleSeriesWithBreakdown) {
+                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
+                    return a.breakdown_value - b.breakdown_value
+                }
+                return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
+            }
+
             const labelA = a.action?.name || a.label || ''
             const labelB = b.action?.name || b.label || ''
             return labelA.localeCompare(labelB)
         },
     })
 
-    if (breakdownFilter?.breakdown) {
-        const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
-            formatBreakdownLabel(
-                item.breakdown_value,
-                breakdownFilter,
-                allCohorts?.results,
-                formatPropertyValueForDisplay
-            )
-
-        columns.push({
-            title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
-            render: (_, item) => {
-                return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
-            },
-            key: 'breakdown',
-            sorter: (a, b) => {
-                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
-                    return a.breakdown_value - b.breakdown_value
-                }
-                const labelA = formatItemBreakdownLabel(a)
-                const labelB = formatItemBreakdownLabel(b)
-                return compareFn()(labelA, labelB)
-            },
-        })
+    if (isValidBreakdown(breakdownFilter) && breakdownFilter.breakdown) {
+        if (!isSingleSeriesWithBreakdown) {
+            columns.push({
+                title: (
+                    <BreakdownColumnTitle
+                        breakdownFilter={breakdownFilter}
+                        isPinned={isColumnPinned('breakdown')}
+                        onTogglePin={() => toggleColumnPin('breakdown')}
+                    />
+                ),
+                render: (_, item) => {
+                    return (
+                        <BreakdownColumnItem
+                            item={item}
+                            formatItemBreakdownLabel={formatItemBreakdownLabel!}
+                            breakdownFilter={breakdownFilter}
+                        />
+                    )
+                },
+                key: 'breakdown',
+                sorter: (a, b) => {
+                    if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
+                        return a.breakdown_value - b.breakdown_value
+                    }
+                    return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
+                },
+            })
+        }
 
         if (isTrends && display === ChartDisplayType.WorldMap) {
             columns.push({
@@ -199,7 +267,7 @@ export function InsightsTable({
                 },
             })
         }
-    } else if (breakdownFilter?.breakdowns) {
+    } else if (breakdownFilter?.breakdowns && !isSingleSeriesWithBreakdown) {
         breakdownFilter.breakdowns.forEach((breakdown, index) => {
             const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
                 formatBreakdownLabel(
@@ -210,16 +278,26 @@ export function InsightsTable({
                     index
                 )
 
+            const columnKey = `breakdown-${breakdown.property?.toString() || index}`
             columns.push({
                 title: (
-                    <MultipleBreakdownColumnTitle>
-                        {extractExpressionComment(breakdown.property?.toString())}
+                    <MultipleBreakdownColumnTitle
+                        isPinned={isColumnPinned(columnKey)}
+                        onTogglePin={() => toggleColumnPin(columnKey)}
+                    >
+                        {extractDisplayLabel(breakdown.property?.toString())}
                     </MultipleBreakdownColumnTitle>
                 ),
                 render: (_, item) => {
-                    return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                    return (
+                        <BreakdownColumnItem
+                            item={item}
+                            formatItemBreakdownLabel={formatItemBreakdownLabel}
+                            breakdownFilter={breakdownFilter}
+                        />
+                    )
                 },
-                key: `breakdown-${breakdown.property?.toString() || index}`,
+                key: columnKey,
                 sorter: (a, b) => {
                     const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
                     const rightValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[index] : b.breakdown_value
@@ -267,15 +345,55 @@ export function InsightsTable({
                 />
             ),
 
-            sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
+            sorter: (a, b) =>
+                (getAggregatedValue(a, aggregation, isNonTimeSeriesDisplay) ?? 0) -
+                (getAggregatedValue(b, aggregation, isNonTimeSeriesDisplay) ?? 0),
             dataIndex: 'count',
             align: 'right',
         })
+
+        if (isCompareTable) {
+            columns.push({
+                title: <span>Previous {CALC_COLUMN_LABELS[aggregation]}</span>,
+                render: (_: any, item: IndexedTrendResult) => {
+                    const previousItem = getPreviousResult(item)
+                    if (!previousItem) {
+                        return <span>—</span>
+                    }
+                    return (
+                        <AggregationColumnItem
+                            item={previousItem}
+                            isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+                            aggregation={aggregation}
+                            trendsFilter={trendsFilter}
+                        />
+                    )
+                },
+                sorter: (a, b) => {
+                    const prevA = getPreviousResult(a)
+                    const prevB = getPreviousResult(b)
+                    const valA = prevA ? (getAggregatedValue(prevA, aggregation, isNonTimeSeriesDisplay) ?? 0) : 0
+                    const valB = prevB ? (getAggregatedValue(prevB, aggregation, isNonTimeSeriesDisplay) ?? 0) : 0
+                    return valA - valB
+                },
+                key: 'previous',
+                align: 'right',
+            })
+        }
     }
+
+    const renderCount = useCallback(
+        (value: number) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
+        [trendsFilter, baseCurrency]
+    )
 
     const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = useMemo(() => {
         // Don't show value columns for non-time-series displays like WorldMap and Heatmap
-        if (display === ChartDisplayType.WorldMap || display === ChartDisplayType.CalendarHeatmap) {
+        if (
+            display === ChartDisplayType.WorldMap ||
+            display === ChartDisplayType.CalendarHeatmap ||
+            display === ChartDisplayType.BoxPlot
+        ) {
             return []
         }
 
@@ -297,7 +415,13 @@ export function InsightsTable({
             return aValue - bValue
         }
 
-        return results.map((_, index) => ({
+        const visibleStartIndex = Math.max(0, results.length - maxVisibleColumns)
+        const visibleDataIndices = Array.from(
+            { length: results.length - visibleStartIndex },
+            (_, i) => visibleStartIndex + i
+        )
+
+        return visibleDataIndices.map((index) => ({
             title: isStickiness ? (
                 `${interval ? capitalizeFirstLetter(interval) : 'Day'} ${index + 1}`
             ) : (
@@ -311,24 +435,59 @@ export function InsightsTable({
                     weekStartDay={weekStartDay}
                 />
             ),
-            render: (_, item: IndexedTrendResult) => {
-                return <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
-            },
+            render: (_, item: IndexedTrendResult) => (
+                <ValueColumnItem
+                    index={index}
+                    item={item}
+                    isStickiness={isStickiness}
+                    renderCount={renderCount}
+                    formatPropertyValueForDisplay={formatPropertyValueForDisplay}
+                />
+            ),
             key: `data-${index}`,
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
-    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        indexedResults,
+        renderCount,
+        formatPropertyValueForDisplay,
+        isStickiness,
+        compareFilter?.compare,
+        interval,
+        maxVisibleColumns,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const totalValueColumns = indexedResults?.[0]?.data?.length ?? 0
+    const hiddenColumns = totalValueColumns - valueColumns.length
 
     columns.push(...valueColumns)
+
+    if (hiddenColumns > 0) {
+        columns.push({
+            title: (
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    onClick={() => setMaxVisibleColumns((prev) => prev + MAX_VALUE_COLUMNS)}
+                >
+                    +{Math.min(hiddenColumns, MAX_VALUE_COLUMNS).toLocaleString()} columns
+                </LemonButton>
+            ),
+            render: () => null,
+            key: 'load-more-columns',
+        })
+    }
 
     return (
         <LemonTable
             id={isInDashboardContext ? insight.short_id : undefined}
             dataSource={
-                isLegend || isMainInsightView
-                    ? indexedResults
-                    : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
+                isMainInsightView
+                    ? displayResults
+                    : isLegend
+                      ? indexedResults
+                      : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
             }
             embedded={embedded}
             columns={columns}
@@ -351,7 +510,11 @@ export function InsightsTable({
                     : undefined
             }
             firstColumnSticky
+            pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
+            // Allow vertical scrolling so long tables inside constrained
+            // containers (dashboards, embedded views) remain scrollable.
+            allowContentScroll={isInDashboardContext || embedded}
         />
     )
 }

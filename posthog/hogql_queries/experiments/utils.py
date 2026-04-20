@@ -1,11 +1,14 @@
 from enum import Enum
 from typing import Any, TypeVar
 
+import structlog
+
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
     ExperimentStatsBase,
     ExperimentStatsBaseValidated,
     ExperimentStatsValidationFailure,
@@ -16,15 +19,44 @@ from posthog.schema import (
     SessionData,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import HogQLQueryExecutor
+
+from posthog.clickhouse.client.escape import substitute_params_for_display
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.models import Team
 
 from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
 from products.experiments.stats.shared.enums import DifferenceType
-from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
+from products.experiments.stats.shared.statistics import (
+    ProportionStatistic,
+    RatioStatistic,
+    SampleMeanStatistic,
+    StatisticError,
+)
+
+logger = structlog.get_logger(__name__)
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
+
+
+def get_experiment_query_debug(experiment_query_ast: ast.SelectQuery, team: Team) -> tuple[str, str]:
+    """
+    Generate both HogQL and ClickHouse SQL for debugging from experiment query AST.
+    Returns (hogql, clickhouse_sql) tuple.
+    """
+    executor = HogQLQueryExecutor(
+        query=experiment_query_ast,
+        team=team,
+        modifiers=create_default_modifiers_for_team(team),
+    )
+    clickhouse_sql_with_params, clickhouse_context_with_values = executor.generate_clickhouse_sql()
+    clickhouse_sql = substitute_params_for_display(clickhouse_sql_with_params, clickhouse_context_with_values.values)
+    assert executor.hogql is not None
+    return (executor.hogql, clickhouse_sql)
 
 
 def _parse_enum_config(value: Any, enum_class: type[Enum], default: Any) -> Any:
@@ -70,21 +102,22 @@ def get_experiment_stats_method(experiment) -> str:
 
 def split_baseline_and_test_variants(
     variants: list[V],
+    baseline_key: str = CONTROL_VARIANT_KEY,
 ) -> tuple[V, list[V]]:
-    control_variants = [variant for variant in variants if variant.key == CONTROL_VARIANT_KEY]
+    control_variants = [variant for variant in variants if variant.key == baseline_key]
     if not control_variants:
         raise ValueError("No control variant found")
     if len(control_variants) > 1:
         raise ValueError("Multiple control variants found")
     control_variant = control_variants[0]
-    test_variants = [variant for variant in variants if variant.key != CONTROL_VARIANT_KEY]
+    test_variants = [variant for variant in variants if variant.key != baseline_key]
 
     return control_variant, test_variants
 
 
 def get_variant_result(
     result: tuple,
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
     """
     Parse a single result row from the experiment query into a structured variant result.
@@ -117,6 +150,7 @@ def get_variant_result(
         - FunnelMetric: step_counts, [optional: step_sessions]
         - RatioMetric: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
         - MeanMetric: (no additional fields)
+        - RetentionMetric: (no additional fields)
     """
     # Determine number of breakdowns from metric definition
     num_breakdowns = 0
@@ -161,6 +195,12 @@ def get_variant_result(
             base_stats["denominator_sum"] = result[metric_fields_start_idx]
             base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
             base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
+        case ExperimentRetentionMetric():
+            # Retention metrics are treated as ratio metrics for correct significance calculations
+            # Numerator: binary completion (0 or 1), Denominator: always 1 per user who started
+            base_stats["denominator_sum"] = result[metric_fields_start_idx]
+            base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
+            base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
         case ExperimentMeanMetric():
             pass  # No additional fields beyond base_stats
 
@@ -169,7 +209,7 @@ def get_variant_result(
 
 def get_variant_results(
     sorted_results: list[tuple],
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
 ) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
     """
     Parse multiple result rows from experiment query into structured variant results.
@@ -299,7 +339,7 @@ def aggregate_variants_across_breakdowns(
 
 def validate_variant_result(
     variant_result: ExperimentStatsBase,
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     is_baseline=False,
 ) -> ExperimentStatsBaseValidated:
     validation_failures = []
@@ -307,7 +347,7 @@ def validate_variant_result(
     if variant_result.number_of_samples < 50:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES)
 
-    if isinstance(metric, ExperimentFunnelMetric) and variant_result.sum < 5:
+    if isinstance(metric, (ExperimentFunnelMetric | ExperimentRetentionMetric)) and variant_result.sum < 5:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
     if is_baseline and variant_result.sum == 0:
@@ -337,7 +377,8 @@ def validate_variant_result(
 
 
 def metric_variant_to_statistic(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric, variant: ExperimentStatsBaseValidated
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    variant: ExperimentStatsBaseValidated,
 ) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic:
     if isinstance(metric, ExperimentMeanMetric):
         return SampleMeanStatistic(
@@ -364,6 +405,27 @@ def metric_variant_to_statistic(
             d_statistic=denominator_stat,
             m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
         )
+    elif isinstance(metric, ExperimentRetentionMetric):
+        # Retention metrics use ratio statistic to properly account for
+        # uncertainty in both numerator and denominator
+        # Numerator: count of users who completed (binary: 0 or 1 per user)
+        numerator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.sum,
+            sum_squares=variant.sum_squares,
+        )
+        # Denominator: each user who started contributes 1
+        denominator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.denominator_sum or 0.0,
+            sum_squares=variant.denominator_sum_squares or 0.0,
+        )
+        return RatioStatistic(
+            n=variant.number_of_samples,
+            m_statistic=numerator_stat,
+            d_statistic=denominator_stat,
+            m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
+        )
     else:
         # ExperimentFunnelMetric case
         return ProportionStatistic(
@@ -373,7 +435,7 @@ def metric_variant_to_statistic(
 
 
 def get_frequentist_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
@@ -392,11 +454,17 @@ def get_frequentist_experiment_result(
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
     test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    control_stat = (
-        metric_variant_to_statistic(metric, control_variant_validated)
-        if not control_variant_validated.validation_failures
-        else None
-    )
+    control_stat = None
+    if not control_variant_validated.validation_failures:
+        try:
+            control_stat = metric_variant_to_statistic(metric, control_variant_validated)
+        except StatisticError as e:
+            logger.info(
+                "experiment_statistics_skipped",
+                variant_key=control_variant_validated.key,
+                number_of_samples=control_variant_validated.number_of_samples,
+                reason=str(e),
+            )
 
     variants: list[ExperimentVariantResultFrequentist] = []
 
@@ -422,15 +490,23 @@ def get_frequentist_experiment_result(
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
-            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-            result = method.run_test(test_stat, control_stat)
+            try:
+                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+                result = method.run_test(test_stat, control_stat)
 
-            confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
+                confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
-            # Set statistical analysis fields
-            experiment_variant_result.p_value = result.p_value
-            experiment_variant_result.confidence_interval = confidence_interval
-            experiment_variant_result.significant = result.is_significant
+                # Set statistical analysis fields
+                experiment_variant_result.p_value = result.p_value
+                experiment_variant_result.confidence_interval = confidence_interval
+                experiment_variant_result.significant = result.is_significant
+            except StatisticError as e:
+                logger.info(
+                    "experiment_statistics_skipped",
+                    variant_key=test_variant_validated.key,
+                    number_of_samples=test_variant_validated.number_of_samples,
+                    reason=str(e),
+                )
 
         variants.append(experiment_variant_result)
 
@@ -441,7 +517,7 @@ def get_frequentist_experiment_result(
 
 
 def get_bayesian_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
@@ -463,11 +539,17 @@ def get_bayesian_experiment_result(
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
     test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    control_stat = (
-        metric_variant_to_statistic(metric, control_variant_validated)
-        if not control_variant_validated.validation_failures
-        else None
-    )
+    control_stat = None
+    if not control_variant_validated.validation_failures:
+        try:
+            control_stat = metric_variant_to_statistic(metric, control_variant_validated)
+        except StatisticError as e:
+            logger.info(
+                "experiment_statistics_skipped",
+                variant_key=control_variant_validated.key,
+                number_of_samples=control_variant_validated.number_of_samples,
+                reason=str(e),
+            )
 
     variants: list[ExperimentVariantResultBayesian] = []
 
@@ -493,16 +575,24 @@ def get_bayesian_experiment_result(
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
-            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-            result = method.run_test(test_stat, control_stat)
+            try:
+                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+                result = method.run_test(test_stat, control_stat)
 
-            # Convert credible interval to percentage
-            credible_interval = [result.credible_interval[0], result.credible_interval[1]]
+                # Convert credible interval to percentage
+                credible_interval = [result.credible_interval[0], result.credible_interval[1]]
 
-            # Set statistical analysis fields
-            experiment_variant_result.chance_to_win = result.chance_to_win
-            experiment_variant_result.credible_interval = credible_interval
-            experiment_variant_result.significant = result.is_decisive  # Use is_decisive for significance
+                # Set statistical analysis fields
+                experiment_variant_result.chance_to_win = result.chance_to_win
+                experiment_variant_result.credible_interval = credible_interval
+                experiment_variant_result.significant = result.is_decisive  # Use is_decisive for significance
+            except StatisticError as e:
+                logger.info(
+                    "experiment_statistics_skipped",
+                    variant_key=test_variant_validated.key,
+                    number_of_samples=test_variant_validated.number_of_samples,
+                    reason=str(e),
+                )
 
         variants.append(experiment_variant_result)
 

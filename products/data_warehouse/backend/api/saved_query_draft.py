@@ -1,4 +1,7 @@
+from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
+
+from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
@@ -31,6 +34,7 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
                 team_id=validated_data["team_id"],
                 created_by=validated_data["created_by"],
             ).count()
+            # nosemgrep: idor-lookup-without-team (internal endpoint; only reads name for draft naming)
             saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
             name = f"({count + 1}) {saved_query.name}"
 
@@ -42,6 +46,7 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
         return draft
 
 
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryDraftViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = DataWarehouseSavedQueryDraft.objects.all()

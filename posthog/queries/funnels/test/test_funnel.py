@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
@@ -29,17 +30,9 @@ from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion
 from posthog.test.test_journeys import journeys_for
 
 
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
-
-
 class TestFunnelBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(
+    funnel_breakdown_test_factory(  # type: ignore[misc]
         ClickhouseFunnel,
         ClickhouseFunnelActors,
         _create_event,
@@ -53,7 +46,9 @@ class TestFunnelBreakdown(
 
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person),
+    funnel_conversion_time_test_factory(  # type: ignore[misc]
+        ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person
+    ),
 ):
     maxDiff = None
     pass
@@ -3708,5 +3703,5 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
     return TestGetFunnel
 
 
-class TestFOSSFunnel(funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):
+class TestFOSSFunnel(funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore[misc]
     maxDiff = None

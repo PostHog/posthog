@@ -348,7 +348,7 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "dashboard",
-        "posthog",
+        "dashboards",
         "Dashboard",
         undo_message="Send PATCH /api/projects/@current/dashboards/{id} with deleted=false.",
     )
@@ -368,7 +368,7 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "experiment",
-        "posthog",
+        "experiments",
         "Experiment",
         undo_message="Send PATCH /api/projects/@current/experiments/{id} with deleted=false.",
     )
@@ -387,7 +387,7 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "link",
-        "posthog",
+        "links",
         "Link",
         allow_restore=False,
         undo_message="Create a new link with the same details.",

@@ -4,16 +4,19 @@ from typing import TypedDict, cast
 import pytest
 
 from braintrust import EvalCase, Score
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantHogQLQuery, HumanMessage, VisualizationMessage
+from posthog.schema import AssistantHogQLQuery, HumanMessage
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.eval.base import MaxPrivateEval
 from ee.hogai.eval.offline.conftest import EvaluationContext, capture_score, get_eval_context
@@ -21,6 +24,7 @@ from ee.hogai.eval.schema import DatasetInput
 from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.hogai.utils.warehouse import serialize_database_schema
 from ee.models import Conversation
 
@@ -35,9 +39,9 @@ class EvalMetadata(TypedDict):
     team_id: int
 
 
-async def serialize_database(team: Team):
-    database = await database_sync_to_async(Database.create_for)(team=team)
-    context = HogQLContext(team=team, database=database, enable_select_queries=True)
+async def serialize_database(team: Team, user: User):
+    database = await database_sync_to_async(Database.create_for)(team=team, user=user)
+    context = HogQLContext(team=team, user=user, database=database, enable_select_queries=True)
     return await serialize_database_schema(database, context)
 
 
@@ -46,32 +50,36 @@ async def call_graph(entry: DatasetInput, *args):
     team = await Team.objects.aget(id=entry.team_id)
     conversation, database_schema = await asyncio.gather(
         Conversation.objects.acreate(team=team, user=eval_ctx.user),
-        serialize_database(team),
+        serialize_database(team=team, user=eval_ctx.user),
     )
     graph = AssistantGraph(team, eval_ctx.user).compile_full_graph()
 
-    state = await graph.ainvoke(
-        AssistantState(messages=[HumanMessage(content=entry.input["query"])]),
-        {
-            "callbacks": eval_ctx.get_callback_handlers(entry.trace_id),
-            "configurable": {
-                "thread_id": conversation.id,
-                "team": team,
-                "user": eval_ctx.user,
-                "distinct_id": eval_ctx.distinct_id,
-            },
+    config = RunnableConfig(
+        callbacks=cast(list, eval_ctx.get_callback_handlers(entry.trace_id)),
+        configurable={
+            "thread_id": conversation.id,
+            "team": team,
+            "user": eval_ctx.user,
+            "distinct_id": eval_ctx.distinct_id,
         },
     )
-    maybe_viz_message = find_last_message_of_type(state["messages"], VisualizationMessage)
+    state = await graph.ainvoke(
+        AssistantState(messages=[HumanMessage(content=entry.input["query"])]),
+        config,
+    )
+    maybe_viz_message = find_last_message_of_type(state["messages"], ArtifactRefMessage)
     if maybe_viz_message:
+        artifact_manager = ArtifactManager(team=team, user=eval_ctx.user, config=config)
+        enriched_message = await artifact_manager.aenrich_message(maybe_viz_message)
+        content = unwrap_visualization_artifact_content(enriched_message)
+        if content is None:
+            return EvalOutput(database_schema=database_schema)
         return EvalOutput(
             database_schema=database_schema,
-            query_kind=maybe_viz_message.answer.kind,
-            sql_query=maybe_viz_message.answer.query
-            if isinstance(maybe_viz_message.answer, AssistantHogQLQuery)
-            else None,
+            query_kind=content.query.kind,
+            sql_query=content.query.query if isinstance(content.query, AssistantHogQLQuery) else None,
         )
-    return EvalOutput(database_schema=database_schema)
+    return EvalOutput(database_schema=database_schema, query_kind=None, sql_query=None)
 
 
 @capture_score

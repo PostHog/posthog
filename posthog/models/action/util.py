@@ -159,7 +159,8 @@ def get_action_tables_and_properties(action: Action) -> TCounter[PropertyIdentif
         if action_step.url:
             result[("$current_url", "event", None)] += 1
         result += extract_tables_and_properties(
-            Filter(data={"properties": action_step.properties or []}).property_groups.flat
+            Filter(data={"properties": action_step.properties or []}).property_groups.flat,
+            team_id=action.team_id,
         )
 
     return result

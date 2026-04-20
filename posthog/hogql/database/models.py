@@ -3,10 +3,18 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field as PydanticField,
+)
 
 from posthog.hogql.base import Expr
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.errors import NotImplementedError, ResolutionError
+
+# Import Workload at module level for Pydantic (needed at runtime)
+from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
     from posthog.hogql.ast import LazyJoinType, SelectQuery
@@ -89,6 +97,18 @@ class StringJSONDatabaseField(DatabaseField):
         return ""
 
 
+class StructDatabaseField(DatabaseField):
+    fields: dict[str, "DatabaseField"] = PydanticField(default_factory=dict)
+
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import TupleType
+
+        return TupleType(
+            nullable=self.is_nullable(),
+            item_types=[field.get_constant_type() for field in self.fields.values()],
+        )
+
+
 class StringArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import StringArrayType
@@ -162,7 +182,10 @@ class FieldTraverser(FieldOrTable):
 
 
 class Table(FieldOrTable):
+    name: str | None = None
     fields: dict[str, FieldOrTable]
+    top_level_settings: Optional[HogQLQuerySettings] = None
+    workload: Optional[Workload] = None
     model_config = ConfigDict(extra="forbid")
 
     def has_field(self, name: str | int) -> bool:
@@ -179,6 +202,9 @@ class Table(FieldOrTable):
 
     def to_printed_hogql(self) -> str:
         raise NotImplementedError("Table.to_printed_hogql not overridden")
+
+    def get_predicates(self) -> list[Expr]:
+        return []
 
     def avoid_asterisk_fields(self) -> list[str]:
         return []
@@ -238,7 +264,7 @@ class TableNode(BaseModel):
 
         first, *rest_of_path = path
         if first not in self.children:
-            raise ResolutionError(f"Unknown child `{first}` at `{self.name}`.")
+            raise ResolutionError(f"Unknown table `{first}`.")
 
         return self.children[first].get_child(rest_of_path)
 

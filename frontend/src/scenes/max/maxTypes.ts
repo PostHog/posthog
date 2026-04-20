@@ -1,9 +1,9 @@
-import { AgentArtifactContent } from '~/queries/schema/schema-assistant-artifacts'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+// eslint-disable-next-line import/no-cycle
 import { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 export enum MaxContextType {
@@ -11,9 +11,15 @@ export enum MaxContextType {
     INSIGHT = 'insight',
     EVENT = 'event',
     ACTION = 'action',
+    ERROR_TRACKING_ISSUE = 'error_tracking_issue',
+    EVALUATION = 'evaluation',
+    NOTEBOOK = 'notebook',
 }
 
-export type InsightWithQuery = Pick<Partial<QueryBasedInsightModel>, 'query'> & Partial<QueryBasedInsightModel>
+export type InsightWithQuery = Pick<
+    Partial<QueryBasedInsightModel>,
+    'query' | 'short_id' | 'name' | 'derived_name' | 'description' | 'id'
+>
 
 export interface MaxInsightContext {
     type: MaxContextType.INSIGHT
@@ -27,7 +33,7 @@ export interface MaxInsightContext {
 
 export interface MaxDashboardContext {
     type: MaxContextType.DASHBOARD
-    id: number
+    id: integer
     name?: string | null
     description?: string | null
     insights: MaxInsightContext[]
@@ -43,9 +49,30 @@ export interface MaxEventContext {
 
 export interface MaxActionContext {
     type: MaxContextType.ACTION
-    id: number
+    id: integer
     name: string
     description?: string | null
+}
+
+export interface MaxErrorTrackingIssueContext {
+    type: MaxContextType.ERROR_TRACKING_ISSUE
+    id: string // UUID of the error tracking issue
+    name?: string | null
+}
+
+export interface MaxEvaluationContext {
+    type: MaxContextType.EVALUATION
+    id: string
+    name?: string | null
+    description?: string | null
+    evaluation_type: 'hog' | 'llm_judge'
+    hog_source?: string | null
+}
+
+export interface MaxNotebookContext {
+    type: MaxContextType.NOTEBOOK
+    id: string // short_id
+    name?: string | null
 }
 
 // The main shape for the UI context sent to the backend
@@ -54,6 +81,10 @@ export interface MaxUIContext {
     insights?: MaxInsightContext[]
     events?: MaxEventContext[]
     actions?: MaxActionContext[]
+    error_tracking_issues?: MaxErrorTrackingIssueContext[]
+    evaluations?: MaxEvaluationContext[]
+    notebooks?: MaxNotebookContext[]
+    form_answers?: Record<string, string> // question_id -> answer for create_form tool responses
 }
 
 // Taxonomic filter options
@@ -61,12 +92,19 @@ export interface MaxContextTaxonomicFilterOption {
     id: string
     value: string | integer
     name: string
-    icon: React.ReactNode
+    icon: React.ComponentType
     type?: MaxContextType
 }
 
 // Union type for all possible context payloads that can be exposed by scene logics
-export type MaxContextItem = MaxInsightContext | MaxDashboardContext | MaxEventContext | MaxActionContext
+export type MaxContextItem =
+    | MaxInsightContext
+    | MaxDashboardContext
+    | MaxEventContext
+    | MaxActionContext
+    | MaxErrorTrackingIssueContext
+    | MaxEvaluationContext
+    | MaxNotebookContext
 
 type MaxInsightContextInput = {
     type: MaxContextType.INSIGHT
@@ -77,7 +115,7 @@ type MaxInsightContextInput = {
 }
 type MaxDashboardContextInput = {
     type: MaxContextType.DASHBOARD
-    data: DashboardType<QueryBasedInsightModel>
+    data: DashboardType<InsightWithQuery>
 }
 type MaxEventContextInput = {
     type: MaxContextType.EVENT
@@ -87,11 +125,43 @@ type MaxActionContextInput = {
     type: MaxContextType.ACTION
     data: ActionType
 }
+type MaxErrorTrackingIssueContextInput = {
+    type: MaxContextType.ERROR_TRACKING_ISSUE
+    data: { id: string; name?: string | null }
+}
+type MaxEvaluationContextInput = {
+    type: MaxContextType.EVALUATION
+    data: {
+        id: string
+        name?: string | null
+        description?: string | null
+        evaluation_type: 'hog' | 'llm_judge'
+        hog_source?: string | null
+    }
+}
+type MaxNotebookContextInput = {
+    type: MaxContextType.NOTEBOOK
+    data: { short_id: string; title?: string | null }
+}
 export type MaxContextInput =
     | MaxInsightContextInput
     | MaxDashboardContextInput
     | MaxEventContextInput
     | MaxActionContextInput
+    | MaxErrorTrackingIssueContextInput
+    | MaxEvaluationContextInput
+    | MaxNotebookContextInput
+
+function pickInsightFields(insight: Partial<QueryBasedInsightModel>): InsightWithQuery {
+    return {
+        id: insight.id,
+        short_id: insight.short_id,
+        name: insight.name,
+        derived_name: insight.derived_name,
+        description: insight.description,
+        query: insight.query,
+    }
+}
 
 /**
  * Helper functions to create maxContext items safely
@@ -100,7 +170,13 @@ export type MaxContextInput =
 export const createMaxContextHelpers = {
     dashboard: (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContextInput => ({
         type: MaxContextType.DASHBOARD,
-        data: dashboard,
+        data: {
+            ...dashboard,
+            tiles: dashboard.tiles.map((tile) => ({
+                ...tile,
+                insight: tile.insight ? pickInsightFields(tile.insight) : tile.insight,
+            })),
+        },
     }),
 
     insight: (
@@ -116,7 +192,7 @@ export const createMaxContextHelpers = {
         } = {}
     ): MaxInsightContextInput => ({
         type: MaxContextType.INSIGHT,
-        data: insight,
+        data: pickInsightFields(insight),
         filtersOverride,
         variablesOverride,
         revenueAnalyticsQuery,
@@ -131,24 +207,29 @@ export const createMaxContextHelpers = {
         type: MaxContextType.ACTION,
         data: action,
     }),
+
+    errorTrackingIssue: (issue: { id: string; name?: string | null }): MaxErrorTrackingIssueContextInput => ({
+        type: MaxContextType.ERROR_TRACKING_ISSUE,
+        data: issue,
+    }),
+
+    evaluation: (evaluation: {
+        id: string
+        name?: string | null
+        description?: string | null
+        evaluation_type: 'hog' | 'llm_judge'
+        hog_source?: string | null
+    }): MaxEvaluationContextInput => ({
+        type: MaxContextType.EVALUATION,
+        data: evaluation,
+    }),
+
+    notebook: (notebook: { short_id: string; title?: string | null }): MaxNotebookContextInput => ({
+        type: MaxContextType.NOTEBOOK,
+        data: notebook,
+    }),
 }
 
 export function isAgentMode(mode: unknown): mode is AgentMode {
     return typeof mode === 'string' && Object.values(AgentMode).includes(mode as AgentMode)
-}
-
-export enum AgentArtifactType {
-    VISUALIZATION = 'visualization',
-    DOCUMENT = 'document',
-}
-
-export interface AgentArtifact {
-    id: string
-    short_id: string
-    name: string
-    type: AgentArtifactType
-    content: AgentArtifactContent
-    conversation: string
-    team: number
-    created_at: string
 }

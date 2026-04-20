@@ -74,13 +74,15 @@ export function SelectPropertyGroupModal({
             title: 'Name',
             key: 'name',
             dataIndex: 'name',
-            render: (name) => <span className="font-semibold">{name}</span>,
+            render: (name) => <span className="font-semibold">{String(name ?? '')}</span>,
         },
         {
             title: 'Description',
             key: 'description',
             dataIndex: 'description',
-            render: (description) => <span className="text-muted">{description || '—'}</span>,
+            render: (description) => (
+                <span className="text-muted">{typeof description === 'string' ? description : '—'}</span>
+            ),
         },
         {
             title: 'Properties',

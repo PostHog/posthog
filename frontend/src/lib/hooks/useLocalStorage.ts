@@ -29,7 +29,8 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T 
                 try {
                     setStoredValue(JSON.parse(e.newValue) as T)
                 } catch {
-                    // Ignore parse errors
+                    // Not much to do here, just log the error
+                    console.error('Error parsing localStorage value', e.newValue)
                 }
             }
         }
@@ -42,11 +43,16 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T 
 
     const setValue = useCallback(
         (value: T | ((prev: T) => T)) => {
-            const valueToStore = value instanceof Function ? value(storedValue) : value
-            setStoredValue(valueToStore)
-            setStoredValueInStorage(key, valueToStore)
+            setStoredValue((prev) => {
+                const valueToStore = value instanceof Function ? value(prev) : value
+                if (JSON.stringify(valueToStore) === JSON.stringify(prev)) {
+                    return prev
+                }
+                setStoredValueInStorage(key, valueToStore)
+                return valueToStore
+            })
         },
-        [key, storedValue]
+        [key]
     )
 
     return [storedValue, setValue]

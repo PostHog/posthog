@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 import string
+import hashlib
 import secrets
 import datetime
 from collections import defaultdict, namedtuple
@@ -9,14 +10,15 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from decimal import Decimal
 from time import time, time_ns
-from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar, Union
 from uuid import UUID
 
+from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.ddl_references import Statement
 from django.db.backends.utils import CursorWrapper
-from django.db.models import Q, UniqueConstraint
+from django.db.models import Q, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
@@ -31,6 +33,10 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
+AMBIGUOUS_CHARS = frozenset("01OIl")
+BASE57 = "".join(c for c in BASE62 if c not in AMBIGUOUS_CHARS)  # Base62 minus visually ambiguous characters
+EncryptionModeType = Literal["sha256", "pbkdf2"]
+SHA256_HASH_PREFIX = "sha256$"
 
 
 class UUIDT(uuid.UUID):
@@ -261,8 +267,15 @@ def generate_random_token(nbytes: int = 32) -> str:
 
     Random 32 bytes - default value here - is believed to be sufficiently secure for practically all purposes:
     https://docs.python.org/3/library/secrets.html#how-many-bytes-should-tokens-use
+
+    Uses base57 encoding (base62 minus 0, 1, O, I, l) to avoid visually ambiguous characters.
     """
-    return int_to_base(secrets.randbits(nbytes * 8), 62)
+    bits = nbytes * 8
+    # Force the top bit on so the encoded token always has the same number of
+    # digits (costs 1 bit of entropy: 255 instead of 256, still far above any
+    # practical brute-force threshold).
+    value = secrets.randbits(bits) | (1 << (bits - 1))
+    return int_to_base(value, 57, alphabet=BASE57)
 
 
 def generate_random_token_project() -> str:
@@ -298,17 +311,40 @@ def mask_key_value(value: str) -> str:
     return f"{value[:4]}...{value[-4:]}"
 
 
-def int_to_base(number: int, base: int) -> str:
-    if base > 62:
-        raise ValueError("Cannot convert integer to base above 62")
-    alphabet = BASE62[:base]
+def hash_key_value(
+    value: str, mode: EncryptionModeType = "sha256", legacy_salt: Optional[str] = None, iterations: Optional[int] = None
+) -> str:
+    if mode == "pbkdf2":
+        if not iterations:
+            raise ValueError("Iterations must be provided when using legacy PBKDF2 mode")
+        if not legacy_salt:
+            raise ValueError("Salt must be provided when using legacy PBKDF2 mode")
+        hasher = PBKDF2PasswordHasher()
+        return hasher.encode(value, legacy_salt, iterations=iterations)
+
+    if iterations:
+        raise ValueError("Iterations must not be provided when using simple hashing mode")
+
+    # Inspiration on why no salt:
+    # https://github.com/jazzband/django-rest-knox/issues/188
+    value = hashlib.sha256(value.encode()).hexdigest()
+    return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
+
+
+def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> str:
+    if alphabet is None:
+        if base > 62:
+            raise ValueError("Cannot convert integer to base above 62")
+        alphabet = BASE62[:base]
+    elif len(alphabet) != base:
+        raise ValueError(f"Alphabet length {len(alphabet)} does not match base {base}")
     if number < 0:
-        return "-" + int_to_base(-number, base)
+        return "-" + int_to_base(-number, base, alphabet=alphabet)
     value = ""
     while number != 0:
         number, index = divmod(number, len(alphabet))
         value = alphabet[index] + value
-    return value or "0"
+    return value or alphabet[0]
 
 
 class Percentile(models.Aggregate):
@@ -387,7 +423,7 @@ class UniqueConstraintByExpression(BaseConstraint):
         table = model._meta.db_table
         return Statement(
             f"""
-            CREATE UNIQUE INDEX {'CONCURRENTLY' if self.concurrently and not table_creation else ''} %(name)s
+            CREATE UNIQUE INDEX {"CONCURRENTLY" if self.concurrently and not table_creation else ""} %(name)s
             ON %(table)s
             %(expression)s
             """,
@@ -438,18 +474,30 @@ def validate_rate_limit(value):
 
 class RootTeamQuerySet(models.QuerySet):
     def filter(self, *args, **kwargs):
-        from django.db.models import Q, Subquery
-
         from posthog.models.team import Team
 
         # TODO: Handle team as a an object as well
 
         if "team_id" in kwargs:
             team_id = kwargs.pop("team_id")
-            parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
-            team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
-                team_id=team_id, team__parent_team_id__isnull=True
-            )
+
+            # Check if this model is in the persons database
+            # For persons DB models, we can't join with the Team table (cross-database)
+            if self.model._meta.model_name in PERSONS_DB_MODELS:
+                # Fetch the effective team_id directly from the default database
+                # Cannot use subquery as it would execute against persons_db
+                try:
+                    team = Team.objects.using("default").get(id=team_id)
+                    effective_team_id = team.parent_team_id if team.parent_team_id else team_id
+                except Team.DoesNotExist:
+                    effective_team_id = team_id
+                team_filter = Q(team_id=effective_team_id)
+            else:
+                # For non-persons DB models: use the original logic with JOIN
+                parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
+                team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
+                    team_id=team_id, team__parent_team_id__isnull=True
+                )
             return super().filter(team_filter, *args, **kwargs)
         return super().filter(*args, **kwargs)
 

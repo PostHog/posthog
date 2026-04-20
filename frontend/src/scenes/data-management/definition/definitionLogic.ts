@@ -1,16 +1,16 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { AvailableFeature, Breadcrumb, Definition, EventDefinitionMetrics, PropertyDefinition } from '~/types'
+import { Breadcrumb, Definition, EventDefinitionMetrics, ObjectMediaPreview, PropertyDefinition } from '~/types'
 
 import { DataManagementTab } from '../DataManagementScene'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
@@ -41,10 +41,13 @@ export const definitionLogic = kea<definitionLogicType>([
         loadDefinition: (id: Definition['id']) => ({ id }),
         loadMetrics: (id: Definition['id']) => ({ id }),
         setDefinitionMissing: true,
+        loadPreviews: true,
+        createMediaPreview: (uploadedMediaId: string, metadata?: Record<string, any>) => ({
+            uploadedMediaId,
+            metadata,
+        }),
+        deleteMediaPreview: (previewId: string) => ({ previewId }),
     }),
-    connect(() => ({
-        values: [userLogic, ['hasAvailableFeature']],
-    })),
     reducers(() => ({
         definitionMissing: [
             false,
@@ -113,12 +116,36 @@ export const definitionLogic = kea<definitionLogicType>([
                 },
             },
         ],
+        previews: [
+            [] as ObjectMediaPreview[],
+            {
+                loadPreviews: async () => {
+                    if (!values.isEvent || !values.definition.id || values.definition.id === 'new') {
+                        return []
+                    }
+                    try {
+                        const response = await api.objectMediaPreviews.list(values.definition.id)
+                        return response.results
+                    } catch {
+                        return []
+                    }
+                },
+                createMediaPreview: async ({ uploadedMediaId, metadata }) => {
+                    const preview = await api.objectMediaPreviews.create({
+                        uploaded_media_id: uploadedMediaId,
+                        event_definition_id: values.definition.id,
+                        metadata,
+                    })
+                    return [preview, ...values.previews]
+                },
+                deleteMediaPreview: async ({ previewId }) => {
+                    await api.objectMediaPreviews.delete(previewId)
+                    return values.previews.filter((p) => p.id !== previewId)
+                },
+            },
+        ],
     })),
     selectors({
-        hasTaxonomyFeatures: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
-        ],
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.includes(urls.eventDefinitions())],
         isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],
         singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'property')],
@@ -155,6 +182,25 @@ export const definitionLogic = kea<definitionLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        loadDefinitionSuccess: () => {
+            if (values.isEvent && values.definition.id && values.definition.id !== 'new') {
+                actions.loadPreviews()
+            }
+        },
+        createMediaPreviewSuccess: () => {
+            lemonToast.success('Preview image added')
+        },
+        createMediaPreviewFailure: () => {
+            lemonToast.error('Failed to add image')
+        },
+        deleteMediaPreviewSuccess: () => {
+            lemonToast.success('Image deleted')
+        },
+        deleteMediaPreviewFailure: () => {
+            lemonToast.error('Failed to delete image')
+        },
+    })),
     afterMount(({ actions, values, props }) => {
         if (!props.id || props.id === 'new') {
             actions.setDefinition(createNewDefinition(values.isEvent))

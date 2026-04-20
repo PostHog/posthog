@@ -16,10 +16,10 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.testing._activity import ActivityEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
+from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
@@ -149,9 +149,9 @@ async def assert_metrics_in_clickhouse(
         except KeyError:
             raise ValueError(f"Ingested unexpected metric: '{ingested_metric_kind}'")
 
-        assert (
-            ingested_count == expected_count
-        ), f"Ingested metric '{ingested_metric_kind}' with count {ingested_count} does not match expected {expected_count}"
+        assert ingested_count == expected_count, (
+            f"Ingested metric '{ingested_metric_kind}' with count {ingested_count} does not match expected {expected_count}"
+        )
 
 
 async def assert_clickhouse_records_in_s3(
@@ -423,12 +423,12 @@ async def run_s3_batch_export_workflow(
     return run
 
 
-async def _run_activity(activity_environment: ActivityEnvironment, insert_inputs: S3InsertInputs):
+async def run_activity(activity_environment: ActivityEnvironment, insert_inputs: S3InsertInputs):
     with override_settings(
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
     ):
         assert insert_inputs.batch_export_id is not None
-        await activity_environment.run(
+        stage_folder = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.team_id,
@@ -444,7 +444,7 @@ async def _run_activity(activity_environment: ActivityEnvironment, insert_inputs
                 destination_default_fields=s3_default_fields(),
             ),
         )
-
+        insert_inputs.stage_folder = stage_folder
         result = await activity_environment.run(insert_into_s3_activity_from_stage, insert_inputs)
 
     return result

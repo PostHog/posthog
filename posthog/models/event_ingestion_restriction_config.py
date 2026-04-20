@@ -2,7 +2,7 @@ import json
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from posthog.models.utils import UUIDTModel
@@ -26,6 +26,8 @@ class RestrictionType(models.TextChoices):
     SKIP_PERSON_PROCESSING = "skip_person_processing"
     DROP_EVENT_FROM_INGESTION = "drop_event_from_ingestion"
     FORCE_OVERFLOW_FROM_INGESTION = "force_overflow_from_ingestion"
+    REDIRECT_TO_DLQ = "redirect_to_dlq"
+    REDIRECT_TO_TOPIC = "redirect_to_topic"
 
 
 class IngestionPipeline(models.TextChoices):
@@ -35,12 +37,21 @@ class IngestionPipeline(models.TextChoices):
 
 class EventIngestionRestrictionConfig(UUIDTModel):
     """
-    Configuration for various restrictions we can set by token or token:distinct_id
+    Configuration for various restrictions we can set by token, token:distinct_id, token:session_id,
+    token:event_name, or token:event_uuid
     """
 
     token = models.CharField(max_length=100)
     restriction_type = models.CharField(max_length=100, choices=RestrictionType)
     distinct_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    session_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    event_names = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    event_uuids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    args = models.JSONField(
+        blank=True,
+        null=True,
+        help_text='Extra arguments for the restriction type (e.g., {"topic": "my_topic"} for redirect_to_topic)',
+    )
     note = models.TextField(
         blank=True, null=True, help_text="Optional note explaining why this restriction was put in place"
     )
@@ -71,6 +82,14 @@ class EventIngestionRestrictionConfig(UUIDTModel):
                 }
             )
 
+        # Validate args for redirect_to_topic
+        if self.restriction_type == RestrictionType.REDIRECT_TO_TOPIC:
+            if not isinstance(self.args, dict):
+                raise ValidationError({"args": "args must be a JSON object for redirect_to_topic"})
+            topic = self.args.get("topic")
+            if not isinstance(topic, str) or not topic.strip():
+                raise ValidationError({"args": 'args must contain a non-empty "topic" string for redirect_to_topic'})
+
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)
@@ -78,42 +97,98 @@ class EventIngestionRestrictionConfig(UUIDTModel):
     def get_redis_key(self):
         return f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{self.restriction_type}"
 
+    def add_distinct_id(self, distinct_id: str) -> bool:
+        """Add a distinct_id to this restriction. Returns True if added, False if already present."""
+        current = self.distinct_ids or []
+        if distinct_id in current:
+            return False
+        self.distinct_ids = [*current, distinct_id]
+        self.save()
+        return True
+
+    @classmethod
+    def add_distinct_id_for_token(
+        cls, token: str, restriction_type: str, distinct_id: str
+    ) -> tuple["EventIngestionRestrictionConfig", bool, bool]:
+        """Get or create a restriction and add a distinct_id.
+
+        Returns (restriction, was_created, was_added).
+        """
+        try:
+            restriction = cls.objects.get(token=token, restriction_type=restriction_type)
+            added = restriction.add_distinct_id(distinct_id)
+            return restriction, False, added
+        except cls.DoesNotExist:
+            restriction = cls.objects.create(
+                token=token,
+                restriction_type=restriction_type,
+                distinct_ids=[distinct_id],
+            )
+            return restriction, True, True
+
 
 def regenerate_redis_for_restriction_type(restriction_type: str):
-    """Regenerate the Redis cache for a specific restriction type by fetching all configs from the database"""
+    """
+    Regenerate the Redis cache for a specific restriction type by fetching all configs from the database.
+
+    Generates v2 format with arrays for each filter type. Filter logic (matching Rust implementation):
+    - AND between filter types (distinct_ids AND session_ids AND event_names AND event_uuids)
+    - OR within each filter type (value in array)
+    - Empty array = matches all (neutral in AND)
+    """
     redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
     redis_key = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{restriction_type}"
 
-    # Fetch all restrictions of this type from the database
-    configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type))
+    # Fetch all restrictions of this type, ordered by id (UUIDT, time-sortable) ascending.
+    # The index field in the output reflects this order so consumers can determine
+    # which config was created most recently (highest index wins for redirect_to_topic).
+    configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type).order_by("id"))
 
     if not configs:
         # No configs exist, delete the Redis key
         redis_client.delete(redis_key)
         return
 
-    # Build the new data array from all configs in the database
+    # Build the new data array from all configs in the database (v2 format)
     data = []
-    for config in configs:
-        entry_base = {
+    for index, config in enumerate(configs):
+        entry = {
+            "version": 2,
+            "index": index,
             "token": config.token,
             "pipelines": config.pipelines or [],
+            "distinct_ids": config.distinct_ids or [],
+            "session_ids": config.session_ids or [],
+            "event_names": config.event_names or [],
+            "event_uuids": config.event_uuids or [],
+            "args": config.args,
         }
-
-        if config.distinct_ids:
-            for distinct_id in config.distinct_ids:
-                entry = entry_base.copy()
-                entry["distinct_id"] = distinct_id
-                data.append(entry)
-        else:
-            data.append(entry_base)
+        data.append(entry)
 
     redis_client.set(redis_key, json.dumps(data))
+
+
+@receiver(pre_save, sender=EventIngestionRestrictionConfig)
+def capture_old_restriction_type(sender, instance, **kwargs):
+    """Capture the old restriction_type before save to handle type changes."""
+    if instance.pk:
+        try:
+            old_instance = EventIngestionRestrictionConfig.objects.get(pk=instance.pk)
+            instance._old_restriction_type = old_instance.restriction_type
+        except EventIngestionRestrictionConfig.DoesNotExist:
+            instance._old_restriction_type = None
+    else:
+        instance._old_restriction_type = None
 
 
 @receiver(post_save, sender=EventIngestionRestrictionConfig)
 def update_redis_cache_with_config(sender, instance, created=False, **kwargs):
     regenerate_redis_for_restriction_type(instance.restriction_type)
+
+    # If restriction_type changed, also regenerate the old type's Redis key
+    old_restriction_type = getattr(instance, "_old_restriction_type", None)
+    if old_restriction_type and old_restriction_type != instance.restriction_type:
+        regenerate_redis_for_restriction_type(old_restriction_type)
 
 
 @receiver(post_delete, sender=EventIngestionRestrictionConfig)

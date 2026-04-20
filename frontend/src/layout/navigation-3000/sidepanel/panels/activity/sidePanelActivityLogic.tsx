@@ -9,9 +9,9 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
 
+import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { SidePanelSceneContext } from '../../types'
-import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
 // ActivityScope values that should not appear in dropdowns
@@ -47,7 +47,14 @@ export enum SidePanelActivityTab {
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect(() => ({
-        values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
+        values: [
+            sidePanelContextLogic,
+            ['sceneSidePanelContext'],
+            projectLogic,
+            ['currentProjectId'],
+            sidePanelStateLogic,
+            ['selectedTabOptions'],
+        ],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
     actions({
@@ -60,7 +67,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     }),
     reducers({
         activeTab: [
-            SidePanelActivityTab.Unread as SidePanelActivityTab,
+            SidePanelActivityTab.All as SidePanelActivityTab,
             { persist: true },
             {
                 setActiveTab: (_, { tab }) => tab,
@@ -171,5 +178,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
 
         actions.setContextFromPage(newFilters)
         actions.setActiveFilters(newFilters)
+        if (values.selectedTabOptions) {
+            actions.setActiveTab(values.selectedTabOptions as SidePanelActivityTab)
+        }
     }),
 ])

@@ -1,0 +1,13 @@
+@keyframes VirtualizedLogsList__highlight {
+    0% {
+        background-color: var(--color-accent-highlight-secondary);
+    }
+
+    100% {
+        background-color: transparent;
+    }
+}
+
+.VirtualizedLogsList__row--new {
+    animation: VirtualizedLogsList__highlight 1.5s ease-out;
+}

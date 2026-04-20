@@ -1,8 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.hubspot.template_hubspot import (
     TemplateHubspotMigrator,
@@ -109,20 +107,18 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
 
         self.run_function(inputs=self._inputs())
 
-        assert self.get_mock_fetch_calls()[1] == snapshot(
-            (
-                "https://api.hubapi.com/events/v3/send",
-                {
-                    "method": "POST",
-                    "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
-                    "body": {
-                        "eventName": "pe_purchase",
-                        "email": "example@posthog.com",
-                        "occurredAt": "2024-01-01T00:00:00Z",
-                        "properties": {"price": 50, "currency": "USD"},
-                    },
+        assert self.get_mock_fetch_calls()[1] == (
+            "https://api.hubapi.com/events/v3/send",
+            {
+                "method": "POST",
+                "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
+                "body": {
+                    "eventName": "pe_purchase",
+                    "email": "example@posthog.com",
+                    "occurredAt": "2024-01-01T00:00:00Z",
+                    "properties": {"price": 50, "currency": "USD"},
                 },
-            )
+            },
         )
 
     def test_body_includes_all_properties_if_set(self):
@@ -135,7 +131,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[1][1]["body"]["properties"] == snapshot({"price": 50, "currency": "USD"})
+        assert self.get_mock_fetch_calls()[1][1]["body"]["properties"] == {"price": 50, "currency": "USD"}
 
         self.run_function(
             inputs=self._inputs(include_all_properties=True),
@@ -144,9 +140,11 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[1][1]["body"]["properties"] == snapshot(
-            {"price": 50, "currency": "USD", "product": "CDP"}
-        )
+        assert self.get_mock_fetch_calls()[1][1]["body"]["properties"] == {
+            "price": 50,
+            "currency": "USD",
+            "product": "CDP",
+        }
 
     def test_new_event_creation(self):
         self.fetch_responses = {
@@ -169,76 +167,72 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[1] == snapshot(
-            (
-                "https://api.hubapi.com/events/v3/event-definitions",
-                {
-                    "method": "POST",
-                    "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
-                    "body": {
-                        "label": "sign_up",
-                        "name": "sign_up",
-                        "description": "sign_up - (created by PostHog)",
-                        "primaryObject": "CONTACT",
-                        "propertyDefinitions": [
-                            {
-                                "name": "price",
-                                "label": "price",
-                                "type": "number",
-                                "description": "price - (created by PostHog)",
-                            },
-                            {
-                                "name": "currency",
-                                "label": "currency",
-                                "type": "string",
-                                "description": "currency - (created by PostHog)",
-                            },
-                            {
-                                "name": "expressDelivery",
-                                "label": "expressDelivery",
-                                "type": "enumeration",
-                                "description": "expressDelivery - (created by PostHog)",
-                                "options": [
-                                    {
-                                        "label": "true",
-                                        "value": True,
-                                        "hidden": False,
-                                        "description": "True",
-                                        "displayOrder": 1,
-                                    },
-                                    {
-                                        "label": "false",
-                                        "value": False,
-                                        "hidden": False,
-                                        "description": "False",
-                                        "displayOrder": 2,
-                                    },
-                                ],
-                            },
-                        ],
-                    },
+        assert self.get_mock_fetch_calls()[1] == (
+            "https://api.hubapi.com/events/v3/event-definitions",
+            {
+                "method": "POST",
+                "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
+                "body": {
+                    "label": "sign_up",
+                    "name": "sign_up",
+                    "description": "sign_up - (created by PostHog)",
+                    "primaryObject": "CONTACT",
+                    "propertyDefinitions": [
+                        {
+                            "name": "price",
+                            "label": "price",
+                            "type": "number",
+                            "description": "price - (created by PostHog)",
+                        },
+                        {
+                            "name": "currency",
+                            "label": "currency",
+                            "type": "string",
+                            "description": "currency - (created by PostHog)",
+                        },
+                        {
+                            "name": "expressDelivery",
+                            "label": "expressDelivery",
+                            "type": "enumeration",
+                            "description": "expressDelivery - (created by PostHog)",
+                            "options": [
+                                {
+                                    "label": "true",
+                                    "value": True,
+                                    "hidden": False,
+                                    "description": "True",
+                                    "displayOrder": 1,
+                                },
+                                {
+                                    "label": "false",
+                                    "value": False,
+                                    "hidden": False,
+                                    "description": "False",
+                                    "displayOrder": 2,
+                                },
+                            ],
+                        },
+                    ],
                 },
-            )
+            },
         )
 
-        assert self.get_mock_fetch_calls()[2] == snapshot(
-            (
-                "https://api.hubapi.com/events/v3/send",
-                {
-                    "method": "POST",
-                    "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
-                    "body": {
-                        "eventName": "pe_sign_up",
-                        "email": "example@posthog.com",
-                        "occurredAt": "2024-01-01T00:00:00Z",
-                        "properties": {
-                            "price": 50,
-                            "currency": "USD",
-                            "expressDelivery": True,
-                        },
+        assert self.get_mock_fetch_calls()[2] == (
+            "https://api.hubapi.com/events/v3/send",
+            {
+                "method": "POST",
+                "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
+                "body": {
+                    "eventName": "pe_sign_up",
+                    "email": "example@posthog.com",
+                    "occurredAt": "2024-01-01T00:00:00Z",
+                    "properties": {
+                        "price": 50,
+                        "currency": "USD",
+                        "expressDelivery": True,
                     },
                 },
-            )
+            },
         )
 
     def test_new_property_creation(self):
@@ -262,84 +256,76 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[1] == snapshot(
-            (
-                "https://api.hubapi.com/events/v3/event-definitions/purchase/property",
-                {
-                    "method": "POST",
-                    "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
-                    "body": {
-                        "name": "expressDelivery",
-                        "label": "expressDelivery",
-                        "type": "enumeration",
-                        "description": "expressDelivery - (created by PostHog)",
-                        "options": [
-                            {"label": "true", "value": True, "hidden": False, "description": "True", "displayOrder": 1},
-                            {
-                                "label": "false",
-                                "value": False,
-                                "hidden": False,
-                                "description": "False",
-                                "displayOrder": 2,
-                            },
-                        ],
-                    },
-                },
-            )
-        )
-
-        assert self.get_mock_fetch_calls()[2] == snapshot(
-            (
-                "https://api.hubapi.com/events/v3/event-definitions/purchase/property",
-                {
-                    "method": "POST",
-                    "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
-                    "body": {
-                        "name": "location",
-                        "label": "location",
-                        "type": "string",
-                        "description": "location - (created by PostHog)",
-                    },
-                },
-            )
-        )
-
-        assert self.get_mock_fetch_calls()[3] == snapshot(
-            (
-                "https://api.hubapi.com/events/v3/event-definitions/purchase/property",
-                {
-                    "method": "POST",
-                    "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
-                    "body": {
-                        "name": "timestamp",
-                        "label": "timestamp",
-                        "type": "datetime",
-                        "description": "timestamp - (created by PostHog)",
-                    },
-                },
-            )
-        )
-
-        assert self.get_mock_fetch_calls()[4] == snapshot(
-            (
-                "https://api.hubapi.com/events/v3/send",
-                {
-                    "method": "POST",
-                    "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
-                    "body": {
-                        "eventName": "pe_purchase",
-                        "email": "example@posthog.com",
-                        "occurredAt": "2024-01-01T00:00:00Z",
-                        "properties": {
-                            "price": 50,
-                            "currency": "USD",
-                            "expressDelivery": True,
-                            "location": "Planet Earth",
-                            "timestamp": "2024-11-11T17:25:59.812Z",
+        assert self.get_mock_fetch_calls()[1] == (
+            "https://api.hubapi.com/events/v3/event-definitions/purchase/property",
+            {
+                "method": "POST",
+                "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
+                "body": {
+                    "name": "expressDelivery",
+                    "label": "expressDelivery",
+                    "type": "enumeration",
+                    "description": "expressDelivery - (created by PostHog)",
+                    "options": [
+                        {"label": "true", "value": True, "hidden": False, "description": "True", "displayOrder": 1},
+                        {
+                            "label": "false",
+                            "value": False,
+                            "hidden": False,
+                            "description": "False",
+                            "displayOrder": 2,
                         },
+                    ],
+                },
+            },
+        )
+
+        assert self.get_mock_fetch_calls()[2] == (
+            "https://api.hubapi.com/events/v3/event-definitions/purchase/property",
+            {
+                "method": "POST",
+                "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
+                "body": {
+                    "name": "location",
+                    "label": "location",
+                    "type": "string",
+                    "description": "location - (created by PostHog)",
+                },
+            },
+        )
+
+        assert self.get_mock_fetch_calls()[3] == (
+            "https://api.hubapi.com/events/v3/event-definitions/purchase/property",
+            {
+                "method": "POST",
+                "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
+                "body": {
+                    "name": "timestamp",
+                    "label": "timestamp",
+                    "type": "datetime",
+                    "description": "timestamp - (created by PostHog)",
+                },
+            },
+        )
+
+        assert self.get_mock_fetch_calls()[4] == (
+            "https://api.hubapi.com/events/v3/send",
+            {
+                "method": "POST",
+                "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
+                "body": {
+                    "eventName": "pe_purchase",
+                    "email": "example@posthog.com",
+                    "occurredAt": "2024-01-01T00:00:00Z",
+                    "properties": {
+                        "price": 50,
+                        "currency": "USD",
+                        "expressDelivery": True,
+                        "location": "Planet Earth",
+                        "timestamp": "2024-11-11T17:25:59.812Z",
                     },
                 },
-            )
+            },
         )
 
     def test_exits_if_no_email(self):
@@ -365,7 +351,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
                 },
             )
 
-        assert len(self.get_mock_fetch_calls()) == snapshot(1)
+        assert len(self.get_mock_fetch_calls()) == 1
         assert (
             e.value.message
             == "Property type mismatch for the following properties: [{'key': 'price', 'value': '50 coins'}]. Not sending event."
@@ -426,22 +412,22 @@ class TestTemplateMigration(BaseTest):
     def test_default_config(self):
         obj = self.get_plugin_config({})
         fn = TemplateHubspotMigrator.migrate(obj)
-        assert fn["inputs"] == snapshot(
-            {
-                "access_token": {"value": "toky"},
-                "email": {"value": "{person.properties.email}"},
-                "properties": {
-                    "value": {
-                        "firstname": "{person.properties.firstname ?? person.properties.firstName ?? person.properties.first_name}",
-                        "lastname": "{person.properties.lastname ?? person.properties.lastName ?? person.properties.last_name}",
-                        "company": "{person.properties.company ?? person.properties.companyName ?? person.properties.company_name}",
-                        "phone": "{person.properties.phone ?? person.properties.phoneNumber ?? person.properties.phone_number}",
-                        "website": "{person.properties.website ?? person.properties.companyWebsite ?? person.properties.company_website}",
-                        "b": "{person.properties.a}",
-                    }
-                },
-            }
-        )
+
+        assert fn["inputs"] == {
+            "access_token": {"value": "toky"},
+            "email": {"value": "{person.properties.email}"},
+            "properties": {
+                "value": {
+                    "firstname": "{person.properties.firstname ?? person.properties.firstName ?? person.properties.first_name}",
+                    "lastname": "{person.properties.lastname ?? person.properties.lastName ?? person.properties.last_name}",
+                    "company": "{person.properties.company ?? person.properties.companyName ?? person.properties.company_name}",
+                    "phone": "{person.properties.phone ?? person.properties.phoneNumber ?? person.properties.phone_number}",
+                    "website": "{person.properties.website ?? person.properties.companyWebsite ?? person.properties.company_website}",
+                    "b": "{person.properties.a}",
+                }
+            },
+        }
+
         assert fn["filters"] == {
             "properties": [{"key": "email", "value": "gmail.com", "operator": "not_icontains", "type": "person"}],
             "events": [

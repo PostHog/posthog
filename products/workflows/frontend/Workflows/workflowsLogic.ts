@@ -1,20 +1,82 @@
-import { actions, afterMount, kea, path } from 'kea'
+import { actions, kea, key, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { createFuse, Fuse } from 'lib/utils/fuseSearch'
+import { urls } from 'scenes/urls'
+
+import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import type { HogFlow } from './hogflows/types'
 import type { workflowsLogicType } from './workflowsLogicType'
 
+export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
+
+export interface WorkflowsFilters {
+    search: string
+    createdBy: string | null
+    status: WorkflowStatusFilter
+}
+
 export const workflowsLogic = kea<workflowsLogicType>([
+    key(() => 'workflowsLogic'),
     path(['products', 'workflows', 'frontend', 'workflowsLogic']),
     actions({
         toggleWorkflowStatus: (workflow: HogFlow) => ({ workflow }),
         duplicateWorkflow: (workflow: HogFlow) => ({ workflow }),
+        archiveWorkflow: (workflow: HogFlow) => ({ workflow }),
+        restoreWorkflow: (workflow: HogFlow) => ({ workflow }),
         deleteWorkflow: (workflow: HogFlow) => ({ workflow }),
+        deleteSelectedWorkflows: true,
         loadWorkflows: () => ({}),
+        setFilters: (filters: Partial<WorkflowsFilters>) => ({ filters }),
+        setSearchTerm: (search: string) => ({ search }),
+        setCreatedBy: (createdBy: string | null) => ({ createdBy }),
+        setStatusFilter: (status: WorkflowStatusFilter) => ({ status }),
+        toggleArchivedWorkflowSelection: (id: string) => ({ id }),
+        selectAllArchivedWorkflows: (ids: string[]) => ({ ids }),
+        clearArchivedWorkflowSelection: true,
     }),
-    loaders(({ values }) => ({
+    reducers({
+        filters: [
+            { search: '', createdBy: null, status: 'all' } as WorkflowsFilters,
+            {
+                setFilters: (state, { filters }) => ({ ...state, ...filters }),
+                setSearchTerm: (state, { search }) => ({ ...state, search }),
+                setCreatedBy: (state, { createdBy }) => ({ ...state, createdBy }),
+                setStatusFilter: (state, { status }) => ({ ...state, status }),
+            },
+        ],
+        selectedArchivedWorkflowIds: [
+            new Set<string>(),
+            {
+                toggleArchivedWorkflowSelection: (state, { id }) => {
+                    const next = new Set(state)
+                    if (next.has(id)) {
+                        next.delete(id)
+                    } else {
+                        next.add(id)
+                    }
+                    return next
+                },
+                selectAllArchivedWorkflows: (_, { ids }) => new Set<string>(ids),
+                clearArchivedWorkflowSelection: () => new Set<string>(),
+                setStatusFilter: () => new Set<string>(),
+                loadWorkflowsSuccess: () => new Set<string>(),
+            },
+        ],
+        hasLoadedWorkflows: [
+            false as boolean,
+            {
+                loadWorkflows: () => false,
+                loadWorkflowsSuccess: () => true,
+            },
+        ],
+    }),
+    loaders(({ actions, values }) => ({
         workflows: [
             [] as HogFlow[],
             {
@@ -36,14 +98,182 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     })
                     return [duplicatedWorkflow, ...values.workflows]
                 },
+                archiveWorkflow: async ({ workflow }) => {
+                    LemonDialog.open({
+                        width: 500,
+                        title: 'Archive workflow?',
+                        description: `Are you sure you want to archive "${workflow.name}"?${
+                            workflow.status === 'active'
+                                ? ' In-progress workflow invocations will end without completing.'
+                                : ''
+                        }`,
+                        primaryButton: {
+                            children: 'Archive',
+                            type: 'primary',
+                            status: 'danger',
+                            onClick: async () => {
+                                try {
+                                    await api.hogFlows.updateHogFlow(workflow.id, {
+                                        status: 'archived',
+                                    })
+                                    lemonToast.success(`Workflow "${workflow.name}" archived`)
+                                    router.actions.push(urls.workflows())
+                                    actions.loadWorkflows()
+                                } catch (error: any) {
+                                    lemonToast.error(
+                                        `Failed to archive workflow: ${error.detail || error.message || 'Unknown error'}`
+                                    )
+                                }
+                            },
+                        },
+                        secondaryButton: {
+                            children: 'Cancel',
+                        },
+                    })
+                    // Return unchanged workflows since dialog handles the update
+                    return values.workflows
+                },
+                restoreWorkflow: async ({ workflow }) => {
+                    try {
+                        const updatedWorkflow = await api.hogFlows.updateHogFlow(workflow.id, {
+                            status: 'draft',
+                        })
+                        lemonToast.success(`Workflow "${workflow.name}" restored to draft status`)
+                        return values.workflows.map((c) => (c.id === updatedWorkflow.id ? updatedWorkflow : c))
+                    } catch (error: any) {
+                        lemonToast.error(
+                            `Failed to restore workflow: ${error?.detail || error?.message || 'Unknown error'}`
+                        )
+                        return values.workflows
+                    }
+                },
                 deleteWorkflow: async ({ workflow }) => {
-                    await api.hogFlows.deleteHogFlow(workflow.id)
-                    return values.workflows.filter((c) => c.id !== workflow.id)
+                    LemonDialog.open({
+                        width: 500,
+                        title: 'Delete workflow?',
+                        description: `Are you sure you want to permanently delete "${workflow.name}"? This action cannot be undone.`,
+                        primaryButton: {
+                            children: 'Delete',
+                            type: 'primary',
+                            status: 'danger',
+                            onClick: async () => {
+                                try {
+                                    await api.hogFlows.deleteHogFlow(workflow.id)
+                                    lemonToast.success(`Workflow "${workflow.name}" deleted`)
+                                    deleteFromTree('hog_flow/', workflow.id)
+                                    actions.loadWorkflows()
+                                } catch (error: any) {
+                                    lemonToast.error(
+                                        `Failed to delete workflow: ${error.detail || error.message || 'Unknown error'}`
+                                    )
+                                }
+                            },
+                        },
+                        secondaryButton: {
+                            children: 'Cancel',
+                        },
+                    })
+                    return values.workflows
                 },
             },
         ],
     })),
-    afterMount(({ actions }) => {
-        actions.loadWorkflows()
+    selectors({
+        workflowsFuse: [
+            (s) => [s.workflows],
+            (workflows): Fuse<HogFlow> => {
+                return createFuse(workflows || [], {
+                    keys: [{ name: 'name', weight: 2 }, 'description'],
+                    threshold: 0.3,
+                    ignoreLocation: true,
+                    includeMatches: true,
+                })
+            },
+        ],
+        filteredWorkflows: [
+            (s) => [s.workflows, s.filters, s.workflowsFuse],
+            (workflows, filters, workflowsFuse): HogFlow[] => {
+                let filtered = workflows
+
+                if (filters.search) {
+                    const searchResults = workflowsFuse.search(filters.search)
+                    const matchedIds = new Set(searchResults.map((result) => result.item.id))
+                    filtered = filtered.filter((w) => matchedIds.has(w.id))
+                }
+
+                if (filters.createdBy) {
+                    filtered = filtered.filter((w) => w.created_by?.uuid === filters.createdBy)
+                }
+
+                if (filters.status !== 'all') {
+                    filtered = filtered.filter((w) => w.status === filters.status)
+                }
+
+                return filtered
+            },
+        ],
+        allArchivedSelected: [
+            (s) => [s.filteredWorkflows, s.selectedArchivedWorkflowIds],
+            (filteredWorkflows, selectedIds): boolean => {
+                return filteredWorkflows.length > 0 && filteredWorkflows.every((w) => selectedIds.has(w.id))
+            },
+        ],
+        selectedArchivedCount: [(s) => [s.selectedArchivedWorkflowIds], (selectedIds): number => selectedIds.size],
+        creators: [
+            (s) => [s.workflows],
+            (workflows) => {
+                const uniqueCreators = new Map<number, { id: number; uuid: string; name: string; email: string }>()
+                workflows.forEach((workflow) => {
+                    if (workflow.created_by) {
+                        uniqueCreators.set(workflow.created_by.id, {
+                            id: workflow.created_by.id,
+                            uuid: workflow.created_by.uuid,
+                            name: workflow.created_by.first_name || workflow.created_by.email,
+                            email: workflow.created_by.email,
+                        })
+                    }
+                })
+                return Array.from(uniqueCreators.values())
+            },
+        ],
     }),
+    listeners(({ actions, values }) => ({
+        loadWorkflowsFailure: ({ error }) => {
+            lemonToast.error(`Failed to load workflows: ${error || 'Unknown error'}`)
+        },
+        deleteSelectedWorkflows: () => {
+            const ids = Array.from(values.selectedArchivedWorkflowIds)
+            if (ids.length === 0) {
+                return
+            }
+            LemonDialog.open({
+                width: 500,
+                title: `Delete ${ids.length} archived workflow${ids.length === 1 ? '' : 's'}?`,
+                description: `Are you sure you want to permanently delete ${ids.length} archived workflow${ids.length === 1 ? '' : 's'}? This action cannot be undone.`,
+                primaryButton: {
+                    children: 'Delete',
+                    type: 'primary',
+                    status: 'danger',
+                    onClick: async () => {
+                        try {
+                            const result = await api.hogFlows.bulkDeleteHogFlows(ids)
+                            lemonToast.success(`${result.deleted} workflow${result.deleted === 1 ? '' : 's'} deleted`)
+                            for (const id of ids) {
+                                deleteFromTree('hog_flow/', id)
+                            }
+                            actions.clearArchivedWorkflowSelection()
+                            actions.loadWorkflows()
+                        } catch (error: any) {
+                            lemonToast.error(
+                                `Failed to delete workflows: ${error?.detail || error?.message || 'Unknown error'}`
+                            )
+                        }
+                    },
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
+    })),
 ])

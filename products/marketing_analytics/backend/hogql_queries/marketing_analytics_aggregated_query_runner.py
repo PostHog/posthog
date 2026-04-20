@@ -7,7 +7,7 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsAggregatedQueryResponse,
     MarketingAnalyticsBaseColumns,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsItem,
 )
 
@@ -42,13 +42,15 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 constraint=ast.JoinConstraint(
                     expr=ast.And(
                         exprs=[
+                            # Join on match_key - adapters output campaign_name or campaign_id based on team prefs
+                            # Conversion goals always use utm_campaign as match_key
                             ast.CompareOperation(
                                 left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)
                                 ),
                                 op=ast.CompareOperationOp.Eq,
                                 right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
+                                    chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)
                                 ),
                             ),
                             ast.CompareOperation(
@@ -79,16 +81,19 @@ class MarketingAnalyticsAggregatedQueryRunner(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> dict[str, ast.Expr]:
         """Build column mappings excluding Campaign and Source columns for aggregated queries"""
-        # Start with base columns but exclude Campaign, Source and rate metrics
+        # Start with base columns but exclude Campaign, Source, ID (strings) and rate metrics
         all_columns: dict[str, ast.Expr] = {
             str(k): v
             for k, v in BASE_COLUMN_MAPPING.items()
             if k
             not in (
+                MarketingAnalyticsBaseColumns.ID,
                 MarketingAnalyticsBaseColumns.CAMPAIGN,
                 MarketingAnalyticsBaseColumns.SOURCE,
                 MarketingAnalyticsBaseColumns.CPC,
                 MarketingAnalyticsBaseColumns.CTR,
+                MarketingAnalyticsBaseColumns.REPORTED_ROAS,
+                MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
             )
         }
 
@@ -97,16 +102,17 @@ class MarketingAnalyticsAggregatedQueryRunner(
             conversion_columns = conversion_aggregator.get_conversion_goal_columns()
             # We exclude the `Cost per` conversion goal columns from the mapping because we'll recalculate them later
             conversion_columns = {
-                k: v
-                for k, v in conversion_columns.items()
-                if not k.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER)
+                k: v for k, v in conversion_columns.items() if not k.startswith(MarketingAnalyticsConstants.COST_PER)
             }
             all_columns.update(conversion_columns)
 
         return all_columns
 
     def _build_basic_summed_columns(self, basic_summed_columns: dict[str, ast.Expr]) -> dict[str, ast.Expr]:
-        """Convert columns to aggregated versions - wrap numeric columns in SUM(), skip rate metrics and cost per conversion"""
+        """Convert columns to aggregated versions.
+
+        Wraps numeric columns in SUM(), skips rate metrics and cost per conversion.
+        """
         summed_columns: dict[str, ast.Expr] = {}
 
         for column_name, column_expr in basic_summed_columns.items():
@@ -155,6 +161,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
             hogql=response.hogql,
             timings=response.timings,
             modifiers=self.modifiers,
+            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
         )
 
     def calculate_without_compare(self) -> ast.SelectQuery:
@@ -367,6 +374,67 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 )
             results_dict[MarketingAnalyticsBaseColumns.CTR.value] = ctr_item
 
+        # Calculate Cost per Reported Conversion
+        total_reported_conversion_item = results_dict.get(MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS.value)
+        if total_cost_item and total_reported_conversion_item:
+            if (
+                has_comparison
+                and total_cost_item.previous is not None
+                and total_reported_conversion_item.previous is not None
+            ):
+                current_cprc = self._calculate_rate(total_cost_item.value, total_reported_conversion_item.value)
+                previous_cprc = self._calculate_rate(total_cost_item.previous, total_reported_conversion_item.previous)
+
+                cprc_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS.value,
+                    value=current_cprc,
+                    previous=previous_cprc,
+                    has_comparison=has_comparison,
+                )
+            else:
+                cprc_value = self._calculate_rate(total_cost_item.value, total_reported_conversion_item.value)
+                cprc_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS.value,
+                    value=cprc_value,
+                    previous=None,
+                    has_comparison=has_comparison,
+                )
+            results_dict[MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS.value] = cprc_item
+
+        # Calculate Reported ROAS (Return on Ad Spend = Reported Conversion Value / Cost)
+        total_reported_conversion_value_item = results_dict.get(
+            MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE.value
+        )
+        if total_reported_conversion_value_item and total_cost_item:
+            if (
+                has_comparison
+                and total_reported_conversion_value_item.previous is not None
+                and total_cost_item.previous is not None
+            ):
+                # Current period ROAS
+                current_roas = self._calculate_rate(total_reported_conversion_value_item.value, total_cost_item.value)
+                # Previous period ROAS
+                previous_roas = self._calculate_rate(
+                    total_reported_conversion_value_item.previous, total_cost_item.previous
+                )
+
+                roas_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.REPORTED_ROAS.value,
+                    value=current_roas,
+                    previous=previous_roas,
+                    has_comparison=has_comparison,
+                )
+            else:
+                # No comparison data
+                roas_value = self._calculate_rate(total_reported_conversion_value_item.value, total_cost_item.value)
+                roas_item = to_marketing_analytics_data(
+                    key=MarketingAnalyticsBaseColumns.REPORTED_ROAS.value,
+                    value=roas_value,
+                    previous=None,
+                    has_comparison=has_comparison,
+                )
+            results_dict[MarketingAnalyticsBaseColumns.REPORTED_ROAS.value] = roas_item
+
     def _calculate_rate(self, numerator, denominator, multiply_by_100: bool = False) -> float | None:
         """Calculate a rate (numerator/denominator), handling division by zero"""
         if numerator is None or denominator is None or denominator == 0:
@@ -390,7 +458,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
         base_metric_keys = {col.value for col in MarketingAnalyticsBaseColumns}
         for key in results_dict.keys():
             # Skip base metrics and cost per conversion metrics
-            if key in base_metric_keys or key.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER):
+            if key in base_metric_keys or key.startswith(MarketingAnalyticsConstants.COST_PER):
                 continue
             conversion_goals.append(key)
 
@@ -400,7 +468,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 continue
 
             # Calculate cost per conversion using the same prefix as the config
-            cost_per_key = f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {goal_name}"
+            cost_per_key = f"{MarketingAnalyticsConstants.COST_PER} {goal_name}"
 
             # Handle comparison data
             if has_comparison and conversion_item.previous is not None and total_cost_item.previous is not None:

@@ -14,9 +14,20 @@ export function LemonTableLoader({
     /** @default 'bottom' */
     placement?: 'bottom' | 'top'
 }): JSX.Element {
+    const nodeRef = React.useRef<HTMLDivElement | HTMLTableCellElement>(null)
+
     return (
-        <CSSTransition in={loading} timeout={200} classNames="LemonTableLoader-" appear mountOnEnter unmountOnExit>
+        <CSSTransition
+            in={loading}
+            timeout={200}
+            classNames="LemonTableLoader-"
+            appear
+            mountOnEnter
+            unmountOnExit
+            nodeRef={nodeRef}
+        >
             {React.createElement(tag, {
+                ref: nodeRef,
                 className: `LemonTableLoader ${placement === 'top' ? 'top-0' : '-bottom-px'}`,
             })}
         </CSSTransition>

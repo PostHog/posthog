@@ -2,15 +2,20 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use common_cache::{CacheConfig, NegativeCache, ReadThroughCache, ReadThroughCacheWithMetrics};
 use common_database::get_pool;
+use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
-use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
+use feature_flags::team::team_models::Team;
+use feature_flags::utils::test_utils::team_token_hypercache_key;
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
+use feature_flags::cohorts::membership::NoOpCohortMembershipProvider;
 use feature_flags::config::Config;
+use feature_flags::rayon_dispatcher::RayonDispatcher;
 use feature_flags::server::serve;
 
 pub struct ServerHandle {
@@ -25,10 +30,29 @@ impl ServerHandle {
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
+        let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
-            serve(config, listener, async move { notify.notified().await }).await
+            serve(config, listener, rayon_dispatcher, async move {
+                notify.notified().await
+            })
+            .await
         });
         ServerHandle { addr, shutdown }
+    }
+
+    /// Poll the server's readiness endpoint until it responds successfully.
+    /// Panics if the server doesn't become ready within 5 seconds.
+    #[allow(dead_code)]
+    pub async fn wait_until_ready(&self) {
+        let client = reqwest::Client::new();
+        let url = format!("http://{}/_readiness", self.addr);
+        for _ in 0..100 {
+            match client.get(&url).send().await {
+                Ok(resp) if resp.status().is_success() => return,
+                _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+            }
+        }
+        panic!("Server failed to become ready within 5 seconds");
     }
 
     #[allow(dead_code)]
@@ -37,27 +61,47 @@ impl ServerHandle {
         limited_tokens: Vec<String>,
         valid_tokens: Vec<(String, i32)>, // (token, team_id) pairs
     ) -> ServerHandle {
+        Self::for_config_with_mock_redis_and_recordings(
+            config,
+            limited_tokens,
+            vec![], // no recordings-limited tokens
+            valid_tokens,
+        )
+        .await
+    }
+
+    /// Create a server with mock Redis that supports both feature flag and recordings quota limits.
+    #[allow(dead_code)]
+    pub async fn for_config_with_mock_redis_and_recordings(
+        config: Config,
+        limited_tokens: Vec<String>,            // feature flags limited
+        recordings_limited_tokens: Vec<String>, // session recordings limited
+        valid_tokens: Vec<(String, i32)>,       // (token, team_id) pairs
+    ) -> ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
         // Create a mock client that handles both quota limit checks and token verification
-        let mut mock_client = MockRedisClient::new().zrangebyscore_ret(
-            "@posthog/quota-limits/feature_flag_requests",
-            limited_tokens.clone(),
-        );
-
-        // Add handling for token verification
-        for (token, team_id) in valid_tokens {
-            println!(
-                "Setting up mock for token: {token} with key: {TEAM_TOKEN_CACHE_PREFIX}{token}"
+        let mut mock_client = MockRedisClient::new()
+            .zrangebyscore_ret(
+                "@posthog/quota-limits/feature_flag_requests",
+                limited_tokens.clone(),
+            )
+            .zrangebyscore_ret(
+                "@posthog/quota-limits/recordings",
+                recordings_limited_tokens.clone(),
             );
+
+        // Add handling for token verification using HyperCache format
+        for (token, team_id) in valid_tokens {
+            let cache_key = team_token_hypercache_key(&token);
+            println!("Setting up mock for token: {token} with key: {cache_key}");
 
             // Create a minimal valid Team object
             let team = Team {
                 id: team_id,
-                project_id: Some(team_id as i64),
                 name: "Test Team".to_string(),
                 api_token: token.clone(),
                 cookieless_server_hash_mode: Some(0),
@@ -65,12 +109,12 @@ impl ServerHandle {
                 ..Default::default()
             };
 
-            // Serialize to JSON
+            // Serialize to JSON, then Pickle-encode it (matching HyperCache format)
             let team_json = serde_json::to_string(&team).unwrap();
             println!("Team JSON for mock: {team_json}");
+            let pickled_bytes = serde_pickle::ser::to_vec(&team_json, Default::default()).unwrap();
 
-            mock_client =
-                mock_client.get_ret(&format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), Ok(team_json));
+            mock_client = mock_client.get_raw_bytes_ret(&cache_key, Ok(pickled_bytes));
         }
 
         tokio::spawn(async move {
@@ -85,9 +129,7 @@ impl ServerHandle {
                 let persons_reader = match get_pool(
                     &config.get_persons_read_database_url(),
                     config.max_pg_connections,
-                )
-                .await
-                {
+                ) {
                     Ok(client) => Arc::new(client),
                     Err(e) => {
                         tracing::error!("Failed to create persons read Postgres client: {}", e);
@@ -97,9 +139,7 @@ impl ServerHandle {
                 let persons_writer = match get_pool(
                     &config.get_persons_write_database_url(),
                     config.max_pg_connections,
-                )
-                .await
-                {
+                ) {
                     Ok(client) => Arc::new(client),
                     Err(e) => {
                         tracing::error!("Failed to create persons write Postgres client: {}", e);
@@ -107,7 +147,7 @@ impl ServerHandle {
                     }
                 };
                 let non_persons_reader =
-                    match get_pool(&config.read_database_url, config.max_pg_connections).await {
+                    match get_pool(&config.read_database_url, config.max_pg_connections) {
                         Ok(client) => Arc::new(client),
                         Err(e) => {
                             tracing::error!(
@@ -118,7 +158,7 @@ impl ServerHandle {
                         }
                     };
                 let non_persons_writer =
-                    match get_pool(&config.write_database_url, config.max_pg_connections).await {
+                    match get_pool(&config.write_database_url, config.max_pg_connections) {
                         Ok(client) => Arc::new(client),
                         Err(e) => {
                             tracing::error!(
@@ -136,22 +176,20 @@ impl ServerHandle {
                 )
             } else {
                 // Same database for both persons and non-persons tables
-                let reader =
-                    match get_pool(&config.read_database_url, config.max_pg_connections).await {
-                        Ok(client) => Arc::new(client),
-                        Err(e) => {
-                            tracing::error!("Failed to create read Postgres client: {}", e);
-                            return;
-                        }
-                    };
-                let writer =
-                    match get_pool(&config.write_database_url, config.max_pg_connections).await {
-                        Ok(client) => Arc::new(client),
-                        Err(e) => {
-                            tracing::error!("Failed to create write Postgres client: {}", e);
-                            return;
-                        }
-                    };
+                let reader = match get_pool(&config.read_database_url, config.max_pg_connections) {
+                    Ok(client) => Arc::new(client),
+                    Err(e) => {
+                        tracing::error!("Failed to create read Postgres client: {}", e);
+                        return;
+                    }
+                };
+                let writer = match get_pool(&config.write_database_url, config.max_pg_connections) {
+                    Ok(client) => Arc::new(client),
+                    Err(e) => {
+                        tracing::error!("Failed to create write Postgres client: {}", e);
+                        return;
+                    }
+                };
                 (
                     reader.clone(),
                     writer.clone(),
@@ -170,7 +208,7 @@ impl ServerHandle {
             let cohort_cache = Arc::new(
                 feature_flags::cohorts::cohort_cache_manager::CohortCacheManager::new(
                     non_persons_reader.clone(),
-                    Some(config.cache_max_cohort_entries),
+                    Some(config.cohort_cache_capacity_bytes),
                     Some(config.cache_ttl_seconds),
                 ),
             );
@@ -210,19 +248,129 @@ impl ServerHandle {
                 non_persons_writer: non_persons_writer.clone(),
                 persons_reader: persons_reader.clone(),
                 persons_writer: persons_writer.clone(),
+                behavioral_cohorts_reader: None,
                 test_before_acquire: *config.test_before_acquire,
             });
+
+            // Create HyperCacheReader for flags
+            let flags_hypercache_config = HyperCacheConfig::new(
+                "feature_flags".to_string(),
+                "flags.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            let flags_hypercache_reader =
+                match HyperCacheReader::new(redis_reader_client.clone(), flags_hypercache_config)
+                    .await
+                {
+                    Ok(reader) => Arc::new(reader),
+                    Err(e) => {
+                        tracing::error!("Failed to create flags HyperCacheReader: {:?}", e);
+                        return;
+                    }
+                };
+
+            // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
+            let flags_with_cohorts_hypercache_config = HyperCacheConfig::new(
+                "feature_flags".to_string(),
+                "flags_with_cohorts.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            let flags_with_cohorts_hypercache_reader = match HyperCacheReader::new(
+                redis_reader_client.clone(),
+                flags_with_cohorts_hypercache_config,
+            )
+            .await
+            {
+                Ok(reader) => Arc::new(reader),
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create flags_with_cohorts HyperCacheReader: {:?}",
+                        e
+                    );
+                    return;
+                }
+            };
+
+            // Create team metadata hypercache reader
+            let mut team_hypercache_config = HyperCacheConfig::new(
+                "team_metadata".to_string(),
+                "full_metadata.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            team_hypercache_config.token_based = true;
+            let team_hypercache_reader =
+                match HyperCacheReader::new(redis_reader_client.clone(), team_hypercache_config)
+                    .await
+                {
+                    Ok(reader) => Arc::new(reader),
+                    Err(e) => {
+                        tracing::error!("Failed to create team HyperCacheReader: {:?}", e);
+                        return;
+                    }
+                };
+
+            // Create config hypercache reader for remote config (array/config.json)
+            let mut config_hypercache_config = HyperCacheConfig::new(
+                "array".to_string(),
+                "config.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            config_hypercache_config.token_based = true;
+            let config_hypercache_reader =
+                match HyperCacheReader::new(redis_reader_client.clone(), config_hypercache_config)
+                    .await
+                {
+                    Ok(reader) => Arc::new(reader),
+                    Err(e) => {
+                        tracing::error!("Failed to create config HyperCacheReader: {:?}", e);
+                        return;
+                    }
+                };
+
+            let group_type_cache = Arc::new(
+                feature_flags::flags::flag_group_type_mapping::GroupTypeCacheManager::new(
+                    persons_reader.clone(),
+                    Some(config.group_type_cache_max_entries),
+                    Some(config.group_type_cache_ttl_seconds),
+                ),
+            );
 
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
                 None,                        // No dedicated flags Redis in tests
                 database_pools,
                 cohort_cache,
+                group_type_cache,
                 geoip_service,
                 health,
                 feature_flags_billing_limiter,
                 session_replay_billing_limiter,
                 cookieless_manager,
+                flags_hypercache_reader,
+                flags_with_cohorts_hypercache_reader,
+                team_hypercache_reader,
+                config_hypercache_reader,
+                RayonDispatcher::new(2, None),
+                NegativeCache::new(10_000, 300),
+                Arc::new(ReadThroughCacheWithMetrics::new(
+                    Arc::new(ReadThroughCache::new(
+                        redis_writer_client.clone(),
+                        redis_writer_client.clone(),
+                        CacheConfig::with_ttl(
+                            feature_flags::api::auth::TOKEN_CACHE_PREFIX,
+                            config.auth_token_cache_ttl_seconds,
+                        ),
+                        None,
+                    )),
+                    "auth",
+                    "token",
+                    &[],
+                )),
+                Arc::new(NoOpCohortMembershipProvider),
                 config,
             );
 

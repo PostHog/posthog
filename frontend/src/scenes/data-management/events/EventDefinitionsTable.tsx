@@ -5,27 +5,26 @@ import { IconApps, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { TZLabel } from 'lib/components/TZLabel'
 import { TagSelect } from 'lib/components/TagSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { Scene } from 'scenes/sceneTypes'
+import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EventDefinition, EventDefinitionType, FilterLogicalOperator, ReplayTabs } from '~/types'
+import { EventDefinition, EventDefinitionType, FilterLogicalOperator } from '~/types'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
@@ -42,9 +41,9 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 ]
 
 export function EventDefinitionsTable(): JSX.Element {
-    const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
+    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter } =
+        useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
-    const { hasTagging } = useValues(organizationLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
     const columns: LemonTableColumns<EventDefinition> = [
@@ -78,54 +77,40 @@ export function EventDefinitionsTable(): JSX.Element {
             },
             sorter: true,
         },
-        ...(hasTagging
-            ? [
-                  {
-                      title: 'Tags',
-                      key: 'tags',
-                      render: function Render(_, definition: EventDefinition) {
-                          return <ObjectTags tags={definition.tags ?? []} staticOnly />
-                      },
-                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: function Render(_, definition: EventDefinition) {
+                return <ObjectTags tags={definition.tags ?? []} staticOnly />
+            },
+        } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
         {
             key: 'actions',
-            width: 0,
+            width: 180,
             render: function RenderActions(_, definition: EventDefinition) {
                 return (
-                    <More
-                        data-attr={`event-definitions-table-more-button-${definition.name}`}
-                        overlay={
-                            <>
-                                <LemonButton
-                                    to={urls.replay(ReplayTabs.Home, {
-                                        filter_group: {
-                                            type: FilterLogicalOperator.And,
-                                            values: [
-                                                {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [
-                                                        {
-                                                            id: definition.name,
-                                                            type: 'events',
-                                                            order: 0,
-                                                            name: definition.name,
-                                                        },
-                                                    ],
-                                                },
-                                            ],
-                                        },
-                                    })}
-                                    fullWidth
-                                    sideIcon={<IconPlayCircle />}
-                                    data-attr="event-definitions-table-view-recordings"
-                                    targetBlank
-                                >
-                                    View recordings
-                                </LemonButton>
-                            </>
-                        }
+                    <ViewRecordingsPlaylistButton
+                        filters={{
+                            filter_group: {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: FilterLogicalOperator.And,
+                                        values: [
+                                            {
+                                                id: definition.name,
+                                                type: 'events',
+                                                order: 0,
+                                                name: definition.name,
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        }}
+                        size="small"
+                        type="secondary"
+                        data-attr="event-definitions-table-view-recordings"
                     />
                 )
             },
@@ -179,20 +164,16 @@ export function EventDefinitionsTable(): JSX.Element {
                     className="flex-1 min-w-60"
                 />
                 <div className="flex items-center gap-2 flex-shrink-0">
-                    {hasTagging && (
-                        <>
-                            <span>Tags:</span>
-                            <TagSelect
-                                defaultLabel="Any tags"
-                                value={filters.tags || []}
-                                onChange={(tags) => {
-                                    setFilters({ tags })
-                                }}
-                                data-attr="event-tags-filter"
-                                size="small"
-                            />
-                        </>
-                    )}
+                    <span>Tags:</span>
+                    <TagSelect
+                        defaultLabel="Any tags"
+                        value={filters.tags || []}
+                        onChange={(tags) => {
+                            setFilters({ tags })
+                        }}
+                        data-attr="event-tags-filter"
+                        size="small"
+                    />
                     <span>Type:</span>
                     <LemonSelect
                         value={filters.event_type}
@@ -204,6 +185,23 @@ export function EventDefinitionsTable(): JSX.Element {
                         }}
                         size="small"
                     />
+                    {showVerifiedFilter && (
+                        <>
+                            <span>Status:</span>
+                            <LemonSelect
+                                value={verifiedFilterValue(filters.verified)}
+                                options={verifiedOptions}
+                                data-attr="event-verified-filter"
+                                dropdownMatchSelectWidth={false}
+                                onChange={(value) => {
+                                    setFilters({
+                                        verified: verifiedFilterFromOption(value),
+                                    })
+                                }}
+                                size="small"
+                            />
+                        </>
+                    )}
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}

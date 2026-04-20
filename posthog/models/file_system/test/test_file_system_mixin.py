@@ -1,7 +1,9 @@
 from django.test import TestCase
 
-from posthog.models import Dashboard, Experiment, FeatureFlag, FileSystem, Insight, Organization, Team, User
+from posthog.models import FeatureFlag, FileSystem, Insight, Organization, Team, User
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
 
 
@@ -189,6 +191,6 @@ class TestFileSystemSyncMixin(TestCase):
 
         note.save()
 
-        assert (
-            FileSystem.objects.filter(id=fs_entry_id).exists() is False
-        ), "Existing entries for internal notebooks should be deleted"
+        assert FileSystem.objects.filter(id=fs_entry_id).exists() is False, (
+            "Existing entries for internal notebooks should be deleted"
+        )

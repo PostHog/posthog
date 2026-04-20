@@ -8,6 +8,7 @@ import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { pluralize } from 'lib/utils'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
@@ -19,16 +20,17 @@ export function LinkToModal(): JSX.Element {
     const allFolders = splitPath(destinationFolder)
     const lastFolder = allFolders[allFolders.length - 1]
 
-    const s = linkingItems.length === 1 ? '' : 's'
+    const s = pluralize(linkingItems.length, 'shortcut', 'shortcuts', false)
 
     return (
         <LemonModal
             onClose={closeLinkToModal}
             isOpen={isOpen}
-            title={`Select a folder to create shortcut${s} in`}
+            title={`Select a folder to create ${s} in`}
             description={
                 <>
-                    You are creating {linkingItems.length} shortcut{s} in <LemonSnack>{destinationFolder}</LemonSnack>
+                    You are creating {pluralize(linkingItems.length, 'shortcut')} in{' '}
+                    <LemonSnack>{destinationFolder}</LemonSnack>
                 </>
             }
             // This is a bit of a hack. Without it, the flow "insight" -> "add to dashboard button" ->
@@ -44,7 +46,7 @@ export function LinkToModal(): JSX.Element {
                         data-attr="link-to-modal-move-button"
                         disabledReason={typeof lastFolder !== 'string' ? 'Please select a folder' : undefined}
                     >
-                        Create shortcut{s} in {lastFolder}
+                        Create {s} in {lastFolder}
                     </LemonButton>
                 </>
             }

@@ -1,28 +1,25 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { STATUS_TAG_SETTINGS } from 'scenes/models/nodeDetailConstants'
 import { urls } from 'scenes/urls'
 
+import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
 
 import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'
 
-const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
-    Running: 'primary',
-    Completed: 'success',
-    Failed: 'danger',
-    Cancelled: 'muted',
-    Modified: 'warning',
-}
-
 const getDisabledReason = (view: DataWarehouseSavedQuery): string | undefined => {
     if (view.managed_viewset_kind !== null) {
         return `Cannot delete a view that belongs to a managed viewset. You can turn the viewset off in the ${urls.dataWarehouseManagedViewsets()} page.`
+    }
+    if (view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT) {
+        return `Cannot delete a view that belongs to an endpoint. You can disable materialization on this endpoint's page.`
     }
 
     return undefined
@@ -43,8 +40,8 @@ function RunHistoryDisplay({
         return <span className="text-muted">-</span>
     }
 
-    // Show up to 5 most recent runs
-    const displayRuns = runHistory.slice(0, 5)
+    // Show up to 5 most recent runs, reversed so the most recent is on the right
+    const displayRuns = runHistory.slice(0, 5).reverse()
 
     return (
         <div className="flex gap-1">
@@ -73,7 +70,12 @@ function DependencyCount({ count, loading }: { count?: number; loading?: boolean
     return <span>{count}</span>
 }
 
-export function ViewsTab(): JSX.Element {
+interface ViewsTabProps {
+    /** Optional function to build the URL when clicking on a view. Defaults to SQL editor. */
+    getViewUrl?: (view: DataWarehouseSavedQuery) => string
+}
+
+export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
     const {
         filteredViews,
         filteredMaterializedViews,
@@ -144,9 +146,15 @@ export function ViewsTab(): JSX.Element {
                                                 managed viewset
                                             </span>
                                         </>
+                                    ) : view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT ? (
+                                        <LemonTableLink
+                                            to={urls.endpoint(view.name)}
+                                            title={view.name}
+                                            description={`Created by the ${view.name} endpoint.`}
+                                        />
                                     ) : (
                                         <LemonTableLink
-                                            to={urls.sqlEditor(undefined, view.id)}
+                                            to={getViewUrl?.(view) ?? urls.sqlEditor({ view_id: view.id })}
                                             title={view.name}
                                             description="Materialized view"
                                         />
@@ -170,15 +178,17 @@ export function ViewsTab(): JSX.Element {
                                     if (!view.status) {
                                         return null
                                     }
-                                    const tagContent = (
+                                    if (view.latest_error && view.status === 'Failed') {
+                                        return (
+                                            <Tooltip title={view.latest_error} interactive>
+                                                <LemonTag type="danger">Failed</LemonTag>
+                                            </Tooltip>
+                                        )
+                                    }
+                                    return (
                                         <LemonTag type={STATUS_TAG_SETTINGS[view.status] || 'default'}>
                                             {view.status}
                                         </LemonTag>
-                                    )
-                                    return view.latest_error && view.status === 'Failed' ? (
-                                        <Tooltip title={view.latest_error}>{tagContent}</Tooltip>
-                                    ) : (
-                                        tagContent
                                     )
                                 },
                             },
@@ -219,8 +229,15 @@ export function ViewsTab(): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton onClick={() => runMaterialization(view.id)}>
-                                                    Run now
+                                                <LemonButton
+                                                    onClick={() => runMaterialization(view.id)}
+                                                    disabledReason={
+                                                        view.status === 'Running'
+                                                            ? 'Materialization is already running'
+                                                            : undefined
+                                                    }
+                                                >
+                                                    Sync now
                                                 </LemonButton>
                                                 <LemonButton
                                                     status="danger"
@@ -292,7 +309,10 @@ export function ViewsTab(): JSX.Element {
                                             </span>
                                         </>
                                     ) : (
-                                        <LemonTableLink to={urls.sqlEditor(undefined, view.id)} title={view.name} />
+                                        <LemonTableLink
+                                            to={getViewUrl?.(view) ?? urls.sqlEditor({ view_id: view.id })}
+                                            title={view.name}
+                                        />
                                     ),
                             },
                             {

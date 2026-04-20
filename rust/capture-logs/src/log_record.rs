@@ -4,6 +4,7 @@ use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use chrono::serde::ts_microseconds;
 use chrono::DateTime;
+use chrono::TimeDelta;
 use chrono::Utc;
 use clickhouse::Row;
 use opentelemetry_proto::tonic::{
@@ -44,16 +45,12 @@ impl KafkaLogRow {
         record: LogRecord,
         resource: Option<Resource>,
         scope: Option<InstrumentationScope>,
-    ) -> Result<Self> {
-        // Extract body
+    ) -> Result<(Self, bool)> {
+        // Extract body - convert any AnyValue type to JSON string
         let body = match record.body {
             Some(body) => match body.value {
-                Some(value) => match value {
-                    opentelemetry_proto::tonic::common::v1::any_value::Value::StringValue(s) => {
-                        s.clone()
-                    }
-                    _ => format!("{value:?}"),
-                },
+                Some(any_value::Value::StringValue(s)) => s,
+                Some(_) => any_value_to_json(body).to_string(),
                 None => "".to_string(),
             },
             None => "".to_string(),
@@ -88,15 +85,14 @@ impl KafkaLogRow {
                 )
             })
             .collect();
-        attributes.extend(resource_attributes.clone());
 
         let instrumentation_scope = match scope {
             Some(s) => format!("{}@{}", s.name, s.version),
             None => "".to_string(),
         };
 
-        let event_name = extract_string_from_map(&attributes, "event.name");
-        let service_name = extract_string_from_map(&attributes, "service.name");
+        let event_name = record.event_name;
+        let service_name = extract_string_from_map(&resource_attributes, "service.name");
 
         // Trace/span IDs
         let trace_id = extract_trace_id(&record.trace_id);
@@ -105,10 +101,16 @@ impl KafkaLogRow {
         // Trace flags
         let trace_flags = record.flags;
 
-        let timestamp = match record.time_unix_nano {
+        let raw_timestamp = match record.time_unix_nano {
             0 => Utc::now(),
             _ => DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?),
         };
+
+        let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
+        let was_overridden = original_timestamp.is_some();
+        if let Some(original) = original_timestamp {
+            attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+        }
 
         let observed_timestamp = Utc::now();
 
@@ -122,7 +124,7 @@ impl KafkaLogRow {
             body,
             severity_text,
             severity_number,
-            resource_attributes: resource_attributes.into_iter().collect(),
+            resource_attributes,
             instrumentation_scope,
             event_name,
             service_name,
@@ -130,7 +132,22 @@ impl KafkaLogRow {
         };
         debug!("log: {:?}", log_row);
 
-        Ok(log_row)
+        Ok((log_row, was_overridden))
+    }
+}
+
+const TIMESTAMP_OVERRIDE_HOURS: i64 = 24;
+
+/// Override timestamps outside of 24 hours from now. Returns the final timestamp
+/// and the original if it was overridden.
+pub fn override_timestamp(timestamp: DateTime<Utc>) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
+    let now = Utc::now();
+    let max_delta = TimeDelta::hours(TIMESTAMP_OVERRIDE_HOURS);
+
+    if timestamp < now - max_delta || timestamp > now + max_delta {
+        (now, Some(timestamp))
+    } else {
+        (timestamp, None)
     }
 }
 
@@ -147,7 +164,7 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
     }
 }
 
-fn extract_trace_id(input: &[u8]) -> [u8; 16] {
+pub fn extract_trace_id(input: &[u8]) -> [u8; 16] {
     if input.len() == 16 {
         let mut bytes = [0; 16];
         bytes.copy_from_slice(input);
@@ -157,7 +174,7 @@ fn extract_trace_id(input: &[u8]) -> [u8; 16] {
     }
 }
 
-fn extract_span_id(input: &[u8]) -> [u8; 8] {
+pub fn extract_span_id(input: &[u8]) -> [u8; 8] {
     if input.len() == 8 {
         let mut bytes = [0; 8];
         bytes.copy_from_slice(input);
@@ -222,9 +239,9 @@ fn convert_severity_number_to_text(severity_number: i32) -> String {
     }
 }
 
-fn extract_resource_attributes(resource: Option<Resource>) -> Vec<(String, String)> {
+pub fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String, String> {
     let Some(resource) = resource else {
-        return Vec::new();
+        return HashMap::new();
     };
 
     resource
@@ -263,7 +280,7 @@ fn try_extract_severity(body: &str) -> Option<String> {
     None
 }
 
-fn any_value_to_json(value: AnyValue) -> JsonValue {
+pub fn any_value_to_json(value: AnyValue) -> JsonValue {
     match value.value {
         Some(value_enum) => match value_enum {
             any_value::Value::StringValue(s) => json!(s),
@@ -294,6 +311,56 @@ fn any_value_to_json(value: AnyValue) -> JsonValue {
     }
 }
 
-fn any_value_to_string(value: AnyValue) -> String {
+pub fn any_value_to_string(value: AnyValue) -> String {
     any_value_to_json(value).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_override_timestamp_within_range_is_unchanged() {
+        let now = Utc::now();
+        let one_hour_ago = now - TimeDelta::hours(1);
+        let (final_ts, original) = override_timestamp(one_hour_ago);
+        assert_eq!(final_ts, one_hour_ago);
+        assert!(original.is_none());
+    }
+
+    #[test]
+    fn test_override_timestamp_far_past_is_overridden() {
+        let now = Utc::now();
+        let two_days_ago = now - TimeDelta::hours(48);
+        let (final_ts, original) = override_timestamp(two_days_ago);
+        assert!((final_ts - now).num_seconds().abs() < 2);
+        assert_eq!(original.unwrap(), two_days_ago);
+    }
+
+    #[test]
+    fn test_override_timestamp_far_future_is_overridden() {
+        let now = Utc::now();
+        let two_days_ahead = now + TimeDelta::hours(48);
+        let (final_ts, original) = override_timestamp(two_days_ahead);
+        assert!((final_ts - now).num_seconds().abs() < 2);
+        assert_eq!(original.unwrap(), two_days_ahead);
+    }
+
+    #[test]
+    fn test_override_timestamp_at_boundary_is_not_overridden() {
+        let now = Utc::now();
+        let just_within = now - TimeDelta::hours(22);
+        let (final_ts, original) = override_timestamp(just_within);
+        assert_eq!(final_ts, just_within);
+        assert!(original.is_none());
+    }
+
+    #[test]
+    fn test_override_timestamp_just_past_boundary_is_overridden() {
+        let now = Utc::now();
+        let just_outside = now - TimeDelta::hours(24) - TimeDelta::seconds(1);
+        let (final_ts, original) = override_timestamp(just_outside);
+        assert!((final_ts - now).num_seconds().abs() < 2);
+        assert_eq!(original.unwrap(), just_outside);
+    }
 }

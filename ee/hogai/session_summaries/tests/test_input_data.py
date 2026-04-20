@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -16,6 +16,9 @@ from ee.hogai.session_summaries.session.input_data import (
     add_context_and_filter_events,
     get_session_events,
 )
+
+# Timestamp after the mock session start time (2025-03-31T18:40:32.302000Z)
+MOCK_EVENT_TIMESTAMP = datetime(2025, 3, 31, 18, 40, 39, 302000, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -95,7 +98,7 @@ def test_get_improved_elements_chain_elements():
         (
             (
                 "$autocapture",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 ["Click me"],
                 [],
@@ -113,7 +116,7 @@ def test_get_improved_elements_chain_elements():
             ),
             (
                 "$autocapture",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 ["Click me"],
                 ["button"],
@@ -131,7 +134,7 @@ def test_get_improved_elements_chain_elements():
         (
             (
                 "$autocapture",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 [],
                 [],
@@ -155,7 +158,7 @@ def test_get_improved_elements_chain_elements():
         (
             (
                 "$autocapture",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 [],
                 [],
@@ -173,7 +176,7 @@ def test_get_improved_elements_chain_elements():
             ),
             (
                 "$autocapture",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 ["Click me", "Create project"],
                 ["button", "a"],
@@ -191,7 +194,7 @@ def test_get_improved_elements_chain_elements():
         (
             (
                 "user_clicked_button",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 [],
                 [],
@@ -209,7 +212,7 @@ def test_get_improved_elements_chain_elements():
             ),
             (
                 "user_clicked_button",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 [],
                 [],
@@ -227,12 +230,20 @@ def test_get_improved_elements_chain_elements():
 )
 def test_add_context_and_filter_events(
     mock_event_indexes: dict[str, int],
+    mock_session_start_time: datetime,
+    mock_session_end_time: datetime,
     input_event: tuple[Any, ...],
     expected_event: tuple[Any, ...] | None,
     should_keep: bool,
 ):
     test_columns = list(mock_event_indexes.keys())
-    updated_columns, updated_events = add_context_and_filter_events(test_columns, [input_event])
+    updated_columns, updated_events = add_context_and_filter_events(
+        session_events_columns=test_columns,
+        session_events=[input_event],
+        session_id="test_session_id",
+        session_start_time=mock_session_start_time,
+        session_end_time=mock_session_end_time,
+    )
 
     # Check columns are updated (and columns excessive from LLM context are removed)
     assert len(updated_columns) == len(test_columns) - len(COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT)
@@ -245,6 +256,134 @@ def test_add_context_and_filter_events(
         assert updated_events[0] == expected_event
     else:
         assert len(updated_events) == 0
+
+
+@pytest.mark.parametrize(
+    "event_timestamps,expected_kept_count",
+    [
+        # Session starts at 18:40:32.302000, ends at 18:54:15.789000
+        # Events within 5s of start (<=18:40:37.302000) are filtered
+        # Events within 5s of end (>=18:54:10.789000) are filtered
+        #
+        # --- Before replay start filtering ---
+        # All events within 5s of start - none kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start
+                datetime(2025, 3, 31, 18, 40, 32, 302000, tzinfo=UTC),  # Exactly at start (filtered)
+                datetime(2025, 3, 31, 18, 40, 37, 302000, tzinfo=UTC),  # Exactly at threshold (filtered)
+            ],
+            0,
+        ),
+        # First two within threshold of start, third after - only third kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start (filtered)
+                datetime(2025, 3, 31, 18, 40, 35, 0, tzinfo=UTC),  # Within 5s threshold (filtered)
+                datetime(2025, 3, 31, 18, 40, 38, 0, tzinfo=UTC),  # After threshold (~5.7s after start)
+            ],
+            1,
+        ),
+        # All events in valid middle range - all kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 38, 0, tzinfo=UTC),  # After start threshold
+                datetime(2025, 3, 31, 18, 45, 0, 0, tzinfo=UTC),  # Middle of session
+                datetime(2025, 3, 31, 18, 50, 0, 0, tzinfo=UTC),  # Still before end threshold
+            ],
+            3,
+        ),
+        # Mix: two within start threshold, one after - one kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start (filtered)
+                datetime(2025, 3, 31, 18, 40, 36, 0, tzinfo=UTC),  # Within 5s threshold (filtered)
+                datetime(2025, 3, 31, 18, 40, 39, 302000, tzinfo=UTC),  # After threshold (~7s after start)
+            ],
+            1,
+        ),
+        #
+        # --- After replay end filtering ---
+        # All events within 5s of end - none kept (assuming they're after start threshold)
+        (
+            [
+                datetime(2025, 3, 31, 18, 54, 10, 789000, tzinfo=UTC),  # Exactly at end threshold (filtered)
+                datetime(2025, 3, 31, 18, 54, 15, 789000, tzinfo=UTC),  # Exactly at end (filtered)
+                datetime(2025, 3, 31, 18, 54, 20, 0, tzinfo=UTC),  # After end (filtered)
+            ],
+            0,
+        ),
+        # First event before end threshold, rest within - only first kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 54, 5, 0, tzinfo=UTC),  # Before end threshold (~10s before end)
+                datetime(2025, 3, 31, 18, 54, 12, 0, tzinfo=UTC),  # Within 5s of end (filtered)
+                datetime(2025, 3, 31, 18, 54, 20, 0, tzinfo=UTC),  # After end (filtered)
+            ],
+            1,
+        ),
+        #
+        # --- Combined before/after filtering ---
+        # Events at both ends filtered, middle kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 35, 0, tzinfo=UTC),  # Within start threshold (filtered)
+                datetime(2025, 3, 31, 18, 45, 0, 0, tzinfo=UTC),  # Middle of session (kept)
+                datetime(2025, 3, 31, 18, 54, 12, 0, tzinfo=UTC),  # Within end threshold (filtered)
+            ],
+            1,
+        ),
+        # All events outside valid range - none kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start (filtered)
+                datetime(2025, 3, 31, 18, 40, 37, 0, tzinfo=UTC),  # Within start threshold (filtered)
+                datetime(2025, 3, 31, 18, 54, 15, 789000, tzinfo=UTC),  # At end (filtered)
+            ],
+            0,
+        ),
+    ],
+)
+def test_filter_events_before_after_replay_session(
+    mock_raw_events_columns: list[str],
+    mock_session_start_time: datetime,
+    mock_session_end_time: datetime,
+    event_timestamps: list[datetime],
+    expected_kept_count: int,
+):
+    """Test that events occurring before start or after end of replay session are filtered out."""
+    events: list[tuple[Any, ...]] = []
+    for i, ts in enumerate(event_timestamps):
+        events.append(
+            (
+                "$pageview",  # System event - not filtered for lack of context
+                ts,
+                "",
+                [],
+                [],
+                None,
+                None,
+                None,
+                [],
+                "",
+                [],
+                [],
+                [],
+                [],
+                [],
+                f"00000000-0000-0000-0001-00000000000{i}",
+            )
+        )
+
+    updated_columns, updated_events = add_context_and_filter_events(
+        session_events_columns=mock_raw_events_columns,
+        session_events=events,
+        session_id="test_session_id",
+        session_start_time=mock_session_start_time,
+        session_end_time=mock_session_end_time,
+    )
+
+    assert len(updated_events) == expected_kept_count
 
 
 @pytest.mark.parametrize(

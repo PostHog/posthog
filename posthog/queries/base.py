@@ -278,12 +278,16 @@ def empty_or_null_with_value_q(
             # and do a numeric comparison. Otherwise, do a string comparison.
             sanitized_key = sanitize_property_key(key)
             target_filter = Q(
+                # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
                 Q(**{f"{column}__{key}__{operator}": str(value), f"{column}_{sanitized_key}_type": Value("string")})
+                # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
                 | Q(**{f"{column}__{key}__{operator}": parsed_value, f"{column}_{sanitized_key}_type": Value("number")})
             )
         else:
+            # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
             target_filter = Q(**{f"{column}__{key}__{operator}": value})
 
+    # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
     query_filter = Q(target_filter & Q(**{f"{column}__has_key": key}) & ~Q(**{f"{column}__{key}": None}))
 
     if negated:
@@ -294,6 +298,7 @@ def empty_or_null_with_value_q(
 def lookup_q(key: str, value: Any) -> Q:
     # exact and is_not operators can pass lists as arguments. Handle those lookups!
     if isinstance(value, list):
+        # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
         return Q(**{f"{key}__in": value})
     return Q(**{key: value})
 
@@ -378,8 +383,10 @@ def property_to_Q(
     column = "group_properties" if property.type == "group" else "properties"
 
     if property.operator == "is_set":
+        # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
         return Q(**{f"{column}__{property.key}__isnull": False})
     if property.operator == "is_not_set":
+        # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
         return Q(**{f"{column}__{property.key}__isnull": True})
     if property.operator in ("regex", "not_regex") and not is_valid_regex(str(value)):
         # Return no data for invalid regexes
@@ -408,6 +415,7 @@ def property_to_Q(
             if parsed_date:
                 effective_value = parsed_date.isoformat()
 
+        # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
         return Q(**{f"{column}__{property.key}__{effective_operator}": effective_value})
 
     if property.operator == "is_not":

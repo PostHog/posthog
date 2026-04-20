@@ -1,5 +1,6 @@
 use chrono::Duration;
 
+use common_continuous_profiling::ContinuousProfilingConfig;
 use cyclotron_core::PoolConfig;
 use envconfig::Envconfig;
 use uuid::Uuid;
@@ -8,6 +9,9 @@ use common_kafka::config::KafkaConfig;
 
 #[derive(Envconfig)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 

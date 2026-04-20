@@ -7,19 +7,22 @@ import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsa
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, FunnelVizType } from '~/types'
 
-import { FunnelCorrelationFeedbackForm } from './FunnelCorrelationFeedbackForm'
 import { FunnelCorrelationSkewWarning } from './FunnelCorrelationSkewWarning'
 import { FunnelCorrelationTable } from './FunnelCorrelationTable'
 import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
-    const { steps, isStepsFunnel } = useValues(funnelDataLogic(insightProps))
+    const { steps, funnelsFilter, hasDataWarehouseSeries } = useValues(funnelDataLogic(insightProps))
     useMountedLogic(funnelCorrelationUsageLogic(insightProps))
-
-    if (!isStepsFunnel || steps.length <= 1) {
+    const vizType = funnelsFilter?.funnelVizType
+    if (
+        (vizType !== FunnelVizType.Steps && vizType !== FunnelVizType.Flow) ||
+        steps.length <= 1 ||
+        hasDataWarehouseSeries
+    ) {
         return null
     }
 
@@ -30,7 +33,6 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                 <div className="funnel-correlation">
                     <FunnelCorrelationSkewWarning />
                     <FunnelCorrelationTable />
-                    <FunnelCorrelationFeedbackForm />
                     <FunnelPropertyCorrelationTable />
                 </div>
             </PayGateMini>

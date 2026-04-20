@@ -1,4 +1,3 @@
-import fs from 'fs'
 import type { Config } from 'jest'
 
 process.env.TZ = process.env.TZ || 'UTC'
@@ -10,22 +9,53 @@ process.env.TZ = process.env.TZ || 'UTC'
 
 const esmModules = [
     'query-selector-shadow-dom',
-    'react-syntax-highlighter',
     '@react-hook',
     '@medv',
     'monaco-editor',
-    'mdast-util-find-and-replace',
+    '@posthog/hedgehog-mode',
     'escape-string-regexp',
-    'unist-util-visit-parents',
-    'unist-util-is',
+    '@tiptap',
+    'marked',
+    'lowlight',
+    'devlop',
+    'zwitch',
+    // react-markdown and its ecosystem are all ESM-only
+    'react-markdown',
+    'remark-.*',
+    'rehype-.*',
+    'unified',
+    'bail',
+    'trough',
+    'vfile',
+    'vfile-message',
+    'hast-util-.*',
+    'mdast-util-.*',
+    'unist-util-.*',
+    'estree-util-.*',
+    'micromark',
+    'micromark-.*',
+    'parse-entities',
+    'character-entities.*',
+    'character-reference-invalid',
+    'is-plain-obj',
+    'is-decimal',
+    'is-hexadecimal',
+    'is-alphabetical',
+    'is-alphanumerical',
+    'decode-named-character-reference',
+    'trim-lines',
+    'comma-separated-tokens',
+    'space-separated-tokens',
+    'property-information',
+    'stringify-entities',
+    'html-void-elements',
+    'html-url-attributes',
+    'ccount',
+    'longest-streak',
+    'markdown-table',
 ]
-const eeFolderExists = fs.existsSync('../ee/frontend/exports.ts')
 function rootDirectories(): string[] {
-    const rootDirectories = ['<rootDir>/src', '<rootDir>/../products']
-    if (eeFolderExists) {
-        rootDirectories.push('<rootDir>/../ee/frontend')
-    }
-    return rootDirectories
+    return ['<rootDir>/src', '<rootDir>/../products']
 }
 
 const config: Config = {
@@ -104,17 +134,32 @@ const config: Config = {
 
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
-        '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/src/test/mocks/styleMock.js',
+        '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^~/(.*)$': '<rootDir>/src/$1',
+        '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
-        '^@posthog/ee/exports': ['<rootDir>/../ee/frontend/exports', '<rootDir>/@posthog/ee/exports'],
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
+        '^react-markdown$': '<rootDir>/src/test/mocks/reactMarkdownMock.js',
+        '^remark-gfm$': '<rootDir>/src/test/mocks/emptyMock.js',
+        '^mdast-util-find-and-replace$': '<rootDir>/src/test/mocks/emptyMock.js',
+        '^chart\\.js$': '<rootDir>/src/test/insight-testing/chartjs-mock',
+        '@sgratzl/chartjs-chart-boxplot': '<rootDir>/src/test/mocks/emptyMock.js',
+        'chartjs-plugin-crosshair': '<rootDir>/src/test/mocks/emptyMock.js',
+        'chartjs-plugin-annotation': '<rootDir>/src/test/mocks/chartjsPluginMock.js',
+        'chartjs-plugin-datalabels': '<rootDir>/src/test/mocks/chartjsPluginMock.js',
+        'chartjs-plugin-stacked100': '<rootDir>/src/test/mocks/chartjsStacked100Mock.js',
+        'chartjs-plugin-trendline': '<rootDir>/src/test/mocks/chartjsPluginMock.js',
+        'chartjs-plugin-zoom': '<rootDir>/src/test/mocks/chartjsPluginMock.js',
+        'chartjs-adapter-dayjs-3': '<rootDir>/src/test/mocks/emptyMock.js',
+        torph: '<rootDir>/src/test/mocks/torphMock.js',
         'monaco-editor': '<rootDir>/node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts',
         '^scenes/(.*)$': '<rootDir>/src/scenes/$1',
         '^products/(.*)$': '<rootDir>/../products/$1',
         '^common/(.*)$': '<rootDir>/../common/$1',
-        '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
+        '^@posthog/replay-shared$': '<rootDir>/../common/replay-shared/src/index.ts',
+        '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
+        '^@posthog/shared-onboarding/(.*)$': '<rootDir>/../docs/onboarding/$1',
         '^@posthog/rrweb/es/rrweb': '@posthog/rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
@@ -163,7 +208,7 @@ const config: Config = {
     setupFiles: ['<rootDir>/jest.setup.ts', 'fake-indexeddb/auto'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
-    setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.ts', 'givens/setup', '<rootDir>/src/mocks/jest.ts'],
+    setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.ts', '<rootDir>/src/mocks/jest.ts'],
 
     // The number of seconds after which a test is considered as slow and reported as such in the results.
     // slowTestThreshold: 5,
@@ -187,7 +232,7 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/products/mcp/'],
+    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/'],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],
@@ -210,7 +255,7 @@ const config: Config = {
     },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation
-    transformIgnorePatterns: [`node_modules/(?!(?:.pnpm/)?(${esmModules.join('|')}))`],
+    transformIgnorePatterns: [`node_modules/(?!.*(${esmModules.join('|')}))`],
 
     // An array of regexp pattern strings that are matched against all modules before the module loader will automatically return a mock for them
     // unmockedModulePathPatterns: undefined,

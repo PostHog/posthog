@@ -2,13 +2,11 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
 
 export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string } => {
-    const { exceptionList } = useValues(errorPropertiesLogic)
-    const { stackFrameRecords } = useValues(stackFrameLogic)
+    const { exceptionList, stackFrameRecords } = useValues(errorPropertiesLogic)
 
     const stacktraceText = useMemo(() => {
         return exceptionList.map((exception) => generateExceptionText(exception, stackFrameRecords)).join('\n\n')

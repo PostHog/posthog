@@ -7,6 +7,6 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-cd "$PROJECT_ROOT/plugin-server"
+cd "$PROJECT_ROOT/nodejs"
 exec node bin/migrate-minio-to-seaweedfs.js "$@"
 

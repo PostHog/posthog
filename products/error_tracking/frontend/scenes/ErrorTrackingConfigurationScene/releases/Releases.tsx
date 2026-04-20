@@ -7,7 +7,7 @@ import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
-import { GitMetadataParser } from 'products/error_tracking/frontend/components/ExceptionAttributesPreview/ReleasesPreview/gitMetadataParser'
+import { GitMetadataParser } from 'products/error_tracking/frontend/components/ReleasesPreview/gitMetadataParser'
 
 import { releasesLogic } from './releasesLogic'
 

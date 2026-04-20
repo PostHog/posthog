@@ -1,5 +1,6 @@
 pub mod api;
 pub mod commands;
+pub mod dsym;
 pub mod error;
 pub mod experimental;
 pub mod invocation_context;

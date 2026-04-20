@@ -23,6 +23,8 @@ go.work.sum
 
 # binary / build
 livestream
+posthog-live
+posthog-live-*
 
 # tsnet 
 .tsnet-state/
@@ -30,3 +32,6 @@ livestream
 # configs
 configs/configs.yml
 mmdb.db
+
+# air temporary storage
+tmp/

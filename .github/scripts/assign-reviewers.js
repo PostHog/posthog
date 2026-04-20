@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 
 const fs = require('fs')
-const { execSync } = require('child_process')
 
 function parseCodeowners(codeownersPath) {
     if (!fs.existsSync(codeownersPath)) {
-        console.info('No CODEOWNERS file found')
-        return []
+        throw new Error(`No CODEOWNERS file found at "${codeownersPath}"`)
     }
 
     const content = fs.readFileSync(codeownersPath, 'utf8')
@@ -52,28 +50,48 @@ function fileMatchesPattern(filePath, pattern) {
     return regex.test(filePath)
 }
 
-function getChangedFiles() {
-    try {
-        const { BASE_SHA, HEAD_SHA } = process.env
-        
-        if (!BASE_SHA || !HEAD_SHA) {
-            console.error('BASE_SHA and HEAD_SHA environment variables are required')
-            return []
-        }
+function getNextPageUrl(linkHeader) {
+    if (!linkHeader) {
+        return null
+    }
 
-        const output = execSync(`git diff --name-only ${BASE_SHA}...${HEAD_SHA}`, {
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'ignore'],
+    for (const link of linkHeader.split(',')) {
+        const match = link.match(/<([^>]+)>;\s*rel="next"/)
+        if (match) {
+            return match[1]
+        }
+    }
+
+    return null
+}
+
+async function getChangedFiles() {
+    const { BASE_SHA, HEAD_SHA, GITHUB_TOKEN, GITHUB_REPOSITORY } = process.env
+    const allFiles = []
+    let url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/compare/${BASE_SHA}...${HEAD_SHA}?per_page=100`
+
+    while (url) {
+        const response = await fetch(url, {
+            headers: {
+                Authorization: `token ${GITHUB_TOKEN}`,
+                Accept: 'application/vnd.github.v3+json',
+            },
         })
 
-        return output
-            .trim()
-            .split('\n')
-            .filter((file) => file.length > 0)
-    } catch (error) {
-        console.error('Failed to get changed files:', error.message)
-        return []
+        if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(`GitHub API error: ${response.status} ${response.statusText}\n${errorText}`)
+        }
+
+        const data = await response.json()
+        for (const file of data.files || []) {
+            allFiles.push(file.filename)
+        }
+
+        url = getNextPageUrl(response.headers.get('Link'))
     }
+
+    return allFiles
 }
 
 function parseOwners(owners) {
@@ -96,10 +114,10 @@ function parseOwners(owners) {
     }
 }
 
-function getReviewersForChangedFiles() {
+async function getReviewersForChangedFiles() {
     const codeownersPath = '.github/CODEOWNERS-soft'
     const rules = parseCodeowners(codeownersPath)
-    const changedFiles = getChangedFiles()
+    const changedFiles = await getChangedFiles()
 
     console.info(`Found ${changedFiles.length} changed files:`)
     changedFiles.forEach((file) => console.info(`  ${file}`))
@@ -150,10 +168,6 @@ function getReviewersForChangedFiles() {
 async function assignReviewers(teams, users) {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
 
-    if (!GITHUB_TOKEN || !GITHUB_REPOSITORY || !PR_NUMBER) {
-        throw new Error('Missing required environment variables: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER')
-    }
-
     if (teams.length === 0 && users.length === 0) {
         console.info('ℹ️  No reviewers to assign')
         return
@@ -171,35 +185,41 @@ async function assignReviewers(teams, users) {
 
     console.info('Assigning reviewers with payload:', JSON.stringify(payload, null, 2))
 
-    try {
-        const response = await fetch(
-            `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`,
-            {
-                method: 'POST',
-                headers: {
-                    Authorization: `token ${GITHUB_TOKEN}`,
-                    Accept: 'application/vnd.github.v3+json',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(payload),
-            }
-        )
-
-        if (!response.ok) {
-            const errorText = await response.text()
-            throw new Error(`GitHub API error: ${response.status} ${response.statusText}\n${errorText}`)
+    const response = await fetch(
+        `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`,
+        {
+            method: 'POST',
+            headers: {
+                Authorization: `token ${GITHUB_TOKEN}`,
+                Accept: 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
         }
+    )
 
-        console.info('✅ Reviewers assigned successfully')
-    } catch (error) {
-        console.error('Failed to assign reviewers:', error.message)
-        process.exit(1)
+    if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`GitHub API error: ${response.status} ${response.statusText}\n${errorText}`)
     }
+
+    console.info('✅ Reviewers assigned successfully')
 }
 
 async function main() {
+    const { BASE_SHA, HEAD_SHA, GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+    const requiredEnvVars = { BASE_SHA, HEAD_SHA, GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER }
+    const missing = Object.entries(requiredEnvVars)
+        .filter(([, value]) => !value)
+        .map(([name]) => name)
+
+    if (missing.length > 0) {
+        console.error(`Missing required environment variables: ${missing.join(', ')}`)
+        process.exit(1)
+    }
+
     try {
-        const { teams, users } = getReviewersForChangedFiles()
+        const { teams, users } = await getReviewersForChangedFiles()
 
         console.info()
         console.info(`Teams to add: ${teams.join(', ') || 'none'}`)

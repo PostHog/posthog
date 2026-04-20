@@ -5,11 +5,10 @@
         "start": "npx @tailwindcss/cli@4.0.12 -i ./tailwind.css -o ./dist/tailwind.css --watch"
     },
     "dependencies": {
-        "tailwindcss": "4.0.12",
-        "@tailwindcss/container-queries": "0.1.1"
+        "@tailwindcss/container-queries": "0.1.1",
+        "tailwindcss": "4.0.12"
     },
     "devDependencies": {
         "@tailwindcss/cli": "4.0.12"
-    },
-    "peerDependencies": {}
+    }
 }

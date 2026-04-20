@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "domain": {
+            "description": "The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control.",
+            "type": "string"
+        }
+    },
+    "required": ["domain"],
+    "type": "object"
+}

@@ -1,4 +1,4 @@
-from typing import Generic
+from typing import Generic, Literal
 
 from posthog.models import Team, User
 
@@ -40,7 +40,7 @@ class TaxonomyAgent(
     def graph_name(self) -> AssistantGraphName:
         return AssistantGraphName.TAXONOMY
 
-    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
         """Compile a complete taxonomy graph."""
         return self.add_taxonomy_generator().compile(checkpointer=checkpointer)
 

@@ -40,8 +40,14 @@ PropertyType = Literal[
     "data_warehouse_person_property",
     "error_tracking_issue",
     "log",
+    "log_attribute",
+    "log_resource_attribute",
+    "span",
+    "span_attribute",
+    "span_resource_attribute",
     "revenue_analytics",
     "flag",
+    "workflow_variable",
 ]
 
 PropertyName = str
@@ -101,11 +107,17 @@ VALIDATE_PROP_TYPES = {
     "recording": ["key", "value"],
     "log_entry": ["key", "value"],
     "log": ["key", "value"],
+    "log_attribute": ["key", "value"],
+    "log_resource_attribute": ["key", "value"],
+    "span": ["key", "value"],
+    "span_attribute": ["key", "value"],
+    "span_resource_attribute": ["key", "value"],
     "flag": ["key", "value"],
     "revenue_analytics": ["key", "value"],
     "behavioral": ["key", "value"],
     "session": ["key", "value"],
     "hogql": ["key"],
+    "workflow_variable": ["key", "value"],
 }
 
 VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {

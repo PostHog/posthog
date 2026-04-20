@@ -11,8 +11,8 @@ import { urls } from 'scenes/urls'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
-import { LogsViewer } from './LogsViewer'
 import { hogFunctionLogsLogic } from './hogFunctionLogsLogic'
+import { LogsViewer } from './LogsViewer'
 import { GroupedLogEntry, LogsViewerLogicProps } from './logsViewerLogic'
 
 const EVENT_LINK_REGEX = /Event: '(.+)'/g

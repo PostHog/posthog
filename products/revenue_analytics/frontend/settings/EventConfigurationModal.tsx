@@ -23,7 +23,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
-interface EventConfigurationModalProps {
+export interface EventConfigurationModalProps {
     event?: RevenueAnalyticsEventItem
     onClose: () => void
 }

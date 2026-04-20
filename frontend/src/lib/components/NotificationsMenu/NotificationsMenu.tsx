@@ -1,0 +1,169 @@
+import { Menu } from '@base-ui/react/menu'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
+import { IconNotification } from '@posthog/icons'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { IconWithCount } from 'lib/lemon-ui/icons'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+
+import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+import { InAppNotification } from '~/types'
+
+import { NotificationRow } from './NotificationRow'
+import { notificationsMenuLogic } from './notificationsMenuLogic'
+
+export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element => {
+    const { isNotificationsMenuOpen, activeTab } = useValues(notificationsMenuLogic)
+    const { setNotificationsMenuOpen, setActiveTab } = useActions(notificationsMenuLogic)
+    const { inAppNotifications, inAppUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
+        useValues(sidePanelNotificationsLogic)
+    const { markAllAsRead, loadMoreNotifications } = useActions(sidePanelNotificationsLogic)
+    const [badgePulse, setBadgePulse] = useState(false)
+    const prevCountRef = useRef(inAppUnreadCount)
+
+    useEffect(() => {
+        if (inAppUnreadCount !== prevCountRef.current) {
+            prevCountRef.current = inAppUnreadCount
+            setBadgePulse(true)
+            const timer = setTimeout(() => setBadgePulse(false), 300)
+            return () => clearTimeout(timer)
+        }
+    }, [inAppUnreadCount])
+
+    const filteredNotifications =
+        activeTab === 'unread' ? inAppNotifications.filter((n: InAppNotification) => !n.read) : inAppNotifications
+
+    const handleCloseForNavigation = (): void => {
+        setNotificationsMenuOpen(false)
+    }
+
+    return (
+        <Menu.Root open={isNotificationsMenuOpen} onOpenChange={setNotificationsMenuOpen}>
+            <Menu.Trigger
+                render={
+                    <ButtonPrimitive
+                        tooltip={iconOnly ? 'Notifications' : undefined}
+                        tooltipPlacement="right"
+                        tooltipCloseDelayMs={0}
+                        iconOnly={iconOnly}
+                        className="group"
+                        menuItem={!iconOnly}
+                        data-attr="notifications-menu-button"
+                    >
+                        <span
+                            className={`flex text-secondary group-hover:text-primary transition-transform duration-300 ${
+                                badgePulse ? 'scale-125' : 'scale-100'
+                            }`}
+                        >
+                            <IconWithCount count={inAppUnreadCount}>
+                                <IconNotification className="size-4.5" />
+                            </IconWithCount>
+                        </span>
+                        {!iconOnly && (
+                            <>
+                                <span className="-ml-[2px]">Notifications</span>
+                                <MenuOpenIndicator direction="right" />
+                            </>
+                        )}
+                    </ButtonPrimitive>
+                }
+            />
+            <Menu.Portal>
+                <Menu.Backdrop className="fixed inset-0 z-[var(--z-modal)]" />
+                <Menu.Positioner
+                    className="z-[var(--z-popover)]"
+                    side="right"
+                    align="end"
+                    sideOffset={8}
+                    collisionPadding={{ top: 50, bottom: 50, right: 16 }}
+                >
+                    <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[380px] flex flex-col">
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-primary shrink-0">
+                            <div className="flex gap-1">
+                                <button
+                                    className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                        activeTab === 'all'
+                                            ? 'bg-fill-highlight-100 text-primary'
+                                            : 'text-secondary hover:text-primary'
+                                    }`}
+                                    onClick={() => setActiveTab('all')}
+                                >
+                                    All
+                                </button>
+                                <button
+                                    className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                        activeTab === 'unread'
+                                            ? 'bg-fill-highlight-100 text-primary'
+                                            : 'text-secondary hover:text-primary'
+                                    }`}
+                                    onClick={() => setActiveTab('unread')}
+                                >
+                                    Unread
+                                    {inAppUnreadCount > 0 && (
+                                        <span className="ml-1 text-[10px] text-danger font-bold">
+                                            {inAppUnreadCount}
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
+                            {inAppUnreadCount > 0 && (
+                                <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()}>
+                                    Mark all as read
+                                </LemonButton>
+                            )}
+                        </div>
+                        <ScrollableShadows
+                            direction="vertical"
+                            styledScrollbars
+                            className="flex-1 overflow-hidden"
+                            innerClassName="p-1"
+                        >
+                            {importantChangesLoading && inAppNotifications.length === 0 ? (
+                                <div className="p-2">
+                                    <LemonSkeleton className="h-10 my-1" repeat={5} fade />
+                                </div>
+                            ) : filteredNotifications.length > 0 ? (
+                                <>
+                                    <div className="flex flex-col gap-px">
+                                        {filteredNotifications.map((notification: InAppNotification) => (
+                                            <NotificationRow
+                                                key={notification.id}
+                                                notification={notification}
+                                                onNavigate={handleCloseForNavigation}
+                                            />
+                                        ))}
+                                    </div>
+                                    {hasMoreNotifications && activeTab === 'all' && (
+                                        <div className="p-2">
+                                            <LemonButton
+                                                type="secondary"
+                                                fullWidth
+                                                center
+                                                size="small"
+                                                loading={isLoadingMore}
+                                                onClick={() => loadMoreNotifications()}
+                                            >
+                                                Load more
+                                            </LemonButton>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center p-6 text-center">
+                                    <IconNotification className="size-8 text-muted mb-2" />
+                                    <span className="text-sm text-secondary">
+                                        {activeTab === 'unread' ? "You're all caught up!" : 'No notifications yet'}
+                                    </span>
+                                </div>
+                            )}
+                        </ScrollableShadows>
+                    </Menu.Popup>
+                </Menu.Positioner>
+            </Menu.Portal>
+        </Menu.Root>
+    )
+}

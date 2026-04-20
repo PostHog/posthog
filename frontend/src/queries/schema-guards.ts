@@ -1,7 +1,9 @@
 import {
     CompareFilter,
+    ExperimentMetric,
     RevenueAnalyticsPropertyFilters,
     WebAnalyticsPropertyFilters,
+    // eslint-disable-next-line import/no-cycle
 } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, SessionPropertyFilter } from '~/types'
 
@@ -31,4 +33,8 @@ export const isSessionPropertyFilters = (data: unknown): data is SessionProperty
 
 export const isCompareFilter = (data: unknown): data is CompareFilter => {
     return validators.CompareFilter(data) as boolean
+}
+
+export const isExperimentMetric = (data: unknown): data is ExperimentMetric => {
+    return validators.ExperimentMetric(data) as boolean
 }

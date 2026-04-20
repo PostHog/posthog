@@ -1,9 +1,12 @@
 from datetime import datetime
-from functools import cached_property
 
 import structlog
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AnalyticsDBMS
@@ -43,6 +46,7 @@ class Migration(AsyncMigrationDefinition):
         return is_cloud()
 
     def _get_partitions_to_move(self):
+        # nosemgrep: clickhouse-injection-taint - migration params, not user input
         result = sync_execute(
             f"""
             SELECT DISTINCT partition_id FROM system.parts
@@ -58,8 +62,8 @@ class Migration(AsyncMigrationDefinition):
 
         return [row[0] for row in result]
 
-    @cached_property
-    def operations(self):
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
         now = datetime.now()
 
         # used to prevent replica name clashes on zookeeper if we need to rollback and run again
@@ -69,7 +73,7 @@ class Migration(AsyncMigrationDefinition):
 
         shard = "{shard}"
         replica = "{replica}"
-        operations = [
+        operations: list[AsyncMigrationOperation] = [
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""

@@ -2,7 +2,7 @@ import './WrappingLoadingSkeleton.scss'
 
 import { cn } from 'lib/utils/css-classes'
 
-interface WrappingLoadingSkeletonProps {
+export interface WrappingLoadingSkeletonProps {
     fullWidth?: boolean
     children: React.ReactNode
     className?: string
@@ -15,7 +15,7 @@ export function WrappingLoadingSkeleton({
     return (
         <div
             className={cn(
-                'wrapping-loading-skeleton [&>*]:opacity-0 rounded flex flex-col gap-px w-fit',
+                'wrapping-loading-skeleton [&>*]:opacity-0 rounded flex flex-col gap-px w-fit overflow-hidden',
                 fullWidth && 'w-full',
                 className
             )}

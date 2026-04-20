@@ -114,7 +114,7 @@ async def eval_offline_sql(eval_ctx: EvaluationContext, pytestconfig):
 
 ### Running an evaluation
 
-Log in to [Dagster Cloud](https://posthog.dagster.cloud/locations/dags.locations.max_ai/jobs/run_evaluation/playground) and run a new `run_evaluation` job with a following config:
+Log in to [Dagster Cloud](https://posthog.dagster.cloud/locations/posthog.dags.locations.posthog_ai/jobs/run_evaluation/playground) and run a new `run_evaluation` job with a following config:
 
 ```yaml
 ops:

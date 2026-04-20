@@ -1,0 +1,1092 @@
+import uuid
+import logging
+import itertools
+from typing import Any, cast
+
+from django.conf import settings
+from django.db import transaction
+from django.http import HttpResponse, JsonResponse
+from django.utils.text import slugify
+from django.views.decorators.csrf import csrf_exempt
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from loginas.utils import is_impersonated_session
+from nanoid import generate
+from rest_framework import exceptions, filters, serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import get_token
+from posthog.cloud_utils import is_cloud
+from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
+from posthog.event_usage import report_user_action
+from posthog.exceptions import generate_exception_response
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.utils_cors import cors_response
+
+from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
+from products.product_tours.backend.generate_tour_content import ContentGenerationResult, generate_with_gemini
+from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
+
+logger = logging.getLogger(__name__)
+
+TOUR_GENERATION_MODEL = "claude-haiku-4-5"
+
+DRAFTABLE_FIELDS = frozenset(
+    {"name", "description", "content", "auto_launch", "targeting_flag_filters", "linked_flag_id"}
+)
+
+
+def normalize_step(step: dict) -> dict:
+    """Ensure elementTargeting and useManualSelector are consistent.
+
+    Handles both read (legacy → elementTargeting) and write (elementTargeting → useManualSelector).
+    """
+    step = {**step}
+
+    # Derive elementTargeting from legacy fields if missing
+    if "elementTargeting" not in step:
+        if step.get("useManualSelector") is True:
+            step["elementTargeting"] = "manual"
+        elif step.get("inferenceData"):
+            step["elementTargeting"] = "auto"
+        elif step.get("type") == "element":
+            step["elementTargeting"] = "auto"
+            step["type"] = "modal"
+
+    # Derive useManualSelector from elementTargeting for SDK compat
+    targeting = step.get("elementTargeting")
+    if targeting == "manual":
+        step["useManualSelector"] = True
+    elif targeting is not None:
+        step.pop("useManualSelector", None)
+
+    return step
+
+
+def _validate_launch(steps: list[dict]):
+    [_validate_step_targeting(step, idx) for idx, step in enumerate(steps)]
+
+
+def _validate_step_targeting(step: dict, idx: int):
+    targeting = step.get("elementTargeting")
+    if not targeting:
+        return
+
+    if targeting == "manual" and not step.get("selector"):
+        raise serializers.ValidationError(f"Step {idx + 1} is missing an element selector")
+
+    if targeting == "auto" and not step.get("inferenceData"):
+        raise serializers.ValidationError(f"Step {idx + 1} requires an element to be selected")
+
+
+class ProductTourSerializer(serializers.ModelSerializer):
+    """Read-only serializer for ProductTour."""
+
+    internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_flag = MinimalFeatureFlagSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
+    targeting_flag_filters = serializers.SerializerMethodField()
+    draft_content = serializers.JSONField(read_only=True, allow_null=True)
+    has_draft = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductTour
+        fields = [
+            "id",
+            "name",
+            "description",
+            "internal_targeting_flag",
+            "linked_flag",
+            "targeting_flag_filters",
+            "content",
+            "draft_content",
+            "has_draft",
+            "auto_launch",
+            "start_date",
+            "end_date",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "archived",
+        ]
+        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        content = data.get("content") or {}
+        if "steps" in content:
+            content["steps"] = [normalize_step(s) for s in content["steps"]]
+            data["content"] = content
+        return data
+
+    def get_has_draft(self, tour: ProductTour) -> bool:
+        return tour.draft_content is not None
+
+    def get_targeting_flag_filters(self, tour: ProductTour) -> dict | None:
+        """Return the targeting flag filters, excluding the base exclusion properties."""
+        if not tour.internal_targeting_flag:
+            return None
+
+        filters = tour.internal_targeting_flag.filters
+        if not filters or "groups" not in filters:
+            return None
+
+        # Filter out the base exclusion properties to return only user-defined targeting
+        tour_key = str(tour.id)
+        base_property_keys = {
+            f"$product_tour_shown/{tour_key}",
+            f"$product_tour_completed/{tour_key}",
+            f"$product_tour_dismissed/{tour_key}",
+        }
+
+        cleaned_groups = []
+        for group in filters.get("groups", []):
+            properties = group.get("properties", [])
+            user_properties = [p for p in properties if p.get("key") not in base_property_keys]
+            if user_properties:
+                cleaned_groups.append({**group, "properties": user_properties})
+
+        if not cleaned_groups:
+            return None
+
+        return {"groups": cleaned_groups}
+
+
+class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
+    """Serializer for creating and updating ProductTour."""
+
+    internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
+    created_by = UserBasicSerializer(read_only=True)
+    targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
+    creation_context = serializers.ChoiceField(
+        choices=["app", "toolbar"],
+        required=False,
+        write_only=True,
+        default="app",
+        help_text="Where the tour was created/updated from",
+    )
+
+    class Meta:
+        model = ProductTour
+        fields = [
+            "id",
+            "name",
+            "description",
+            "internal_targeting_flag",
+            "linked_flag",
+            "linked_flag_id",
+            "targeting_flag_filters",
+            "content",
+            "auto_launch",
+            "start_date",
+            "end_date",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "archived",
+            "creation_context",
+        ]
+        read_only_fields = ["id", "internal_targeting_flag", "linked_flag", "created_at", "created_by", "updated_at"]
+
+    def validate_content(self, value):
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Content must be an object")
+
+        if value.get("type") == "announcement":
+            steps = value.get("steps") or []
+            if len(steps) != 1:
+                raise serializers.ValidationError("Announcements must have exactly 1 step.")
+
+        if "steps" in value:
+            value["steps"] = [normalize_step(s) for s in value["steps"]]
+
+        return value
+
+    def validate(self, data):
+        from posthog.models.feature_flag import FeatureFlag
+
+        # For partial updates (PATCH), fall back to the instance's existing
+        # linked_flag_id when the field wasn't included in the request.
+        # "linked_flag_id" absent from data = not sent; present as None = explicitly cleared.
+        if "linked_flag_id" not in data and self.instance is not None:
+            linked_flag_id = self.instance.linked_flag_id
+        else:
+            linked_flag_id = data.get("linked_flag_id")
+
+        linked_flag = None
+        if linked_flag_id:
+            try:
+                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id, team_id=self.context["team_id"])
+            except FeatureFlag.DoesNotExist:
+                raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+        # Validate linkedFlagVariant if provided in content conditions
+        content = data.get("content") or {}
+        conditions = content.get("conditions") or {}
+        linked_flag_variant = conditions.get("linkedFlagVariant")
+        if linked_flag_variant and linked_flag and linked_flag_variant != "any":
+            available_variants = [variant["key"] for variant in linked_flag.variants]
+            if linked_flag_variant not in available_variants:
+                if available_variants:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' does not exist. "
+                        f"Available variants: {', '.join(available_variants)}"
+                    )
+                else:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' specified but the linked feature flag has no variants"
+                    )
+        elif linked_flag_variant and not linked_flag_id:
+            raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
+
+        # Block launching or updating a live tour with incomplete element targeting
+        is_launching = "start_date" in data and data["start_date"] is not None
+        is_launched = self.instance is not None and self.instance.start_date is not None
+        if is_launching or is_launched:
+            launch_content = data.get("content") or (self.instance.content if self.instance else None) or {}
+            steps = launch_content.get("steps", [])
+            _validate_launch(steps)
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        request = self.context["request"]
+        team = self.context["get_team"]()
+
+        creation_context = validated_data.pop("creation_context", "app")
+        targeting_flag_filters = validated_data.pop("targeting_flag_filters", None)
+
+        validated_data["team"] = team
+        validated_data["created_by"] = request.user
+
+        instance = super().create(validated_data)
+
+        # Only create internal targeting flag if auto_launch is enabled
+        if instance.auto_launch:
+            self._create_internal_targeting_flag(instance)
+            if targeting_flag_filters and instance.internal_targeting_flag:
+                self._update_targeting_flag_filters(instance, targeting_flag_filters)
+
+        # Create linked surveys for any survey steps
+        self._sync_survey_steps(instance)
+
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(instance.id),
+            scope="ProductTour",
+            activity="created",
+            detail=Detail(name=instance.name),
+        )
+
+        report_user_action(
+            request.user,
+            ProductTourEventName.CREATED,
+            {**instance.get_analytics_metadata(), "creation_context": creation_context},
+            team=team,
+            request=request,
+        )
+
+        return instance
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        request = self.context["request"]
+        team = self.context["get_team"]()
+        user = cast(User, request.user)
+
+        before_update = ProductTour.objects.get(pk=instance.pk)
+
+        creation_context = validated_data.pop("creation_context", "app")
+
+        # Extract targeting_flag_filters before parent update
+        # Use sentinel to distinguish "not provided" from "explicitly null"
+        _NOT_PROVIDED = object()
+        targeting_flag_filters = validated_data.pop("targeting_flag_filters", _NOT_PROVIDED)
+
+        # Track what changed
+        before_start_date = instance.start_date
+        before_end_date = instance.end_date
+        start_date_changed = "start_date" in validated_data and validated_data["start_date"] != instance.start_date
+        end_date_changed = "end_date" in validated_data and validated_data["end_date"] != instance.end_date
+        archived_changed = "archived" in validated_data and validated_data["archived"] != instance.archived
+        auto_launch_changed = "auto_launch" in validated_data and validated_data["auto_launch"] != instance.auto_launch
+        auto_launch_enabled = validated_data.get("auto_launch", instance.auto_launch)
+
+        # Track displayFrequency and wait period before update for flag refresh
+        old_display_frequency = instance.content.get("displayFrequency") if instance.content else None
+        old_conditions = (instance.content.get("conditions") or {}) if instance.content else {}
+        old_wait_period = old_conditions.get("seenTourWaitPeriod") if isinstance(old_conditions, dict) else None
+
+        # Store previous content for survey step cleanup
+        previous_content = instance.content.copy() if instance.content else None
+
+        instance = super().update(instance, validated_data)
+
+        # Detect displayFrequency and wait period changes
+        new_display_frequency = instance.content.get("displayFrequency") if instance.content else None
+        display_frequency_changed = old_display_frequency != new_display_frequency
+        new_conditions = (instance.content.get("conditions") or {}) if instance.content else {}
+        new_wait_period = new_conditions.get("seenTourWaitPeriod") if isinstance(new_conditions, dict) else None
+        wait_period_changed = old_wait_period != new_wait_period
+
+        # Handle auto_launch changes
+        if auto_launch_changed:
+            if auto_launch_enabled:
+                if not instance.internal_targeting_flag:
+                    # auto_launch turned ON and no flag exists - create one
+                    self._create_internal_targeting_flag(instance)
+                else:
+                    # auto_launch turned ON and flag exists - update its state
+                    self._update_internal_targeting_flag_state(instance)
+            elif instance.internal_targeting_flag:
+                # auto_launch turned OFF - deactivate the flag
+                instance.internal_targeting_flag.active = False
+                instance.internal_targeting_flag.save(update_fields=["active"])
+        elif start_date_changed or end_date_changed or archived_changed:
+            # Only update flag state if auto_launch is enabled
+            if instance.auto_launch:
+                self._update_internal_targeting_flag_state(instance)
+
+        # Update targeting flag filters if explicitly provided (including null to reset)
+        if targeting_flag_filters is not _NOT_PROVIDED and instance.internal_targeting_flag:
+            self._update_targeting_flag_filters(instance, targeting_flag_filters)
+        elif (display_frequency_changed or wait_period_changed) and instance.internal_targeting_flag:
+            # displayFrequency or wait period changed but targeting_flag_filters wasn't provided
+            self._refresh_targeting_flag_base_properties(instance)
+
+        # Sync linked surveys for any survey steps (create/update/end as needed)
+        self._sync_survey_steps(instance, previous_content)
+
+        changes = changes_between("ProductTour", previous=before_update, current=instance)
+
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(instance.id),
+            scope="ProductTour",
+            activity="updated",
+            detail=Detail(changes=changes, name=instance.name),
+        )
+
+        analytics_metadata = {
+            **instance.get_analytics_metadata(),
+            "updated_by_creator": user == instance.created_by,
+            "creation_context": creation_context,
+        }
+
+        report_user_action(user, ProductTourEventName.UPDATED, analytics_metadata, team=team, request=request)
+
+        if before_start_date is None and instance.start_date is not None:
+            report_user_action(user, ProductTourEventName.LAUNCHED, analytics_metadata, team=team, request=request)
+        elif before_end_date is None and instance.end_date is not None:
+            report_user_action(user, ProductTourEventName.STOPPED, analytics_metadata, team=team, request=request)
+
+        if instance.draft_content is not None:
+            instance.draft_content = None
+            instance.save(update_fields=["draft_content"])
+
+        return instance
+
+    def _get_base_exclusion_properties(self, instance: ProductTour) -> list:
+        """Get the base exclusion properties for the internal targeting flag based on display frequency."""
+        tour_key = str(instance.id)
+        display_frequency = instance.content.get("displayFrequency") if instance.content else None
+
+        # "always" - no exclusions, always show
+        if display_frequency == "always":
+            return []
+
+        # "show_once" - exclude if shown
+        if display_frequency == "show_once":
+            return [
+                {
+                    "key": f"$product_tour_shown/{tour_key}",
+                    "type": "person",
+                    "value": "is_not_set",
+                    "operator": "is_not_set",
+                },
+            ]
+
+        # "until_interacted" or default - exclude if completed or dismissed
+        return [
+            {
+                "key": f"$product_tour_completed/{tour_key}",
+                "type": "person",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+            },
+            {
+                "key": f"$product_tour_dismissed/{tour_key}",
+                "type": "person",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+            },
+        ]
+
+    def _get_wait_period(self, instance: ProductTour) -> dict | None:
+        """Extract a valid seenTourWaitPeriod from content.conditions, or None."""
+        if not instance.content or not isinstance(instance.content, dict):
+            return None
+        conditions = instance.content.get("conditions")
+        if not conditions or not isinstance(conditions, dict):
+            return None
+        wait_period = conditions.get("seenTourWaitPeriod")
+        if not wait_period or not isinstance(wait_period, dict):
+            return None
+        days = wait_period.get("days")
+        types = wait_period.get("types")
+        if not days or not isinstance(days, (int, float)) or days < 1:
+            return None
+        if not types or not isinstance(types, list) or len(types) == 0:
+            return None
+        return {"days": int(days), "types": types}
+
+    def _build_flag_groups(self, instance: ProductTour, user_property_groups: list[list] | None = None) -> list[dict]:
+        """Build complete flag groups combining base exclusion, wait period, and user targeting properties.
+
+        Feature flag groups are OR'd, properties within a group are AND'd.
+        For the wait period we need each type's property to be (not_set OR before_date),
+        AND'd across types — so we enumerate all combinations as separate groups.
+        """
+        base_properties = self._get_base_exclusion_properties(instance)
+        wait_period = self._get_wait_period(instance)
+
+        if not wait_period:
+            combined_base_list = [base_properties]
+        else:
+            days = wait_period["days"]
+            per_type_options: list[list[dict]] = []
+            for type_name in wait_period["types"]:
+                prop_key = f"{ProductTourPersonProperties.TOUR_LAST_SEEN_DATE}/{type_name}"
+                per_type_options.append(
+                    [
+                        {"key": prop_key, "value": "is_not_set", "operator": "is_not_set", "type": "person"},
+                        {"key": prop_key, "value": f"{days}d", "operator": "is_date_before", "type": "person"},
+                    ]
+                )
+            combined_base_list = [base_properties + list(combo) for combo in itertools.product(*per_type_options)]
+
+        if not user_property_groups:
+            return [{"variant": "", "rollout_percentage": 100, "properties": props} for props in combined_base_list]
+
+        return [
+            {"variant": "", "rollout_percentage": 100, "properties": base_and_wait + user_props}
+            for user_props in user_property_groups
+            for base_and_wait in combined_base_list
+        ]
+
+    def _create_internal_targeting_flag(self, instance: ProductTour) -> None:
+        """Create the internal targeting flag for a product tour."""
+        random_id = generate("0123456789abcdef", 8)
+        flag_key = f"{PRODUCT_TOUR_TARGETING_FLAG_PREFIX}{slugify(instance.name)}-{random_id}"
+
+        filters = {"groups": self._build_flag_groups(instance)}
+
+        flag_data = {
+            "key": flag_key,
+            "name": f"Product Tour: {instance.name}",
+            "filters": filters,
+            "active": bool(instance.start_date) and not instance.end_date and not instance.archived,
+            "creation_context": "product_tours",
+        }
+
+        # Use self.context to pass through project_id and other context
+        flag_serializer = FeatureFlagSerializer(
+            data=flag_data,
+            context=self.context,
+        )
+        flag_serializer.is_valid(raise_exception=True)
+        flag = flag_serializer.save()
+
+        instance.internal_targeting_flag = flag
+        instance.save(update_fields=["internal_targeting_flag"])
+
+    def _update_internal_targeting_flag_state(self, instance: ProductTour) -> None:
+        """Update the internal targeting flag active state based on tour state."""
+        flag = instance.internal_targeting_flag
+        if not flag:
+            return
+
+        should_be_active = bool(instance.start_date) and not instance.end_date and not instance.archived
+        if flag.active != should_be_active:
+            flag.active = should_be_active
+            flag.save(update_fields=["active"])
+
+    def _update_targeting_flag_filters(self, instance: ProductTour, new_filters: dict | None) -> None:
+        """Update the internal targeting flag's filters with additional user targeting conditions.
+
+        If new_filters is None, resets to base + wait period filters only (no additional user targeting).
+        """
+        flag = instance.internal_targeting_flag
+        if not flag:
+            return
+
+        if new_filters is None:
+            flag.filters = {"groups": self._build_flag_groups(instance)}
+            flag.save(update_fields=["filters"])
+            return
+
+        new_groups = new_filters.get("groups", [])
+        user_property_groups = [group.get("properties", []) for group in new_groups]
+
+        if not user_property_groups or all(not p for p in user_property_groups):
+            flag.filters = {"groups": self._build_flag_groups(instance)}
+        else:
+            flag.filters = {"groups": self._build_flag_groups(instance, user_property_groups)}
+        flag.save(update_fields=["filters"])
+
+    def _is_system_managed_property(self, instance: ProductTour, prop: dict) -> bool:
+        """Check whether a flag property is system-managed (base exclusion or wait period)."""
+        key = prop.get("key", "")
+        tour_key = str(instance.id)
+        return key in {
+            f"$product_tour_shown/{tour_key}",
+            f"$product_tour_completed/{tour_key}",
+            f"$product_tour_dismissed/{tour_key}",
+        } or key.startswith(f"{ProductTourPersonProperties.TOUR_LAST_SEEN_DATE}/")
+
+    def _refresh_targeting_flag_base_properties(self, instance: ProductTour) -> None:
+        """Rebuild the targeting flag, preserving only user-defined targeting properties."""
+        flag = instance.internal_targeting_flag
+        if not flag:
+            return
+
+        # Extract user properties by stripping system-managed ones, then deduplicate
+        # (wait period expansion creates N groups with identical user props)
+        seen: set[frozenset] = set()
+        user_groups: list[list] = []
+        for g in flag.filters.get("groups", []):
+            props = [p for p in g.get("properties", []) if not self._is_system_managed_property(instance, p)]
+            sig = frozenset(
+                (p.get("key", ""), p.get("value", ""), p.get("operator", ""), p.get("type", "")) for p in props
+            )
+            if sig not in seen:
+                seen.add(sig)
+                user_groups.append(props)
+
+        has_user_properties = any(user_groups)
+        self._update_targeting_flag_filters(
+            instance,
+            {"groups": [{"properties": props} for props in user_groups]} if has_user_properties else None,
+        )
+
+    def _sync_survey_steps(self, instance: ProductTour, previous_content: dict | None = None) -> bool:
+        """Create or update linked surveys for any survey steps in the tour.
+
+        Also ends (sets end_date) any surveys that are no longer referenced by steps.
+
+        Returns True if any changes were made to the tour content.
+        """
+        from django.utils import timezone
+
+        request = self.context["request"]
+        content = instance.content or {}
+        steps = content.get("steps", [])
+        content_changed = False
+
+        # Track which survey IDs are still in use
+        active_survey_ids: set[str] = set()
+
+        for i, step in enumerate(steps):
+            survey_config = step.get("survey")
+            if not survey_config:
+                continue
+
+            linked_survey_id = step.get("linkedSurveyId")
+            question_text = survey_config.get("questionText", "")
+            question_type = survey_config.get("type", "open")
+
+            # Build the survey question
+            survey_question: dict[str, Any] = {
+                "type": question_type,
+                "question": question_text,
+            }
+
+            # Add rating-specific fields
+            if question_type == "rating":
+                survey_question["scale"] = survey_config.get("scale", 5)
+                survey_question["display"] = survey_config.get("display", "emoji")
+                survey_question["skipSubmitButton"] = True  # Auto-submit on selection
+                if survey_config.get("lowerBoundLabel"):
+                    survey_question["lowerBoundLabel"] = survey_config["lowerBoundLabel"]
+                if survey_config.get("upperBoundLabel"):
+                    survey_question["upperBoundLabel"] = survey_config["upperBoundLabel"]
+
+            survey_name = f"{instance.name} - Step {i + 1} Survey"
+
+            if linked_survey_id:
+                # Update existing survey
+                try:
+                    survey = Survey.objects.get(id=linked_survey_id, team=instance.team)
+                    survey.questions = [survey_question]
+                    # Ensure appearance has hideCancelButton set
+                    survey.appearance = survey.appearance or {}
+                    survey.appearance["hideCancelButton"] = True
+                    survey.appearance["displayThankYouMessage"] = False
+                    survey.appearance["position"] = "middle_center"
+                    # Sync start_date and end_date from the tour
+                    # If tour is archived, end the survey now
+                    survey.start_date = instance.start_date
+                    survey.end_date = (
+                        instance.end_date if not instance.archived else (instance.end_date or timezone.now())
+                    )
+                    survey.enable_partial_responses = False  # Single question, no partial responses
+                    survey.save(
+                        update_fields=[
+                            "questions",
+                            "appearance",
+                            "start_date",
+                            "end_date",
+                            "enable_partial_responses",
+                            "updated_at",
+                        ]
+                    )
+                    active_survey_ids.add(linked_survey_id)
+                    # Ensure question ID is stored on step (for backwards compatibility)
+                    if not step.get("linkedSurveyQuestionId") and survey.questions:
+                        step["linkedSurveyQuestionId"] = survey.questions[0].get("id")
+                        content_changed = True
+                except Survey.DoesNotExist:
+                    # Survey was deleted, create a new one
+                    linked_survey_id = None
+
+            if not linked_survey_id:
+                # Create new survey
+                # Use appearance with hideCancelButton since tour surveys shouldn't be dismissible
+                survey_appearance = {
+                    "position": "middle_center",
+                    "displayThankYouMessage": False,
+                    "hideCancelButton": True,
+                }
+                survey = Survey.objects.create(
+                    team=instance.team,
+                    name=f"{survey_name} ({str(uuid.uuid4())[:8]})",
+                    type="api",  # API type since we'll trigger it programmatically
+                    questions=[survey_question],
+                    appearance=survey_appearance,
+                    start_date=instance.start_date,  # Launch with the tour
+                    end_date=instance.end_date,
+                    created_by=request.user if hasattr(request, "user") else None,
+                    enable_partial_responses=False,  # Single question, no partial responses
+                )
+                step["linkedSurveyId"] = str(survey.id)
+                # Store the question ID for SDK event tracking
+                step["linkedSurveyQuestionId"] = survey.questions[0].get("id") if survey.questions else None
+                active_survey_ids.add(str(survey.id))
+                content_changed = True
+
+        # End any surveys that were previously linked but are no longer in use
+        if previous_content:
+            previous_steps = previous_content.get("steps", [])
+            for prev_step in previous_steps:
+                prev_survey_id = prev_step.get("linkedSurveyId")
+                if prev_survey_id and prev_survey_id not in active_survey_ids:
+                    # This survey is no longer referenced - end it
+                    try:
+                        survey = Survey.objects.get(id=prev_survey_id, team=instance.team)
+                        if not survey.end_date:
+                            survey.end_date = timezone.now()
+                            survey.save(update_fields=["end_date", "updated_at"])
+                    except Survey.DoesNotExist:
+                        pass
+
+        if content_changed:
+            instance.content = content
+            instance.save(update_fields=["content", "updated_at"])
+
+        return content_changed
+
+
+class DraftStatusResponseSerializer(serializers.Serializer):
+    updated_at = serializers.DateTimeField()
+    has_draft = serializers.BooleanField()
+
+
+class GenerateRequestSerializer(serializers.Serializer):
+    title = serializers.CharField(required=False, default="", allow_blank=True)
+    goal = serializers.CharField(required=False, default="", allow_blank=True)
+    steps = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+
+
+class GenerateStepResponseSerializer(serializers.Serializer):
+    step_id = serializers.CharField()
+    title = serializers.CharField()
+    description = serializers.CharField()
+
+
+class GenerateResponseSerializer(serializers.Serializer):
+    steps = GenerateStepResponseSerializer(many=True)
+
+
+class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "product_tour"
+    scope_object_read_actions = ["list", "retrieve", "draft_status"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "draft",
+        "publish_draft",
+        "discard_draft",
+        "generate",
+    ]
+    queryset = ProductTour.all_objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["name", "description"]
+
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        if self.request.method in ("POST", "PATCH"):
+            return ProductTourSerializerCreateUpdateOnly
+        return ProductTourSerializer
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team_id)
+
+    def perform_destroy(self, instance: ProductTour) -> None:
+        """Hard delete the tour and clean up related resources."""
+        from django.utils import timezone
+
+        instance_id = str(instance.id)
+        instance_name = instance.name
+        analytics_metadata = instance.get_analytics_metadata()
+
+        # Delete the internal targeting flag
+        if instance.internal_targeting_flag:
+            instance.internal_targeting_flag.delete()
+
+        # End any linked surveys
+        content = instance.content or {}
+        for step in content.get("steps", []):
+            linked_survey_id = step.get("linkedSurveyId")
+            if linked_survey_id:
+                try:
+                    survey = Survey.objects.get(id=linked_survey_id, team=instance.team)
+                    if not survey.end_date:
+                        survey.end_date = timezone.now()
+                        survey.save(update_fields=["end_date", "updated_at"])
+                except Survey.DoesNotExist:
+                    pass
+
+        instance.delete()
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=cast(User, self.request.user),
+            was_impersonated=is_impersonated_session(self.request),
+            item_id=instance_id,
+            scope="ProductTour",
+            activity="deleted",
+            detail=Detail(name=instance_name),
+        )
+
+        report_user_action(
+            self.request.user,
+            ProductTourEventName.DELETED,
+            analytics_metadata,
+            team=self.team,
+            request=self.request,
+        )
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(status=204)
+
+    @extend_schema(
+        request=GenerateRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=GenerateResponseSerializer),
+        },
+    )
+    @action(detail=True, methods=["POST"])
+    def generate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Generate tour step content using AI."""
+
+        environment_is_allowed = settings.DEBUG or is_cloud()
+        has_gemini_api_key = bool(settings.GEMINI_API_KEY)
+        if not environment_is_allowed or not has_gemini_api_key:
+            raise exceptions.ValidationError("Product Tour AI generation is only supported in PostHog Cloud.")
+
+        if not self.team.organization.is_ai_data_processing_approved:
+            return Response(
+                {"error": "AI data processing must be approved for Product Tour AI generation."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        tour_id = kwargs["pk"]
+        tour = ProductTour.objects.filter(id=tour_id, team__project_id=self.project_id).first()
+        if not tour:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        user = cast(User, self.request.user)
+
+        title = request.data.get("title", "")
+        existing_steps = request.data.get("steps", [])
+        goal = request.data.get("goal", "")
+
+        try:
+            result: ContentGenerationResult = generate_with_gemini(
+                tour_id, title, goal, existing_steps, self.team_id, distinct_id=str(user.distinct_id)
+            )
+
+            report_user_action(
+                self.request.user,
+                ProductTourEventName.AI_CONTENT_GENERATED,
+                tour.get_analytics_metadata(),
+                team=self.team,
+                request=request,
+            )
+
+            id_map = result.index_to_step_id
+            return Response(
+                {
+                    "steps": [
+                        {**step.model_dump(), "step_id": id_map[step.step_id]}
+                        for step in result.tour_content.steps
+                        if step.step_id in id_map
+                    ]
+                }
+            )
+
+        except exceptions.ValidationError:
+            raise
+        except Exception:
+            logger.exception("Error generating tour content")
+            return Response(
+                {"error": "An internal error occurred while generating tour content."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def _get_or_init_draft(self, instance: ProductTour) -> dict[str, Any]:
+        """Return existing draft or initialize one from live fields."""
+        if instance.draft_content is not None:
+            return dict(instance.draft_content)
+        return {
+            "name": instance.name,
+            "description": instance.description,
+            "content": instance.content,
+            "auto_launch": instance.auto_launch,
+            "targeting_flag_filters": ProductTourSerializer(instance, context=self.get_serializer_context()).data.get(
+                "targeting_flag_filters"
+            ),
+            "linked_flag_id": instance.linked_flag_id,
+        }
+
+    def _merge_into_draft(self, instance: ProductTour, incoming: dict[str, Any]) -> None:
+        """Merge incoming data into draft_content and save. Filters to DRAFTABLE_FIELDS."""
+        filtered = {k: v for k, v in incoming.items() if k in DRAFTABLE_FIELDS}
+        if not filtered:
+            return
+        draft = self._get_or_init_draft(instance)
+        draft.update(filtered)
+        instance.draft_content = draft
+        instance.save(update_fields=["draft_content", "updated_at"])
+
+    @extend_schema(
+        request=ProductTourSerializerCreateUpdateOnly,
+        responses={200: ProductTourSerializer},
+    )
+    @action(detail=True, methods=["PATCH"], url_path="draft")
+    def draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Save draft content (server-side merge). No side effects triggered."""
+        instance = self.get_object()
+
+        self._merge_into_draft(instance, request.data)
+
+        return Response(
+            ProductTourSerializer(instance, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        request=ProductTourSerializerCreateUpdateOnly,
+        responses={200: ProductTourSerializer},
+    )
+    @action(detail=True, methods=["POST"], url_path="publish_draft")
+    def publish_draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Commit draft to live tour. Runs full validation and triggers side effects.
+
+        Accepts an optional body payload. If provided, merges it into the draft
+        before publishing so the caller can save + publish in a single request.
+        """
+        instance = self.get_object()
+
+        # Merge optional payload into draft before publishing
+        self._merge_into_draft(instance, request.data)
+
+        if instance.draft_content is None:
+            return Response(
+                {"detail": "No draft to publish."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        update_serializer = ProductTourSerializerCreateUpdateOnly(
+            instance,
+            data=instance.draft_content,
+            partial=True,
+            context=self.get_serializer_context(),
+        )
+        update_serializer.is_valid(raise_exception=True)
+        instance = update_serializer.save()
+
+        return Response(
+            ProductTourSerializer(instance, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(responses={200: ProductTourSerializer})
+    @action(detail=True, methods=["DELETE"], url_path="discard_draft")
+    def discard_draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Discard draft content."""
+        instance = self.get_object()
+
+        instance.draft_content = None
+        instance.save(update_fields=["draft_content", "updated_at"])
+
+        return Response(
+            ProductTourSerializer(instance, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(responses={200: DraftStatusResponseSerializer})
+    @action(detail=True, methods=["GET"], url_path="draft_status")
+    def draft_status(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Lightweight polling endpoint for draft change detection."""
+        instance = self.get_object()
+        return Response(
+            {
+                "updated_at": instance.updated_at.isoformat(),
+                "has_draft": instance.draft_content is not None,
+            }
+        )
+
+
+class ProductTourAPISerializer(serializers.ModelSerializer):
+    """
+    Serializer for the exposed /api/product_tours endpoint, to be used in posthog-js.
+    Only exposes fields needed by the SDK, no sensitive data.
+    """
+
+    tour_type = serializers.SerializerMethodField()
+    internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
+    linked_flag_key = serializers.SerializerMethodField()
+    steps = serializers.SerializerMethodField()
+    conditions = serializers.SerializerMethodField()
+    appearance = serializers.SerializerMethodField()
+    display_frequency = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductTour
+        fields = [
+            "id",
+            "name",
+            "tour_type",
+            "internal_targeting_flag_key",
+            "linked_flag_key",
+            "steps",
+            "conditions",
+            "appearance",
+            "display_frequency",
+            "auto_launch",
+            "start_date",
+            "end_date",
+        ]
+        read_only_fields = fields
+
+    def get_tour_type(self, tour: ProductTour) -> str:
+        if not tour.content:
+            return "tour"
+
+        tour_type = tour.content.get("type", "tour")
+        if tour_type == "announcement":
+            steps = tour.content.get("steps", [])
+            if len(steps) > 0:
+                return "banner" if steps[0].get("type") == "banner" else "announcement"
+
+        return tour_type
+
+    def get_linked_flag_key(self, tour: ProductTour) -> str | None:
+        return tour.linked_flag.key if tour.linked_flag else None
+
+    def get_steps(self, tour: ProductTour) -> list:
+        steps = tour.content.get("steps", []) if tour.content else []
+        return [normalize_step(s) for s in steps]
+
+    def get_conditions(self, tour: ProductTour) -> dict | None:
+        return tour.content.get("conditions") if tour.content else None
+
+    def get_appearance(self, tour: ProductTour) -> dict | None:
+        return tour.content.get("appearance") if tour.content else None
+
+    def get_display_frequency(self, tour: ProductTour) -> str | None:
+        return tour.content.get("displayFrequency") if tour.content else None
+
+
+def get_product_tours_response(team: Team) -> dict:
+    """Get active product tours for a team."""
+    tours = ProductTourAPISerializer(
+        ProductTour.objects.filter(
+            team__project_id=team.project_id,
+            archived=False,
+            start_date__isnull=False,
+        ).select_related("internal_targeting_flag", "linked_flag"),
+        many=True,
+    ).data
+
+    return {"product_tours": tours}
+
+
+@csrf_exempt
+def product_tours(request):
+    token = get_token(None, request)
+
+    if request.method == "OPTIONS":
+        return cors_response(request, HttpResponse(""))
+
+    if not token:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "product_tours",
+                "Project token not provided. You can find your project token in your PostHog project settings.",
+                type="authentication_error",
+                code="missing_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
+
+    team = Team.objects.get_team_from_cache_or_token(token)
+    if team is None:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "product_tours",
+                "Project token invalid. You can find your project token in your PostHog project settings.",
+                type="authentication_error",
+                code="invalid_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
+
+    return cors_response(request, JsonResponse(get_product_tours_response(team)))

@@ -78,7 +78,7 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def clickhouse_client():
     """Provide a ClickHouseClient to use in tests."""
     async with ClickHouseClient(
@@ -102,7 +102,6 @@ async def temporal_client():
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
         settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
         settings.TEMPORAL_CLIENT_CERT,
         settings.TEMPORAL_CLIENT_KEY,
     )
@@ -158,14 +157,7 @@ async def temporal_worker(temporal_client, workflows, activities):
     await asyncio.wait([worker_run])
 
 
-@pytest.fixture(scope="module")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest_asyncio.fixture(autouse=True, scope="module")
+@pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
 async def configure_logger_auto() -> None:
     """Configure logger for running temporal tests."""
     configure_logger(cache_logger_on_first_use=False)

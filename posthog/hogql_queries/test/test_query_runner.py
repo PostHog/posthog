@@ -2,46 +2,66 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.core.cache import cache
 
+from parameterized import parameterized
 from pydantic import BaseModel
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
+    EventsNode,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
+    InlineCohortCalculation,
     IntervalType,
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    QueryLogTags,
     SessionsV2JoinMode,
     SessionTableVersion,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
     TestCachedBasicQueryResponse as TheTestCachedBasicQueryResponse,
+    TrendsQuery,
 )
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
-from products.marketing_analytics.backend.hogql_queries.test.utils import MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
+
+MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
+    "01977f7b-7f29-0000-a028-7275d1a767a4": {
+        "cost": "cost",
+        "date": "date",
+        "clicks": "clicks",
+        "source": "_metadata_launched_at",
+        "campaign": "campaignname",
+        "currency": "const:USD",
+        "impressions": "impressions",
+    },
+}
 
 
 class TheTestQuery(BaseModel):
     kind: Literal["TestQuery"] = "TestQuery"
     some_attr: str
     other_attr: Optional[list[Any]] = []
+    tags: QueryLogTags | None = None
 
 
 class TestQueryRunner(BaseTest):
@@ -58,7 +78,7 @@ class TestQueryRunner(BaseTest):
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
-            def calculate(self):
+            def _calculate(self):
                 return TheTestBasicQueryResponse(
                     results=[
                         ["row", 1, 2, 3],
@@ -80,6 +100,21 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner.__abstractmethods__ = frozenset()
 
         return TestQueryRunner
+
+    def test_calculate_runs_validators_before_calculation(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        validation_rule = mock.MagicMock()
+        validation_rule.validate.side_effect = ValidationError("Validation failed")
+        TestQueryRunner.validators = lambda self: (validation_rule,)
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True) as mock_calculate:
+            with self.assertRaises(ValidationError) as context:
+                runner.calculate()
+
+        self.assertIn("Validation failed", str(context.exception))
+        validation_rule.validate.assert_called_once_with(runner.validation_context)
+        mock_calculate.assert_not_called()
 
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -125,14 +160,16 @@ class TestQueryRunner(BaseTest):
                 "bounceRatePageViewMode": BounceRatePageViewMode.COUNT_PAGEVIEWS,
                 "convertToProjectTimezone": True,
                 "inCohortVia": InCohortVia.AUTO,
+                "inlineCohortCalculation": InlineCohortCalculation.AUTO,
                 "materializationMode": MaterializationMode.LEGACY_NULL_AS_NULL,
                 "optimizeJoinedFilters": False,
+                "optimizeProjections": True,
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "sessionIdPushdown": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
-                "sessionsV2JoinMode": SessionsV2JoinMode.STRING,
+                "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
                 "useMaterializedViews": True,
-                "usePresortedEventsTable": False,
             },
             "products_modifiers": {
                 "marketing_analytics": {
@@ -141,6 +178,7 @@ class TestQueryRunner(BaseTest):
                     "base_currency": "USD",
                     "campaign_name_mappings": {},
                     "custom_source_mappings": {},
+                    "campaign_field_preferences": {},
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -148,7 +186,7 @@ class TestQueryRunner(BaseTest):
                             "clicks": "clicks",
                             "source": "_metadata_launched_at",
                             "campaign": "campaignname",
-                            "currency": "USD",
+                            "currency": "const:USD",
                             "impressions": "impressions",
                         },
                     },
@@ -210,12 +248,12 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_843ed5e7784cb6a33bdddfffddc7b0eae281bfbfb1de74ca4ff7d54c33fc7e58"
+        assert cache_key == "cache_42_68a2c8e2bf539173ac6e464a103418bb433834fbce3157ed121192f403d69a0c"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        class TestSubclassQueryRunner(TestQueryRunner):
+        class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore[misc, valid-type]
             pass
 
         # set the pk directly as it affects the hash in the _cache_key call
@@ -224,7 +262,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_a917d9fe869f5ef977ea123b42665f4d2f1d7e06fb26bbc92d1ca459c53e2218"
+        assert cache_key == "cache_42_4eb789b3c70480ba14a762c56a648f2bf7a117a3c31b60ed3c5cb826444ddf4c"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -235,7 +273,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_a09146245ba4d6c8b86333fb117e2aaf1c4dd634499491a9a2128e2375ff20d6"
+        assert cache_key == "cache_42_f67778c870f29df1c38c85726fd6f2b319b920f6f3414acf2de1927271503977"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -389,3 +427,560 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_cache_manager.get_cache_data.assert_called_once()
             mock_cache_manager.set_cache_data.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("success", None, None, 1, 0),
+            ("error_result", "error", None, 1, 0),
+            ("exception", "raise", ValueError, 0, 1),
+        ]
+    )
+    def test_query_execution_metrics(self, _name, calculate_mode, expected_exception, success_delta, failure_delta):
+        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        if calculate_mode == "error":
+            TestQueryRunner.calculate = lambda self: TheTestBasicQueryResponse(results=[], error="Some error occurred")
+        elif calculate_mode == "raise":
+
+            def calculate_raises(self):
+                raise ValueError("Query execution failed")
+
+            TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        before_success = QUERY_EXECUTION_TOTAL.labels(
+            query_type="TestQuery", category="success", error_type="none"
+        )._value.get()
+        before_failure = QUERY_EXECUTION_TOTAL.labels(
+            query_type="TestQuery", category="error", error_type="ValueError"
+        )._value.get()
+        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
+
+        if expected_exception:
+            with pytest.raises(expected_exception):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        else:
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert (
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="success", error_type="none")._value.get()
+            - before_success
+            == success_delta
+        )
+        assert (
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="error", error_type="ValueError")._value.get()
+            - before_failure
+            == failure_delta
+        )
+        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
+
+    def test_query_execution_metrics_not_recorded_on_cache_hit(self):
+        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        before_success = QUERY_EXECUTION_TOTAL.labels(
+            query_type="TestQuery", category="success", error_type="none"
+        )._value.get()
+        before_failure = QUERY_EXECUTION_TOTAL.labels(
+            query_type="TestQuery", category="error", error_type="ValueError"
+        )._value.get()
+        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
+
+        # Cache is fresh (< 10 min old), so this hits the cache without recalculating
+        with freeze_time(datetime(2023, 2, 4, 13, 38, 0)):
+            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert (
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="success", error_type="none")._value.get()
+            == before_success
+        )
+        assert (
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="error", error_type="ValueError")._value.get()
+            == before_failure
+        )
+        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
+
+    @parameterized.expand(
+        [
+            ("success", None, None, 1, 0),
+            ("error_result", "error", None, 1, 0),
+            ("exception", "raise", ValueError, 0, 1),
+        ]
+    )
+    def test_survey_query_execution_metrics(
+        self, _name, calculate_mode, expected_exception, success_delta, failure_delta
+    ):
+        from posthog.hogql_queries.query_runner import SURVEY_QUERY_EXECUTION_DURATION, SURVEY_QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        query_labels = {
+            "query_type": "TestQuery",
+            "query_name": "test_query_name",
+        }
+        if calculate_mode == "error":
+            TestQueryRunner.calculate = lambda self: TheTestBasicQueryResponse(results=[], error="Some error occurred")
+        elif calculate_mode == "raise":
+
+            def calculate_raises(self):
+                raise ValueError("Query execution failed")
+
+            TestQueryRunner.calculate = calculate_raises
+
+        runner = TestQueryRunner(
+            query={
+                "some_attr": "bla",
+                "tags": {"productKey": "surveys", "scene": "TestScene", "name": "test_query_name"},
+            },
+            team=self.team,
+        )
+
+        before_success = SURVEY_QUERY_EXECUTION_TOTAL.labels(
+            **query_labels, category="success", error_type="none"
+        )._value.get()
+        before_failure = SURVEY_QUERY_EXECUTION_TOTAL.labels(
+            **query_labels, category="error", error_type="ValueError"
+        )._value.get()
+        before_duration_sum = SURVEY_QUERY_EXECUTION_DURATION.labels(**query_labels)._sum.get()
+
+        if expected_exception:
+            with pytest.raises(expected_exception):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        else:
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert (
+            SURVEY_QUERY_EXECUTION_TOTAL.labels(**query_labels, category="success", error_type="none")._value.get()
+            - before_success
+            == success_delta
+        )
+        assert (
+            SURVEY_QUERY_EXECUTION_TOTAL.labels(**query_labels, category="error", error_type="ValueError")._value.get()
+            - before_failure
+            == failure_delta
+        )
+        assert SURVEY_QUERY_EXECUTION_DURATION.labels(**query_labels)._sum.get() > before_duration_sum
+
+
+class TestSeriesCustomNameCaching(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "renames_series_with_custom_name",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Original Name")]),
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Renamed Series")]),
+                True,
+            ),
+            (
+                "adds_custom_name_to_series",
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
+                True,
+            ),
+            (
+                "removes_custom_name_from_series",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Had Name")]),
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                True,
+            ),
+            (
+                "different_events_produce_different_keys",
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                TrendsQuery(series=[EventsNode(event="$autocapture")]),
+                False,
+            ),
+            (
+                "multiple_series_with_different_custom_names",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="$pageview", custom_name="Series A"),
+                        EventsNode(event="$autocapture", custom_name="Series B"),
+                    ]
+                ),
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="$pageview", custom_name="Renamed A"),
+                        EventsNode(event="$autocapture", custom_name="Renamed B"),
+                    ]
+                ),
+                True,
+            ),
+        ]
+    )
+    def test_cache_key_for_series_custom_name_changes(
+        self,
+        _name: str,
+        query_a: TrendsQuery,
+        query_b: TrendsQuery,
+        expect_same_cache_key: bool,
+    ):
+        runner_a = TrendsQueryRunner(query=query_a, team=self.team)
+        runner_b = TrendsQueryRunner(query=query_b, team=self.team)
+
+        cache_key_a = runner_a.get_cache_key()
+        cache_key_b = runner_b.get_cache_key()
+
+        if expect_same_cache_key:
+            self.assertEqual(cache_key_a, cache_key_b)
+        else:
+            self.assertNotEqual(cache_key_a, cache_key_b)
+
+
+class TestApplySeriesCustomNames(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "applies_custom_name_to_single_series",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="My Custom Name")]),
+                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
+                [{"action": {"order": 0, "custom_name": "My Custom Name"}, "data": [1, 2, 3]}],
+            ),
+            (
+                "applies_custom_names_to_multiple_series",
+                TrendsQuery(
+                    series=[
+                        EventsNode(event="$pageview", custom_name="Series A"),
+                        EventsNode(event="$autocapture", custom_name="Series B"),
+                    ]
+                ),
+                [
+                    {"action": {"order": 0, "custom_name": "Old A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "Old B"}, "data": [2]},
+                ],
+                [
+                    {"action": {"order": 0, "custom_name": "Series A"}, "data": [1]},
+                    {"action": {"order": 1, "custom_name": "Series B"}, "data": [2]},
+                ],
+            ),
+            (
+                "handles_breakdown_results_sharing_same_order",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Renamed")]),
+                [
+                    {"action": {"order": 0, "custom_name": None}, "breakdown_value": "Chrome"},
+                    {"action": {"order": 0, "custom_name": None}, "breakdown_value": "Firefox"},
+                ],
+                [
+                    {"action": {"order": 0, "custom_name": "Renamed"}, "breakdown_value": "Chrome"},
+                    {"action": {"order": 0, "custom_name": "Renamed"}, "breakdown_value": "Firefox"},
+                ],
+            ),
+            (
+                "sets_none_when_custom_name_removed",
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                [{"action": {"order": 0, "custom_name": "Had Name"}, "data": [1]}],
+                [{"action": {"order": 0, "custom_name": None}, "data": [1]}],
+            ),
+            (
+                "skips_results_without_action",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Name")]),
+                [{"action": None, "data": [1]}, {"data": [2]}],
+                [{"action": None, "data": [1]}, {"data": [2]}],
+            ),
+            (
+                "skips_results_with_unknown_order",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Name")]),
+                [{"action": {"order": 99, "custom_name": "Unknown"}, "data": [1]}],
+                [{"action": {"order": 99, "custom_name": "Unknown"}, "data": [1]}],
+            ),
+        ]
+    )
+    def test_apply_series_custom_names(
+        self,
+        _name: str,
+        query: TrendsQuery,
+        cached_results: list[dict],
+        expected_results: list[dict],
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedTrendsQueryResponse
+
+        runner = TrendsQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedTrendsQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
+
+        self.assertEqual(patched_response.results, expected_results)
+
+    @parameterized.expand(
+        [
+            (
+                "patches_funnel_steps_without_breakdown",
+                [
+                    {"order": 0, "custom_name": "Old Step 1", "count": 100},
+                    {"order": 1, "custom_name": "Old Step 2", "count": 50},
+                ],
+                [
+                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
+                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
+                ],
+                True,
+            ),
+            (
+                "patches_funnel_steps_with_breakdown",
+                [
+                    [
+                        {"order": 0, "custom_name": None, "count": 100, "breakdown": "Chrome"},
+                        {"order": 1, "custom_name": None, "count": 50, "breakdown": "Chrome"},
+                    ],
+                    [
+                        {"order": 0, "custom_name": None, "count": 80, "breakdown": "Firefox"},
+                        {"order": 1, "custom_name": None, "count": 40, "breakdown": "Firefox"},
+                    ],
+                ],
+                [
+                    [
+                        {"order": 0, "custom_name": "Step 1 Renamed", "count": 100, "breakdown": "Chrome"},
+                        {"order": 1, "custom_name": "Step 2 Renamed", "count": 50, "breakdown": "Chrome"},
+                    ],
+                    [
+                        {"order": 0, "custom_name": "Step 1 Renamed", "count": 80, "breakdown": "Firefox"},
+                        {"order": 1, "custom_name": "Step 2 Renamed", "count": 40, "breakdown": "Firefox"},
+                    ],
+                ],
+                True,
+            ),
+            (
+                "not_modified_when_names_match",
+                [
+                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
+                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
+                ],
+                [
+                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
+                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
+                ],
+                False,
+            ),
+        ]
+    )
+    def test_apply_funnels_custom_names(
+        self,
+        _name: str,
+        cached_results: list,
+        expected_results: list,
+        expect_modified: bool,
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
+
+        from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step1", custom_name="Step 1 Renamed"),
+                EventsNode(event="step2", custom_name="Step 2 Renamed"),
+            ]
+        )
+
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedFunnelsQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
+
+        self.assertEqual(patched_response.results, expected_results)
+        self.assertEqual(was_modified, expect_modified)
+
+    @parameterized.expand(
+        [
+            (
+                "applies_custom_name_to_stickiness_series",
+                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
+                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
+                True,
+            ),
+            (
+                "not_modified_when_stickiness_names_match",
+                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
+                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
+                False,
+            ),
+        ]
+    )
+    def test_apply_stickiness_custom_names(
+        self,
+        _name: str,
+        cached_results: list,
+        expected_results: list,
+        expect_modified: bool,
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
+
+        from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
+
+        query = StickinessQuery(
+            series=[
+                EventsNode(event="$pageview", custom_name="My Stickiness Name"),
+            ]
+        )
+
+        runner = StickinessQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedStickinessQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
+
+        self.assertEqual(patched_response.results, expected_results)
+        self.assertEqual(was_modified, expect_modified)
+
+    @parameterized.expand(
+        [
+            (
+                "patches_all_lifecycle_statuses",
+                [
+                    {"action": {"order": 0, "custom_name": None}, "status": "new", "data": [1]},
+                    {"action": {"order": 0, "custom_name": None}, "status": "returning", "data": [2]},
+                    {"action": {"order": 0, "custom_name": None}, "status": "resurrecting", "data": [3]},
+                    {"action": {"order": 0, "custom_name": None}, "status": "dormant", "data": [4]},
+                ],
+                [
+                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
+                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "returning", "data": [2]},
+                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "resurrecting", "data": [3]},
+                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "dormant", "data": [4]},
+                ],
+                True,
+            ),
+            (
+                "not_modified_when_lifecycle_names_match",
+                [
+                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
+                ],
+                [
+                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
+                ],
+                False,
+            ),
+        ]
+    )
+    def test_apply_lifecycle_custom_names(
+        self,
+        _name: str,
+        cached_results: list,
+        expected_results: list,
+        expect_modified: bool,
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
+
+        from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
+
+        query = LifecycleQuery(
+            series=[
+                EventsNode(event="$pageview", custom_name="My Lifecycle"),
+            ]
+        )
+
+        runner = LifecycleQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedLifecycleQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
+
+        self.assertEqual(patched_response.results, expected_results)
+        self.assertEqual(was_modified, expect_modified)
+
+    @parameterized.expand(
+        [
+            (
+                "modified_when_name_changes",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
+                [{"action": {"order": 0, "custom_name": "Old Name"}, "data": [1]}],
+                True,
+            ),
+            (
+                "modified_when_name_added",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
+                [{"action": {"order": 0, "custom_name": None}, "data": [1]}],
+                True,
+            ),
+            (
+                "modified_when_name_removed",
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                [{"action": {"order": 0, "custom_name": "Had Name"}, "data": [1]}],
+                True,
+            ),
+            (
+                "not_modified_when_names_match",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Same Name")]),
+                [{"action": {"order": 0, "custom_name": "Same Name"}, "data": [1]}],
+                False,
+            ),
+            (
+                "not_modified_when_both_none",
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+                [{"action": {"order": 0, "custom_name": None}, "data": [1]}],
+                False,
+            ),
+            (
+                "not_modified_when_no_matching_orders",
+                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Name")]),
+                [{"action": {"order": 99, "custom_name": "Other"}, "data": [1]}],
+                False,
+            ),
+        ]
+    )
+    def test_was_modified_flag(
+        self,
+        _name: str,
+        query: TrendsQuery,
+        cached_results: list[dict],
+        expect_modified: bool,
+    ):
+        from datetime import UTC
+
+        from posthog.schema import CachedTrendsQueryResponse
+
+        runner = TrendsQueryRunner(query=query, team=self.team)
+
+        cached_response = CachedTrendsQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        _, was_modified = runner.apply_series_custom_names(cached_response)
+
+        self.assertEqual(was_modified, expect_modified)

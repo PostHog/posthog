@@ -11,7 +11,7 @@ import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
@@ -20,8 +20,8 @@ import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
 type PropertyGroupFiltersProps = {
     insightProps: InsightLogicProps
-    query: TrendsQuery | StickinessQuery
-    setQuery: (node: TrendsQuery | StickinessQuery) => void
+    query: ProductAnalyticsInsightQueryNode
+    setQuery: (node: ProductAnalyticsInsightQueryNode) => void
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
@@ -50,26 +50,27 @@ export function PropertyGroupFilters({
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
     const disabledReason = hasDataWarehouseSeries
-        ? 'Cannot add filter groups to data warehouse series. Use individual series filters'
+        ? 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
         : undefined
     return (
-        <div className="deprecated-space-y-2 PropertyGroupFilters">
+        <div className="deprecated-space-y-2 PropertyGroupFilters @container">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <div className="flex flex-1 gap-2 flex-row space-between flex-wrap">
-                        <LemonButton
-                            data-attr={`${pageKey}-add-filter-group-inline`}
-                            type="secondary"
-                            onClick={addFilterGroup}
-                            icon={<IconPlusSmall />}
-                            sideIcon={null}
-                            disabledReason={disabledReason}
-                            className="PropertyGroupFilters__add-filter-group-inline"
-                        >
-                            Add filter group
-                        </LemonButton>
-
-                        <div className="flex-1">
+                    <div className="flex flex-col gap-2 @lg:flex-row @lg:items-center">
+                        <div className="order-2 @lg:order-none PropertyGroupFilters__add-filter-group-inline-wrapper">
+                            <LemonButton
+                                data-attr={`${pageKey}-add-filter-group-inline`}
+                                type="secondary"
+                                onClick={addFilterGroup}
+                                icon={<IconPlusSmall />}
+                                sideIcon={null}
+                                disabledReason={disabledReason}
+                                className="PropertyGroupFilters__add-filter-group-inline"
+                            >
+                                Add filter group
+                            </LemonButton>
+                        </div>
+                        <div className="order-1 @lg:order-none">
                             <InsightTestAccountFilter
                                 disabledReason={disabledReason}
                                 query={query}
@@ -107,8 +108,8 @@ export function PropertyGroupFilters({
                                                         }
                                                         value={group.type}
                                                     />
-                                                    <LemonDivider className="flex-1 mx-2" />
-                                                    <div className="flex items-center deprecated-space-x-2">
+                                                    <LemonDivider className="flex-1 mx-2 @max-[410px]/editor-panel:hidden" />
+                                                    <div className="flex items-center gap-1 shrink-0">
                                                         <LemonButton
                                                             icon={<IconCopy />}
                                                             onClick={() => duplicateFilterGroup(propertyGroupIndex)}
@@ -122,7 +123,7 @@ export function PropertyGroupFilters({
                                                     </div>
                                                 </div>
                                                 <PropertyFilters
-                                                    addText="Add filter"
+                                                    addText="Filter"
                                                     propertyFilters={
                                                         isPropertyGroupFilterLike(group)
                                                             ? (group.values as AnyPropertyFilter[])

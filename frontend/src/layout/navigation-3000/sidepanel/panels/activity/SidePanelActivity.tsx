@@ -11,9 +11,8 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { HOG_FUNCTION_SUB_TEMPLATES } from 'scenes/hog-functions/sub-templates/sub-templates'
@@ -55,24 +54,12 @@ export const SidePanelActivity = (): JSX.Element => {
         useValues(sidePanelActivityLogic)
     const { setActiveTab, maybeLoadOlderActivity, setActiveFilters } = useActions(sidePanelActivityLogic)
 
-    const { hasNotifications, notifications, importantChangesLoading, hasUnread } =
-        useValues(sidePanelNotificationsLogic)
-    const { markAllAsRead, loadImportantChanges } = useActions(sidePanelNotificationsLogic)
-
     const { closeSidePanel } = useActions(sidePanelStateLogic)
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
-
-    useOnMountEffect(() => {
-        loadImportantChanges(false)
-
-        return () => {
-            markAllAsRead()
-        }
-    })
 
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -126,10 +113,6 @@ export const SidePanelActivity = (): JSX.Element => {
                             onChange={(key) => setActiveTab(key)}
                             tabs={[
                                 {
-                                    key: SidePanelActivityTab.Unread,
-                                    label: 'My notifications',
-                                },
-                                {
                                     key: SidePanelActivityTab.All,
                                     label: 'Activity',
                                 },
@@ -146,25 +129,17 @@ export const SidePanelActivity = (): JSX.Element => {
                     </div>
 
                     {/* Controls */}
-                    {activeTab === SidePanelActivityTab.Unread ? (
-                        <div className="px-2 pb-2 deprecated-space-y-2 shrink-0">
-                            <div className="flex items-center justify-between gap-2">
-                                {hasUnread ? (
-                                    <LemonButton type="secondary" onClick={() => markAllAsRead()}>
-                                        Mark all as read
-                                    </LemonButton>
-                                ) : null}
-                            </div>
-                        </div>
-                    ) : activeTab === SidePanelActivityTab.All && hasAnyContext ? (
-                        <div className="flex items-center justify-between gap-2 px-2 pb-2 deprecated-space-y-2">
-                            <div className="flex items-center gap-1">
-                                Activity on{' '}
-                                <strong>
-                                    {hasItemContext
-                                        ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
-                                        : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}{' '}
-                                </strong>
+                    {activeTab === SidePanelActivityTab.All && hasAnyContext ? (
+                        <div className="flex items-center justify-between gap-2 px-2 pb-2">
+                            <div className="flex items-center gap-2">
+                                <span>
+                                    Activity on{' '}
+                                    <strong>
+                                        {hasItemContext
+                                            ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
+                                            : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}
+                                    </strong>
+                                </span>
                                 {featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
                                     <LemonMenu
                                         placement="bottom-start"
@@ -242,7 +217,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                             ] as LemonMenuItems
                                         }
                                     >
-                                        <LemonButton size="xsmall" type="secondary" tooltip="Subscribe">
+                                        <LemonButton size="small" type="secondary" tooltip="Subscribe">
                                             <IconBell />
                                         </LemonButton>
                                     </LemonMenu>
@@ -262,21 +237,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
                     <div className="flex flex-col flex-1 overflow-hidden" ref={contentRef} onScroll={handleScroll}>
                         <ScrollableShadows direction="vertical" innerClassName="p-2 deprecated-space-y-px">
-                            {activeTab === SidePanelActivityTab.Unread ? (
-                                <>
-                                    {importantChangesLoading && !hasNotifications ? (
-                                        <LemonSkeleton className="h-12 my-2" repeat={10} fade />
-                                    ) : hasNotifications ? (
-                                        notifications.map((logItem, index) => (
-                                            <ActivityLogRow logItem={logItem} key={index} />
-                                        ))
-                                    ) : (
-                                        <div className="p-6 text-center border border-dashed rounded text-secondary">
-                                            You're all caught up!
-                                        </div>
-                                    )}
-                                </>
-                            ) : activeTab === SidePanelActivityTab.All ? (
+                            {activeTab === SidePanelActivityTab.All ? (
                                 hasAnyContext ? (
                                     <>
                                         {allActivityResponseLoading ? (

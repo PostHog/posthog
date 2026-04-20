@@ -11,12 +11,15 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import {
     getDefaultTreeData,
+    getDefaultTreeDataAndPeople,
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
@@ -36,7 +39,7 @@ import {
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { UserBasicType } from '~/types'
+import { UserBasicType, UserShortcutPosition } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { customProductsLogic } from './customProductsLogic'
@@ -140,7 +143,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
             customProductsLogic,
-            ['customProducts', 'customProductPaths'],
+            ['customProducts'],
+            userLogic,
+            ['user'],
         ],
         actions: [panelLayoutLogic, ['setActivePanelIdentifier']],
     })),
@@ -195,6 +200,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         addShortcutItem: (item: FileSystemEntry) => ({ item }),
         deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
         loadShortcuts: true,
+
+        pruneClosedFolders: (expandedFolders: string[]) => ({ expandedFolders }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -452,12 +459,18 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                               }
                             : {
                                   path: shortcutPath,
-                                  type: item.type,
+                                  type: (item as FileSystemImport).iconType || item.type,
                                   ref: item.ref,
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    lemonToast.success('Shortcut created successfully', {
+                    const isAIFirst = !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    eventUsageLogic.actions.reportNavbarStarredItemAdded(
+                        shortcutItem.type ?? 'unknown',
+                        shortcutPath,
+                        isAIFirst
+                    )
+                    lemonToast.success(isAIFirst ? 'Added to starred' : 'Shortcut created successfully', {
                         button: {
                             label: 'View',
                             dataAttr: 'project-tree-view-shortcuts',
@@ -471,7 +484,17 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     )
                 },
                 deleteShortcut: async ({ id }) => {
+                    const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
+                    const isAIFirst = !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(
+                        shortcut?.type ?? 'unknown',
+                        shortcut?.path ?? 'unknown',
+                        isAIFirst
+                    )
+                    if (isAIFirst) {
+                        lemonToast.success('Removed from starred')
+                    }
                     return values.shortcutData.filter((s) => s.id !== id)
                 },
             },
@@ -481,7 +504,18 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         folders: [
             {} as Record<string, FileSystemEntry[]>,
             {
-                loadFolderSuccess: (state, { folder, entries }) => ({ ...state, [folder]: entries }),
+                loadFolderSuccess: (state, { folder, entries }) => {
+                    // Deduplicate entries by ID to prevent duplicate items from appearing
+                    const seenIds = new Set<string>()
+                    const uniqueEntries = entries.filter((entry) => {
+                        if (!entry.id || seenIds.has(entry.id)) {
+                            return false
+                        }
+                        seenIds.add(entry.id)
+                        return true
+                    })
+                    return { ...state, [folder]: uniqueEntries }
+                },
                 addLoadedResults: (state, { results }) => appendResultsToFolders(results, state),
                 createSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
@@ -551,6 +585,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
                     return newState
                 },
+                pruneClosedFolders: (state, { expandedFolders }) => {
+                    const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
+                    const newState: Record<string, FileSystemEntry[]> = {}
+                    for (const [key, value] of Object.entries(state)) {
+                        if (key === '' || expandedPaths.has(key)) {
+                            newState[key] = value
+                        }
+                    }
+                    return newState
+                },
             },
         ],
         folderLoadOffset: [
@@ -559,6 +603,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 loadFolderSuccess: (state, { folder, offsetIncrease, forceReload }) => {
                     const previousOffset = forceReload ? 0 : (state[folder] ?? 0)
                     return { ...state, [folder]: previousOffset + offsetIncrease }
+                },
+                pruneClosedFolders: (state, { expandedFolders }) => {
+                    const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
+                    const newState: Record<string, number> = {}
+                    for (const [key, value] of Object.entries(state)) {
+                        if (key === '' || expandedPaths.has(key)) {
+                            newState[key] = value
+                        }
+                    }
+                    return newState
                 },
             },
         ],
@@ -571,6 +625,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     [folder]: hasMore ? 'has-more' : 'loaded',
                 }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
+                pruneClosedFolders: (state, { expandedFolders }) => {
+                    const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
+                    const newState: Record<string, FolderState> = {}
+                    for (const [key, value] of Object.entries(state)) {
+                        if (key === '' || expandedPaths.has(key)) {
+                            newState[key] = value
+                        }
+                    }
+                    return newState
+                },
             },
         ],
         users: [
@@ -619,6 +683,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         return item
                     })
                 },
+            },
+        ],
+        shortcutDataHasLoaded: [
+            false,
+            {
+                loadShortcutsSuccess: () => true,
+                loadShortcutsFailure: () => true,
             },
         ],
     }),
@@ -713,6 +784,48 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             (s) => [s.viableItems],
             (viableItems): FileSystemEntry[] => [...viableItems].sort(sortFilesAndFolders),
         ],
+        itemsByRef: [
+            (s) => [s.sortedItems],
+            (sortedItems): Record<string, FileSystemEntry> => {
+                const keyedByRef: Record<string, FileSystemEntry> = {}
+
+                for (const item of sortedItems) {
+                    if (item.type && item.ref) {
+                        keyedByRef[`${item.type}::${item.ref}`] = item
+                    }
+                }
+
+                return keyedByRef
+            },
+        ],
+        itemsByHref: [
+            (s) => [s.sortedItems],
+            (sortedItems): Record<string, FileSystemEntry> => {
+                const keyedByHref: Record<string, FileSystemEntry> = {}
+
+                for (const item of sortedItems) {
+                    if (item.href) {
+                        keyedByHref[item.href] = item
+                    }
+                }
+
+                return keyedByHref
+            },
+        ],
+        itemsByPath: [
+            (s) => [s.sortedItems],
+            (sortedItems): Record<string, FileSystemEntry> => {
+                const keyedByPath: Record<string, FileSystemEntry> = {}
+
+                for (const item of sortedItems) {
+                    if (typeof item.path === 'string') {
+                        keyedByPath[item.path] = item
+                    }
+                }
+
+                return keyedByPath
+            },
+        ],
         viableItemsById: [
             (s) => [s.viableItems],
             (viableItems): Record<string, FileSystemEntry> =>
@@ -778,7 +891,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     : Array.from(groupTypes.values()).map((groupType) => ({
                           path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                           category: 'Groups',
-                          iconType: 'group',
+                          iconType: `group_${groupType.group_type_index}` as FileSystemIconType,
                           href: urls.groups(groupType.group_type_index),
                           visualOrder: 30 + groupType.group_type_index,
                       }))
@@ -911,6 +1024,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         ['products://', getDefaultTreeProducts()],
                         ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
+                        ['data-and-people://', [...getDefaultTreeDataAndPeople(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
                     ]
                     const staticItems = data.map(([protocol, files]) => ({
@@ -941,22 +1055,33 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
         ],
         getCustomProductTreeItems: [
-            (s) => [s.customProducts, s.featureFlags, s.getShortcutTreeItems, s.folderStates, s.users],
+            (s) => [s.customProducts, s.featureFlags, s.getShortcutTreeItems, s.folderStates, s.users, s.user],
             (
                 customProducts,
                 featureFlags,
                 getShortcutTreeItems,
                 folderStates,
-                users
+                users,
+                user
             ): ((searchTerm: string) => TreeDataItem[]) => {
                 return function getCustomProductItems(searchTerm: string): TreeDataItem[] {
                     const allProducts = getDefaultTreeProducts()
                     const productMap = new Map<string, FileSystemImport>(allProducts.map((p) => [p.path, p]))
+                    const customProductMap = new Map(customProducts.map((item) => [item.product_path, item]))
 
                     const selectedProducts = customProducts
                         .map((item) => {
                             const product = productMap.get(item.product_path)
-                            return product || null
+                            if (!product) {
+                                return null
+                            }
+                            const customProduct = customProductMap.get(item.product_path)
+                            return {
+                                ...product,
+                                reason: customProduct?.reason,
+                                reasonText: customProduct?.reason_text,
+                                created_at: customProduct?.created_at, // Underscore because it comes from backend if it's an actual `FileSystemImport`
+                            } as FileSystemImport
                         })
                         .filter((p): p is FileSystemImport => p !== null)
 
@@ -976,22 +1101,33 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             searchTerm,
                         })
 
-                    const result: TreeDataItem[] = []
+                    const isAIFirst = !!featureFlags[FEATURE_FLAGS.AI_FIRST]
+                    const shortcutPosition = (user?.shortcut_position ?? 'above') as UserShortcutPosition
+                    const generateShortcutItemsCategory = (): TreeDataItem[] => {
+                        if (isAIFirst) {
+                            return []
+                        }
+                        const shortcutItems = getShortcutTreeItems(searchTerm, false)
+                        if (shortcutItems.length === 0) {
+                            return []
+                        }
 
-                    // Shortcuts above the custom products to keep them all together here
-                    const shortcutItems = getShortcutTreeItems(searchTerm, false)
-                    if (shortcutItems.length > 0) {
-                        result.push({
-                            id: 'custom-products://-shortcuts-category',
-                            name: 'Shortcuts',
-                            displayName: <>Shortcuts</>,
-                            type: 'category',
-                        })
-                        result.push(...shortcutItems)
+                        return [
+                            {
+                                id: 'custom-products://-shortcuts-category',
+                                name: 'Shortcuts',
+                                displayName: <>Shortcuts</>,
+                                type: 'category',
+                            },
+                            ...shortcutItems,
+                        ]
                     }
 
-                    const customProductItems = convert(selectedProducts, 'custom-products://')
-                    result.push(...customProductItems)
+                    const result: TreeDataItem[] = [
+                        ...(shortcutPosition === 'above' ? generateShortcutItemsCategory() : []),
+                        ...convert(selectedProducts, 'custom-products://'),
+                        ...(shortcutPosition === 'below' ? generateShortcutItemsCategory() : []),
+                    ]
 
                     return result
                 }

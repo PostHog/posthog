@@ -10,6 +10,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     also_test_with_different_timezones,
@@ -67,14 +68,6 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optiona
             ret_dict["label"] = f"{entity.name} - {cohort.name}"
             ret_dict["breakdown_value"] = cohort.pk
     return ret_dict
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 def _create_cohort(**kwargs):
@@ -4300,6 +4293,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 # Persons with higher value come first
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person2"],
                     "id": str(person2.uuid),
                     "is_identified": False,
@@ -4312,6 +4306,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person1"],
                     "id": str(person1.uuid),
                     "is_identified": False,
@@ -4324,6 +4319,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person3"],
                     "id": str(person3.uuid),
                     "is_identified": False,
@@ -4343,6 +4339,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             assert people_value_2 == [
                 {
                     "created_at": "2020-01-01T12:00:00Z",
+                    "last_seen_at": None,
                     "distinct_ids": ["person2"],
                     "id": str(person2.uuid),
                     "is_identified": False,
@@ -6787,7 +6784,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         query_time = datetime(2020, 1, 5, 10, 1, 1, tzinfo=ZoneInfo(self.team.timezone))
-        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600
+        assert query_time.tzinfo is not None
+        utc_offset = query_time.tzinfo.utcoffset(query_time)
+        assert utc_offset is not None
+        utc_offset_hours = utc_offset.total_seconds() // 3600
         utc_offset_sign = "-" if utc_offset_hours < 0 else "+"
         with freeze_time(query_time):
             response = Trends().run(

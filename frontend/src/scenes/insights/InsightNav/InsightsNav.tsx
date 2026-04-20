@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { AlertDeletionWarning } from 'lib/components/Alerts/AlertDeletionWarning'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -9,7 +10,6 @@ import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { insightLogic } from '../insightLogic'
-import { FunnelsCue } from '../views/Trends/FunnelsCue'
 
 export function InsightsNav(): JSX.Element {
     const { insightProps, insight } = useValues(insightLogic)
@@ -18,11 +18,13 @@ export function InsightsNav(): JSX.Element {
 
     return (
         <>
-            <FunnelsCue />
             {insight.short_id && <AlertDeletionWarning />}
             <LemonTabs
                 activeKey={activeView}
-                onChange={(newKey) => setActiveView(newKey)}
+                onChange={(newKey) => {
+                    posthog.capture('insight type tab clicked', { insight_type: newKey, previous_type: activeView })
+                    setActiveView(newKey)
+                }}
                 tabs={tabs.map(({ label, type, dataAttr }) => ({
                     key: type,
                     label: (

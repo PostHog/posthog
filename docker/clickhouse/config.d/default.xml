@@ -26,20 +26,67 @@
                 </replica>
             </shard>
         </posthog_migrations>
-        <posthog_batch_exports>
+        <posthog_writable>
             <shard>
                 <replica>
                     <host>clickhouse</host>
                     <port>9000</port>
                 </replica>
             </shard>
-        </posthog_batch_exports>
+        </posthog_writable>
+        <posthog_primary_replica>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_primary_replica>
+
+        <ai_events>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </ai_events>
+        <aux>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </aux>
+        <ops>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </ops>
+        <sessions>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </sessions>
     </remote_servers>
 
     <named_collections>
         <msk_cluster>
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
         </msk_cluster>
+        <warpstream_ingestion>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_ingestion>
+        <warpstream_calculated_events>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_calculated_events>
     </named_collections>
 
     <macros>

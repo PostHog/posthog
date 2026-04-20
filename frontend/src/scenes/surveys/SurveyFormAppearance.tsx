@@ -8,9 +8,9 @@ import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import { Survey, SurveyQuestionBranchingType, SurveyType } from '~/types'
 
+import { NewSurvey } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
-import { NewSurvey } from './constants'
 
 interface SurveyFormAppearanceProps {
     previewPageIndex: number
@@ -48,9 +48,9 @@ export function SurveyFormAppearance({
             <LemonField.Pure label="Current question" className="max-w-xs gap-1" htmlFor="current-question-select">
                 <LemonSelect
                     onChange={(pageIndex) => handleSetSelectedPageIndex(pageIndex)}
-                    className="whitespace-nowrap"
                     id="current-question-select"
                     fullWidth
+                    truncateText={{ maxWidthClass: 'max-w-60' }}
                     value={previewPageIndex}
                     options={[
                         ...survey.questions.map((question, index) => ({

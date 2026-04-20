@@ -1,12 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { CSSProperties } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { CSSProperties, useEffect } from 'react'
+import { List, useListRef } from 'react-window'
 
-import { IconHome } from '@posthog/icons'
+import { IconHome, IconPinFilled, IconUser } from '@posthog/icons'
 
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -24,6 +24,7 @@ interface DashboardRelationRowProps {
     canEditInsight: boolean
     isHighlighted: boolean
     isAlreadyOnDashboard: boolean
+    currentUserUuid: string | null
     style: CSSProperties
 }
 
@@ -34,12 +35,14 @@ const DashboardRelationRow = ({
     dashboard,
     insightProps,
     canEditInsight,
+    currentUserUuid,
 }: DashboardRelationRowProps): JSX.Element => {
     const { addToDashboard, removeFromDashboard } = useActions(addToDashboardModalLogic(insightProps))
     const { dashboardWithActiveAPICall } = useValues(addToDashboardModalLogic(insightProps))
 
     const { currentTeam } = useValues(teamLogic)
     const isPrimary = dashboard.id === currentTeam?.primary_dashboard
+    const isMine = Boolean(currentUserUuid && dashboard.created_by?.uuid === currentUserUuid)
     return (
         <div
             data-attr="dashboard-list-item"
@@ -54,6 +57,20 @@ const DashboardRelationRow = ({
             >
                 {dashboard.name || 'Untitled'}
             </Link>
+            {dashboard.pinned && (
+                <Tooltip title="Pinned dashboard">
+                    <span className="flex shrink-0 items-center">
+                        <IconPinFilled className="text-secondary text-base" />
+                    </span>
+                </Tooltip>
+            )}
+            {isMine && (
+                <Tooltip title="Your dashboard">
+                    <span className="flex shrink-0 items-center">
+                        <IconUser className="text-secondary text-base" />
+                    </span>
+                </Tooltip>
+            )}
             {isPrimary && (
                 <Tooltip title="Primary dashboards are shown on the project home page">
                     <span className="flex items-center">
@@ -85,11 +102,50 @@ const DashboardRelationRow = ({
     )
 }
 
+interface DashboardRowProps {
+    orderedDashboards: DashboardBasicType[]
+    currentDashboards: DashboardBasicType[]
+    insightProps: InsightLogicProps
+    canEditInsight: boolean
+    scrollIndex: number
+    currentUserUuid: string | null
+}
+
+const DashboardRow = ({
+    index,
+    style,
+    orderedDashboards,
+    currentDashboards,
+    insightProps,
+    canEditInsight,
+    scrollIndex,
+    currentUserUuid,
+}: {
+    ariaAttributes: Record<string, unknown>
+    index: number
+    style: CSSProperties
+} & DashboardRowProps): JSX.Element => {
+    return (
+        <DashboardRelationRow
+            dashboard={orderedDashboards[index]}
+            insightProps={insightProps}
+            canEditInsight={canEditInsight}
+            isHighlighted={index === scrollIndex}
+            isAlreadyOnDashboard={currentDashboards.some(
+                (currentDashboard) => currentDashboard.id === orderedDashboards[index].id
+            )}
+            currentUserUuid={currentUserUuid}
+            style={style}
+        />
+    )
+}
+
 interface SaveToDashboardModalProps {
     isOpen: boolean
     closeModal: () => void
     insightProps: InsightLogicProps
     canEditInsight: boolean
+    'data-attr'?: string
 }
 
 export function AddToDashboardModal({
@@ -97,26 +153,27 @@ export function AddToDashboardModal({
     closeModal,
     insightProps,
     canEditInsight,
+    'data-attr': dataAttr,
 }: SaveToDashboardModalProps): JSX.Element {
     const logic = addToDashboardModalLogic(insightProps)
 
-    const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
+    const { searchQuery, currentDashboards, orderedDashboards, scrollIndex, user } = useValues(logic)
     const { setSearchQuery, addNewDashboard } = useActions(logic)
+    const listRef = useListRef(null)
 
-    const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
-        return (
-            <DashboardRelationRow
-                key={rowIndex}
-                dashboard={orderedDashboards[rowIndex]}
-                insightProps={insightProps}
-                canEditInsight={canEditInsight}
-                isHighlighted={rowIndex === scrollIndex}
-                isAlreadyOnDashboard={currentDashboards.some(
-                    (currentDashboard) => currentDashboard.id === orderedDashboards[rowIndex].id
-                )}
-                style={style}
-            />
-        )
+    useEffect(() => {
+        if (scrollIndex >= 0 && listRef.current) {
+            listRef.current.scrollToRow({ index: scrollIndex, align: 'smart' })
+        }
+    }, [scrollIndex, listRef.current])
+
+    const rowProps: DashboardRowProps = {
+        orderedDashboards,
+        currentDashboards,
+        insightProps,
+        canEditInsight,
+        scrollIndex,
+        currentUserUuid: user?.uuid ?? null,
     }
 
     return (
@@ -127,6 +184,7 @@ export function AddToDashboardModal({
             }}
             isOpen={isOpen}
             title="Add to dashboard"
+            data-attr={dataAttr}
             footer={
                 <>
                     <div className="flex-1">
@@ -163,19 +221,21 @@ export function AddToDashboardModal({
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>
                 <div className="min-h-[420px]">
-                    <AutoSizer>
-                        {({ height, width }) => (
-                            <List
-                                width={width}
-                                height={height}
-                                rowCount={orderedDashboards.length}
-                                overscanRowCount={100}
-                                rowHeight={40}
-                                rowRenderer={renderItem}
-                                scrollToIndex={scrollIndex}
-                            />
-                        )}
-                    </AutoSizer>
+                    <AutoSizer
+                        renderProp={({ height, width }) =>
+                            height && width ? (
+                                <List<DashboardRowProps>
+                                    listRef={listRef}
+                                    style={{ width, height }}
+                                    rowCount={orderedDashboards.length}
+                                    overscanCount={100}
+                                    rowHeight={40}
+                                    rowComponent={DashboardRow}
+                                    rowProps={rowProps}
+                                />
+                            ) : null
+                        }
+                    />
                 </div>
             </div>
         </LemonModal>

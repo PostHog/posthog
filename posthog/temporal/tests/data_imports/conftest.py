@@ -12,7 +12,6 @@ from django.test import override_settings
 import aioboto3
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -55,28 +54,6 @@ async def minio_client():
         yield minio_client
 
 
-def _mock_to_session_credentials(class_self):
-    return {
-        "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-        "aws_session_token": None,
-        "AWS_ALLOW_HTTP": "true",
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
-
-
-def _mock_to_object_store_rs_credentials(class_self):
-    return {
-        "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-        "region": "us-east-1",
-        "AWS_ALLOW_HTTP": "true",
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
-
-
 async def run_external_data_job_workflow(
     team,
     external_data_source,
@@ -98,10 +75,10 @@ async def run_external_data_job_workflow(
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             BUCKET_PATH=BUCKET_NAME,
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
         mock.patch(
@@ -109,8 +86,6 @@ async def run_external_data_job_workflow(
         ) as mock_get_data_import_finished_metric,
         # make sure intended error of line 175 in posthog/warehouse/models/table.py doesn't trigger flag calls
         mock.patch("posthoganalytics.capture_exception", return_value=None),
-        mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
@@ -1024,6 +999,75 @@ def stripe_customer_payment_method():
         }
         """
     )
+
+
+@pytest.fixture
+def mock_stripe_client(
+    stripe_balance_transaction,
+    stripe_charge,
+    stripe_customer,
+    stripe_dispute,
+    stripe_invoiceitem,
+    stripe_invoice,
+    stripe_payout,
+    stripe_price,
+    stripe_product,
+    stripe_refund,
+    stripe_subscription,
+    stripe_credit_note,
+    stripe_customer_balance_transaction,
+    stripe_customer_payment_method,
+):
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
+        mock_balance_transaction_list = mock.MagicMock()
+        mock_charges_list = mock.MagicMock()
+        mock_customers_list = mock.MagicMock()
+        mock_disputes_list = mock.MagicMock()
+        mock_invoice_items_list = mock.MagicMock()
+        mock_invoice_list = mock.MagicMock()
+        mock_payouts_list = mock.MagicMock()
+        mock_price_list = mock.MagicMock()
+        mock_product_list = mock.MagicMock()
+        mock_refunds_list = mock.MagicMock()
+        mock_subscription_list = mock.MagicMock()
+        mock_credit_notes_list = mock.MagicMock()
+        mock_customer_balance_transactions_list = mock.MagicMock()
+        mock_customer_payment_methods_list = mock.MagicMock()
+
+        mock_balance_transaction_list.auto_paging_iter.return_value = stripe_balance_transaction["data"]
+        mock_charges_list.auto_paging_iter.return_value = stripe_charge["data"]
+        mock_customers_list.auto_paging_iter.return_value = stripe_customer["data"]
+        mock_disputes_list.auto_paging_iter.return_value = stripe_dispute["data"]
+        mock_invoice_items_list.auto_paging_iter.return_value = stripe_invoiceitem["data"]
+        mock_invoice_list.auto_paging_iter.return_value = stripe_invoice["data"]
+        mock_payouts_list.auto_paging_iter.return_value = stripe_payout["data"]
+        mock_price_list.auto_paging_iter.return_value = stripe_price["data"]
+        mock_product_list.auto_paging_iter.return_value = stripe_product["data"]
+        mock_refunds_list.auto_paging_iter.return_value = stripe_refund["data"]
+        mock_subscription_list.auto_paging_iter.return_value = stripe_subscription["data"]
+        mock_credit_notes_list.auto_paging_iter.return_value = stripe_credit_note["data"]
+        mock_customer_balance_transactions_list.auto_paging_iter.return_value = stripe_customer_balance_transaction[
+            "data"
+        ]
+        mock_customer_payment_methods_list.auto_paging_iter.return_value = stripe_customer_payment_method["data"]
+
+        instance = MockStripeClient.return_value
+        instance.balance_transactions.list.return_value = mock_balance_transaction_list
+        instance.charges.list.return_value = mock_charges_list
+        instance.customers.list.return_value = mock_customers_list
+        instance.disputes.list.return_value = mock_disputes_list
+        instance.invoice_items.list.return_value = mock_invoice_items_list
+        instance.invoices.list.return_value = mock_invoice_list
+        instance.payouts.list.return_value = mock_payouts_list
+        instance.prices.list.return_value = mock_price_list
+        instance.products.list.return_value = mock_product_list
+        instance.refunds.list.return_value = mock_refunds_list
+        instance.subscriptions.list.return_value = mock_subscription_list
+        instance.credit_notes.list.return_value = mock_credit_notes_list
+        instance.customers.balance_transactions.list.return_value = mock_customer_balance_transactions_list
+        instance.customers.payment_methods.list.return_value = mock_customer_payment_methods_list
+
+        yield instance
 
 
 @pytest.fixture

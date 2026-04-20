@@ -61,14 +61,15 @@ impl RawPythonFrame {
         let before = self
             .pre_context
             .iter()
+            .rev()
             .enumerate()
-            .map(|(i, line)| ContextLine::new(lineno - i as u32 - 1, line.clone()))
+            .map(|(i, line)| ContextLine::new_rel(lineno, -(i as i32) - 1, line.clone()))
             .collect();
         let after = self
             .post_context
             .iter()
             .enumerate()
-            .map(|(i, line)| ContextLine::new(lineno + i as u32 + 1, line.clone()))
+            .map(|(i, line)| ContextLine::new_rel(lineno, (i as i32) + 1, line.clone()))
             .collect();
         Some(Context {
             before,
@@ -91,13 +92,13 @@ impl From<&RawPythonFrame> for Frame {
             lang: "python".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             context: raw.get_context(),
             release: None,
             synthetic: raw.meta.synthetic,
             suspicious: false,
             module: raw.module.clone(),
-            exception_type: None,
             code_variables: raw.code_variables.clone(),
         }
     }

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -26,21 +26,24 @@ import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
+import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
-import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { LineGraph } from './Components/Charts/LineGraph'
+import { PieChart } from './Components/Charts/PieChart'
+import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
+import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
-import { VariablesForInsight } from './Components/Variables/Variables'
 import { variableModalLogic } from './Components/Variables/variableModalLogic'
+import { VariablesForInsight } from './Components/Variables/Variables'
 import { VariablesLogicProps, variablesLogic } from './Components/Variables/variablesLogic'
-import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
+import { applyDataVisualizationQueryUpdate } from './queryUpdateUtils'
 
 export interface DataTableVisualizationProps {
     uniqueKey?: string | number
@@ -52,6 +55,7 @@ export interface DataTableVisualizationProps {
     cachedResults?: AnyResponseType
     editMode?: boolean
     readOnly?: boolean
+    embedded?: boolean
     exportContext?: ExportContext
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
@@ -71,8 +75,12 @@ export function DataTableVisualization({
     variablesOverride,
     attachTo,
     editMode,
+    embedded,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
+    const queryRef = useRef(query)
+    queryRef.current = query
+
     const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
         dashboardItemId: `new-AdHoc.${key}`,
         query,
@@ -90,10 +98,11 @@ export function DataTableVisualization({
         loadPriority: insightProps.loadPriority,
         editMode,
         setQuery: (setter) => {
-            setQuery(setter(query))
+            applyDataVisualizationQueryUpdate(queryRef, setter, setQuery)
         },
         cachedResults,
         variablesOverride,
+        limitContext: context?.limitContext,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -103,6 +112,7 @@ export function DataTableVisualization({
         loadPriority: insightProps.loadPriority,
         dataNodeCollectionId,
         variablesOverride,
+        limitContext: context?.limitContext,
     }
 
     // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic
@@ -141,6 +151,7 @@ export function DataTableVisualization({
                                 readOnly={readOnly}
                                 exportContext={exportContext}
                                 editMode={editMode}
+                                embedded={embedded}
                             />
                         </BindLogic>
                     </BindLogic>
@@ -155,7 +166,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const {
         query,
-        visualizationType,
+        effectiveVisualizationType,
         showResultControls,
         sourceFeatures,
         response,
@@ -208,7 +219,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         )
-    } else if (visualizationType === ChartDisplayType.ActionsTable) {
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table
                 uniqueKey={props.uniqueKey}
@@ -218,33 +229,51 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             />
         )
     } else if (
-        visualizationType === ChartDisplayType.ActionsLineGraph ||
-        visualizationType === ChartDisplayType.ActionsBar ||
-        visualizationType === ChartDisplayType.ActionsAreaGraph ||
-        visualizationType === ChartDisplayType.ActionsStackedBar
+        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
+        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     ) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
             <LineGraph
-                className="p-2"
+                className="p-3"
                 xData={_xData}
                 yData={_yData}
-                visualizationType={visualizationType}
+                visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
                 presetChartHeight={presetChartHeight}
             />
         )
-    } else if (visualizationType === ChartDisplayType.BoldNumber) {
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        // Pie charts can consume breakdown series totals directly, even when there isn't
+        // a matching breakdown x-axis to swap in like the line/bar path expects.
+        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+
+        component = (
+            <PieChart
+                className="p-3"
+                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
+                xData={_xData}
+                yData={_yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+        component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
+    } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }
 
     return (
         <div
             className={clsx('DataVisualization flex flex-1 gap-2', {
-                'h-full': visualizationType !== ChartDisplayType.ActionsTable,
+                'h-full': effectiveVisualizationType !== ChartDisplayType.ActionsTable,
             })}
         >
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
@@ -285,7 +314,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                     {props.exportContext && (
                                         <ExportButton
                                             disabledReason={
-                                                visualizationType != ChartDisplayType.ActionsTable &&
+                                                effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
                                                 'Only table results are exportable'
                                             }
                                             type="secondary"
@@ -307,7 +336,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     </>
                 )}
 
-                <VariablesForInsight />
+                {!props.embedded && <VariablesForInsight />}
 
                 <div className="flex flex-1 flex-row gap-4">
                     <div className="w-full h-full flex-1 overflow-auto">{component}</div>

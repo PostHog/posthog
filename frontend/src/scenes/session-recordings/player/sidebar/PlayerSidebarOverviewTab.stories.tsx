@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
@@ -11,7 +11,13 @@ import { PlayerSidebarOverviewTab } from 'scenes/session-recordings/player/sideb
 
 import { mswDecorator } from '~/mocks/browser'
 
-const meta: Meta = {
+interface OverviewTabProps {
+    width: number
+    sessionId?: string
+}
+
+type Story = StoryObj<OverviewTabProps>
+const meta: Meta<OverviewTabProps> = {
     title: 'Replay/Overview Tab',
     parameters: {
         layout: 'fullscreen',
@@ -88,20 +94,18 @@ const meta: Meta = {
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
                 '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                    // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob') {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     }
-                    // with no source requested should return sources
                     return [
                         200,
                         {
                             sources: [
                                 {
-                                    source: 'blob',
+                                    source: 'blob_v2',
                                     start_timestamp: '2023-08-11T12:03:36.097000Z',
                                     end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                    blob_key: '1691755416097-1691755492268',
+                                    blob_key: '0',
                                 },
                             ],
                         },
@@ -128,7 +132,7 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
                     if (
                         body.query.kind === 'HogQLQuery' &&
@@ -177,43 +181,35 @@ const meta: Meta = {
             },
         }),
     ],
+    render: ({ width, sessionId = '12345' }: OverviewTabProps) => {
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ width: `${width}px`, height: '100vh' }}>
+                <BindLogic
+                    logic={sessionRecordingPlayerLogic}
+                    props={{ playerKey: 'storybook', sessionRecordingId: sessionId }}
+                >
+                    <PlayerSidebarOverviewTab />
+                </BindLogic>
+            </div>
+        )
+    },
 }
 
 export default meta
 
-interface OverviewTabProps {
-    width: number
-    sessionId?: string
+export const NarrowOverviewTab: Story = {
+    args: { width: 320 },
 }
 
-const OverviewTabTemplate: StoryFn<OverviewTabProps> = ({
-    width,
-    sessionId = '12345',
-}: {
-    width: number
-    sessionId?: string
-}) => {
-    return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ width: `${width}px`, height: '100vh' }}>
-            <BindLogic
-                logic={sessionRecordingPlayerLogic}
-                props={{ playerKey: 'storybook', sessionRecordingId: sessionId }}
-            >
-                <PlayerSidebarOverviewTab />
-            </BindLogic>
-        </div>
-    )
+export const WideOverviewTab: Story = {
+    args: { width: 500 },
 }
 
-export const NarrowOverviewTab = OverviewTabTemplate.bind({})
-NarrowOverviewTab.args = { width: 320 }
+export const OneOtherWatchersOverviewTab: Story = {
+    args: { width: 400, sessionId: '34567' },
+}
 
-export const WideOverviewTab = OverviewTabTemplate.bind({})
-WideOverviewTab.args = { width: 500 }
-
-export const OneOtherWatchersOverviewTab = OverviewTabTemplate.bind({})
-OneOtherWatchersOverviewTab.args = { width: 400, sessionId: '34567' }
-
-export const ManyOtherWatchersOverviewTab = OverviewTabTemplate.bind({})
-ManyOtherWatchersOverviewTab.args = { width: 400, sessionId: 'thirty_others' }
+export const ManyOtherWatchersOverviewTab: Story = {
+    args: { width: 400, sessionId: 'thirty_others' },
+}

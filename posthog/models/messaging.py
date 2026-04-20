@@ -3,7 +3,7 @@ import hashlib
 from django.conf import settings
 from django.db import models
 
-from .utils import UUIDTModel
+from posthog.models.utils import UUIDTModel
 
 
 def get_email_hash(email: str) -> str:

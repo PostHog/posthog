@@ -70,13 +70,7 @@ interface TileWrapperProps {
     children: (response: AnyResponseType) => JSX.Element
 }
 
-export const TileWrapper = ({
-    title,
-    tooltip,
-    extra,
-    children,
-    context,
-}: React.PropsWithChildren<TileWrapperProps>): JSX.Element => {
+export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWrapperProps): JSX.Element => {
     const logic = useMountedLogic(dataNodeLogic)
     const { response, responseLoading, responseErrorObject, query, queryId } = useValues(logic)
 

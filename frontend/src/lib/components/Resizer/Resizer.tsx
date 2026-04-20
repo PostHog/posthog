@@ -9,10 +9,19 @@ import { ResizerLogicProps, resizerLogic } from './resizerLogic'
 
 export type ResizerProps = ResizerLogicProps & {
     offset?: number | string
+    /**
+     * applied to the wrapper div
+     */
     className?: string
+    /**
+     * applied to the handle div
+     */
+    handleClassName?: string
+    visible?: boolean
+    marginTop?: number
 }
 
-export function Resizer(props: ResizerProps): JSX.Element {
+export function Resizer({ visible = true, ...props }: ResizerProps): JSX.Element {
     const logic = resizerLogic(props)
     const { isResizeInProgress, isVertical } = useValues(logic)
     const { beginResize } = useActions(logic)
@@ -32,11 +41,13 @@ export function Resizer(props: ResizerProps): JSX.Element {
                 'Resizer',
                 isResizeInProgress && isSelected && 'Resizer--resizing',
                 `Resizer--${props.placement}`,
+                !visible && 'Resizer--invisible',
                 props.className
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 [props.placement]: props.offset ?? 0,
+                ...(props.marginTop && { marginTop: props.marginTop }),
             }}
             onMouseDown={(e) => {
                 if (e.button === 0) {
@@ -45,7 +56,7 @@ export function Resizer(props: ResizerProps): JSX.Element {
                 }
             }}
         >
-            <div className="Resizer__handle" />
+            <div className={cn('Resizer__handle', props.handleClassName)} />
         </div>
     )
 }

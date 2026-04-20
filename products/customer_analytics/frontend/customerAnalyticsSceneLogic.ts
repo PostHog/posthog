@@ -5,12 +5,22 @@ import { FunnelLayout } from 'lib/constants'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { getDefaultInterval } from 'lib/utils'
-import { Scene } from 'scenes/sceneTypes'
+import { capitalizeFirstLetter, getDefaultInterval, wordPluralize } from 'lib/utils'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActionsNode, AnyEntityNode, EventsNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { groupsModel } from '~/models/groupsModel'
+import {
+    ActionsNode,
+    AnyEntityNode,
+    EventsNode,
+    InsightVizNode,
+    LifecycleDataWarehouseNode,
+    FunnelsDataWarehouseNode,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { sceneLogic } from '~/scenes/sceneLogic'
 import {
     BaseMathType,
     Breadcrumb,
@@ -19,13 +29,18 @@ import {
     FunnelConversionWindowTimeUnit,
     FunnelStepReference,
     FunnelVizType,
+    GroupMathType,
+    GroupTypeIndex,
     PropertyMathType,
     SimpleIntervalType,
     StepOrderValue,
 } from '~/types'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from './constants'
 import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
+
+export type BusinessType = 'b2c' | 'b2b'
 
 export interface CustomerAnalyticsSceneLogicProps {
     tabId: string
@@ -81,10 +96,17 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 'subscriptionEvent',
                 'paymentEvent',
             ],
+            groupsModel,
+            ['aggregationLabel', 'groupsEnabled', 'groupTypesRaw'],
+            sceneLogic,
+            ['sceneKey'],
         ],
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setBusinessType: (businessType: BusinessType) => ({ businessType }),
+        setSelectedGroupType: (selectedGroupType: number) => ({ selectedGroupType }),
+        setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -98,44 +120,124 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 }),
             },
         ],
+        businessType: [
+            'b2c' as BusinessType,
+            persistConfig,
+            {
+                setBusinessType: (_, { businessType }) => businessType,
+            },
+        ],
+        selectedGroupType: [
+            0,
+            persistConfig,
+            {
+                setSelectedGroupType: (_, { selectedGroupType }) => selectedGroupType,
+            },
+        ],
+        filterTestAccounts: [
+            true,
+            persistConfig,
+            {
+                setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
+            },
+        ],
     })),
     selectors({
-        tabId: [() => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId], (tabIdProp): string => tabIdProp],
+        tabId: [
+            () => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId],
+            (tabIdProp: string): string => tabIdProp,
+        ],
+        activeTab: [
+            (s) => [s.sceneKey],
+            (sceneKey): 'dashboard' | 'journeys' => {
+                return sceneKey === 'customerAnalyticsJourneys' ? 'journeys' : 'dashboard'
+            },
+        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
                 {
                     key: Scene.CustomerAnalytics,
                     name: sceneConfigurations[Scene.CustomerAnalytics].name,
-                    path: urls.customerAnalytics(),
+                    path: urls.customerAnalyticsDashboard(),
                     iconType: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                 },
             ],
         ],
+        customerLabel: [
+            (s) => [s.aggregationLabel, s.businessType, s.selectedGroupType],
+            (
+                aggregationLabel: any,
+                businessType: BusinessType,
+                selectedGroupType: number
+            ): { singular: string; plural: string } => {
+                if (!aggregationLabel || typeof aggregationLabel !== 'function') {
+                    return { singular: 'user', plural: 'users' }
+                }
+                if (businessType === 'b2c') {
+                    return aggregationLabel(undefined, true)
+                }
+                return aggregationLabel(selectedGroupType)
+            },
+        ],
         dateRange: [
             (s) => [s.dateFilter],
-            (dateFilter) => ({
+            (dateFilter: {
+                dateFrom: string | null
+                dateTo: string | null
+            }): { date_from: string | null; date_to: string | null } => ({
                 date_from: dateFilter.dateFrom,
                 date_to: dateFilter.dateTo,
             }),
         ],
+        groupOptions: [
+            (s) => [s.groupTypesRaw],
+            (groupTypesRaw: any[]): { label: string; value: number }[] => {
+                return groupTypesRaw.map((groupType) => ({
+                    label: capitalizeFirstLetter(groupType.name_plural || wordPluralize(groupType.group_type)),
+                    value: groupType.group_type_index,
+                }))
+            },
+        ],
         dauSeries: [
-            (s) => [s.activityEvent],
-            (activityEvent: EventsNode | ActionsNode | null): AnyEntityNode | null => {
+            (s) => [s.activityEvent, s.businessType, s.selectedGroupType],
+            (
+                activityEvent: EventsNode | ActionsNode | null,
+                businessType: BusinessType,
+                selectedGroupType: GroupTypeIndex
+            ): AnyEntityNode | null => {
                 if (!activityEvent) {
                     return null
                 }
+                if (businessType === 'b2c') {
+                    return {
+                        ...activityEvent,
+                        math: BaseMathType.UniqueUsers,
+                    }
+                }
                 return {
                     ...activityEvent,
-                    math: BaseMathType.UniqueUsers,
+                    math: GroupMathType.UniqueGroup,
+                    math_group_type_index: selectedGroupType,
                 }
             },
         ],
         wauSeries: [
-            (s) => [s.activityEvent],
-            (activityEvent: EventsNode | ActionsNode | null): AnyEntityNode | null => {
+            (s) => [s.activityEvent, s.businessType, s.selectedGroupType],
+            (
+                activityEvent: EventsNode | ActionsNode | null,
+                businessType: BusinessType,
+                selectedGroupType: GroupTypeIndex
+            ): AnyEntityNode | null => {
                 if (!activityEvent) {
                     return null
+                }
+                if (businessType === 'b2b') {
+                    return {
+                        ...activityEvent,
+                        math: BaseMathType.WeeklyActiveUsers,
+                        math_group_type_index: selectedGroupType,
+                    }
                 }
                 return {
                     ...activityEvent,
@@ -144,10 +246,21 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             },
         ],
         mauSeries: [
-            (s) => [s.activityEvent],
-            (activityEvent: EventsNode | ActionsNode | null): AnyEntityNode | null => {
+            (s) => [s.activityEvent, s.businessType, s.selectedGroupType],
+            (
+                activityEvent: EventsNode | ActionsNode | null,
+                businessType: BusinessType,
+                selectedGroupType: GroupTypeIndex
+            ): AnyEntityNode | null => {
                 if (!activityEvent) {
                     return null
+                }
+                if (businessType === 'b2b') {
+                    return {
+                        ...activityEvent,
+                        math: BaseMathType.MonthlyActiveUsers,
+                        math_group_type_index: selectedGroupType,
+                    }
                 }
                 return {
                     ...activityEvent,
@@ -156,60 +269,98 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             },
         ],
         signupSeries: [
-            (s) => [s.signupEvent],
-            (signupEvent): AnyEntityNode | null => {
+            (s) => [s.businessType, s.selectedGroupType, s.signupEvent],
+            (businessType: BusinessType, selectedGroupType: GroupTypeIndex, signupEvent): AnyEntityNode | null => {
                 if (Object.keys(signupEvent).length === 0) {
                     return null
                 }
+                if (businessType === 'b2c') {
+                    return {
+                        ...signupEvent,
+                        math: BaseMathType.UniqueUsers,
+                    }
+                }
                 return {
                     ...signupEvent,
-                    math: BaseMathType.UniqueUsers,
+                    math: GroupMathType.UniqueGroup,
+                    math_group_type_index: selectedGroupType,
                 }
             },
         ],
         signupPageviewSeries: [
-            (s) => [s.signupPageviewEvent],
-            (signupPageviewEvent): AnyEntityNode | null => {
+            (s) => [s.businessType, s.selectedGroupType, s.signupPageviewEvent],
+            (
+                businessType: BusinessType,
+                selectedGroupType: GroupTypeIndex,
+                signupPageviewEvent
+            ): AnyEntityNode | null => {
                 if (Object.keys(signupPageviewEvent).length === 0) {
                     return null
                 }
+                if (businessType === 'b2c') {
+                    return {
+                        ...signupPageviewEvent,
+                        math: BaseMathType.UniqueUsers,
+                    }
+                }
                 return {
                     ...signupPageviewEvent,
-                    math: BaseMathType.UniqueUsers,
+                    math: GroupMathType.UniqueGroup,
+                    math_group_type_index: selectedGroupType,
                 }
             },
         ],
         subscriptionSeries: [
-            (s) => [s.subscriptionEvent],
-            (subscriptionEvent): AnyEntityNode | null => {
+            (s) => [s.businessType, s.selectedGroupType, s.subscriptionEvent],
+            (
+                businessType: BusinessType,
+                selectedGroupType: GroupTypeIndex,
+                subscriptionEvent
+            ): AnyEntityNode | null => {
                 if (Object.keys(subscriptionEvent).length === 0) {
                     return null
                 }
+                if (businessType === 'b2c') {
+                    return {
+                        ...subscriptionEvent,
+                        math: BaseMathType.UniqueUsers,
+                    }
+                }
                 return {
                     ...subscriptionEvent,
-                    math: BaseMathType.UniqueUsers,
+                    math: GroupMathType.UniqueGroup,
+                    math_group_type_index: selectedGroupType,
                 }
             },
         ],
         paymentSeries: [
-            (s) => [s.paymentEvent],
-            (paymentEvent): AnyEntityNode | null => {
+            (s) => [s.businessType, s.selectedGroupType, s.paymentEvent],
+            (businessType: BusinessType, selectedGroupType: GroupTypeIndex, paymentEvent): AnyEntityNode | null => {
                 if (Object.keys(paymentEvent).length === 0) {
                     return null
                 }
+                if (businessType === 'b2c') {
+                    return {
+                        ...paymentEvent,
+                        math: BaseMathType.UniqueUsers,
+                    }
+                }
                 return {
                     ...paymentEvent,
-                    math: BaseMathType.UniqueUsers,
+                    math: GroupMathType.UniqueGroup,
+                    math_group_type_index: selectedGroupType,
                 }
             },
         ],
         activeUsersInsights: [
-            (s) => [s.dauSeries, s.wauSeries, s.mauSeries, s.dateRange],
+            (s) => [s.customerLabel, s.dauSeries, s.wauSeries, s.mauSeries, s.dateRange, s.filterTestAccounts],
             (
+                customerLabel: Record<string, string>,
                 dauSeries: AnyEntityNode | null,
                 wauSeries: AnyEntityNode | null,
                 mauSeries: AnyEntityNode | null,
-                dateRange: { date_from: string | null; date_to: string | null }
+                dateRange: { date_from: string | null; date_to: string | null },
+                filterTestAccounts: boolean
             ): InsightDefinition[] => {
                 // Backend guarantees activity event exists, but add safety check
                 if (!dauSeries || !wauSeries || !mauSeries) {
@@ -217,12 +368,13 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 }
                 return [
                     {
-                        name: 'Active users (DAU/WAU/MAU)',
+                        name: `Active ${customerLabel.plural} (daily/weekly/monthly)`,
                         className: 'row-span-2 h-[576px]',
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: {
                                 kind: NodeKind.TrendsQuery,
+                                tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 series: [dauSeries, wauSeries, mauSeries],
                                 interval: 'day',
                                 dateRange: {
@@ -244,17 +396,18 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 breakdownFilter: {
                                     breakdown_type: 'event',
                                 },
-                                filterTestAccounts: true,
+                                filterTestAccounts,
                             },
                         },
                     },
                     {
-                        name: 'Weekly active users',
+                        name: `Weekly active ${customerLabel.plural}`,
                         className: 'h-[284px]',
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: {
                                 kind: NodeKind.TrendsQuery,
+                                tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 series: [wauSeries],
                                 interval: 'day',
                                 dateRange: {
@@ -278,17 +431,18 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 breakdownFilter: {
                                     breakdown_type: 'event',
                                 },
-                                filterTestAccounts: true,
+                                filterTestAccounts,
                             },
                         },
                     },
                     {
-                        name: 'Monthly active users',
+                        name: `Monthly active ${customerLabel.plural}`,
                         className: 'h-[284px]',
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: {
                                 kind: NodeKind.TrendsQuery,
+                                tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 series: [mauSeries],
                                 interval: 'day',
                                 dateRange: {
@@ -313,7 +467,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 breakdownFilter: {
                                     breakdown_type: 'event',
                                 },
-                                filterTestAccounts: true,
+                                filterTestAccounts,
                             },
                         },
                     },
@@ -321,8 +475,8 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             },
         ],
         sessionInsights: [
-            () => [],
-            () => [
+            (s) => [s.customerLabel, s.filterTestAccounts],
+            (customerLabel, filterTestAccounts): InsightDefinition[] => [
                 {
                     name: 'Unique sessions',
                     description: 'Events without session IDs are excluded.',
@@ -331,6 +485,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [
                                 {
                                     kind: NodeKind.EventsNode,
@@ -359,17 +514,18 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 compare: true,
                             },
                             breakdownFilter: undefined,
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
                 {
-                    name: 'Unique users',
+                    name: `Unique ${customerLabel.plural}`,
                     className: 'h-[284px]',
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [
                                 {
                                     kind: NodeKind.EventsNode,
@@ -400,7 +556,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -411,6 +567,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [
                                 {
                                     kind: NodeKind.EventsNode,
@@ -442,7 +599,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -450,28 +607,37 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         signupInsights: [
             (s) => [
+                s.businessType,
+                s.customerLabel,
                 s.signupSeries,
                 s.paymentSeries,
+                s.selectedGroupType,
                 s.subscriptionSeries,
                 s.signupPageviewSeries,
                 s.dauSeries,
                 s.dateRange,
+                s.filterTestAccounts,
             ],
             (
+                businessType,
+                customerLabel,
                 signupSeries,
                 paymentSeries,
+                selectedGroupType,
                 subscriptionSeries,
                 signupPageviewSeries,
                 dauSeries,
-                dateRange
+                dateRange,
+                filterTestAccounts
             ): InsightDefinition[] => [
                 {
-                    name: 'User signups',
+                    name: `${capitalizeFirstLetter(customerLabel.singular)} signups`,
                     requiredSeries: { signupSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [signupSeries as AnyEntityNode],
                             interval: 'day',
                             dateRange: {
@@ -496,17 +662,18 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
                 {
-                    name: 'Total paying customers',
+                    name: `Total paying ${customerLabel.plural}`,
                     requiredSeries: { paymentSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [paymentSeries as AnyEntityNode],
                             interval: 'day',
                             dateRange: {
@@ -527,17 +694,18 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             compareFilter: {
                                 compare: true,
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
                 {
-                    name: 'User signups and subscriptions',
+                    name: `${capitalizeFirstLetter(customerLabel.singular)} signups and subscriptions`,
                     requiredSeries: { signupSeries, subscriptionSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [signupSeries as AnyEntityNode, subscriptionSeries as AnyEntityNode],
                             interval: 'day',
                             dateRange: {
@@ -560,7 +728,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -571,6 +739,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [signupSeries as AnyEntityNode],
                             interval: 'week',
                             dateRange: {
@@ -591,7 +760,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -602,6 +771,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [signupSeries as AnyEntityNode],
                             interval: 'day',
                             dateRange: {
@@ -624,7 +794,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -635,7 +805,12 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.FunnelsQuery,
-                            series: [signupPageviewSeries as AnyEntityNode, signupSeries as AnyEntityNode],
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
+                            series: [
+                                signupPageviewSeries as AnyEntityNode<FunnelsDataWarehouseNode>,
+                                signupSeries as AnyEntityNode<FunnelsDataWarehouseNode>,
+                            ],
                             interval: 'week',
                             dateRange: {
                                 date_from: dateRange.date_from,
@@ -656,18 +831,20 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
                 {
-                    name: 'Which customers are highly engaged?',
+                    name: `Which ${customerLabel.plural} are highly engaged?`,
                     requiredSeries: { dauSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.LifecycleQuery,
-                            series: [dauSeries as AnyEntityNode],
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
+                            series: [dauSeries as AnyEntityNode<LifecycleDataWarehouseNode>],
                             interval: 'week',
                             dateRange: {
                                 date_from: dateRange.date_from,
@@ -678,19 +855,23 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             lifecycleFilter: {
                                 showLegend: false,
                             },
-                            filterTestAccounts: true,
-                            aggregation_group_type_index: 0,
+                            filterTestAccounts,
                         },
                     },
                 },
                 {
-                    name: 'Free to paid user conversion',
+                    name: 'Free-to-paid conversion',
                     requiredSeries: { signupSeries, paymentSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.FunnelsQuery,
-                            series: [signupSeries as AnyEntityNode, paymentSeries as AnyEntityNode],
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
+                            series: [
+                                signupSeries as AnyEntityNode<FunnelsDataWarehouseNode>,
+                                paymentSeries as AnyEntityNode<FunnelsDataWarehouseNode>,
+                            ],
                             dateRange: {
                                 date_from: dateRange.date_from,
                                 date_to: dateRange.date_to,
@@ -710,7 +891,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -720,14 +901,25 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
     tabAwareActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }): string =>
             setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
+        setFilterTestAccounts: ({ filterTestAccounts }): string =>
+            setQueryParams({ filter_test_accounts: String(filterTestAccounts) }),
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
-        '*': (_, { date_from, date_to }) => {
+        '*': (_, { date_from, date_to, filter_test_accounts }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||
                 (date_to && date_to !== values.dateFilter.dateTo)
             ) {
                 actions.setDates(date_from, date_to)
+            }
+
+            const filterTestAccountsValue =
+                filter_test_accounts === undefined
+                    ? values.filterTestAccounts
+                    : [true, 'true', 1, '1'].includes(filter_test_accounts as string | number | boolean)
+
+            if (filterTestAccountsValue !== values.filterTestAccounts) {
+                actions.setFilterTestAccounts(filterTestAccountsValue)
             }
         },
     })),

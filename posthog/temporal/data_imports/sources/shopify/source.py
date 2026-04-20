@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -29,22 +29,13 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SHOPIFY
 
-    # TODO:andrew to write docs for setting up private access token
-    # TODO:andrew to update the "follow these steps" URL in doc string
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SHOPIFY,
             iconPath="/static/services/shopify.png",
-            caption="""Enter your Shopify credentials to automatically pull your Shopify data into the PostHog Data warehouse.
-
-You can find your store id by visiting your store's admin console. Your store id will be included in the store URL which typically looks something like _https://{store-id}.myshopify.com_.
-
-To create and configure your access token go to [your store's admin console](https://admin.shopify.com) and [follow these steps]().
-
-The simplest setup for permissions is to only allow **read** permissions for the resources you are interested in syncing with your warehouse.
-        """,
-            docsUrl="",
+            caption="""Enter your Shopify credentials to automatically pull your Shopify data into the PostHog Data warehouse.""",
+            docsUrl="https://posthog.com/docs/data-warehouse/sources/shopify",
             fields=cast(
                 list[FieldType],
                 [
@@ -56,22 +47,31 @@ The simplest setup for permissions is to only allow **read** permissions for the
                         placeholder="my-store-id",
                     ),
                     SourceFieldInputConfig(
-                        name="shopify_access_token",
-                        label="Access token",
+                        name="shopify_client_id",
+                        label="Client ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="client-id",
+                    ),
+                    SourceFieldInputConfig(
+                        name="shopify_client_secret",
+                        label="Secret",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="shpat_...",
+                        placeholder="shpss_...",
                     ),
                 ],
             ),
-            unreleasedSource=True,
             betaSource=True,
-            featureFlag="shopify-dwh",
         )
 
-    def validate_credentials(self, config: ShopifySourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: ShopifySourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         try:
-            if validate_shopify_credentials(config.shopify_store_id, config.shopify_access_token):
+            if validate_shopify_credentials(
+                config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret
+            ):
                 return True, None
             return False, "Invalid Shopify credentials"
         except ShopifyPermissionError as e:
@@ -80,7 +80,9 @@ The simplest setup for permissions is to only allow **read** permissions for the
         except Exception as e:
             return False, str(e)
 
-    def get_schemas(self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas = []
         for obj in SHOPIFY_GRAPHQL_OBJECTS.values():
             endpoint_config = ENDPOINT_CONFIGS.get(obj.name)
@@ -94,12 +96,16 @@ The simplest setup for permissions is to only allow **read** permissions for the
                     incremental_fields=endpoint_config.fields,
                 )
             )
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
     def source_for_pipeline(self, config: ShopifySourceConfig, inputs: SourceInputs) -> SourceResponse:
         return shopify_source(
             shopify_store_id=config.shopify_store_id,
-            shopify_access_token=config.shopify_access_token,
+            shopify_client_id=config.shopify_client_id,
+            shopify_client_secret=config.shopify_client_secret,
             graphql_object_name=inputs.schema_name,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,

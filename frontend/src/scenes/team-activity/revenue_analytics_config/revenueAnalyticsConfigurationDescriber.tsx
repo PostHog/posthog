@@ -158,8 +158,8 @@ const revenueAnalyticsFilterTestAccountsConfigDescriber = (
 
     return [
         <>
-            {after.filter_test_accounts ? 'enabled' : 'disabled'} the <em>filter test accounts</em> configuration for
-            Revenue analytics
+            {after.filter_test_accounts ? 'enabled' : 'disabled'} the <em>filter out internal and test users</em>{' '}
+            configuration for Revenue analytics
         </>,
     ]
 }

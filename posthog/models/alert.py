@@ -1,16 +1,23 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import models
+
+if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
+    from posthog.models.organization import Organization
+    from posthog.models.user import User
 
 import pydantic
 
 from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold
 
+from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.insight import Insight
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
-from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
@@ -20,14 +27,19 @@ ALERT_STATE_CHOICES = [
 ]
 
 
-def are_alerts_supported_for_insight(insight: Insight) -> bool:
-    with upgrade_query(insight):
-        query = insight.query
-        while query.get("source"):
-            query = query["source"]
-        if query is None or query.get("kind") != "TrendsQuery":
-            return False
-    return True
+def derive_detector_event_fields(detector_config: dict | None) -> dict:
+    """Shared derivation of alert_mode/detector_type/ensemble_operator from a detector config.
+
+    Used by both `alert created`/`alert updated` user-action events and the
+    `$insight_alert_firing` internal event so the taxonomy stays in one place.
+    """
+    detector_config = detector_config or {}
+    detector_type = detector_config.get("type")
+    return {
+        "alert_mode": "detector" if detector_type else "threshold",
+        "detector_type": detector_type,
+        "ensemble_operator": detector_config.get("operator") if detector_type == "ensemble" else None,
+    }
 
 
 # TODO: Enable `@deprecated` once we move to Python 3.13
@@ -67,7 +79,7 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
 
 class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
-    ALERTS_ALLOWED_ON_FREE_TIER = 2
+    ALERTS_ALLOWED_ON_FREE_TIER = 5
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
@@ -102,6 +114,9 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
     condition = models.JSONField(default=dict)
 
+    # Detector-based anomaly detection configuration (alternative to threshold)
+    detector_config = models.JSONField(null=True, blank=True)
+
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
     is_calculating = models.BooleanField(default=False, null=True, blank=True)
@@ -115,8 +130,27 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     skip_weekend = models.BooleanField(null=True, blank=True, default=False)
 
+    schedule_restriction = models.JSONField(null=True, blank=True, default=None)
+
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
+
+    def get_subscribed_users_emails(self) -> list[str]:
+        return list(
+            self.subscribed_users.filter(organization_membership__organization=self.team.organization).values_list(
+                "email", flat=True
+            )
+        )
+
+    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
+        """Returns list of field names that were modified (for use with update_fields)."""
+        updated: list[str] = []
+        if reset_state:
+            self.state = AlertState.NOT_FIRING
+            updated.append("state")
+        self.next_check_at = None
+        updated.append("next_check_at")
+        return updated
 
     def save(self, *args, **kwargs):
         if not self.enabled:
@@ -126,6 +160,66 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
                 kwargs["update_fields"].append("state")
 
         super().save(*args, **kwargs)
+
+    def _get_event_properties(self) -> dict:
+        detector_config = self.detector_config or {}
+        detector_type = detector_config.get("type")
+
+        ensemble_detector_types: list[str] | None = None
+        has_preprocessing = False
+
+        if detector_type == "ensemble":
+            sub_detectors = detector_config.get("detectors") or []
+            ensemble_detector_types = [sub.get("type") for sub in sub_detectors if sub.get("type")]
+            has_preprocessing = any(sub.get("preprocessing") for sub in sub_detectors)
+        elif detector_type:
+            has_preprocessing = bool(detector_config.get("preprocessing"))
+
+        schedule_restriction = self.schedule_restriction
+        blocked_window_count: int | None = None
+        if isinstance(schedule_restriction, dict):
+            windows = schedule_restriction.get("blocked_windows")
+            if isinstance(windows, list):
+                blocked_window_count = len(windows)
+
+        return {
+            "alert_id": self.id,
+            "alert_name": self.name,
+            "condition_type": self.condition.get("type") if self.condition else None,
+            "calculation_interval": self.calculation_interval,
+            **derive_detector_event_fields(detector_config),
+            "ensemble_detector_types": ensemble_detector_types,
+            "has_preprocessing": has_preprocessing,
+            "schedule_restriction_blocked_window_count": blocked_window_count,
+        }
+
+    def report_created(self, user: User, analytics_props: AnalyticsProps | None = None) -> None:
+        from posthog.event_usage import report_user_action
+
+        report_user_action(user, "alert created", self._get_event_properties(), analytics_props=analytics_props)
+
+    def report_updated(self, user: User, analytics_props: AnalyticsProps | None = None) -> None:
+        from posthog.event_usage import report_user_action
+
+        report_user_action(user, "alert updated", self._get_event_properties(), analytics_props=analytics_props)
+
+    @classmethod
+    def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:
+        """Return an error message if the team has reached its alert limit, else None."""
+        alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
+        existing_count = cls.objects.filter(team_id=team_id).count()
+
+        if alerts_feature:
+            allowed = alerts_feature.get("limit")
+            # If allowed is None then the user is allowed unlimited alerts
+            if allowed is not None and existing_count >= allowed:
+                return f"Your team has reached the limit of {allowed} alerts on your plan."
+        else:
+            # If the org doesn't have alerts feature, limit to that on free tier
+            if existing_count >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
+                return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
+
+        return None
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
@@ -157,6 +251,15 @@ class AlertCheck(UUIDTModel):
     error = models.JSONField(null=True, blank=True)
 
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+
+    # Detector-based anomaly detection results
+    anomaly_scores = models.JSONField(null=True, blank=True)  # Scores for each data point
+    triggered_points = models.JSONField(null=True, blank=True)  # Indices of detected anomalies
+    triggered_dates = models.JSONField(null=True, blank=True)  # Dates for chart alignment
+    interval = models.CharField(max_length=10, null=True, blank=True)  # Insight interval when check was created
+    triggered_metadata = models.JSONField(
+        null=True, blank=True
+    )  # Additional trigger context (e.g. series_index, breakdown_value)
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"

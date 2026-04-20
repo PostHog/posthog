@@ -2,10 +2,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import structlog
+import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentActorsQuery,
     ExperimentBreakdownResult,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
@@ -13,28 +15,21 @@ from posthog.schema import (
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
     ExperimentStatsBase,
     IntervalType,
     MultipleVariantHandling,
+    PrecomputationMode,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
-from posthog.hogql_queries.experiments.base_query_utils import (
-    get_experiment_date_range,
-    get_experiment_exposure_query,
-    get_exposure_time_window_constraints,
-    get_metric_aggregation_expr,
-    get_metric_events_query,
-    get_source_aggregation_expr,
-    get_winsorized_metric_values_query,
-)
+from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.experiments.base_query_utils import get_experiment_date_range
 from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
 from posthog.hogql_queries.experiments.experiment_query_builder import (
     ExperimentQueryBuilder,
@@ -47,6 +42,7 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
 from posthog.hogql_queries.experiments.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
+    get_experiment_query_debug,
     get_experiment_stats_method,
     get_frequentist_experiment_result,
     get_variant_results,
@@ -54,10 +50,26 @@ from posthog.hogql_queries.experiments.utils import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
+from posthog.models.team.extensions import get_or_create_team_extension
+
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    LazyComputationTable,
+    ensure_precomputed,
+)
+from products.experiments.backend.metric_utils import get_default_metric_title
+from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = structlog.get_logger(__name__)
 
+# Variable TTL for experiment exposure lazy computation
+# Current day refreshes frequently (data arriving), old data cached long
+DEFAULT_EXPOSURE_TTL_SECONDS = {
+    "0d": 15 * 60,  # 15 min
+    "1d": 60 * 60,  # 1 hour
+    "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
+}
 
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
@@ -66,23 +78,26 @@ MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
+    actors_query: Optional[ExperimentActorsQuery] = None
 
     def __init__(
         self,
         *args,
         override_end_date: Optional[datetime] = None,
         user_facing: bool = True,
+        max_execution_time: Optional[int] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
         self.user_facing = user_facing
+        self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
         try:
-            self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag = self.experiment.feature_flag
@@ -92,6 +107,9 @@ class ExperimentQueryRunner(QueryRunner):
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
+
+        stats_config = self.experiment.stats_config or {}
+        self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
 
         self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
         self.date_range_query = QueryDateRange(
@@ -108,6 +126,11 @@ class ExperimentQueryRunner(QueryRunner):
             numerator_is_dw = isinstance(self.query.metric.numerator, ExperimentDataWarehouseNode)
             denominator_is_dw = isinstance(self.query.metric.denominator, ExperimentDataWarehouseNode)
             self.is_data_warehouse_query = numerator_is_dw or denominator_is_dw
+        elif isinstance(self.query.metric, ExperimentRetentionMetric):
+            # For retention metrics, check if either start_event or completion_event uses data warehouse
+            start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
+            completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
+            self.is_data_warehouse_query = start_is_dw or completion_is_dw
         else:
             self.is_data_warehouse_query = False
         self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
@@ -121,357 +144,9 @@ class ExperimentQueryRunner(QueryRunner):
         # Just to simplify access
         self.metric = self.query.metric
 
-        # NOTE: Temporary flag to control the usage of the new query builder
-        if self.experiment.stats_config is None:
-            self.use_new_query_builder = False
-        else:
-            self.use_new_query_builder = self.experiment.stats_config.get("use_new_query_builder", False)
-
-    def _should_use_new_query_builder(self) -> bool:
-        """
-        Determines whether to use the new CTE-based query builder.
-        """
-        return self.use_new_query_builder is True
-
-    def _get_metrics_aggregated_per_entity_query(
-        self,
-        exposure_query: ast.SelectQuery,
-        metric_events_query: ast.SelectQuery,
-        denominator_events_query: Optional[ast.SelectQuery] = None,
-    ) -> ast.SelectQuery:
-        """
-        Aggregates all events per entity to get their total contribution to the metric
-        One row per entity
-        Columns: variant, entity_id, value (sum of all event values)
-        For ratio metrics, also includes denominator_value
-        """
-        # For ratio metrics, we need a different approach
-        if self.is_ratio_metric and denominator_events_query:
-            return self._get_ratio_metrics_aggregated_per_entity_query(
-                exposure_query, metric_events_query, denominator_events_query
-            )
-
-        # For non-ratio metrics, use the original logic
-        select_fields = [
-            ast.Field(chain=["exposures", "variant"]),
-            ast.Field(chain=["exposures", "entity_id"]),
-            ast.Alias(
-                alias="exposure_event_uuid",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_event_uuid"])]),
-            ),
-            ast.Alias(
-                alias="exposure_session_id",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_session_id"])]),
-            ),
-            ast.Alias(
-                alias="exposure_timestamp",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "first_exposure_time"])]),
-            ),
-            ast.Alias(
-                expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
-                alias="value",
-            ),
-        ]
-
-        # For funnel metrics, we create a map between events and sessions, so we can look them up later
-        if isinstance(self.metric, ExperimentFunnelMetric):
-            select_fields.append(
-                parse_expr(
-                    "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(toString(session_id), ''))) AS uuid_to_session"
-                )
-            )
-            select_fields.append(
-                parse_expr(
-                    "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(timestamp, toDateTime(0)))) AS uuid_to_timestamp"
-                )
-            )
-
-        # Get time window constraints for events relative to exposure time
-        metric_time_window = get_exposure_time_window_constraints(
-            self.metric,
-            ast.Field(chain=["metric_events", "timestamp"]),
-            ast.Field(chain=["exposures", "first_exposure_time"]),
-        )
-
-        # Build join expression
-        join_expr = ast.JoinExpr(
-            table=exposure_query,
-            alias="exposures",
-            next_join=ast.JoinExpr(
-                table=metric_events_query,
-                join_type="LEFT JOIN",
-                alias="metric_events",
-                constraint=ast.JoinConstraint(
-                    expr=ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                left=parse_expr("toString(exposures.exposure_identifier)"),
-                                right=parse_expr("toString(metric_events.entity_identifier)"),
-                                op=ast.CompareOperationOp.Eq,
-                            )
-                            if self.is_data_warehouse_query
-                            else ast.CompareOperation(
-                                left=parse_expr("toString(exposures.entity_id)"),
-                                right=parse_expr("toString(metric_events.entity_id)"),
-                                op=ast.CompareOperationOp.Eq,
-                            ),
-                            *metric_time_window,
-                        ]
-                    ),
-                    constraint_type="ON",
-                ),
-            ),
-        )
-
-        return ast.SelectQuery(
-            select=select_fields,
-            select_from=join_expr,
-            group_by=[
-                ast.Field(chain=["exposures", "variant"]),
-                ast.Field(chain=["exposures", "entity_id"]),
-            ],
-        )
-
-    def _get_ratio_metrics_aggregated_per_entity_query(
-        self,
-        exposure_query: ast.SelectQuery,
-        metric_events_query: ast.SelectQuery,
-        denominator_events_query: ast.SelectQuery,
-    ) -> ast.SelectQuery:
-        """
-        Special handling for ratio metrics to avoid Cartesian product.
-        Aggregates numerator and denominator separately, then joins the aggregated results.
-        """
-
-        # Type assertion - this method is only called for ratio metrics
-        assert isinstance(self.metric, ExperimentRatioMetric)
-        ratio_metric = self.metric
-
-        # Get time window constraints for events relative to exposure time
-        metric_time_window = get_exposure_time_window_constraints(
-            self.metric,
-            ast.Field(chain=["metric_events", "timestamp"]),
-            ast.Field(chain=["exposures", "first_exposure_time"]),
-        )
-
-        # First, create aggregated numerator query (per entity)
-        numerator_aggregated = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["exposures", "variant"]),
-                ast.Field(chain=["exposures", "entity_id"]),
-                ast.Alias(
-                    expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team, source_type="numerator"),
-                    alias="numerator_value",
-                ),
-            ],
-            select_from=ast.JoinExpr(
-                table=exposure_query,
-                alias="exposures",
-                next_join=ast.JoinExpr(
-                    table=metric_events_query,
-                    join_type="LEFT JOIN",
-                    alias="metric_events",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.And(
-                            exprs=[
-                                ast.CompareOperation(
-                                    left=parse_expr("toString(exposures.exposure_identifier)"),
-                                    right=parse_expr("toString(metric_events.entity_identifier)"),
-                                    op=ast.CompareOperationOp.Eq,
-                                )
-                                if isinstance(ratio_metric.numerator, ExperimentDataWarehouseNode)
-                                else ast.CompareOperation(
-                                    left=parse_expr("toString(exposures.entity_id)"),
-                                    right=parse_expr("toString(metric_events.entity_id)"),
-                                    op=ast.CompareOperationOp.Eq,
-                                ),
-                                *metric_time_window,
-                            ]
-                        ),
-                        constraint_type="ON",
-                    ),
-                ),
-            ),
-            group_by=[
-                ast.Field(chain=["exposures", "variant"]),
-                ast.Field(chain=["exposures", "entity_id"]),
-            ],
-        )
-
-        # Get time window constraints for denominator events relative to exposure time
-        metric_time_window_denominator = get_exposure_time_window_constraints(
-            self.metric,
-            ast.Field(chain=["denominator_events", "timestamp"]),
-            ast.Field(chain=["exposures", "first_exposure_time"]),
-        )
-
-        # Second, create aggregated denominator query (per entity)
-        denominator_aggregated = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["exposures", "variant"]),
-                ast.Field(chain=["exposures", "entity_id"]),
-                ast.Alias(
-                    expr=get_source_aggregation_expr(ratio_metric.denominator, "denominator_events"),
-                    alias="denominator_value",
-                ),
-            ],
-            select_from=ast.JoinExpr(
-                table=exposure_query,
-                alias="exposures",
-                next_join=ast.JoinExpr(
-                    table=denominator_events_query,
-                    join_type="LEFT JOIN",
-                    alias="denominator_events",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.And(
-                            exprs=[
-                                ast.CompareOperation(
-                                    left=parse_expr("toString(exposures.exposure_identifier)"),
-                                    right=parse_expr("toString(denominator_events.entity_identifier)"),
-                                    op=ast.CompareOperationOp.Eq,
-                                )
-                                if isinstance(ratio_metric.denominator, ExperimentDataWarehouseNode)
-                                else ast.CompareOperation(
-                                    left=parse_expr("toString(exposures.entity_id)"),
-                                    right=parse_expr("toString(denominator_events.entity_id)"),
-                                    op=ast.CompareOperationOp.Eq,
-                                ),
-                                *metric_time_window_denominator,
-                            ]
-                        ),
-                        constraint_type="ON",
-                    ),
-                ),
-            ),
-            group_by=[
-                ast.Field(chain=["exposures", "variant"]),
-                ast.Field(chain=["exposures", "entity_id"]),
-            ],
-        )
-
-        # Finally, join the aggregated results and combine them
-        return ast.SelectQuery(
-            select=[
-                ast.Field(chain=["num_agg", "variant"]),
-                ast.Field(chain=["num_agg", "entity_id"]),
-                ast.Alias(
-                    expr=ast.Call(
-                        name="coalesce", args=[ast.Field(chain=["num_agg", "numerator_value"]), ast.Constant(value=0)]
-                    ),
-                    alias="value",
-                ),
-                ast.Alias(
-                    expr=ast.Call(
-                        name="coalesce",
-                        args=[ast.Field(chain=["denom_agg", "denominator_value"]), ast.Constant(value=0)],
-                    ),
-                    alias="denominator_value",
-                ),
-            ],
-            select_from=ast.JoinExpr(
-                table=numerator_aggregated,
-                alias="num_agg",
-                next_join=ast.JoinExpr(
-                    table=denominator_aggregated,
-                    join_type="LEFT JOIN",
-                    alias="denom_agg",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.And(
-                            exprs=[
-                                ast.CompareOperation(
-                                    left=ast.Field(chain=["num_agg", "variant"]),
-                                    right=ast.Field(chain=["denom_agg", "variant"]),
-                                    op=ast.CompareOperationOp.Eq,
-                                ),
-                                ast.CompareOperation(
-                                    left=parse_expr("toString(num_agg.entity_id)"),
-                                    right=parse_expr("toString(denom_agg.entity_id)"),
-                                    op=ast.CompareOperationOp.Eq,
-                                ),
-                            ]
-                        ),
-                        constraint_type="ON",
-                    ),
-                ),
-            ),
-        )
-
-    def _get_experiment_variant_results_query(
-        self, metrics_aggregated_per_entity_query: ast.SelectQuery
-    ) -> ast.SelectQuery:
-        """
-        Aggregates entity metrics into final statistics used for significance calculations
-        One row per variant
-        Columns: variant, num_users, total_sum, total_sum_of_squares
-        For ratio metrics, also includes: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
-        """
-
-        select_fields = [
-            ast.Field(chain=["metric_events", "variant"]),
-            parse_expr("count(metric_events.entity_id) as num_users"),
-        ]
-
-        if isinstance(self.metric, ExperimentFunnelMetric):
-            # For funnel metrics, value is the highest step reached (0-indexed)
-            # total_sum should count only users who completed all steps
-            num_steps = len(self.metric.series)
-            select_fields.extend(
-                [
-                    parse_expr(f"countIf(metric_events.value.1 = {num_steps - 1}) as total_sum"),
-                    parse_expr(f"countIf(metric_events.value.1 = {num_steps - 1}) as total_sum_of_squares"),
-                ]
-            )
-
-            # Add step counts - how many users reached each step
-            step_count_exprs = []
-            for i in range(num_steps):
-                step_count_exprs.append(f"countIf(metric_events.value.1 >= {i})")
-            step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
-            select_fields.append(parse_expr(step_counts_expr))
-
-            # For each step in the funnel, get at least 100 pairs of person_id, session_id, event uuid, and timestamp that have
-            # that step as their last step in the funnel.
-            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid and timestamp for the exposure event.
-            event_uuids_exprs = []
-            for i in range(num_steps + 1):
-                event_uuids_expr = f"""
-                    groupArraySampleIf(100)(
-                        if(
-                            metric_events.value.2 != '',
-                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2, toString(uuid_to_timestamp[metric_events.value.2])),
-                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid), toString(metric_events.exposure_timestamp))),
-                        metric_events.value.1 = {i} - 1
-                    )
-                """
-                event_uuids_exprs.append(event_uuids_expr)
-            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
-            select_fields.append(parse_expr(event_uuids_exprs_sql))
-        else:
-            # For non-funnel metrics, use the original logic
-            select_fields.extend(
-                [
-                    parse_expr("sum(metric_events.value) as total_sum"),
-                    parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
-                ]
-            )
-
-        # For ratio metrics, add additional aggregations
-        if self.is_ratio_metric:
-            select_fields.extend(
-                [
-                    parse_expr("sum(metric_events.denominator_value) as denominator_sum"),
-                    parse_expr("sum(power(metric_events.denominator_value, 2)) as denominator_sum_squares"),
-                    parse_expr(
-                        "sum(metric_events.value * metric_events.denominator_value) as numerator_denominator_sum_product"
-                    ),
-                ]
-            )
-
-        return ast.SelectQuery(
-            select=select_fields,
-            select_from=ast.JoinExpr(table=metrics_aggregated_per_entity_query, alias="metric_events"),
-            group_by=[ast.Field(chain=["metric_events", "variant"])],
-        )
+        self.clickhouse_sql: str | None = None
+        self.hogql: str | None = None
+        self._is_precomputed: bool = False
 
     def _get_breakdowns_for_builder(self) -> list | None:
         """Extract and validate breakdowns from metric configuration."""
@@ -488,112 +163,191 @@ class ExperimentQueryRunner(QueryRunner):
 
         return breakdowns
 
+    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
+        """
+        Ensures lazy-computed exposure data exists for this experiment.
+
+        Gets the exposure query from the builder and passes it to the lazy computation
+        system, which will compute and store the exposure data if not already cached.
+
+        Returns:
+            LazyComputationResult with job_ids that can be used to query the data
+        """
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
+
+        if not self.experiment.start_date:
+            raise ValidationError("Experiment must have a start date for lazy computation")
+
+        date_from = self.experiment.start_date
+        date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+
+        return ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=date_from,
+            time_range_end=date_to,
+            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+            sentinel_placeholders={"experiment_date_to"},
+        )
+
+    def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
+        """
+        Ensures lazy-computed funnel metric event data exists for this experiment.
+
+        Stores one row per matching event with step indicators in the
+        experiment_metric_events_preaggregated table.
+        """
+        query_string, placeholders = builder.get_funnel_metric_events_query_for_precomputation()
+
+        if not self.experiment.start_date:
+            raise ValidationError("Experiment must have a start date for lazy computation")
+
+        date_from = self.experiment.start_date
+        date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+
+        # Extend time range by conversion window — funnel step events can occur after experiment end
+        conversion_window_seconds = builder._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            date_to = date_to + timedelta(seconds=conversion_window_seconds)
+
+        return ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=date_from,
+            time_range_end=date_to,
+            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+    def _should_precompute(self) -> bool:
+        """Resolve whether to use precomputation: query-level override > team-level default."""
+        if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
+            return True
+        if self.query.precomputation_mode == PrecomputationMode.DIRECT:
+            return False
+
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        return config.experiment_precomputation_enabled
+
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
         Returns the main experiment query.
         """
-        if self._should_use_new_query_builder():
-            assert isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric)
-
-            # Get the "missing" (not directly accessible) parameters required for the builder
-            (
-                exposure_config,
-                multiple_variant_handling,
-                filter_test_accounts,
-            ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
-
-            builder = ExperimentQueryBuilder(
-                team=self.team,
-                feature_flag_key=self.feature_flag.key,
-                exposure_config=exposure_config,
-                filter_test_accounts=filter_test_accounts,
-                multiple_variant_handling=multiple_variant_handling,
-                variants=self.variants,
-                date_range_query=self.date_range_query,
-                entity_key=self.entity_key,
-                metric=self.metric,
-                breakdowns=self._get_breakdowns_for_builder(),
-            )
-            return builder.build_query()
-
-        # Old implementation
-        # Get all entities that should be included in the experiment
-        exposure_query = get_experiment_exposure_query(
-            self.experiment,
-            self.feature_flag,
-            self.variants,
-            self.date_range_query,
-            self.team,
-            self.entity_key,
+        assert isinstance(
             self.metric,
-            self.multiple_variant_handling,
+            ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
         )
 
-        # Get all metric events that are relevant to the experiment
-        metric_events_query = get_metric_events_query(
-            self.metric,
-            self.team,
-            self.entity_key,
-            self.experiment,
-            self.date_range_query,
-            "numerator" if self.is_ratio_metric else None,
+        # Get the "missing" (not directly accessible) parameters required for the builder
+        (
+            exposure_config,
+            multiple_variant_handling,
+            filter_test_accounts,
+        ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
+
+        funnel_steps_data_disabled = (self.experiment.parameters or {}).get("funnel_steps_data_disabled", False)
+
+        builder = ExperimentQueryBuilder(
+            team=self.team,
+            feature_flag_key=self.feature_flag.key,
+            exposure_config=exposure_config,
+            filter_test_accounts=filter_test_accounts,
+            multiple_variant_handling=multiple_variant_handling,
+            variants=self.variants,
+            date_range_query=self.date_range_query,
+            entity_key=self.entity_key,
+            metric=self.metric,
+            breakdowns=self._get_breakdowns_for_builder(),
+            only_count_matured_users=self.experiment.only_count_matured_users,
+            funnel_steps_data_disabled=funnel_steps_data_disabled,
         )
 
-        # For ratio metrics, also get denominator events
-        denominator_events_query = None
-        if self.is_ratio_metric:
-            denominator_events_query = get_metric_events_query(
-                self.metric,
-                self.team,
-                self.entity_key,
-                self.experiment,
-                self.date_range_query,
-                "denominator",
-            )
+        should_precompute = self._should_precompute()
 
-        # Aggregate all events per entity to get their total contribution to the metric
-        metrics_aggregated_per_entity_query = self._get_metrics_aggregated_per_entity_query(
-            exposure_query, metric_events_query, denominator_events_query
-        )
+        # Skip precomputation for data warehouse metrics because the precomputed table
+        # doesn't include the join keys needed to link exposures to data warehouse tables
+        if should_precompute and not self.is_data_warehouse_query:
+            try:
+                result = self._ensure_exposures_precomputed(builder)
+                if result.ready:
+                    builder.preaggregation_job_ids = [str(job_id) for job_id in result.job_ids]
+                    self._is_precomputed = True
+                else:
+                    logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
+            except Exception:
+                logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
-        # Get the winsorized metric values if configured
-        if isinstance(self.metric, ExperimentMeanMetric) and (
-            self.metric.lower_bound_percentile or self.metric.upper_bound_percentile
-        ):
-            metrics_aggregated_per_entity_query = get_winsorized_metric_values_query(
-                self.metric, metrics_aggregated_per_entity_query
-            )
+            # Precompute metric events for ordered funnel metrics
+            if (
+                isinstance(self.metric, ExperimentFunnelMetric)
+                and (self.metric.funnel_order_type or "ordered") == "ordered"
+                and not self._get_breakdowns_for_builder()
+                and self.query.metric_events_precomputation
+            ):
+                try:
+                    metric_result = self._ensure_metric_events_precomputed(builder)
+                    if metric_result.ready:
+                        builder.metric_events_preaggregation_job_ids = [str(job_id) for job_id in metric_result.job_ids]
+                    else:
+                        logger.warning("metric_events_lazy_computation_not_ready", experiment_id=self.experiment.id)
+                except Exception:
+                    logger.exception("metric_events_lazy_computation_failed", experiment_id=self.experiment.id)
 
-        # Get the final results for each variant
-        experiment_variant_results_query = self._get_experiment_variant_results_query(
-            metrics_aggregated_per_entity_query
-        )
-
-        return experiment_variant_results_query
+        return builder.build_query()
 
     def _evaluate_experiment_query(
         self,
     ) -> list[tuple]:
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
+        metric_name = self.metric.name or get_default_metric_title(self.metric.model_dump())
         tag_queries(
+            product=Product.EXPERIMENTS,
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag.key,
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
+            experiment_metric_uuid=self.metric.uuid,
+            experiment_metric_name=metric_name,
+            experiment_metric_type=self.metric.metric_type,
         )
+
+        experiment_query_ast = self._get_experiment_query()
+
+        # Tag after _get_experiment_query() which sets _is_precomputed
+        tag_queries(
+            experiment_execution_path="precomputed" if self._is_precomputed else "direct_scan",
+        )
+        experiment_query_debug = get_experiment_query_debug(experiment_query_ast, self.team)
+        self.hogql = experiment_query_debug[0]
+        self.clickhouse_sql = experiment_query_debug[1]
+
+        modifiers = create_default_modifiers_for_team(self.team)
+        if posthoganalytics.feature_enabled(
+            "hogql-session-id-pushdown",
+            str(self.team.id),
+            groups={"project": str(self.team.id)},
+            group_properties={"project": {"id": str(self.team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            modifiers.sessionIdPushdown = True
 
         response = execute_hogql_query(
             query_type="ExperimentQuery",
-            query=self._get_experiment_query(),
+            query=experiment_query_ast,
             team=self.team,
             timings=self.timings,
-            modifiers=create_default_modifiers_for_team(self.team),
+            modifiers=modifiers,
             settings=HogQLGlobalSettings(
-                max_execution_time=MAX_EXECUTION_TIME,
-                allow_experimental_analyzer=True,
+                max_execution_time=self.max_execution_time,
+                enable_analyzer=True,
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
             ),
+            workload=self.workload,
         )
 
         # Remove the $multiple variant only when using exclude handling
@@ -623,6 +377,10 @@ class ExperimentQueryRunner(QueryRunner):
         if breakdown_results is not None:
             result.breakdown_results = breakdown_results
 
+        result.clickhouse_sql = self.clickhouse_sql
+        result.hogql = self.hogql
+        result.is_precomputed = self._is_precomputed
+
         return result
 
     def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
@@ -637,7 +395,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _calculate_statistics_for_variants(self, variants: list[ExperimentStatsBase]) -> ExperimentQueryResponse:
         """Calculate statistical analysis results for a set of variants."""
-        control_variant, test_variants = split_baseline_and_test_variants(variants)
+        control_variant, test_variants = split_baseline_and_test_variants(variants, self.baseline_variant_key)
 
         if self.stats_method == "frequentist":
             return get_frequentist_experiment_result(
@@ -675,6 +433,22 @@ class ExperimentQueryRunner(QueryRunner):
     ) -> ExperimentBreakdownResult:
         """Compute statistics for a single breakdown combination."""
         breakdown_variants = [v for bv, v in variant_results if bv == breakdown_tuple]
+
+        # Ensure all expected variants are present in this breakdown group
+        # Some breakdown groups may not have data for all variants (e.g., no control users with specific browser)
+        variants_present = {v.key for v in breakdown_variants}
+        for expected_variant in self.variants:
+            if expected_variant not in variants_present:
+                # Add missing variant with zero stats to avoid "No control variant found" error
+                breakdown_variants.append(
+                    ExperimentStatsBase(
+                        key=expected_variant,
+                        number_of_samples=0,
+                        sum=0,
+                        sum_squares=0,
+                    )
+                )
+
         stats = self._calculate_statistics_for_variants(breakdown_variants)
 
         return ExperimentBreakdownResult(
@@ -723,6 +497,168 @@ class ExperimentQueryRunner(QueryRunner):
                     )
 
         return variants + variants_missing
+
+    def to_actors_query(self) -> ast.SelectQuery:
+        """
+        Generate actors query for experiment funnels with exposure filtering.
+
+        This method builds an actors query that applies the SAME temporal filtering
+        as the main experiment query by including exposure as step 0.
+
+        Key differences from main query:
+        - Returns individual users instead of aggregate statistics
+        - Filters to specific step and variant
+        - Includes matched recordings when requested
+
+        The query structure mirrors the main experiment query:
+        - Step 0: Exposure event (filters events to only those AFTER exposure)
+        - Step 1-N: Metric events from funnel.series
+
+        This ensures counts match between funnel visualization and PersonModal.
+        """
+        # Ensure actors_query is set
+        if self.actors_query is None:
+            raise ValidationError("actors_query must be set before calling to_actors_query()")
+
+        # Only support funnel metrics for now
+        if not isinstance(self.metric, ExperimentFunnelMetric):
+            raise ValidationError("Actors query only supported for funnel experiment metrics")
+
+        # Validate funnelStep
+        funnel_step = self.actors_query.funnelStep
+        if funnel_step is None:
+            raise ValidationError("funnelStep is required for experiment actors query")
+
+        num_metric_steps = len(self.metric.series)
+
+        # Validate step range (same validation as before)
+        if funnel_step == -1:
+            # -1 would mean "dropped before first metric step" which is invalid
+            # because we only query exposed users who are already past the exposure checkpoint
+            # Build event names string (handle EventsNode, ActionsNode, and ExperimentDataWarehouseNode)
+            from posthog.schema import ActionsNode, EventsNode
+
+            event_names: list[str] = []
+            for step in self.metric.series[:2]:
+                if isinstance(step, EventsNode):
+                    event_names.append(step.event or "All events")
+                elif isinstance(step, ActionsNode):
+                    event_names.append(f"Action {step.id}")
+                else:  # ExperimentDataWarehouseNode
+                    event_names.append(f"DW table {step.table_name}")
+
+            metric_events_str = " → ".join(event_names)
+            if len(self.metric.series) > 2:
+                metric_events_str += " → ..."
+
+            raise ValidationError(
+                f"Cannot query drop-offs before the first metric step in experiment funnels. "
+                f"Experiment funnel structure: [Exposure → {metric_events_str}]. "
+                f"Drop-offs at funnelStep=-1 would mean 'exposed but never entered the funnel', "
+                f"which cannot be queried through the actors API. "
+                f"Valid drop-off steps: -2 (dropped after first metric step) to -{num_metric_steps + 1}."
+            )
+
+        if funnel_step == 0:
+            raise ValidationError(
+                "Funnel steps are 1-indexed. Step 0 does not exist. "
+                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
+            )
+
+        if funnel_step < -1:
+            max_drop_off = -(num_metric_steps + 1)
+            if funnel_step < max_drop_off:
+                raise ValidationError(
+                    f"Invalid drop-off step {funnel_step} for experiment with {num_metric_steps} metric steps. "
+                    f"Valid drop-off steps: -2 (dropped after first metric step) to {max_drop_off}."
+                )
+
+        if funnel_step > num_metric_steps:
+            raise ValidationError(
+                f"Invalid conversion step {funnel_step} for experiment with {num_metric_steps} metric steps. "
+                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
+            )
+
+        # Extract exposure configuration from actors query
+        # Fall back to experiment exposure_criteria if not provided
+        from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+
+        exposure_config: ExperimentEventExposureConfig | ActionsNode
+        if self.actors_query.exposureConfig is not None:
+            exposure_config = self.actors_query.exposureConfig
+        elif self.experiment.exposure_criteria and self.experiment.exposure_criteria.get("exposure_config"):
+            from posthog.hogql_queries.experiments.experiment_query_builder import normalize_to_exposure_criteria
+
+            criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
+            if criteria and criteria.exposure_config:
+                exposure_config = criteria.exposure_config
+            else:
+                # Default to $feature_flag_called
+                exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+        else:
+            # Default to $feature_flag_called
+            exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+
+        # Get multiple variant handling
+        if self.actors_query.multipleVariantHandling is not None:
+            multiple_variant_handling = self.actors_query.multipleVariantHandling
+        else:
+            multiple_variant_handling = self.multiple_variant_handling
+
+        # Get feature flag key
+        if self.actors_query.featureFlagKey:
+            feature_flag_key = self.actors_query.featureFlagKey
+        else:
+            feature_flag_key = self.feature_flag.key
+
+        # Import builder here to avoid circular dependencies
+        from posthog.hogql_queries.experiments.experiment_funnel_actors_query_builder import (
+            ExperimentFunnelActorsQueryBuilder,
+        )
+
+        # Extract funnel_step_breakdown and ensure it's a simple type
+        funnel_step_breakdown_raw = self.actors_query.funnelStepBreakdown
+        if funnel_step_breakdown_raw is None:
+            funnel_step_breakdown: str | int | float = ""
+        elif isinstance(funnel_step_breakdown_raw, list):
+            # If it's a list, take the first element
+            funnel_step_breakdown = funnel_step_breakdown_raw[0] if funnel_step_breakdown_raw else ""
+        else:
+            funnel_step_breakdown = funnel_step_breakdown_raw
+
+        # Add experiment-specific tags for monitoring and alerting
+        metric_name = self.metric.name or get_default_metric_title(self.metric.model_dump())
+        tag_queries(
+            product=Product.EXPERIMENTS,
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            experiment_feature_flag_key=feature_flag_key,
+            experiment_metric_uuid=self.metric.uuid,
+            experiment_metric_name=metric_name,
+            experiment_actors_query_step=funnel_step,
+            experiment_actors_query_variant=str(funnel_step_breakdown) if funnel_step_breakdown else "",
+            experiment_actors_query_includes_recordings=self.actors_query.includeRecordings or False,
+        )
+
+        # Build the actors query using the same infrastructure as main query
+        builder = ExperimentFunnelActorsQueryBuilder(
+            team=self.team,
+            feature_flag_key=feature_flag_key,
+            exposure_config=exposure_config,
+            filter_test_accounts=self.experiment.exposure_criteria.get("filterTestAccounts", True)
+            if self.experiment.exposure_criteria
+            else False,
+            multiple_variant_handling=multiple_variant_handling,
+            variants=self.variants,
+            date_range_query=self.date_range_query,
+            entity_key=self.entity_key,
+            metric=self.metric,
+            funnel_step=funnel_step,
+            funnel_step_breakdown=funnel_step_breakdown,
+            include_recordings=self.actors_query.includeRecordings or False,
+        )
+
+        return builder.build_actors_query()
 
     def to_query(self) -> ast.SelectQuery:
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")

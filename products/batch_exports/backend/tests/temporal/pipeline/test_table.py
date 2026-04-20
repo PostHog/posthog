@@ -100,6 +100,7 @@ def test_table_is_a_sequence_of_fields():
     class TestField(Field):
         def __init__(self, name: str, data_type: pa.DataType):
             self.name = name
+            self.alias = name
             self.data_type = data_type
 
         @classmethod

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -19,10 +19,16 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.postgres import (
+    SSLRequiredError,
     filter_postgres_incremental_fields,
+    get_connection_metadata as get_postgres_connection_metadata,
+    get_foreign_keys as get_postgres_foreign_keys,
     get_postgres_row_count,
+    get_primary_key_columns,
     get_schemas as get_postgres_schemas,
+    pg_connection,
     postgres_source,
+    source_requires_ssl,
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
@@ -33,11 +39,16 @@ PostgresErrors = {
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
+    "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
 }
 
 
 @SourceRegistry.register
 class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    def __init__(self, source_name: str = "Postgres"):
+        super().__init__()
+        self.source_name = source_name
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.POSTGRES
@@ -104,6 +115,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
+            featured=True,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -128,11 +140,19 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "Name or service not known": None,
             "Network is unreachable": None,
             "InsufficientPrivilege": None,
-            "OperationalError: connection failed: connection to server at": None,
+            "Connection refused": None,
+            "No route to host": None,
             "password authentication failed connection": None,
+            "connection timeout expired": None,
+            "SSLRequiredError": None,
+            "SSL/TLS connection is required": None,
+            "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
+            "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
         }
 
-    def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):
@@ -143,6 +163,16 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 password=config.password,
                 database=config.database,
                 schema=config.schema,
+                names=names,
+            )
+            db_foreign_keys = get_postgres_foreign_keys(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                schema=config.schema,
+                names=names,
             )
 
             if with_counts:
@@ -153,22 +183,41 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                     schema=config.schema,
+                    names=names,
                 )
             else:
                 row_counts = {}
 
-        for table_name, columns in db_schemas.items():
-            column_info = [(col_name, col_type) for col_name, col_type in columns]
+            # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
+            # quirk on `information_schema` (rare but possible) only disables CDC
+            # advertising for this listing instead of breaking schema discovery for
+            # everyone — including non-CDC users.
+            try:
+                with pg_connection(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                ) as conn:
+                    pk_columns_by_table = get_primary_key_columns(conn, config.schema, list(db_schemas.keys()))
+                    tables_with_pks = set(pk_columns_by_table.keys())
+            except Exception as e:
+                capture_exception(e)
+                pk_columns_by_table = {}
+                tables_with_pks = set()
 
-            incremental_field_tuples = filter_postgres_incremental_fields(column_info)
+        for table_name, columns in db_schemas.items():
+            incremental_field_tuples = filter_postgres_incremental_fields(columns)
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
                     "type": field_type,
                     "field": field_name,
                     "field_type": field_type,
+                    "nullable": nullable,
                 }
-                for field_name, field_type in incremental_field_tuples
+                for field_name, field_type, nullable in incremental_field_tuples
             ]
 
             schemas.append(
@@ -176,26 +225,35 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     name=table_name,
                     supports_incremental=len(incremental_fields) > 0,
                     supports_append=len(incremental_fields) > 0,
+                    supports_cdc=table_name in tables_with_pks,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
+                    columns=columns,
+                    foreign_keys=db_foreign_keys.get(table_name, []),
+                    detected_primary_keys=pk_columns_by_table.get(table_name)
+                    or (["id"] if any(col[0] == "id" for col in columns) else None),
                 )
             )
 
         return schemas
 
-    def validate_credentials(self, config: PostgresSourceConfig, team_id: int) -> tuple[bool, str | None]:
-        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
+    def validate_credentials(
+        self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
+        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, config.ssh_tunnel.enabled if config.ssh_tunnel else False
+            config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
         )
         if not valid_host:
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
+        except SSLRequiredError as e:
+            return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in PostgresErrors.items():
@@ -203,25 +261,87 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     return False, value
 
             capture_exception(e)
-            return False, "Could not connect to Postgres. Please check all connection details are valid."
+            return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
             return (
                 False,
                 e.value
-                or "Could not connect to Postgres via the SSH tunnel. Please check all connection details are valid.",
+                or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             capture_exception(e)
-            return False, "Could not connect to Postgres. Please check all connection details are valid."
+            return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
 
         return True, None
 
+    def get_connection_metadata(
+        self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, object]:
+        with self.with_ssh_tunnel(config) as (host, port):
+            return get_postgres_connection_metadata(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                require_ssl=require_ssl,
+            )
+
+    def check_cdc_prerequisites(
+        self,
+        config: PostgresSourceConfig,
+        management_mode: str,
+        tables: list[str],
+        slot_name: str | None = None,
+        publication_name: str | None = None,
+        require_ssl: bool = True,
+    ) -> list[str]:
+        """Validate Postgres CDC prerequisites against a live connection.
+
+        Pre-creation check — no ExternalDataSource exists yet, so caller passes raw config.
+        Defaults require_ssl=True (all new sources are past the SSL cutoff).
+        """
+        from posthog.temporal.data_imports.sources.postgres.cdc.prerequisite_validator import validate_cdc_prerequisites
+        from posthog.temporal.data_imports.sources.postgres.postgres import _connect_to_postgres
+
+        with self.with_ssh_tunnel(config) as (host, port):
+            conn = _connect_to_postgres(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                require_ssl=require_ssl,
+            )
+            try:
+                return validate_cdc_prerequisites(
+                    conn=conn,
+                    management_mode=management_mode,  # type: ignore[arg-type]
+                    tables=tables,
+                    schema=config.schema,
+                    slot_name=slot_name,
+                    publication_name=publication_name,
+                )
+            finally:
+                conn.close()
+
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+
         from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 
-        schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
+        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+
+        # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
+        if schema.is_cdc and schema.cdc_mode == "streaming":
+            raise CDCHandledExternally(
+                f"Schema {schema.name} is in CDC streaming mode — handled by CDCExtractionWorkflow"
+            )
+
+        # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
+        require_ssl = source_requires_ssl(schema.source, config)
 
         return postgres_source(
             tunnel=ssh_tunnel,
@@ -238,4 +358,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             chunk_size_override=schema.chunk_size_override,
             team_id=inputs.team_id,
+            require_ssl=require_ssl,
+            is_initial_sync=not schema.initial_sync_complete,
         )

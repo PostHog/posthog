@@ -14,7 +14,6 @@ import { isObject } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -23,8 +22,8 @@ import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
-import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { playerMetaLogic } from './playerMetaLogic'
+import { PlayerPersonMeta } from './PlayerPersonMeta'
 
 export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean } {
     let urlToUse: string | undefined = typeof lastUrl === 'string' ? lastUrl : undefined
@@ -89,7 +88,6 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
 export function PlayerMeta(): JSX.Element {
-    const { isCinemaMode } = useValues(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
@@ -125,20 +123,20 @@ export function PlayerMeta(): JSX.Element {
         )
     }
 
-    const windowOptions: LemonSelectOption<string | null>[] = [
+    const windowOptions: LemonSelectOption<number | null>[] = [
         {
             label: <IconWindow value={currentWindowIndex} className="text-secondary" />,
             value: null,
             labelInMenu: <>Follow the user</>,
         },
     ]
-    windowIds.forEach((windowId, index) => {
+    windowIds.forEach((windowId) => {
         windowOptions.push({
-            label: <IconWindow value={index + 1} className="text-secondary" />,
+            label: <IconWindow value={windowId} className="text-secondary" />,
             labelInMenu: (
                 <div className="flex flex-row gap-x-1 space-between items-center">
                     Follow window:&nbsp;
-                    <IconWindow value={index + 1} className="text-secondary" />
+                    <IconWindow value={windowId} className="text-secondary" />
                 </div>
             ),
             value: windowId,
@@ -179,7 +177,7 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    {!isCinemaMode && <PlayerMetaLinks size={size} />}
+                    <PlayerMetaLinks size={size} />
                     <PlayerPersonMeta />
                 </div>
             </div>

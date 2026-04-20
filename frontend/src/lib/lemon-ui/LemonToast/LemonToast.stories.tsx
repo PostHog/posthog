@@ -1,10 +1,17 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
+import { INCIDENT_IO_STATUS_PAGE_BASE } from 'lib/components/HealthMenu/incidentStatusLogic'
+import { incidentStatusLogic } from 'lib/components/HealthMenu/incidentStatusLogic'
+
+import { useStorybookMocks } from '~/mocks/browser'
+import * as incidentIoStatusPageCritical from '~/mocks/fixtures/_incident_io_status_page_critical.json'
+
 import { ToastCloseButton, ToastContent, ToastContentProps, lemonToast } from './LemonToast'
 
-const meta: Meta<typeof ToastContent> = {
+const meta: Meta<ToastContentProps> = {
     title: 'Lemon UI/Lemon Toast',
     component: ToastContent,
     parameters: {
@@ -60,8 +67,6 @@ export const ToastTypes: Story = {
                 position="top-left" // different from app
                 autoClose={false} // different from app
                 transition={Slide}
-                closeOnClick={false}
-                draggable={false}
                 closeButton={<ToastCloseButton />}
                 theme={isDarkModeOn ? 'dark' : 'light'}
             />
@@ -123,5 +128,49 @@ export const WithProgress: Story = {
                 progress: 0.4,
             } as ToastContentProps,
         ],
+    },
+}
+
+export const ErrorWithIncidentNote: Story = {
+    args: {
+        toasts: [
+            {
+                type: 'error',
+                message: 'An error toast during an incident',
+            },
+        ],
+    },
+    render: (_args, { globals }) => {
+        const isDarkModeOn = globals.theme === 'dark'
+
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        useStorybookMocks({
+            get: {
+                [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: incidentIoStatusPageCritical,
+            },
+        })
+
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        useMountedLogic(incidentStatusLogic)
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        const { status } = useValues(incidentStatusLogic)
+
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        useEffect(() => {
+            if (status !== 'operational') {
+                lemonToast.dismiss()
+                lemonToast.error('An error toast during an incident')
+            }
+        }, [status, isDarkModeOn]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+        return (
+            <ToastContainer
+                position="top-left"
+                autoClose={false}
+                transition={Slide}
+                closeButton={<ToastCloseButton />}
+                theme={isDarkModeOn ? 'dark' : 'light'}
+            />
+        )
     },
 }

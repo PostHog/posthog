@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import React from 'react'
 
 import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
@@ -7,75 +7,191 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
 
+import { MessageSentimentBar } from '../components/SentimentTag'
+import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import { LLMInputOutput } from '../LLMInputOutput'
 import { SearchHighlight } from '../SearchHighlight'
-import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { containsSearchQuery } from '../searchUtils'
-import { CompatMessage, VercelSDKImageMessage } from '../types'
-import { looksLikeXml } from '../utils'
+import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
+import {
+    getGeminiInlineData,
+    isAnthropicDocumentMessage,
+    isAnthropicImageMessage,
+    isGeminiAudioMessage,
+    isGeminiDocumentMessage,
+    isGeminiImageMessage,
+    isOpenAIAudioMessage,
+    isOpenAIFileMessage,
+    isOpenAIImageURLMessage,
+    looksLikeXml,
+    parsePartialJSON,
+} from '../utils'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
+import { MessageActionsMenu } from './MessageActionsMenu'
 import { XMLViewer } from './XMLViewer'
+
+export type ConversationDisplayOption =
+    | 'expand_all'
+    | 'expand_user_only'
+    | 'collapse_except_output_and_last_input'
+    | 'text_view'
+type MessageType = 'input' | 'output'
+
+function getInitialMessageShowStates(
+    inputMessages: CompatMessage[],
+    outputMessages: CompatMessage[],
+    displayOption: ConversationDisplayOption = 'collapse_except_output_and_last_input'
+): { input: boolean[]; output: boolean[] } {
+    const inputStates = inputMessages.map((message, i) => {
+        if (displayOption === 'expand_all') {
+            return true
+        }
+        if (displayOption === 'expand_user_only') {
+            return message.role === 'user'
+        }
+        return i === inputMessages.length - 1
+    })
+    const outputStates = outputMessages.map((message) => {
+        if (displayOption === 'expand_user_only') {
+            return message.role === 'user'
+        }
+        return true
+    })
+    return { input: inputStates, output: outputStates }
+}
 
 export function ConversationMessagesDisplay({
     inputNormalized,
     outputNormalized,
+    inputSourceIndices,
     errorData,
     httpStatus,
     raisedError,
     bordered = false,
     searchQuery,
+    displayOption,
+    traceId,
+    generationEventId,
+    highlightMessageIndex,
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
+    /** Maps each inputNormalized[i] to its original index in $ai_input. */
+    inputSourceIndices?: number[]
     errorData: any
     httpStatus?: number
     raisedError?: boolean
     bordered?: boolean
     searchQuery?: string
+    displayOption?: ConversationDisplayOption
+    traceId?: string | null
+    generationEventId?: string
+    /** Original $ai_input index to auto-expand and highlight (e.g. from sentiment tab deep link) */
+    highlightMessageIndex?: number | null
 }): JSX.Element {
-    const {
-        inputMessageShowStates,
-        outputMessageShowStates,
-        searchQuery: currentSearchQuery,
+    const [messageShowStates, setMessageShowStates] = React.useState(() =>
+        getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption)
+    )
+    const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
+    const [isRenderingXml, setIsRenderingXml] = React.useState(false)
+    const previousSearchQueryRef = React.useRef('')
+    const inputRolesSignature = inputNormalized.map((message) => message.role).join('|')
+    const outputRolesSignature = outputNormalized.map((message) => message.role).join('|')
+    const inputMessageShowStates = messageShowStates.input
+    const outputMessageShowStates = messageShowStates.output
+    const { getGenerationSentiment } = useValues(llmGenerationSentimentLazyLoaderLogic)
+
+    const generationSentiment = generationEventId ? getGenerationSentiment(generationEventId) : undefined
+
+    // Sentiment is only available for user messages that have a known original
+    // index in $ai_input (sourceIndex). System/assistant messages and messages
+    // without a source mapping get no sentiment.
+    const getMessageSentiment = (
+        role: string,
+        sourceIndex: number | undefined
+    ): { label: string; score: number } | undefined => {
+        if (role !== 'user' || !generationSentiment || sourceIndex === undefined || sourceIndex < 0) {
+            return undefined
+        }
+        const msg = generationSentiment.messages?.[sourceIndex]
+        return msg ? { label: msg.label, score: msg.score } : undefined
+    }
+
+    const toggleMessage = (type: MessageType, index: number): void => {
+        setMessageShowStates((state) => {
+            const nextTypeState = [...state[type]]
+            if (index < 0 || index >= nextTypeState.length) {
+                return state
+            }
+            nextTypeState[index] = !nextTypeState[index]
+            return { ...state, [type]: nextTypeState }
+        })
+    }
+
+    const showAllMessages = (type: MessageType): void => {
+        setMessageShowStates((state) => ({ ...state, [type]: state[type].map(() => true) }))
+    }
+
+    const hideAllMessages = (type: MessageType): void => {
+        setMessageShowStates((state) => ({ ...state, [type]: state[type].map(() => false) }))
+    }
+
+    // Initialize message states when message counts or display option changes.
+    React.useEffect(() => {
+        setMessageShowStates(getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption))
+    }, [
+        inputNormalized.length,
+        outputNormalized.length,
+        inputRolesSignature,
+        outputRolesSignature,
         displayOption,
-    } = useValues(llmAnalyticsTraceLogic)
-    const { initializeMessageStates, toggleMessage, showAllMessages, hideAllMessages, applySearchResults } =
-        useActions(llmAnalyticsTraceLogic)
+        outputNormalized,
+        inputNormalized,
+    ])
 
-    // Initialize message states when component mounts or messages change or display option changes
+    // Expand only messages matching the current search query.
     React.useEffect(() => {
-        initializeMessageStates(inputNormalized.length, outputNormalized.length)
-    }, [inputNormalized.length, outputNormalized.length, displayOption, initializeMessageStates])
-
-    // Apply search results when search query changes
-    React.useEffect(() => {
-        if (searchQuery?.trim()) {
+        const trimmedSearchQuery = searchQuery?.trim() ?? ''
+        if (trimmedSearchQuery) {
             const inputMatches = inputNormalized.map((msg) => {
                 const msgStr = JSON.stringify(msg)
-                return containsSearchQuery(msgStr, searchQuery)
+                return containsSearchQuery(msgStr, trimmedSearchQuery)
             })
             const outputMatches = outputNormalized.map((msg) => {
                 const msgStr = JSON.stringify(msg)
-                return containsSearchQuery(msgStr, searchQuery)
+                return containsSearchQuery(msgStr, trimmedSearchQuery)
             })
-            applySearchResults(inputMatches, outputMatches)
-        } else if (currentSearchQuery !== searchQuery) {
-            // Reset to display option defaults when search is cleared
-            initializeMessageStates(inputNormalized.length, outputNormalized.length)
+            setMessageShowStates({ input: inputMatches, output: outputMatches })
+        } else if (previousSearchQueryRef.current) {
+            setMessageShowStates(getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption))
         }
-    }, [
-        searchQuery,
-        currentSearchQuery,
-        inputNormalized,
-        outputNormalized,
-        applySearchResults,
-        initializeMessageStates,
-    ])
+        previousSearchQueryRef.current = trimmedSearchQuery
+    }, [searchQuery, inputNormalized, outputNormalized, inputNormalized.length, outputNormalized.length, displayOption])
+
+    // Auto-expand the highlighted message (e.g. from sentiment tab deep link)
+    const highlightedMessageRef = React.useRef<HTMLDivElement | null>(null)
+    React.useEffect(() => {
+        if (highlightMessageIndex == null || !inputSourceIndices) {
+            return
+        }
+        const normalizedIndex = inputSourceIndices.indexOf(highlightMessageIndex)
+        if (normalizedIndex >= 0) {
+            setMessageShowStates((state) => {
+                const nextInput = [...state.input]
+                nextInput[normalizedIndex] = true
+                return { ...state, input: nextInput }
+            })
+            // Scroll into view after render
+            requestAnimationFrame(() => {
+                highlightedMessageRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            })
+        }
+    }, [highlightMessageIndex, inputSourceIndices])
 
     const allInputsExpanded = inputMessageShowStates.every(Boolean)
     const allInputsCollapsed = inputMessageShowStates.every((state: boolean) => !state)
@@ -129,19 +245,33 @@ export function ConversationMessagesDisplay({
 
     const inputDisplay =
         inputNormalized.length > 0 ? (
-            inputNormalized.map((message, i) => (
-                <React.Fragment key={i}>
-                    <LLMMessageDisplay
-                        message={message}
-                        show={inputMessageShowStates[i] || false}
-                        onToggle={() => toggleMessage('input', i)}
-                        searchQuery={searchQuery}
-                    />
-                    {i < inputNormalized.length - 1 && (
-                        <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
-                    )}
-                </React.Fragment>
-            ))
+            inputNormalized.map((message, i) => {
+                const isHighlighted = highlightMessageIndex != null && inputSourceIndices?.[i] === highlightMessageIndex
+                return (
+                    <React.Fragment key={i}>
+                        <div
+                            ref={isHighlighted ? highlightedMessageRef : undefined}
+                            className={isHighlighted ? 'ring-2 ring-primary/30 rounded' : undefined}
+                        >
+                            <LLMMessageDisplay
+                                message={message}
+                                show={inputMessageShowStates[i] || false}
+                                onToggle={() => toggleMessage('input', i)}
+                                searchQuery={searchQuery}
+                                traceId={traceId}
+                                isRenderingMarkdown={isRenderingMarkdown}
+                                isRenderingXml={isRenderingXml}
+                                onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
+                                onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
+                                messageSentiment={getMessageSentiment(message.role, inputSourceIndices?.[i])}
+                            />
+                        </div>
+                        {i < inputNormalized.length - 1 && (
+                            <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                        )}
+                    </React.Fragment>
+                )
+            })
         ) : (
             <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No input</div>
         )
@@ -163,6 +293,11 @@ export function ConversationMessagesDisplay({
                                     isOutput
                                     onToggle={() => toggleMessage('output', i)}
                                     searchQuery={searchQuery}
+                                    traceId={traceId}
+                                    isRenderingMarkdown={isRenderingMarkdown}
+                                    isRenderingXml={isRenderingXml}
+                                    onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
+                                    onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
                                 />
                             ))
                         ) : (
@@ -228,7 +363,166 @@ export const ImageMessageDisplay = ({
         return <img src={content.image} alt="User sent image" />
     }
 
-    return <span>{content}</span>
+    return <span>{String(content ?? '')}</span>
+}
+
+function renderContentItem(item: MultiModalContentItem, searchQuery?: string): JSX.Element | null {
+    if (typeof item === 'string') {
+        return searchQuery?.trim() ? (
+            <SearchHighlight string={item} substring={searchQuery} className="whitespace-pre-wrap" />
+        ) : (
+            <span className="whitespace-pre-wrap">{item}</span>
+        )
+    }
+
+    if (!item || typeof item !== 'object' || !('type' in item)) {
+        return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
+    }
+
+    if (item.type === 'text' && 'text' in item && typeof item.text === 'string') {
+        return searchQuery?.trim() ? (
+            <SearchHighlight string={item.text} substring={searchQuery} className="whitespace-pre-wrap" />
+        ) : (
+            <span className="whitespace-pre-wrap">{item.text}</span>
+        )
+    }
+
+    if (item.type === 'image' && 'image' in item && typeof item.image === 'string') {
+        return <ImageMessageDisplay message={{ content: { type: 'image', image: item.image } }} />
+    }
+
+    if (isOpenAIImageURLMessage(item)) {
+        return <img src={item.image_url.url} alt="Message content" className="max-w-full max-h-[400px] rounded" />
+    }
+
+    if (isAnthropicImageMessage(item)) {
+        return (
+            <img
+                src={`data:${item.source.media_type};base64,${item.source.data}`}
+                alt="Message content"
+                className="max-w-full max-h-[400px] rounded"
+            />
+        )
+    }
+
+    if (isGeminiImageMessage(item)) {
+        const inlineData = getGeminiInlineData(item)
+        if (!inlineData) {
+            return null
+        }
+        return (
+            <img
+                src={`data:${inlineData.mime_type};base64,${inlineData.data}`}
+                alt="Message content"
+                className="max-w-full max-h-[400px] rounded"
+            />
+        )
+    }
+
+    if (isOpenAIFileMessage(item)) {
+        if (!item.file.file_data.startsWith('data:')) {
+            return <span className="text-muted">{item.file.filename}</span>
+        }
+        return (
+            // eslint-disable-next-line react/forbid-elements
+            <a href={item.file.file_data} download={item.file.filename} className="text-link hover:underline">
+                {item.file.filename}
+            </a>
+        )
+    }
+
+    if (isAnthropicDocumentMessage(item)) {
+        const fileName = `document.${item.source.media_type.split('/')[1] || 'bin'}`
+        return (
+            // eslint-disable-next-line react/forbid-elements
+            <a
+                href={`data:${item.source.media_type};base64,${item.source.data}`}
+                download={fileName}
+                className="text-link hover:underline"
+            >
+                {fileName}
+            </a>
+        )
+    }
+
+    if (isGeminiDocumentMessage(item)) {
+        const inlineData = getGeminiInlineData(item)
+        if (!inlineData) {
+            return null
+        }
+        const fileName = `document.${inlineData.mime_type.split('/')[1] || 'bin'}`
+        return (
+            // eslint-disable-next-line react/forbid-elements
+            <a
+                href={`data:${inlineData.mime_type};base64,${inlineData.data}`}
+                download={fileName}
+                className="text-link hover:underline"
+            >
+                {fileName}
+            </a>
+        )
+    }
+
+    if (isOpenAIAudioMessage(item) || isGeminiAudioMessage(item)) {
+        const mimeType = 'mime_type' in item ? item.mime_type : undefined
+        const transcript = 'transcript' in item ? item.transcript : undefined
+
+        return (
+            <div className="space-y-2">
+                <audio
+                    controls
+                    className="w-[500px]"
+                    src={mimeType ? `data:${mimeType};base64,${item.data}` : `data:audio/wav;base64,${item.data}`}
+                />
+                {transcript && typeof transcript === 'string' && (
+                    <div className="text-xs text-muted p-2 bg-bg-light rounded border">
+                        <div className="font-semibold mb-1">Transcript:</div>
+                        <div className="whitespace-pre-wrap">{transcript}</div>
+                    </div>
+                )}
+            </div>
+        )
+    }
+
+    return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
+}
+
+/** Max characters to render in minimal (table preview) mode. */
+const MINIMAL_PREVIEW_LIMIT = 500
+
+/** Extract a plain-text preview from message content, truncated for table cells. */
+function extractMinimalPreview(content: string | { type: string; content: string } | MultiModalContentItem[]): string {
+    let text: string
+    if (typeof content === 'string') {
+        text = content
+    } else if (Array.isArray(content)) {
+        text = content
+            .map((item) => {
+                if (typeof item === 'string') {
+                    return item
+                }
+                if (item && typeof item === 'object') {
+                    if ('text' in item && typeof item.text === 'string') {
+                        return item.text
+                    }
+                    if ('transcript' in item && typeof item.transcript === 'string') {
+                        return item.transcript
+                    }
+                }
+                return ''
+            })
+            .filter(Boolean)
+            .join(' ')
+    } else if (typeof content === 'object' && content !== null && 'content' in content) {
+        text = typeof content.content === 'string' ? content.content : JSON.stringify(content)
+    } else {
+        text = JSON.stringify(content)
+    }
+
+    if (text.length > MINIMAL_PREVIEW_LIMIT) {
+        return text.slice(0, MINIMAL_PREVIEW_LIMIT) + '…'
+    }
+    return text
 }
 
 export const LLMMessageDisplay = React.memo(
@@ -239,6 +533,12 @@ export const LLMMessageDisplay = React.memo(
         minimal = false,
         onToggle,
         searchQuery,
+        traceId,
+        isRenderingMarkdown = true,
+        isRenderingXml = false,
+        onToggleMarkdownRendering,
+        onToggleXmlRendering,
+        messageSentiment,
     }: {
         message: CompatMessage
         isOutput?: boolean
@@ -248,14 +548,20 @@ export const LLMMessageDisplay = React.memo(
         minimal?: boolean
         onToggle?: () => void
         searchQuery?: string
+        traceId?: string | null
+        isRenderingMarkdown?: boolean
+        isRenderingXml?: boolean
+        onToggleMarkdownRendering?: () => void
+        onToggleXmlRendering?: () => void
+        messageSentiment?: { label: string; score: number }
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
-        let { isRenderingMarkdown, isRenderingXml } = useValues(llmAnalyticsTraceLogic)
-        const { toggleMarkdownRendering, toggleXmlRendering } = useActions(llmAnalyticsTraceLogic)
+        let resolvedIsRenderingMarkdown = isRenderingMarkdown
+        let resolvedIsRenderingXml = isRenderingXml
 
         if (minimal) {
-            isRenderingMarkdown = true
-            isRenderingXml = false
+            resolvedIsRenderingMarkdown = true
+            resolvedIsRenderingXml = false
         }
 
         // Compute whether the content looks like Markdown.
@@ -283,7 +589,7 @@ export const LLMMessageDisplay = React.memo(
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (
-            content: string | { type: string; content: string } | VercelSDKImageMessage | object[],
+            content: string | { type: string; content: string } | VercelSDKImageMessage | MultiModalContentItem[],
             searchQuery?: string
         ): JSX.Element | null => {
             if (!content) {
@@ -296,52 +602,7 @@ export const LLMMessageDisplay = React.memo(
                     <>
                         {content.map((item, index) => (
                             <React.Fragment key={index}>
-                                {typeof item === 'string' ? (
-                                    searchQuery?.trim() ? (
-                                        <SearchHighlight
-                                            string={item}
-                                            substring={searchQuery}
-                                            className="whitespace-pre-wrap"
-                                        />
-                                    ) : (
-                                        <span className="whitespace-pre-wrap">{item}</span>
-                                    )
-                                ) : item &&
-                                  typeof item === 'object' &&
-                                  'type' in item &&
-                                  item.type === 'text' &&
-                                  'text' in item ? (
-                                    searchQuery?.trim() && typeof item.text === 'string' ? (
-                                        <SearchHighlight
-                                            string={item.text}
-                                            substring={searchQuery}
-                                            className="whitespace-pre-wrap"
-                                        />
-                                    ) : (
-                                        <span className="whitespace-pre-wrap">{item.text}</span>
-                                    )
-                                ) : item &&
-                                  typeof item === 'object' &&
-                                  'type' in item &&
-                                  item.type === 'image' &&
-                                  'image' in item &&
-                                  typeof item.image === 'string' ? (
-                                    <ImageMessageDisplay
-                                        message={{
-                                            content: {
-                                                type: 'image',
-                                                image: item.image,
-                                            },
-                                        }}
-                                    />
-                                ) : (
-                                    <HighlightedJSONViewer
-                                        src={item}
-                                        name={null}
-                                        collapsed={5}
-                                        searchQuery={searchQuery}
-                                    />
-                                )}
+                                {renderContentItem(item, searchQuery)}
                                 {index < content.length - 1 && <div className="border-t my-2" />}
                             </React.Fragment>
                         ))}
@@ -350,28 +611,32 @@ export const LLMMessageDisplay = React.memo(
             }
             const trimmed = typeof content === 'string' ? content.trim() : JSON.stringify(content).trim()
 
-            // If content is valid JSON (we only check when it starts and ends with {} or [] to avoid false positives)
-            if (
-                (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-                (trimmed.startsWith('[') && trimmed.endsWith(']'))
-            ) {
+            // If content looks like JSON (starts with { or [), try to parse it
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
                 try {
-                    const parsed = typeof content === 'string' ? JSON.parse(content) : content
-                    //check if special type
-                    if (parsed.type === 'image') {
+                    const parsed = typeof content === 'string' ? parsePartialJSON(content) : content
+                    // If the partial parser returned an empty container, the input wasn't
+                    // actually JSON (e.g. "[Thinking: ...]" starts with "[" but is plain text)
+                    const isParsedEmpty =
+                        (Array.isArray(parsed) && parsed.length === 0) ||
+                        (isObject(parsed) && Object.keys(parsed as Record<string, unknown>).length === 0)
+                    if (isParsedEmpty) {
+                        throw new Error('not JSON')
+                    }
+                    if (isObject(parsed) && parsed.type === 'image') {
                         return <ImageMessageDisplay message={parsed} />
                     }
-                    if (parsed.type === 'input_image') {
+                    if (isObject(parsed) && parsed.type === 'input_image') {
                         const message = {
                             content: {
                                 type: 'image',
-                                image: parsed.image_url,
+                                image: String((parsed as Record<string, unknown>).image_url),
                             },
                         }
                         return <ImageMessageDisplay message={message} />
                     }
-                    if (parsed.type === 'output_text' && parsed.text) {
-                        return <span className="whitespace-pre-wrap">{parsed.text}</span>
+                    if (isObject(parsed) && parsed.type === 'output_text' && 'text' in parsed) {
+                        return <span className="whitespace-pre-wrap">{String(parsed.text)}</span>
                     }
                     if (typeof parsed === 'object' && parsed !== null) {
                         return (
@@ -385,7 +650,7 @@ export const LLMMessageDisplay = React.memo(
 
             // If the content appears to be XML, render based on the toggle.
             if (isXmlCandidate && typeof content === 'string') {
-                if (isRenderingXml) {
+                if (resolvedIsRenderingXml) {
                     return searchQuery?.trim() ? (
                         <HighlightedXMLViewer collapsed={3} searchQuery={searchQuery}>
                             {content}
@@ -407,7 +672,7 @@ export const LLMMessageDisplay = React.memo(
 
             // If the content appears to be Markdown, render based on the toggle.
             if (isMarkdownCandidate && typeof content === 'string') {
-                if (isRenderingMarkdown) {
+                if (resolvedIsRenderingMarkdown) {
                     // Check if content has HTML-like tags that might break markdown rendering
                     const hasHtmlLikeTags = /<[^>]+>/.test(content)
 
@@ -477,7 +742,7 @@ export const LLMMessageDisplay = React.memo(
                         ? 'bg-[var(--color-bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
                           ? 'bg-[var(--color-bg-fill-tertiary)]'
-                          : role === 'assistant'
+                          : role.startsWith('assistant')
                             ? 'bg-[var(--color-bg-fill-info-tertiary)]'
                             : null
                 )}
@@ -495,7 +760,10 @@ export const LLMMessageDisplay = React.memo(
                             }
                         }}
                     >
-                        <span className="grow">{role}</span>
+                        <span className="grow flex items-center gap-1.5">
+                            {role}
+                            {messageSentiment && <MessageSentimentBar sentiment={messageSentiment} />}
+                        </span>
                         {(content || Object.keys(additionalKwargsEntries).length > 0) && (
                             <>
                                 <LemonButton
@@ -509,9 +777,9 @@ export const LLMMessageDisplay = React.memo(
                                     <LemonButton
                                         size="small"
                                         noPadding
-                                        icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                                        icon={resolvedIsRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
                                         tooltip="Toggle markdown rendering"
-                                        onClick={toggleMarkdownRendering}
+                                        onClick={onToggleMarkdownRendering}
                                     />
                                 )}
                                 {isXmlCandidate && role !== 'tool' && role !== 'tools' && (
@@ -520,8 +788,8 @@ export const LLMMessageDisplay = React.memo(
                                         noPadding
                                         icon={<IconCode />}
                                         tooltip="Toggle XML syntax highlighting"
-                                        onClick={toggleXmlRendering}
-                                        active={isRenderingXml}
+                                        onClick={onToggleXmlRendering}
+                                        active={resolvedIsRenderingXml}
                                     />
                                 )}
                                 <CopyToClipboardInline
@@ -529,17 +797,27 @@ export const LLMMessageDisplay = React.memo(
                                     description="message content"
                                     explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                                 />
+                                <MessageActionsMenu
+                                    content={typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
+                                    traceId={traceId}
+                                />
                             </>
                         )}
                     </div>
                 )}
                 {show && !!content && (
                     <div className={!minimal ? 'p-2 border-t' : 'p-1'}>
-                        {renderMessageContent(content, searchQuery)}
+                        {minimal ? (
+                            <LemonMarkdown className="whitespace-pre-wrap">
+                                {extractMinimalPreview(content)}
+                            </LemonMarkdown>
+                        ) : (
+                            renderMessageContent(content, searchQuery)
+                        )}
                     </div>
                 )}
-                {show && !minimal && Object.keys(additionalKwargsEntries).length > 0 && (
-                    <div className="p-2 text-xs border-t">
+                {show && (!minimal || !content) && Object.keys(additionalKwargsEntries).length > 0 && (
+                    <div className={clsx(!minimal ? 'p-2 text-xs border-t' : 'p-1 text-xs')}>
                         <HighlightedJSONViewer
                             src={additionalKwargsEntries}
                             name={null}

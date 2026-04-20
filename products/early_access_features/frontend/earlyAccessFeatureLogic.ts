@@ -2,10 +2,14 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import React from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { identifierToHuman } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +30,7 @@ import {
 
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
+import { GAPromotionDialogContent } from './GAPromotionDialogContent'
 
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
@@ -33,6 +38,7 @@ export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     stage: EarlyAccessFeatureStage.Draft,
     documentation_url: '',
     feature_flag_id: undefined,
+    payload: {},
 }
 
 export interface EarlyAccessFeatureLogicProps {
@@ -55,7 +61,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
-        showGAPromotionConfirmation: (onConfirm: () => void) => ({ onConfirm }),
+        showGAPromotionConfirmation: (onConfirm: (rolloutToAll: boolean) => void) => ({ onConfirm }),
     }),
     loaders(({ props, values, actions }) => ({
         earlyAccessFeature: {
@@ -128,14 +134,35 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     forms(({ actions, props }) => ({
         earlyAccessFeature: {
             defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccessFeatureType,
-            errors: (payload) => ({
-                name: !payload.name ? 'Feature name must be set' : undefined,
-            }),
+            errors: ({ name, payload }) =>
+                ({
+                    name: !name ? 'Feature name must be set' : undefined,
+                    // payload is edited as a JSON string in the form, but typed as Record<string, any>
+                    payload:
+                        payload && typeof payload === 'string'
+                            ? (() => {
+                                  try {
+                                      JSON.parse(payload)
+                                      return undefined
+                                  } catch {
+                                      return 'Payload must be valid JSON'
+                                  }
+                              })()
+                            : undefined,
+                }) as any,
             submit: async (payload) => {
+                const parsedPayload = {
+                    ...payload,
+                    payload: payload.payload && typeof payload.payload === 'string' ? JSON.parse(payload.payload) : {},
+                }
+
                 if (props.id && props.id !== 'new') {
-                    actions.saveEarlyAccessFeature(payload)
+                    actions.saveEarlyAccessFeature(parsedPayload)
                 } else {
-                    actions.saveEarlyAccessFeature({ ...payload, _create_in_folder: 'Unfiled/Early Access Features' })
+                    actions.saveEarlyAccessFeature({
+                        ...parsedPayload,
+                        _create_in_folder: 'Unfiled/Early Access Features',
+                    })
                 }
             },
         },
@@ -218,24 +245,52 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        saveEarlyAccessFeatureFailure: ({ errorObject }) => {
+            // kea-loaders calls the failure action with (error.message, error), so:
+            //   `error` = the message string
+            //   `errorObject` = the full ApiError instance
+            // The ApiError has .attr and .detail from exceptions_hog's response format.
+            if (errorObject) {
+                const attr = errorObject.attr
+                const detail = errorObject.detail
+                if (attr && detail) {
+                    const message = detail.replace(/^This field/, identifierToHuman(attr))
+                    lemonToast.error(`Could not save early access feature: ${message}`)
+                    return
+                }
+                if (detail) {
+                    lemonToast.error(`Could not save early access feature: ${detail}`)
+                    return
+                }
+            }
+            lemonToast.error('Could not save early access feature.')
+        },
         saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
             lemonToast.success('Early access feature saved')
             earlyAccessFeaturesLogic.findMounted()?.actions.loadEarlyAccessFeatures()
             if (_earlyAccessFeature.id) {
                 refreshTreeItem('early_access_feature', _earlyAccessFeature.id)
                 router.actions.replace(urls.earlyAccessFeature(_earlyAccessFeature.id))
+
+                // Mark feature creation task as completed
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateEarlyAccessFeature)
             }
         },
-        showGAPromotionConfirmation: async ({ onConfirm }) => {
-            const { LemonDialog } = await import('lib/lemon-ui/LemonDialog')
+        showGAPromotionConfirmation: ({ onConfirm }) => {
+            let rolloutToAll = false
             LemonDialog.open({
                 title: 'Promote to General Availability?',
                 description:
                     'Once promoted to General Availability, this feature cannot be edited anymore. Users will have access to the stable version.',
+                content: React.createElement(GAPromotionDialogContent, {
+                    onChange: (checked: boolean) => {
+                        rolloutToAll = checked
+                    },
+                }),
                 primaryButton: {
                     children: 'Promote to GA',
                     type: 'primary',
-                    onClick: onConfirm,
+                    onClick: () => onConfirm(rolloutToAll),
                 },
                 secondaryButton: {
                     children: 'Cancel',
@@ -244,13 +299,22 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             })
         },
         updateStage: async ({ stage }) => {
+            const save = (rolloutToAll?: boolean): void => {
+                actions.saveEarlyAccessFeature({
+                    ...values.earlyAccessFeature,
+                    stage,
+                    ...(rolloutToAll ? { rollout_to_all: true } : {}),
+                })
+
+                // Mark stage update task as completed when user changes stage
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureStage)
+            }
+
             // If promoting to General Availability, show confirmation dialog
             if (stage === EarlyAccessFeatureStage.GeneralAvailability) {
-                actions.showGAPromotionConfirmation(() =>
-                    actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
-                )
+                actions.showGAPromotionConfirmation(save)
             } else {
-                actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+                save()
             }
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {

@@ -1,20 +1,53 @@
+extensions:
+    docker_observer:
+    health_check: # Default configuration is usually fine
+    zpages: # Default configuration is usually fine
+
 receivers:
-    filelog:
-        include:
-            - /var/lib/docker/containers/*/*.log
-        include_file_name: true
-        include_file_path: true
-        operators:
-            - id: container-parser
-              max_log_size: 102400
-              type: container
-              format: docker
-              on_error: send_quiet
-              add_metadata_from_filepath: false
-            - type: json_parser
-              parse_from: body
-              on_error: send_quiet
-              if: "hasPrefix(body, '{')"
+    receiver_creator:
+        watch_observers: [docker_observer]
+        receivers:
+            filelog:
+                rule: type == "container" and labels["com.docker.compose.project"] == "${env:COMPOSE_PROJECT}" and not (name matches "otel-collector")
+                config:
+                    include:
+                        - '`"/var/lib/docker/containers/" + container_id + "/*.log"`'
+                    include_file_path: true
+                    operators:
+                        - type: regex_replace
+                          regex_name: ansi_control_sequences
+                          field: body
+                        - id: docker-json-parser
+                          type: json_parser
+                          timestamp:
+                              parse_from: attributes.time
+                              layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+                          on_error: drop
+                        - type: move
+                          from: attributes["log"]
+                          to: body
+                        - type: add
+                          field: resource["service.name"]
+                          value: '`name`'
+                        - type: add
+                          field: resource["container.name"]
+                          value: '`name`'
+                        - type: add
+                          field: resource["container.id"]
+                          value: '`container_id`'
+                        - type: add
+                          field: resource["container.image.name"]
+                          value: '`image`'
+                        - type: json_parser
+                          parse_from: body
+                          on_error: send_quiet
+                          if: "hasPrefix(body, '{')"
+                        - type: move
+                          from: attributes["log.file.name"]
+                          to: resource["log.file.name"]
+                        - type: move
+                          from: attributes["log.file.path"]
+                          to: resource["log.file.path"]
     otlp:
         protocols:
             grpc:
@@ -24,9 +57,17 @@ receivers:
 
 exporters:
     otlp: # Using the standard OTLP exporter
-        endpoint: 'jaeger-local:4317' # Sending OTLP gRPC to Jaeger
+        endpoint: '${env:JAEGER_HOST:-jaeger}:4317' # Sending OTLP gRPC to Jaeger
         tls:
             insecure: true # For local communication to Jaeger
+    otlphttp: # Using the standard OTLP exporter
+        endpoint: 'http://capture-logs:4318'
+        compression: none
+        tls:
+            insecure: true # For local communication to Jaeger
+        headers:
+            # special "local" token is automatically mapped to team_id 1 in dev environments
+            authorization: Bearer phc_local
     otlphttp/logs:
         endpoint: 'http://capture-logs:4318'
         compression: none
@@ -36,10 +77,6 @@ exporters:
             # special "local" token is automatically mapped to team_id 1 in dev environments
             authorization: Bearer phc_local
 
-extensions: # Declaring the extensions
-    health_check: # Default configuration is usually fine
-    zpages: # Default configuration is usually fine
-
 processors:
     batch:
 
@@ -48,7 +85,7 @@ service:
         traces:
             receivers: [otlp]
             processors: [batch]
-            exporters: [otlp]
+            exporters: [otlp, otlphttp]
         logs:
             exporters:
                 - otlphttp/logs
@@ -56,5 +93,5 @@ service:
                 - batch
             receivers:
                 - otlp
-                - filelog
-    extensions: [health_check, zpages] # Enabling the declared extensions
+                - receiver_creator
+    extensions: [docker_observer, health_check, zpages] # Enabling the declared extensions

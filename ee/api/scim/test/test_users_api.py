@@ -1,3 +1,4 @@
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -5,8 +6,10 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
+from ee.api.scim.views import MAX_ITEMS_PER_PAGE
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import RoleMembership
+from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 
 class TestSCIMUsersAPI(APILicensedTest):
@@ -56,12 +59,26 @@ class TestSCIMUsersAPI(APILicensedTest):
         OrganizationMembership.objects.create(
             user=user_a, organization=self.organization, level=OrganizationMembership.Level.MEMBER
         )
+        SCIMProvisionedUser.objects.create(
+            user=user_a,
+            organization_domain=self.domain,
+            username="engineering@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
 
         user_b = User.objects.create_user(
             email="alex@example.com", password=None, first_name="Alex", last_name="Other", is_email_verified=True
         )
         OrganizationMembership.objects.create(
             user=user_b, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user_b,
+            organization_domain=self.domain,
+            username="alex@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
         )
 
         # Exact match should return only engineering@example.com
@@ -129,21 +146,23 @@ class TestSCIMUsersAPI(APILicensedTest):
     def test_create_user(self):
         user_data = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
-            "userName": "newuser@example.com",
+            "userName": "Newuser@example.com",
             "name": {"givenName": "New", "familyName": "User"},
-            "emails": [{"value": "newuser@example.com", "primary": True}],
+            "emails": [{"value": "Newuser@example.com", "primary": True}],
             "active": True,
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Users", data=user_data, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        assert data["userName"] == "newuser@example.com"
+        assert data["userName"] == "Newuser@example.com"
         assert data["name"]["givenName"] == "New"
         assert data["name"]["familyName"] == "User"
 
-        # Verify user was created
+        # Verify user was created with lowercase email
         user = User.objects.get(email="newuser@example.com")
         assert user.first_name == "New"
         assert user.last_name == "User"
@@ -152,6 +171,12 @@ class TestSCIMUsersAPI(APILicensedTest):
         # Verify organization membership
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         assert membership.level == OrganizationMembership.Level.MEMBER
+
+        # Verify SCIM provisioned user record was created
+        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        assert scim_user.username == "Newuser@example.com"
+        assert scim_user.active is True
+        assert scim_user.identity_provider == SCIMProvisionedUser.IdentityProvider.OTHER
 
     def test_existing_user_is_added_to_org(self):
         # Create user in different org
@@ -172,7 +197,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "active": True,
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Users", data=user_data, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
 
@@ -180,9 +207,11 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert OrganizationMembership.objects.filter(user=existing_user, organization=self.organization).exists()
         assert OrganizationMembership.objects.filter(user=existing_user, organization=other_org).exists()
 
-    def test_repeated_post_does_not_create_duplicate_user(self):
-        # In case the IdP failed to match user by id, it can send POST request to create a new user.
-        # The user should be merged with existing one by email, not create a duplicate.
+        # Verify SCIM provisioned user record was created for this domain
+        scim_user = SCIMProvisionedUser.objects.get(user=existing_user, organization_domain=self.domain)
+        assert scim_user.active is True
+
+    def test_repeated_post_returns_409_for_already_provisioned_user(self):
         user_data_first = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
             "userName": "repeat@example.com",
@@ -191,12 +220,14 @@ class TestSCIMUsersAPI(APILicensedTest):
             "active": True,
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Users", data=user_data_first, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data_first, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         first_user = User.objects.get(email="repeat@example.com")
 
-        # IdP sends POST request again with same email
+        # IdP sends POST request again with same email - should fail with 409
         user_data_second = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
             "userName": "repeat@example.com",
@@ -205,16 +236,18 @@ class TestSCIMUsersAPI(APILicensedTest):
             "active": True,
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Users", data=user_data_second, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data_second, content_type="application/scim+json"
+        )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        assert response.status_code == status.HTTP_409_CONFLICT
 
         # Should NOT create duplicate user
         assert User.objects.filter(email="repeat@example.com").count() == 1
 
-        # User should be updated with new data from second POST
+        # User should NOT be updated (still has first POST data)
         first_user.refresh_from_db()
-        assert first_user.first_name == "Second"
+        assert first_user.first_name == "First"
         assert first_user.last_name == "Time"
 
         # User should have only one membership
@@ -241,6 +274,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         data = response.json()
         assert data["userName"] == "test@example.com"
         assert data["name"]["givenName"] == "Test"
+        assert data["name"]["familyName"] == "User"
         assert data["active"] is True
         assert "groups" in data
         assert any(g.get("display") == "Engineers" for g in data["groups"])
@@ -252,13 +286,23 @@ class TestSCIMUsersAPI(APILicensedTest):
         OrganizationMembership.objects.create(
             user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
         )
+        # Create SCIM provisioned user record
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="deactivate@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
 
         patch_data = {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
             "Operations": [{"op": "replace", "value": {"active": False}}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
 
@@ -269,12 +313,24 @@ class TestSCIMUsersAPI(APILicensedTest):
         user.refresh_from_db()
         assert user.is_active is True  # User is still active globally
 
+        # Verify SCIM provisioned user record still exists but is marked inactive
+        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        assert scim_user.active is False
+
     def test_delete_user(self):
         user = User.objects.create_user(
             email="delete@example.com", password=None, first_name="Delete", is_email_verified=True
         )
         OrganizationMembership.objects.create(
             user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        # Create SCIM provisioned user record
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="delete@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
         )
 
         response = self.client.delete(f"/scim/v2/{self.domain.id}/Users/{user.id}")
@@ -284,12 +340,23 @@ class TestSCIMUsersAPI(APILicensedTest):
         # Verify membership was removed
         assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
 
+        # Verify SCIM provisioned user record was deleted
+        assert not SCIMProvisionedUser.objects.filter(user=user, organization_domain=self.domain).exists()
+
     def test_put_user(self):
         user = User.objects.create_user(
             email="old@example.com", password=None, first_name="Old", last_name="Name", is_email_verified=True
         )
         OrganizationMembership.objects.create(
             user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        # Create SCIM provisioned user record
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="old@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
         )
 
         put_data = {
@@ -300,13 +367,62 @@ class TestSCIMUsersAPI(APILicensedTest):
             "active": True,
         }
 
-        response = self.client.put(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=put_data, format="json")
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=put_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
         assert user.first_name == "Replaced"
         assert user.last_name == "User"
         assert user.email == "put@example.com"
+
+        # Verify SCIM provisioned user was updated
+        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        assert scim_user.username == "put@example.com"
+        assert scim_user.active is True
+
+    def test_put_reactivate_user(self):
+        user = User.objects.create_user(
+            email="put_reactivate@example.com",
+            password=None,
+            first_name="Put",
+            last_name="Reactivate",
+            is_email_verified=True,
+        )
+        # Create then remove membership to simulate deactivated user
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="put_reactivate@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+        # Deactivate
+        OrganizationMembership.objects.filter(user=user, organization=self.organization).delete()
+        SCIMProvisionedUser.objects.filter(user=user, organization_domain=self.domain).update(active=False)
+        assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "put_reactivate@example.com",
+            "name": {"givenName": "Put", "familyName": "Reactivate"},
+            "emails": [{"value": "put_reactivate@example.com", "primary": True}],
+            "active": True,
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=put_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["active"] is True
+        assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        assert scim_user.active is True
 
     def test_put_user_not_found(self):
         put_data = {
@@ -318,11 +434,13 @@ class TestSCIMUsersAPI(APILicensedTest):
         }
 
         fake_user_id = 999999999
-        response = self.client.put(f"/scim/v2/{self.domain.id}/Users/{fake_user_id}", data=put_data, format="json")
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{fake_user_id}", data=put_data, content_type="application/scim+json"
+        )
 
-        assert (
-            response.status_code == status.HTTP_404_NOT_FOUND
-        ), f"Expected 404, got {response.status_code}: {response.content}"
+        assert response.status_code == status.HTTP_404_NOT_FOUND, (
+            f"Expected 404, got {response.status_code}: {response.content}"
+        )
         assert not User.objects.filter(email="nonexistent@example.com").exists()
 
     def test_put_user_email_belongs_to_another_user(self):
@@ -352,7 +470,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         }
 
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Users/{user_b.id}", data=put_data_conflict, format="json"
+            f"/scim/v2/{self.domain.id}/Users/{user_b.id}", data=put_data_conflict, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -365,11 +483,13 @@ class TestSCIMUsersAPI(APILicensedTest):
         }
 
         fake_user_id = 999999999
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{fake_user_id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{fake_user_id}", data=patch_data, content_type="application/scim+json"
+        )
 
-        assert (
-            response.status_code == status.HTTP_404_NOT_FOUND
-        ), f"Expected 404, got {response.status_code}: {response.content}"
+        assert response.status_code == status.HTTP_404_NOT_FOUND, (
+            f"Expected 404, got {response.status_code}: {response.content}"
+        )
 
     def test_patch_replace_user_without_path(self):
         user = User.objects.create_user(
@@ -392,7 +512,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -415,7 +537,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -441,7 +565,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -460,7 +586,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "replace", "path": "name.givenName", "value": "UpdatedFirst"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -482,7 +610,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -491,6 +621,13 @@ class TestSCIMUsersAPI(APILicensedTest):
     def test_patch_add_user_without_path(self):
         user = User.objects.create_user(
             email="testuser@example.com", password=None, first_name="", last_name="", is_email_verified=True
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="testuser@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=False,
         )
 
         patch_data = {
@@ -507,7 +644,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -529,7 +668,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": "name", "value": {"givenName": "New", "familyName": "Name"}}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -540,6 +681,13 @@ class TestSCIMUsersAPI(APILicensedTest):
         user = User.objects.create_user(
             email="reactivate@example.com", password=None, first_name="Test", is_email_verified=True
         )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="reactivate@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=False,
+        )
         assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
 
         patch_data = {
@@ -547,10 +695,47 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": "active", "value": True}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+
+    def test_patch_replace_reactivate_user(self):
+        user = User.objects.create_user(
+            email="reactivate_replace@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        # Create then remove membership to simulate deactivated user
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="reactivate_replace@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+        # Deactivate
+        OrganizationMembership.objects.filter(user=user, organization=self.organization).delete()
+        SCIMProvisionedUser.objects.filter(user=user, organization_domain=self.domain).update(active=False)
+        assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "active", "value": True}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["active"] is True
+        assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        assert scim_user.active is True
 
     def test_patch_add_user_given_name_with_dotted_path(self):
         user = User.objects.create_user(
@@ -565,7 +750,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": "name.givenName", "value": "Ada"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -585,7 +772,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": "emails[primary eq true].value", "value": "primary@example.com"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -608,7 +797,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": "name.familyName"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -628,7 +819,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": "name.familyName"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -648,7 +841,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": "emails"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         user.refresh_from_db()
@@ -667,8 +862,137 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": "emails[primary eq true].value"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         user.refresh_from_db()
         assert user.email == "primary@example.com"
+
+    # ── Pagination tests ──
+
+    def _create_users(self, count: int) -> list[User]:
+        users = []
+        for i in range(count):
+            user = User.objects.create_user(
+                email=f"paguser{i}@example.com",
+                password=None,
+                first_name=f"PagUser{i}",
+                is_email_verified=True,
+            )
+            OrganizationMembership.objects.create(
+                user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+            )
+            users.append(user)
+        return users
+
+    def test_users_list_pagination_with_count(self):
+        self._create_users(5)
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {"count": "2"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 6  # 5 created + setUp user
+        assert data["itemsPerPage"] == 2
+        assert data["startIndex"] == 1
+        assert len(data["Resources"]) == 2
+
+    def test_users_list_pagination_with_start_index(self):
+        self._create_users(5)
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {"startIndex": "3", "count": "2"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 6
+        assert data["itemsPerPage"] == 2
+        assert data["startIndex"] == 3
+        assert len(data["Resources"]) == 2
+
+    def test_users_list_pagination_count_zero(self):
+        self._create_users(3)
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {"count": "0"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 4  # 3 created + setUp user
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
+
+    def test_users_list_pagination_start_index_beyond_total(self):
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {"startIndex": "999"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] >= 1
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
+        assert data["startIndex"] == 999
+
+    def test_users_list_pagination_count_capped_at_max(self):
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {"count": "500"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["itemsPerPage"] <= MAX_ITEMS_PER_PAGE
+
+    @parameterized.expand(
+        [
+            ("start_index_zero", {"startIndex": "0"}, status.HTTP_400_BAD_REQUEST),
+            ("start_index_negative", {"startIndex": "-1"}, status.HTTP_400_BAD_REQUEST),
+            ("start_index_non_integer", {"startIndex": "abc"}, status.HTTP_400_BAD_REQUEST),
+            ("count_negative", {"count": "-1"}, status.HTTP_400_BAD_REQUEST),
+            ("count_non_integer", {"count": "abc"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_users_list_pagination_invalid_values(self, _name: str, params: dict, expected_status: int):
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", params)
+        assert response.status_code == expected_status
+
+    def test_users_list_pagination_with_filter(self):
+        self._create_users(3)
+        for i in range(3):
+            SCIMProvisionedUser.objects.create(
+                user=User.objects.get(email=f"paguser{i}@example.com"),
+                organization_domain=self.domain,
+                username=f"paguser{i}@example.com",
+                identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+                active=True,
+            )
+
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Users",
+            {"filter": 'userName eq "paguser0@example.com"', "count": "1"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 1
+        assert data["itemsPerPage"] == 1
+        assert data["Resources"][0]["userName"] == "paguser0@example.com"
+
+    def test_users_list_pagination_page_through_all(self):
+        self._create_users(5)
+        total = 6  # 5 created + setUp user
+
+        all_ids: list[str] = []
+        start_index = 1
+        page_size = 2
+        while True:
+            response = self.client.get(
+                f"/scim/v2/{self.domain.id}/Users",
+                {"startIndex": str(start_index), "count": str(page_size)},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            assert data["totalResults"] == total
+            if not data["Resources"]:
+                break
+            all_ids.extend(r["id"] for r in data["Resources"])
+            start_index += len(data["Resources"])
+
+        assert len(all_ids) == total
+        assert len(set(all_ids)) == total

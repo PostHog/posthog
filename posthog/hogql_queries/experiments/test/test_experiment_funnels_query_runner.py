@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 from typing import cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -15,7 +16,6 @@ from posthog.test.base import (
 
 from django.utils import timezone
 
-from flaky import flaky
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -30,9 +30,10 @@ from posthog.schema import (
 
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
-from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
+
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
 
 
 class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -228,7 +229,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(result.credible_intervals["test"][0], 0.5, delta=0.1)
         self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9, delta=0.1)
 
-    @flaky(max_runs=10, min_passes=1)
+    @pytest.mark.flaky(reruns=9)
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_standard_flow(self):
         feature_flag = self.create_feature_flag()

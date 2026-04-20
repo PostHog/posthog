@@ -6,8 +6,8 @@ import { useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
 
@@ -22,6 +22,7 @@ export type BridgePageCommonProps = {
     sideLogo?: boolean
     fixedWidth?: boolean
     leftContainerContent?: JSX.Element
+    style?: React.CSSProperties
 }
 
 interface NoHedgehogProps extends BridgePageCommonProps {
@@ -48,6 +49,7 @@ export function BridgePage({
     fixedWidth = true,
     leftContainerContent,
     hedgehog = false,
+    style,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
     const { preflight } = useValues(preflightLogic)
@@ -61,7 +63,7 @@ export function BridgePage({
     })
 
     return (
-        <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width')}>
+        <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width')} style={style}>
             <div className="BridgePage__main">
                 {leftContainerContent || hedgehog ? (
                     <div className="BridgePage__left-wrapper">

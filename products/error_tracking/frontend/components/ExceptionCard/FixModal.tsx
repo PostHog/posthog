@@ -47,7 +47,7 @@ The final output should be:
 PostHog issue: ${issueUrl}
 `
         }
-        return `Please help me fix this error. Here's the stack trace:
+        return `Please help me fix the root cause of this error. Here's the stack trace:
 
 \`\`\`
 ${stacktraceText}
@@ -72,7 +72,7 @@ PostHog issue: ${issueUrl}
 
     const handleCopy = (): void => {
         void copyToClipboard(generatePrompt(), 'LLM prompt')
-        posthog.capture('error_tracking_prompt_copied', { mode })
+        posthog.capture('error_tracking_prompt_copied', { issue_id: issueId, mode })
         onClose()
     }
 

@@ -110,24 +110,17 @@ describe('experimentSceneLogic', () => {
         logic.unmount()
     })
 
-    it('delegates loading through the mounted experiment logic', async () => {
+    it('loads experiment data when scene state changes', async () => {
         const logic = experimentSceneLogic({ tabId, experimentId: 789 as any, formMode: FORM_MODES.update })
         logic.mount()
 
         mockModule.experimentLogic.__logic.actions.loadExperiment.mockClear()
-        mockModule.experimentLogic.__logic.actions.loadExposures.mockClear()
 
         await expectLogic(logic, () => {
-            logic.actions.loadExperimentData()
+            logic.actions.setSceneState(789 as any, FORM_MODES.update)
         })
 
         expect(mockModule.experimentLogic.__logic.actions.loadExperiment).toHaveBeenCalledTimes(1)
-
-        await expectLogic(logic, () => {
-            logic.actions.loadExposuresData(true)
-        })
-
-        expect(mockModule.experimentLogic.__logic.actions.loadExposures).toHaveBeenCalledWith(true)
 
         logic.unmount()
     })

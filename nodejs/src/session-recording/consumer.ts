@@ -1,0 +1,392 @@
+import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
+import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
+
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
+import { buildIntegerMatcher } from '../config/config'
+import {
+    DlqOutput,
+    IngestionWarningsOutput,
+    LogEntriesOutput,
+    OverflowOutput,
+    TophogOutput,
+} from '../ingestion/common/outputs'
+import { IngestionConsumerConfig } from '../ingestion/config'
+import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
+import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
+import {
+    SessionReplayPipelineInput,
+    SessionReplayPipelineOutput,
+    createSessionReplayPipeline,
+    runSessionReplayPipeline,
+} from '../ingestion/session_replay'
+import { TopHog } from '../ingestion/tophog/tophog'
+import { KafkaConsumer } from '../kafka/consumer'
+import { KafkaProducerWrapper } from '../kafka/producer'
+import { getBlockEncryptor } from '../session-replay/shared/crypto'
+import { SessionFeatureStore } from '../session-replay/shared/features/session-feature-store'
+import { getKeyStore } from '../session-replay/shared/keystore'
+import { MemoryCachedKeyStore } from '../session-replay/shared/keystore/cache'
+import { SessionMetadataStore } from '../session-replay/shared/metadata/session-metadata-store'
+import { RetentionService } from '../session-replay/shared/retention/retention-service'
+import { TeamService } from '../session-replay/shared/teams/team-service'
+import { KeyStore, RecordingEncryptor } from '../session-replay/shared/types'
+import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '../types'
+import { PostgresRouter } from '../utils/db/postgres'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import { logger } from '../utils/logger'
+import { captureException } from '../utils/posthog'
+import { PromiseScheduler } from '../utils/promise-scheduler'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
+import { KafkaOffsetManager } from './kafka/offset-manager'
+import { SessionRecordingIngesterMetrics } from './metrics'
+import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
+import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
+import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
+import { SessionBatchManager } from './sessions/session-batch-manager'
+import { SessionConsoleLogStore } from './sessions/session-console-log-store'
+import { SessionFilter } from './sessions/session-filter'
+import { SessionTracker } from './sessions/session-tracker'
+
+/**
+ * Configuration for SessionRecordingIngester.
+ * All service instances (postgres, kafka producers, redis pools) are passed as explicit constructor params.
+ */
+export type SessionRecordingIngesterConfig = SessionRecordingConfig &
+    SessionRecordingApiConfig &
+    Pick<
+        IngestionConsumerConfig,
+        // For TopHog metrics
+        'INGESTION_PIPELINE' | 'INGESTION_LANE'
+    >
+
+export class SessionRecordingIngester {
+    kafkaConsumer: KafkaConsumer
+    topic: string
+    consumerGroupId: string
+    totalNumPartitions = 0
+    isStopping = false
+
+    private isDebugLoggingEnabled: ValueMatcher<number>
+    private readonly promiseScheduler: PromiseScheduler
+    private readonly sessionBatchManager: SessionBatchManager
+    private readonly redisPool: RedisPool
+    private readonly restrictionRedisPool: RedisPool
+    private readonly teamService: TeamService
+    private readonly fileStorage: SessionBatchFileStorage
+    private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
+        SessionReplayPipelineInput,
+        SessionReplayPipelineOutput,
+        { message: Message },
+        OverflowOutput
+    >
+    private readonly kafkaMetadataProducer: KafkaProducerWrapper
+    private readonly topHog: TopHog
+    private readonly keyStore: KeyStore
+    private readonly encryptor: RecordingEncryptor
+
+    constructor(
+        private config: SessionRecordingIngesterConfig,
+        postgres: PostgresRouter,
+        outputs: IngestionOutputs<
+            IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | LogEntriesOutput
+        >,
+        kafkaMetadataProducer: KafkaProducerWrapper,
+        redisPool: RedisPool,
+        restrictionRedisPool: RedisPool
+    ) {
+        this.topic = config.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
+        this.consumerGroupId = config.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID
+        this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
+
+        this.promiseScheduler = new PromiseScheduler()
+
+        this.kafkaConsumer = new KafkaConsumer({
+            topic: this.topic,
+            groupId: this.consumerGroupId,
+            callEachBatchWhenEmpty: true,
+            autoCommit: true,
+            autoOffsetStore: false,
+        })
+
+        this.kafkaMetadataProducer = kafkaMetadataProducer
+        this.redisPool = redisPool
+        this.restrictionRedisPool = restrictionRedisPool
+
+        let s3Client: S3Client | null = null
+        if (
+            config.SESSION_RECORDING_V2_S3_ENDPOINT &&
+            config.SESSION_RECORDING_V2_S3_REGION &&
+            config.SESSION_RECORDING_V2_S3_BUCKET &&
+            config.SESSION_RECORDING_V2_S3_PREFIX
+        ) {
+            const s3Config: S3ClientConfig = {
+                region: config.SESSION_RECORDING_V2_S3_REGION,
+                endpoint: config.SESSION_RECORDING_V2_S3_ENDPOINT,
+                forcePathStyle: true,
+            }
+
+            if (config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID && config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY) {
+                s3Config.credentials = {
+                    accessKeyId: config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
+                    secretAccessKey: config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
+                }
+            }
+
+            s3Client = new S3Client(s3Config)
+        }
+
+        this.topHog = new TopHog({
+            outputs,
+            pipeline: config.INGESTION_PIPELINE ?? 'unknown',
+            lane: config.INGESTION_LANE ?? 'unknown',
+        })
+
+        this.teamService = new TeamService(postgres)
+
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.restrictionRedisPool, {
+            pipeline: 'session_recordings',
+        })
+
+        const retentionService = new RetentionService(this.redisPool, this.teamService)
+
+        const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
+        const metadataStore = new SessionMetadataStore(
+            this.kafkaMetadataProducer,
+            this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC
+        )
+        const consoleLogStore = new SessionConsoleLogStore(outputs, {
+            messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
+        })
+        const featureStore = new SessionFeatureStore(
+            this.kafkaMetadataProducer,
+            this.config.SESSION_RECORDING_V2_SESSION_FEATURES_KAFKA_TOPIC,
+            this.config.SESSION_RECORDING_FEATURES_ENABLED
+        )
+        this.fileStorage = s3Client
+            ? new RetentionAwareStorage(
+                  s3Client,
+                  this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                  this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
+                  retentionService
+              )
+            : new BlackholeSessionBatchFileStorage()
+
+        const sessionTracker = new SessionTracker(
+            this.redisPool,
+            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
+        )
+        const sessionFilter = new SessionFilter({
+            redisPool: this.redisPool,
+            bucketCapacity: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
+            bucketReplenishRate: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
+            blockingEnabled: this.config.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
+            filterEnabled: this.config.SESSION_RECORDING_SESSION_FILTER_ENABLED,
+            localCacheTtlMs: this.config.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
+        })
+
+        const region = config.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        const keyStore = getKeyStore(retentionService, region, {
+            kmsEndpoint: config.SESSION_RECORDING_KMS_ENDPOINT,
+            dynamoDBEndpoint: config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+        })
+        this.keyStore = new MemoryCachedKeyStore(keyStore)
+        this.encryptor = getBlockEncryptor(this.keyStore)
+
+        this.sessionBatchManager = new SessionBatchManager({
+            maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
+            maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
+            maxEventsPerSessionPerBatch: this.config.SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH,
+            offsetManager,
+            fileStorage: this.fileStorage,
+            metadataStore,
+            consoleLogStore,
+            featureStore,
+            sessionTracker,
+            sessionFilter,
+            keyStore: this.keyStore,
+            encryptor: this.encryptor,
+        })
+
+        this.sessionReplayPipeline = createSessionReplayPipeline({
+            outputs,
+            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            overflowEnabled: this.overflowEnabled(),
+            promiseScheduler: this.promiseScheduler,
+            teamService: this.teamService,
+            topHog: this.topHog,
+            sessionBatchManager: this.sessionBatchManager,
+            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
+        })
+    }
+
+    public get service(): PluginServerService {
+        return {
+            id: 'session-recordings-blob-v2-overflow',
+            onShutdown: async () => await this.stop(),
+            healthcheck: () => this.isHealthy() ?? false,
+        }
+    }
+
+    public async handleEachBatch(messages: Message[]): Promise<void> {
+        this.kafkaConsumer.heartbeat()
+
+        if (messages.length > 0) {
+            logger.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
+                size: messages.length,
+                partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
+                assignedPartitions: this.assignedPartitions,
+            })
+        }
+
+        await instrumentFn(
+            {
+                key: `recordingingesterv2.handleEachBatch`,
+                sendException: false,
+            },
+            async () => this.processBatchMessages(messages)
+        )
+    }
+
+    private async processBatchMessages(messages: Message[]): Promise<void> {
+        messages.forEach((message) => {
+            SessionRecordingIngesterMetrics.incrementMessageReceived(message.partition)
+        })
+
+        const batchSize = messages.length
+        const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
+        SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
+        SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
+
+        // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
+        await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
+            runSessionReplayPipeline(this.sessionReplayPipeline, messages)
+        )
+
+        this.kafkaConsumer.heartbeat()
+
+        if (this.sessionBatchManager.shouldFlush()) {
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
+                this.sessionBatchManager.flush()
+            )
+        }
+    }
+
+    public async start(): Promise<void> {
+        logger.info('🔁', 'blob_ingester_consumer_v2 - starting session recordings blob consumer', {
+            librdKafkaVersion: librdkafkaVersion,
+            kafkaCapabilities: features,
+        })
+
+        await this.keyStore.start()
+        await this.encryptor.start()
+
+        // Check that the storage backend is healthy before starting the consumer
+        // This is especially important in local dev with minio
+        await this.fileStorage.checkHealth()
+        await this.kafkaConsumer.connect((messages) => this.handleEachBatch(messages))
+
+        this.totalNumPartitions = (await this.kafkaConsumer.getPartitionsForTopic(this.topic)).length
+
+        this.kafkaConsumer.on('rebalance', async (err, topicPartitions) => {
+            logger.info('🔁', 'blob_ingester_consumer_v2 - rebalancing', { err, topicPartitions })
+            /**
+             * see https://github.com/Blizzard/node-rdkafka#rebalancing
+             *
+             * This event is received when the consumer group starts _or_ finishes rebalancing.
+             *
+             * NB if the partition assignment strategy changes then this code may need to change too.
+             * e.g. round-robin and cooperative strategies will assign partitions differently
+             */
+
+            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
+                return
+            }
+
+            if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+                return this.promiseScheduler.schedule(this.onRevokePartitions(topicPartitions))
+            }
+
+            // We had a "real" error
+            logger.error('🔥', 'blob_ingester_consumer_v2 - rebalancing error', { err })
+            captureException(err)
+            // TODO: immediately die? or just keep going?
+        })
+
+        // nothing happens here unless we configure SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS
+        this.kafkaConsumer.on('event.stats', (stats) => {
+            logger.info('🪵', 'blob_ingester_consumer_v2 - kafka stats', { stats })
+        })
+
+        // Start periodic flushing of TopHog metrics
+        this.topHog.start()
+    }
+
+    public async stop(): Promise<PromiseSettledResult<any>[]> {
+        logger.info('🔁', 'blob_ingester_consumer_v2 - stopping')
+        this.isStopping = true
+
+        // Stop TopHog and flush final metrics
+        await this.topHog.stop()
+
+        const assignedPartitions = this.assignedTopicPartitions
+        await this.kafkaConsumer.disconnect()
+
+        void this.promiseScheduler.schedule(this.onRevokePartitions(assignedPartitions))
+
+        const promiseResults = await this.promiseScheduler.waitForAllSettled()
+
+        this.keyStore.stop()
+        // Note: Kafka producers and Redis pools are owned by the server (IngestionSessionReplayServer),
+        // not by the ingester. The server handles their lifecycle in getCleanupResources().
+
+        logger.info('👍', 'blob_ingester_consumer_v2 - stopped!')
+
+        return promiseResults
+    }
+
+    public isHealthy(): HealthCheckResult {
+        // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
+        return this.kafkaConsumer.isHealthy()
+    }
+
+    private get assignedTopicPartitions(): TopicPartition[] {
+        return this.kafkaConsumer.assignments() ?? []
+    }
+
+    private get assignedPartitions(): TopicPartition['partition'][] {
+        return this.assignedTopicPartitions.map((x) => x.partition)
+    }
+
+    private onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
+        /**
+         * The revoke_partitions indicates that the consumer group has had partitions revoked.
+         * As a result, we need to drop all sessions currently managed for the revoked partitions
+         */
+
+        const revokedPartitions = topicPartitions.map((x) => x.partition)
+        if (!revokedPartitions.length) {
+            return Promise.resolve()
+        }
+
+        SessionRecordingIngesterMetrics.resetSessionsHandled()
+        this.sessionBatchManager.discardPartitions(revokedPartitions)
+        return Promise.resolve()
+    }
+
+    private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {
+        await instrumentFn(`recordingingesterv2.handleEachBatch.flush.commitOffsets`, () => {
+            this.kafkaConsumer.offsetsStore(offsets)
+            return Promise.resolve()
+        })
+    }
+
+    private overflowEnabled(): boolean {
+        return (
+            !!this.config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC &&
+            this.config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC !== this.topic
+        )
+    }
+}

@@ -24,7 +24,7 @@ export const GitLabSetupModal = (props: GitLabSetupModalLogicProps): JSX.Element
             }
             onClose={props.onComplete}
         >
-            <Form logic={gitlabSetupModalLogic} formKey="gitlabIntegration">
+            <Form logic={gitlabSetupModalLogic} props={props} formKey="gitlabIntegration">
                 <div className="gap-4 flex flex-col">
                     <LemonField name="hostname" label="Hostname">
                         <LemonInput type="text" placeholder="https://gitlab.com" />

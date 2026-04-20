@@ -320,7 +320,13 @@ describe('eventDefinitionsTableLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(eventDefinition)
             })
-                .toDispatchActions(['loadPropertiesForEvent', 'loadPropertiesForEventSuccess'])
+                .toDispatchActionsInAnyOrder([
+                    router.actionCreators.push(url),
+                    'loadEventDefinitions',
+                    'loadEventDefinitionsSuccess',
+                    'loadPropertiesForEvent',
+                    'loadPropertiesForEventSuccess',
+                ])
                 .toMatchValues({
                     eventPropertiesCacheMap: partial({
                         [eventDefinition.id]: partial({
@@ -329,7 +335,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toHaveBeenCalledTimes(2)
+            expect(api.get).toHaveBeenCalledTimes(3)
             // Forwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(
@@ -347,7 +353,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toHaveBeenCalledTimes(3)
+            expect(api.get).toHaveBeenCalledTimes(4)
             // Backwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(eventDefinition, propertiesStartingUrl)
@@ -361,7 +367,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toHaveBeenCalledTimes(3)
+            expect(api.get).toHaveBeenCalledTimes(4)
         })
     })
 })

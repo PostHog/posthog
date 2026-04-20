@@ -1,3 +1,5 @@
+from posthog.schema import MarketingAnalyticsBaseColumns, MarketingAnalyticsDrillDownLevel
+
 from posthog.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -42,10 +44,12 @@ class ConversionGoalsAggregator:
 
             # Transform the query to include a column for this specific conversion goal
             # and zero columns for all other conversion goals
+            # Note: base_query schema is: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
             enhanced_select = [
-                # Keep campaign and source
-                base_query.select[0],  # campaign
-                base_query.select[1],  # source
+                # Keep campaign, id, and source (skip match_key at [0])
+                base_query.select[1],  # campaign
+                base_query.select[2],  # id
+                base_query.select[3],  # source
             ]
 
             # Add columns for all conversion goals (this one gets the actual value, others get 0)
@@ -53,7 +57,8 @@ class ConversionGoalsAggregator:
                 if p.index == processor.index:
                     # This is the current processor - use the actual conversion value
                     # Extract the expression from the alias to avoid double aliasing
-                    conversion_expr = base_query.select[2]
+                    # Position [4] is the conversion value (after match_key, campaign, id, source)
+                    conversion_expr = base_query.select[4]
                     if isinstance(conversion_expr, ast.Alias):
                         conversion_expr = conversion_expr.expr
                     enhanced_select.append(
@@ -88,14 +93,45 @@ class ConversionGoalsAggregator:
         else:
             union_query = ast.SelectSetQuery.create_from_queries(conversion_subqueries, "UNION ALL")
 
-        # Step 3: Create final aggregation query that sums all conversion goals by campaign/source
-        # First, wrap the union in a subquery to materialize campaign/source fields
+        # Step 3: Create final aggregation query that sums all conversion goals
         subquery_alias = "conv"
+        level = self.config.drill_down_level
 
-        final_select: list[ast.Expr] = [
-            ast.Field(chain=[self.config.campaign_field]),
-            ast.Field(chain=[self.config.source_field]),
-        ]
+        # Include the subquery alias in field references so they work correctly in the outer query
+        campaign_field_expr = ast.Field(chain=[subquery_alias, self.config.campaign_field])
+        id_field_expr = ast.Field(chain=[subquery_alias, self.config.id_field])
+        source_field_expr = ast.Field(chain=[subquery_alias, self.config.source_field])
+
+        if level in (
+            MarketingAnalyticsDrillDownLevel.CHANNEL,
+            MarketingAnalyticsDrillDownLevel.SOURCE,
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            final_select: list[ast.Expr] = [
+                ast.Alias(alias=self.config.campaign_field, expr=campaign_field_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+            ]
+            group_by_exprs: list[ast.Expr] = [campaign_field_expr]
+        else:
+            # Campaign level — apply campaign name mappings
+            mapped_campaign_expr, mapped_id_expr = self._apply_campaign_name_mappings(
+                campaign_field_expr, id_field_expr, source_field_expr
+            )
+            final_select = [
+                ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
+                ast.Alias(alias=self.config.id_field, expr=mapped_id_expr),
+                ast.Alias(alias=self.config.source_field, expr=source_field_expr),
+                ast.Alias(alias=self.config.match_key_field, expr=mapped_campaign_expr),
+            ]
+            group_by_exprs = [
+                mapped_campaign_expr,
+                mapped_id_expr,
+                source_field_expr,
+            ]
 
         # Add each conversion goal as a summed column
         for processor in self.processors:
@@ -104,7 +140,11 @@ class ConversionGoalsAggregator:
                     alias=self.config.get_conversion_goal_column_name(processor.index),
                     expr=ast.Call(
                         name="sum",
-                        args=[ast.Field(chain=[self.config.get_conversion_goal_column_name(processor.index)])],
+                        args=[
+                            ast.Field(
+                                chain=[subquery_alias, self.config.get_conversion_goal_column_name(processor.index)]
+                            )
+                        ],
                     ),
                 )
             )
@@ -112,50 +152,64 @@ class ConversionGoalsAggregator:
         final_query = ast.SelectQuery(
             select=final_select,
             select_from=ast.JoinExpr(table=union_query, alias=subquery_alias),
-            group_by=[
-                ast.Field(chain=[self.config.campaign_field]),
-                ast.Field(chain=[self.config.source_field]),
-            ],
+            group_by=group_by_exprs,
         )
 
-        # Now apply campaign name mappings by wrapping in another SELECT
-        campaign_field_expr = ast.Field(chain=[self.config.campaign_field])
-        source_field_expr = ast.Field(chain=[self.config.source_field])
-        mapped_campaign_expr = self._apply_campaign_name_mappings(campaign_field_expr, source_field_expr)
+        return ast.CTE(name=UNIFIED_CONVERSION_GOALS_CTE_ALIAS, expr=final_query, cte_type="subquery")
 
-        outer_select: list[ast.Expr] = [
-            ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
-            ast.Field(chain=[self.config.source_field]),
-        ]
+    def _get_campaign_field_preference(self, external_source: str) -> str:
+        """
+        Get campaign field matching preference for a given integration from team config.
 
-        # Add conversion goal columns
-        for processor in self.processors:
-            outer_select.append(ast.Field(chain=[self.config.get_conversion_goal_column_name(processor.index)]))
+        Returns: "campaign_name" or "campaign_id"
 
-        wrapped_query = ast.SelectQuery(
-            select=outer_select,
-            select_from=ast.JoinExpr(table=final_query),
-        )
-
-        return ast.CTE(name=UNIFIED_CONVERSION_GOALS_CTE_ALIAS, expr=wrapped_query, cte_type="subquery")
-
-    def _apply_campaign_name_mappings(self, campaign_expr: ast.Expr, source_expr: ast.Expr) -> ast.Expr:
-        """Apply campaign name mappings from team config"""
-        # Get team from first processor (all processors have the same team)
+        Defaults to campaign_name if no preference set (backward compatible).
+        """
         if not self.processors or not self.processors[0].team:
-            return campaign_expr
+            return "campaign_name"
+
+        team = self.processors[0].team
+
+        try:
+            preferences = team.marketing_analytics_config.campaign_field_preferences
+            integration_prefs = preferences.get(external_source, {})
+            return integration_prefs.get("match_field", "campaign_name")
+        except Exception:
+            return "campaign_name"
+
+    def _apply_campaign_name_mappings(
+        self, campaign_expr: ast.Expr, id_expr: ast.Expr, source_expr: ast.Expr
+    ) -> tuple[ast.Expr, ast.Expr]:
+        """
+        Apply campaign name mappings from team config.
+
+        Returns a tuple of (mapped_campaign_expr, mapped_id_expr).
+
+        When a source is configured to match on campaign_id, the mapping will:
+        - Map utm_campaign values to campaign_id values
+        - Keep campaign_name unchanged (from the original data)
+
+        When a source is configured to match on campaign_name (default), the mapping will:
+        - Map utm_campaign values to campaign_name values
+        - Keep campaign_id unchanged
+        """
+        if not self.processors or not self.processors[0].team:
+            return campaign_expr, id_expr
 
         team = self.processors[0].team
 
         try:
             campaign_mappings = team.marketing_analytics_config.campaign_name_mappings
         except Exception:
-            return campaign_expr
+            return campaign_expr, id_expr
 
         if not campaign_mappings:
-            return campaign_expr
+            return campaign_expr, id_expr
 
-        conditions_and_results: list[ast.Expr] = []
+        # Build separate mapping expressions for campaign_name and campaign_id
+        campaign_name_conditions: list[ast.Expr] = []
+        campaign_id_conditions: list[ast.Expr] = []
+
         lowercase_campaign = ast.Call(name="lower", args=[campaign_expr])
         lowercase_source = ast.Call(name="lower", args=[source_expr])
 
@@ -176,6 +230,9 @@ class ConversionGoalsAggregator:
             if not utm_sources:
                 continue
 
+            # Get the match field preference for this source
+            match_field = self._get_campaign_field_preference(external_source)
+
             # Build source condition once for this adapter
             source_condition = ast.Call(
                 name="in",
@@ -190,6 +247,7 @@ class ConversionGoalsAggregator:
                 if not raw_values:
                     continue
 
+                # The raw_values are utm_campaign values that should be mapped to clean_name
                 campaign_condition = ast.Call(
                     name="in",
                     args=[
@@ -201,21 +259,39 @@ class ConversionGoalsAggregator:
                 # Combine source and campaign conditions
                 combined_condition = ast.Call(name="and", args=[source_condition, campaign_condition])
 
-                conditions_and_results.append(combined_condition)
-                conditions_and_results.append(ast.Constant(value=clean_name))
+                if match_field == "campaign_id":
+                    # When matching on campaign_id, map utm_campaign -> campaign_id
+                    # The clean_name is the campaign_id value
+                    campaign_id_conditions.append(combined_condition)
+                    campaign_id_conditions.append(ast.Constant(value=clean_name))
+                else:
+                    # When matching on campaign_name (default), map utm_campaign -> campaign_name
+                    # The clean_name is the campaign_name value
+                    campaign_name_conditions.append(combined_condition)
+                    campaign_name_conditions.append(ast.Constant(value=clean_name))
 
-        # If no mappings were added, return original campaign
-        if not conditions_and_results:
-            return campaign_expr
+        # Build final expressions
+        mapped_campaign_expr = campaign_expr
+        mapped_id_expr = id_expr
 
-        # Add default case (original campaign)
-        conditions_and_results.append(campaign_expr)
+        if campaign_name_conditions:
+            campaign_name_conditions.append(campaign_expr)
+            mapped_campaign_expr = ast.Call(name="multiIf", args=campaign_name_conditions)
 
-        # Build multiIf with all conditions
-        return ast.Call(name="multiIf", args=conditions_and_results)
+        if campaign_id_conditions:
+            campaign_id_conditions.append(id_expr)
+            mapped_id_expr = ast.Call(name="multiIf", args=campaign_id_conditions)
 
-    def get_conversion_goal_columns(self) -> dict[str, ast.Alias]:
-        """Get the column mappings for accessing conversion goals from the unified CTE"""
+        return mapped_campaign_expr, mapped_id_expr
+
+    def get_conversion_goal_columns(self, include_cost_per: bool = True) -> dict[str, ast.Alias]:
+        """Get the column mappings for accessing conversion goals from the unified CTE
+
+        Args:
+            include_cost_per: If True, include "Cost per conversion" columns that reference
+                campaign_costs CTE. Set to False for queries that don't join with
+                campaign_costs (e.g., non-integrated conversions).
+        """
         columns = {}
 
         for processor in self.processors:
@@ -230,44 +306,87 @@ class ConversionGoalsAggregator:
                     )
                 ),
             )
-
-            # Cost per conversion column
-            cost_per_goal_alias = ast.Alias(
-                alias=f"{self.config.cost_per_prefix} {goal_name}",
-                expr=ast.Call(
-                    name="round",
-                    args=[
-                        ast.ArithmeticOperation(
-                            left=ast.Field(
-                                chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field)
-                            ),
-                            op=ast.ArithmeticOperationOp.Div,
-                            right=ast.Call(
-                                name="nullif",
-                                args=[
-                                    ast.Field(
-                                        chain=self.config.get_unified_conversion_field_chain(
-                                            self.config.get_conversion_goal_column_name(processor.index)
-                                        )
-                                    ),
-                                    ast.Constant(value=0),
-                                ],
-                            ),
-                        ),
-                        ast.Constant(value=2),
-                    ],
-                ),
-            )
-
             columns[goal_name] = conversion_goal_alias
-            columns[f"{self.config.cost_per_prefix} {goal_name}"] = cost_per_goal_alias
+
+            # Cost per conversion column (only if requested and campaign_costs is available)
+            if include_cost_per:
+                cost_per_goal_alias = ast.Alias(
+                    alias=f"{self.config.cost_per_prefix} {goal_name}",
+                    expr=ast.Call(
+                        name="round",
+                        args=[
+                            ast.ArithmeticOperation(
+                                left=ast.Field(
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field)
+                                ),
+                                op=ast.ArithmeticOperationOp.Div,
+                                right=ast.Call(
+                                    name="nullif",
+                                    args=[
+                                        ast.Field(
+                                            chain=self.config.get_unified_conversion_field_chain(
+                                                self.config.get_conversion_goal_column_name(processor.index)
+                                            )
+                                        ),
+                                        ast.Constant(value=0),
+                                    ],
+                                ),
+                            ),
+                            ast.Constant(value=2),
+                        ],
+                    ),
+                )
+                columns[f"{self.config.cost_per_prefix} {goal_name}"] = cost_per_goal_alias
 
         return columns
 
     def get_coalesce_fallback_columns(self) -> dict[str, ast.Expr]:
-        """Get COALESCE columns that fall back to unified conversion goals for campaign/source"""
-        # Use the config group_by_fields to build COALESCE expressions
-        campaign_field, source_field = self.config.group_by_fields
+        """Get COALESCE columns that fall back to unified conversion goals for campaign/id/source"""
+        level = self.config.drill_down_level
+        group_by_fields = self.config.group_by_fields
+
+        if level in (
+            MarketingAnalyticsDrillDownLevel.CHANNEL,
+            MarketingAnalyticsDrillDownLevel.SOURCE,
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            campaign_field = self.config.campaign_field
+            # "Unknown" = DefaultChannelTypes.UNKNOWN; "(none)" = BREAKDOWN_NULL_DISPLAY for UTM fields.
+            fallback_map = {
+                MarketingAnalyticsDrillDownLevel.CHANNEL: "Unknown",
+                MarketingAnalyticsDrillDownLevel.SOURCE: self.config.organic_source,
+                MarketingAnalyticsDrillDownLevel.MEDIUM: "(none)",
+                MarketingAnalyticsDrillDownLevel.CONTENT: "(none)",
+                MarketingAnalyticsDrillDownLevel.TERM: "(none)",
+            }
+            fallback = fallback_map[level]
+            campaign_alias = self.config.get_campaign_column_alias()
+            campaign_args = [
+                ast.Call(
+                    name="nullif",
+                    args=[
+                        ast.Field(chain=self.config.get_campaign_cost_field_chain(campaign_field)),
+                        ast.Constant(value=""),
+                    ],
+                ),
+                ast.Call(
+                    name="nullif",
+                    args=[
+                        ast.Field(chain=self.config.get_unified_conversion_field_chain(campaign_field)),
+                        ast.Constant(value=""),
+                    ],
+                ),
+                ast.Constant(value=fallback),
+            ]
+            return {
+                campaign_alias: ast.Alias(alias=campaign_alias, expr=ast.Call(name="coalesce", args=campaign_args)),
+            }
+
+        # Campaign level (default) — 3 fields
+        campaign_field, id_field, source_field = group_by_fields
+        campaign_alias = self.config.get_campaign_column_alias()
 
         campaign_args = [
             ast.Call(
@@ -285,6 +404,24 @@ class ConversionGoalsAggregator:
                 ],
             ),
             ast.Constant(value=self.config.organic_campaign),
+        ]
+
+        id_args = [
+            ast.Call(
+                name="nullif",
+                args=[
+                    ast.Field(chain=self.config.get_campaign_cost_field_chain(id_field)),
+                    ast.Constant(value=""),
+                ],
+            ),
+            ast.Call(
+                name="nullif",
+                args=[
+                    ast.Field(chain=self.config.get_unified_conversion_field_chain(id_field)),
+                    ast.Constant(value=""),
+                ],
+            ),
+            ast.Constant(value="-"),
         ]
 
         source_args = [
@@ -306,8 +443,9 @@ class ConversionGoalsAggregator:
         ]
 
         return {
-            self.config.campaign_column_alias: ast.Alias(
-                alias=self.config.campaign_column_alias, expr=ast.Call(name="coalesce", args=campaign_args)
+            campaign_alias: ast.Alias(alias=campaign_alias, expr=ast.Call(name="coalesce", args=campaign_args)),
+            MarketingAnalyticsBaseColumns.ID: ast.Alias(
+                alias=MarketingAnalyticsBaseColumns.ID, expr=ast.Call(name="coalesce", args=id_args)
             ),
             self.config.source_column_alias: ast.Alias(
                 alias=self.config.source_column_alias, expr=ast.Call(name="coalesce", args=source_args)

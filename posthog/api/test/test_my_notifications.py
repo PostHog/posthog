@@ -21,8 +21,6 @@ def _feature_flag_json_payload(key: str) -> dict:
         "deleted": False,
         "active": True,
         "created_by": None,
-        "is_simple_flag": False,
-        "rollout_percentage": None,
         "ensure_experience_continuity": False,
         "experiment_set": None,
     }

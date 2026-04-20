@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -6,14 +6,19 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExperimentForm } from './ExperimentForm'
-import { ExperimentView } from './ExperimentView/ExperimentView'
+import { ProductKey } from '~/queries/schema/schema-general'
+
+import { createExperimentLogic } from './ExperimentForm/createExperimentLogic'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
+import { ExperimentView } from './ExperimentView/ExperimentView'
+import { ExperimentWizard } from './ExperimentWizard/ExperimentWizard'
+import { experimentWizardLogic } from './ExperimentWizard/experimentWizardLogic'
 
 export const scene: SceneExport<ExperimentSceneLogicProps> = {
     component: Experiment,
     logic: experimentSceneLogic,
+    productKey: ProductKey.EXPERIMENTS,
     paramsToProps: ({ params: { id, formMode } }) => ({
         experimentId: id === 'new' ? 'new' : parseInt(id, 10),
         formMode: formMode || (id === 'new' ? FORM_MODES.create : FORM_MODES.update),
@@ -21,7 +26,9 @@ export const scene: SceneExport<ExperimentSceneLogicProps> = {
     }),
 }
 
-export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
+export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
+    const { tabId } = props
+
     if (!tabId) {
         throw new Error('<Experiment /> must receive a tabId prop')
     }
@@ -32,7 +39,6 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
         type: 'experiment',
         ref: experimentId,
         enabled: Boolean(currentTeamId && !experimentMissing && typeof experimentId === 'number'),
-        deps: [currentTeamId, experimentId, experimentMissing],
     })
 
     const logicProps: ExperimentLogicProps = { experimentId, formMode, tabId }
@@ -42,13 +48,22 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
         return <NotFound object="experiment" />
     }
 
+    const isCreateMode = formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode)
+
     return (
         <BindLogic logic={experimentLogic} props={logicProps}>
-            {formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
-                <ExperimentForm />
-            ) : (
-                <ExperimentView tabId={tabId} />
-            )}
+            {isCreateMode ? <ExperimentCreateMode tabId={tabId} /> : <ExperimentView tabId={tabId} />}
+        </BindLogic>
+    )
+}
+
+function ExperimentCreateMode({ tabId }: { tabId: string }): JSX.Element {
+    const logic = createExperimentLogic({ tabId })
+    useMountedLogic(logic)
+
+    return (
+        <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
+            <ExperimentWizard />
         </BindLogic>
     )
 }

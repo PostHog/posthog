@@ -1,10 +1,11 @@
-// adapted from https://github.com/react-monaco-editor/react-monaco-editor/blob/d2fd2521e0557c880dec93acaab9a087f025426c/src/diff.tsx
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
+import * as monaco from 'monaco-editor'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
+// adapted from https://github.com/react-monaco-editor/react-monaco-editor/blob/d2fd2521e0557c880dec93acaab9a087f025426c/src/diff.tsx
+import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-interface MonacoDiffEditorProps {
+export interface MonacoDiffEditorProps {
     width?: number | string
     height?: number | string
     value?: string | null
@@ -15,8 +16,8 @@ interface MonacoDiffEditorProps {
     options?: monaco.editor.IDiffEditorConstructionOptions
     onChange?: (value: string, event: monaco.editor.IModelContentChangedEvent) => void
     className?: string | null
-    originalUri?: (monaco: typeof import('monaco-editor')) => monaco.Uri
-    modifiedUri?: (monaco: typeof import('monaco-editor')) => monaco.Uri
+    originalUri?: (m: typeof monaco) => monaco.Uri
+    modifiedUri?: (m: typeof monaco) => monaco.Uri
 }
 
 const LINE_HEIGHT = 18

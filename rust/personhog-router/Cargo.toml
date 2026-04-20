@@ -1,0 +1,38 @@
+[package]
+name = "personhog-router"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+personhog-common = { path = "../personhog-common" }
+personhog-coordination = { path = "../personhog-coordination" }
+personhog-proto = { path = "../personhog-proto" }
+assignment-coordination = { path = "../common/assignment-coordination" }
+k8s-awareness = { path = "../common/k8s-awareness" }
+common-alloc = { path = "../common/alloc" }
+metrics-exporter-prometheus = { workspace = true }
+lifecycle = { path = "../common/lifecycle" }
+kube = { version = "0.98", features = ["client"] }
+
+async-trait = { workspace = true }
+axum = { workspace = true }
+dashmap = { workspace = true }
+envconfig = { workspace = true }
+metrics = { workspace = true }
+rand = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+dashmap = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+tokio-stream = "0.1"
+
+[lints]
+workspace = true

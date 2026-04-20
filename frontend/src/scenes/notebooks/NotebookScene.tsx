@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconInfo, IconOpenSidebar } from '@posthog/icons'
@@ -6,6 +7,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -14,13 +16,18 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
-import { NotebookExpandButton, NotebookSyncInfo, NotebookTableOfContentsButton } from './Notebook/NotebookMeta'
-import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { notebookLogic } from './Notebook/notebookLogic'
+import {
+    NotebookExpandButton,
+    NotebookKernelInfoButton,
+    NotebookSyncInfo,
+    NotebookTableOfContentsButton,
+} from './Notebook/NotebookMeta'
+import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
-import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
+import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { NotebookTarget } from './types'
 
 interface NotebookSceneProps {
@@ -47,7 +54,23 @@ export function NotebookScene(): JSX.Element {
     useEffect(() => {
         if (notebookId === 'new') {
             // NOTE: We don't do this in the logic afterMount as the logic can get cached by the router
-            createNotebook(NotebookTarget.Scene)
+            let content: JSONContent[] | undefined
+            let title: string | undefined
+
+            const searchParams = new URLSearchParams(router.values.location.search)
+            const contentParam = searchParams.get('notebook')
+            if (contentParam) {
+                try {
+                    const decoded = decodeURIComponent(contentParam)
+                    const parsedNotebook = JSON.parse(decoded)
+                    content = parsedNotebook['body'] as JSONContent[]
+                    title = parsedNotebook['title'] as string
+                } catch (error) {
+                    console.error('Failed to parse content query parameter:', error)
+                }
+            }
+
+            createNotebook(NotebookTarget.Scene, title, content)
         }
         // oxlint-disable-next-line exhaustive-deps
     }, [notebookId])
@@ -56,7 +79,6 @@ export function NotebookScene(): JSX.Element {
         type: 'notebook',
         ref: notebook?.short_id,
         enabled: Boolean(notebook?.short_id && notebookId !== 'new' && !loading && !conflictWarningVisible),
-        deps: [notebook?.short_id, notebookId, loading, conflictWarningVisible],
     })
 
     if (accessDeniedToNotebook) {
@@ -124,7 +146,8 @@ export function NotebookScene(): JSX.Element {
                         Guide
                     </LemonButton>
                     <NotebookTableOfContentsButton type="secondary" size="small" />
-                    <NotebookExpandButton type="secondary" size="small" />
+                    <NotebookKernelInfoButton type="secondary" size="small" />
+                    <NotebookExpandButton type="secondary" size="small" inPanel={false} />
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -133,14 +156,14 @@ export function NotebookScene(): JSX.Element {
                         }}
                         tooltip={
                             <>
-                                Opens the notebook in a side panel, that can be accessed from anywhere in the PostHog
+                                Opens the notebook in a context panel, that can be accessed from anywhere in the PostHog
                                 app. This is great for dragging and dropping elements like insights, recordings or even
                                 feature flags into your active notebook.
                             </>
                         }
                         sideIcon={<IconOpenSidebar />}
                     >
-                        Open in side panel
+                        Open in context panel
                     </LemonButton>
                 </div>
             </div>

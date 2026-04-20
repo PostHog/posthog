@@ -32,7 +32,6 @@ export function DatabaseSearchField({ placeholder }: TreeSearchFieldProps): JSX.
             onKeyDown={(e) => handleKeyDown(e)}
             onClear={() => clearSearch()}
             onChange={(value) => setSearchTerm(value)}
-            autoFocus={true}
         />
     )
 }

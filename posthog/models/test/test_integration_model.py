@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from django.db import connection
 
 from disposable_email_domains import blocklist as disposable_email_domains_list
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.instance_setting import set_instance_setting
@@ -20,6 +21,7 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
+    GoogleCloudServiceAccountIntegration,
     Integration,
     OauthIntegration,
     SlackIntegration,
@@ -108,6 +110,8 @@ class TestOauthIntegrationModel(BaseTest):
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
         "GOOGLE_ADS_APP_CLIENT_ID": "google-client-id",
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
+        "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
+        "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
     }
 
     def create_integration(
@@ -251,6 +255,54 @@ class TestOauthIntegrationModel(BaseTest):
                 "id_token": None,
             }
 
+    @patch("posthog.models.integration.requests.post")
+    def test_linkedin_integration_extracts_user_info_from_id_token(self, mock_post):
+        """
+        LinkedIn's /v2/userinfo endpoint has intermittent REVOKED_ACCESS_TOKEN errors,
+        so we extract user info from the id_token JWT instead.
+        """
+        import json
+        import base64
+
+        # Create a mock JWT id_token with sub and email in the payload
+        jwt_payload = {"sub": "linkedin_user_123", "email": "user@example.com", "iat": 1704110400}
+        encoded_payload = base64.urlsafe_b64encode(json.dumps(jwt_payload).encode()).decode().rstrip("=")
+        mock_id_token = f"eyJhbGciOiJSUzI1NiJ9.{encoded_payload}.fake_signature"
+
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "id_token": mock_id_token,
+                "expires_in": 3600,
+            }
+
+            with freeze_time("2024-01-01T12:00:00Z"):
+                integration = OauthIntegration.integration_from_oauth_response(
+                    "linkedin-ads",
+                    self.team.id,
+                    self.user,
+                    {
+                        "code": "code",
+                        "state": "next=/projects/test",
+                    },
+                )
+
+            assert integration.team == self.team
+            assert integration.created_by == self.user
+            # Verify sub and email were extracted from JWT
+            assert integration.config["sub"] == "linkedin_user_123"
+            assert integration.config["email"] == "user@example.com"
+            assert integration.config["refreshed_at"] == 1704110400
+            assert integration.config["expires_in"] == 3600
+
+            assert integration.sensitive_config == {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "id_token": mock_id_token,
+            }
+
     def test_integration_access_token_expired(self):
         now = datetime.now()
         with freeze_time(now):
@@ -302,6 +354,37 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @parameterized.expand(
+        [
+            (
+                "rotated",
+                {
+                    "access_token": "REFRESHED_ACCESS_TOKEN",
+                    "refresh_token": "ROTATED_REFRESH_TOKEN",
+                    "expires_in": 1000,
+                },
+                "ROTATED_REFRESH_TOKEN",
+            ),
+            ("not_rotated", {"access_token": "REFRESHED_ACCESS_TOKEN", "expires_in": 1000}, "REFRESH"),
+        ]
+    )
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token_refresh_token_handling(
+        self, _name, token_response, expected_refresh_token, mock_post, mock_reload
+    ):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = token_response
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.sensitive_config["refresh_token"] == expected_refresh_token
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -504,11 +587,13 @@ class TestGoogleCloudIntegrationModel(BaseTest):
         assert integration.created_by == self.user
 
         assert integration.config == {
-            "access_token": "ACCESS_TOKEN",
             "refreshed_at": 1704110400,
             "expires_in": 3600,
         }
-        assert integration.sensitive_config == self.mock_keyfile
+        assert integration.sensitive_config == {
+            "key_info": self.mock_keyfile,
+            "access_token": "ACCESS_TOKEN",
+        }
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
     def test_integration_refresh_token(self, mock_credentials):
@@ -538,10 +623,73 @@ class TestGoogleCloudIntegrationModel(BaseTest):
             assert GoogleCloudIntegration(integration).access_token_expired() is False
 
         assert integration.config == {
-            "access_token": "ACCESS_TOKEN",
             "refreshed_at": 1704110400 + 3600 * 2,
             "expires_in": 3600,
         }
+        assert integration.sensitive_config["access_token"] == "ACCESS_TOKEN"
+
+        # Verify refresh used the nested key_info, not the whole sensitive_config
+        refresh_call = mock_credentials.call_args_list[-1]
+        assert refresh_call[0][0] == self.mock_keyfile
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_refresh_token_fallback_pre_migration_sensitive_config(self, mock_credentials):
+        """Pre-migration integrations store key_info directly in sensitive_config (not nested under 'key_info').
+        The refresh logic should fall back to using the entire sensitive_config as key_info."""
+        mock_credentials.return_value.project_id = "posthog-616"
+        mock_credentials.return_value.service_account_email = "posthog@"
+        mock_credentials.return_value.token = "REFRESHED_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        # Simulate pre-migration state: key_info stored directly as sensitive_config,
+        # access_token in config
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="google-pubsub",
+            integration_id="posthog@",
+            config={
+                "refreshed_at": 1704110400,
+                "expires_in": 1,
+                "access_token": "OLD_TOKEN",
+            },
+            sensitive_config=self.mock_keyfile,
+        )
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            GoogleCloudIntegration(integration).refresh_access_token()
+
+        # After refresh, sensitive_config should be migrated to the nested structure
+        assert integration.sensitive_config == {
+            "key_info": self.mock_keyfile,
+            "access_token": "REFRESHED_TOKEN",
+        }
+        assert "access_token" not in integration.config
+
+        # Verify refresh used the whole sensitive_config as key_info (pre-migration fallback)
+        assert mock_credentials.call_args[0][0] == self.mock_keyfile
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_get_access_token_reads_from_sensitive_config(self, mock_credentials):
+        mock_credentials.return_value.project_id = "posthog-616"
+        mock_credentials.return_value.service_account_email = "posthog@"
+        mock_credentials.return_value.token = "ACCESS_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = GoogleCloudIntegration.integration_from_key(
+                "google-pubsub",
+                self.mock_keyfile,
+                self.team.id,
+                self.user,
+            )
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            token = GoogleCloudIntegration(integration).get_access_token()
+
+        assert token == "ACCESS_TOKEN"
+        assert "access_token" not in integration.config
 
 
 class TestGitHubIntegrationModel(BaseTest):
@@ -652,6 +800,92 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        transient = MagicMock()
+        transient.status_code = 502
+        transient.json.side_effect = ValueError("not json")
+
+        success = MagicMock()
+        success.status_code = 200
+        success.json.return_value = {
+            "repositories": [
+                {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
+                {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+            ]
+        }
+
+        mock_get.side_effect = [transient, success]
+
+        repos, has_more = GitHubIntegration(integration).list_repositories()
+
+        assert repos == [
+            {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
+            {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+        ]
+        assert has_more is False
+        assert mock_get.call_count == 2
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_list_repositories_returns_empty_after_repeated_transient_non_json(self, _mock_expired, mock_get):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        transient_1 = MagicMock()
+        transient_1.status_code = 502
+        transient_1.json.side_effect = ValueError("not json")
+
+        transient_2 = MagicMock()
+        transient_2.status_code = 502
+        transient_2.json.side_effect = ValueError("not json")
+
+        mock_get.side_effect = [transient_1, transient_2]
+
+        repos, has_more = GitHubIntegration(integration).list_repositories()
+
+        assert repos == []
+        assert has_more is False
+        assert mock_get.call_count == 2
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_list_all_repositories_delegates_with_limit(self, mock_list):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        all_repos = [{"id": i, "name": f"repo-{i}", "full_name": f"PostHog/repo-{i}"} for i in range(130)]
+        mock_list.return_value = (all_repos, False)
+
+        repos = GitHubIntegration(integration).list_all_repositories()
+
+        assert len(repos) == 130
+        mock_list.assert_called_once_with(limit=500, offset=0)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_list_all_repositories_respects_max_repos(self, mock_list):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        repos_50 = [{"id": i, "name": f"repo-{i}", "full_name": f"PostHog/repo-{i}"} for i in range(50)]
+        mock_list.return_value = (repos_50, True)
+
+        repos = GitHubIntegration(integration).list_all_repositories(max_repos=50)
+
+        assert len(repos) == 50
+        mock_list.assert_called_once_with(limit=50, offset=0)
+
 
 class TestDatabricksIntegrationModel(BaseTest):
     @patch("posthog.models.integration.socket.socket")
@@ -685,6 +919,59 @@ class TestDatabricksIntegrationModel(BaseTest):
                 client_secret="client_secret",
                 created_by=self.user,
             )
+
+
+class TestGoogleCloudServiceAccountIntegration(BaseTest):
+    def test_raises_on_duplicate_service_account_email(self):
+        _ = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=self.team.pk,
+            organization_id=str(self.team.organization.id),
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+        )
+        with pytest.raises(ValidationError):
+            _ = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+                team_id=self.team.pk + 1,
+                organization_id="a-different-org",
+                service_account_email="test@test.iam.gserviceaccount.com",
+                project_id="test",
+            )
+
+    def test_allows_duplicate_service_account_email_when_using_key(self):
+        key_file_integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=self.team.pk,
+            organization_id=str(self.team.organization.id),
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+            private_key="something",
+            private_key_id="something",
+            token_uri="something",
+        )
+
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other team")
+        new_impersonated_integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=other_team.id,
+            organization_id=other_org.id,
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+        )
+
+        new_key_file_integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=other_team.pk,
+            organization_id=other_org.id,
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+            private_key="something",
+            private_key_id="something",
+            token_uri="something",
+        )
+
+        assert (
+            GoogleCloudServiceAccountIntegration(key_file_integration).service_account_email
+            == GoogleCloudServiceAccountIntegration(new_impersonated_integration).service_account_email
+            == GoogleCloudServiceAccountIntegration(new_key_file_integration).service_account_email
+        )
 
 
 class TestEmailIntegrationDomainValidation(BaseTest):
@@ -762,3 +1049,63 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             )
         assert disposable_domain in str(exc.value)
         assert "not supported" in str(exc.value)
+
+
+class TestGitLabIntegrationSSRFProtection:
+    """Test SSRF protections in GitLabIntegration."""
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.is_url_allowed")
+    def test_get_uses_allow_redirects_false(self, mock_is_url_allowed, mock_get):
+        """GET requests must use allow_redirects=False to prevent redirect-based SSRF bypass."""
+        from posthog.models.integration import GitLabIntegration
+
+        mock_is_url_allowed.return_value = (True, None)
+        mock_get.return_value.json.return_value = {"data": "test"}
+
+        GitLabIntegration.get("https://gitlab.com", "projects/1", "token123")
+
+        mock_get.assert_called_once()
+        call_kwargs = mock_get.call_args.kwargs
+        assert call_kwargs.get("allow_redirects") is False, "GET must use allow_redirects=False for SSRF protection"
+
+    @patch("posthog.models.integration.requests.post")
+    @patch("posthog.models.integration.is_url_allowed")
+    def test_post_uses_allow_redirects_false(self, mock_is_url_allowed, mock_post):
+        """POST requests must use allow_redirects=False to prevent redirect-based SSRF bypass."""
+        from posthog.models.integration import GitLabIntegration
+
+        mock_is_url_allowed.return_value = (True, None)
+        mock_post.return_value.json.return_value = {"data": "test"}
+
+        GitLabIntegration.post("https://gitlab.com", "projects/1/issues", "token123", {"title": "test"})
+
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args.kwargs
+        assert call_kwargs.get("allow_redirects") is False, "POST must use allow_redirects=False for SSRF protection"
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.is_url_allowed")
+    def test_get_validates_url_before_request(self, mock_is_url_allowed, mock_get):
+        """URL validation must happen before the request is made."""
+        from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
+
+        mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
+
+        with pytest.raises(GitLabIntegrationError, match="Invalid GitLab hostname"):
+            GitLabIntegration.get("http://192.168.1.1", "projects/1", "token123")
+
+        mock_get.assert_not_called()
+
+    @patch("posthog.models.integration.requests.post")
+    @patch("posthog.models.integration.is_url_allowed")
+    def test_post_validates_url_before_request(self, mock_is_url_allowed, mock_post):
+        """URL validation must happen before the request is made."""
+        from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
+
+        mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
+
+        with pytest.raises(GitLabIntegrationError, match="Invalid GitLab hostname"):
+            GitLabIntegration.post("http://192.168.1.1", "projects/1/issues", "token123", {"title": "test"})
+
+        mock_post.assert_not_called()

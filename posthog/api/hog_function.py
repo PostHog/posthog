@@ -5,10 +5,13 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 import structlog
+import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -19,7 +22,7 @@ from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, log_activity_from_viewset
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -31,8 +34,8 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.models import Team
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -85,11 +88,18 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
 
 class HogFunctionMaskingSerializer(serializers.Serializer):
     ttl = serializers.IntegerField(
-        required=True, min_value=60, max_value=60 * 60 * 24
-    )  # NOTE: 24 hours max for now - we might increase this later
-    threshold = serializers.IntegerField(required=False, allow_null=True)
-    hash = serializers.CharField(required=True)
-    bytecode = serializers.JSONField(required=False, allow_null=True)
+        required=True,
+        min_value=60,
+        max_value=60 * 60 * 24,
+        help_text="Time-to-live in seconds for the masking cache (60–86400).",
+    )
+    threshold = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Optional threshold count before masking applies."
+    )
+    hash = serializers.CharField(required=True, help_text="Hog expression used to compute the masking hash.")
+    bytecode = serializers.JSONField(
+        required=False, allow_null=True, help_text="Compiled bytecode for the hash expression. Auto-generated."
+    )
 
     def validate(self, attrs):
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
@@ -99,12 +109,32 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
-    masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
-    type = serializers.ChoiceField(choices=HogFunctionType.choices, required=False, allow_null=True)
-    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(required=True), required=False)
-    inputs = InputsSerializer(required=False)
-    mappings = serializers.ListField(child=MappingsSerializer(), required=False, allow_null=True)
-    filters = HogFunctionFiltersSerializer(required=False)
+    masking = HogFunctionMaskingSerializer(
+        required=False,
+        allow_null=True,
+        help_text="PII masking configuration with TTL, threshold, and hash expression.",
+    )
+    type = serializers.ChoiceField(
+        choices=HogFunctionType.choices,
+        required=False,
+        allow_null=True,
+        help_text="Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.",
+    )
+    inputs_schema = serializers.ListField(
+        child=InputsSchemaItemSerializer(required=True),
+        required=False,
+        help_text="Schema defining the configurable input parameters for this function.",
+    )
+    inputs = InputsSerializer(required=False, help_text="Values for each input defined in inputs_schema.")
+    mappings = serializers.ListField(
+        child=MappingsSerializer(),
+        required=False,
+        allow_null=True,
+        help_text="Event-to-destination field mappings. Only for destination and site_destination types.",
+    )
+    filters = HogFunctionFiltersSerializer(
+        required=False, help_text="Event filters that control which events trigger this function."
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -133,6 +163,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "status",
             "execution_order",
             "_create_in_folder",
+            "batch_export_id",
         ]
         read_only_fields = [
             "id",
@@ -145,11 +176,25 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "status",
         ]
         extra_kwargs = {
-            "hog": {"required": False},
+            "hog": {
+                "required": False,
+                "help_text": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+            },
             "inputs_schema": {"required": False},
-            "template_id": {"write_only": True},
-            "deleted": {"write_only": True},
+            "template_id": {
+                "write_only": True,
+                "help_text": "ID of the template to create this function from.",
+            },
+            "deleted": {
+                "write_only": True,
+                "help_text": "Soft-delete flag. Set to true to archive the function.",
+            },
             "type": {"required": True},
+            "name": {"help_text": "Display name for the function."},
+            "description": {"help_text": "Human-readable description of what this function does."},
+            "enabled": {"help_text": "Whether the function is active and processing events."},
+            "icon_url": {"help_text": "URL for the function's icon displayed in the UI."},
+            "execution_order": {"help_text": "Execution priority for transformations. Lower values run first."},
         }
 
     # NOTE: All pre-validation should be done here such as loading the template info etc.
@@ -208,6 +253,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return super().to_internal_value(data)
 
     def validate_type(self, value):
+        if value == HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value:
+            raise serializers.ValidationError(
+                "Cannot create or modify warehouse source webhook functions via this API."
+            )
+
         # Ensure it is only set when creating a new function
         if self.context.get("view") and self.context["view"].action == "create":
             return value
@@ -366,13 +416,30 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
-    configuration = HogFunctionSerializer(write_only=True)
-    globals = serializers.DictField(write_only=True, required=False)
-    clickhouse_event = serializers.DictField(write_only=True, required=False)
-    mock_async_functions = serializers.BooleanField(default=True, write_only=True)
-    status = serializers.CharField(read_only=True)
-    logs = serializers.ListField(read_only=True)
-    invocation_id = serializers.CharField(required=False, allow_null=True)
+    configuration = HogFunctionSerializer(write_only=True, help_text="Full function configuration to test.")
+    globals = serializers.DictField(
+        write_only=True, required=False, help_text="Mock global variables available during test invocation."
+    )
+    clickhouse_event = serializers.DictField(
+        write_only=True, required=False, help_text="Mock ClickHouse event data to test the function with."
+    )
+    mock_async_functions = serializers.BooleanField(
+        default=True,
+        write_only=True,
+        help_text="When true (default), async functions like fetch() are simulated.",
+    )
+    status = serializers.CharField(read_only=True, help_text="Invocation result status.")
+    logs = serializers.ListField(read_only=True, help_text="Execution logs from the test invocation.")
+    invocation_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Optional invocation ID for correlation."
+    )
+
+
+class HogFunctionRearrangeSerializer(serializers.Serializer):
+    orders = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Map of hog function UUIDs to their new execution_order values.",
+    )
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -387,6 +454,7 @@ class HogFunctionFilterSet(FilterSet):
         fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
+@extend_schema(tags=["hog_functions", "cdp"])
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin,
     LogEntryMixin,
@@ -395,6 +463,7 @@ class HogFunctionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
+    scope_object_write_actions = ["create", "update", "partial_update", "invocations", "rearrange"]
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     search_fields = ["name", "description"]
@@ -403,9 +472,16 @@ class HogFunctionViewSet(
     app_source = "hog_function"
 
     def get_serializer_class(self) -> type[BaseSerializer]:
-        return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
+        if self.action == "list":
+            # Use full serializer (including inputs, mappings, etc.) when ?full=true
+            if self.request.GET.get("full") == "true":
+                return HogFunctionSerializer
+            return HogFunctionMinimalSerializer
+        return HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
+
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
             # We only want to include deleted functions if we are un-deleting them
             queryset = queryset.filter(deleted=False)
@@ -467,6 +543,10 @@ class HogFunctionViewSet(
 
         return icon_service.get_icon_http_response(id)
 
+    @extend_schema(
+        request=HogFunctionInvocationSerializer,
+        responses={200: HogFunctionInvocationSerializer},
+    )
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
         try:
@@ -495,95 +575,40 @@ class HogFunctionViewSet(
 
         return Response(res.json())
 
-    @action(detail=True, methods=["POST"])
-    def broadcast(self, request: Request, *args, **kwargs):
-        hog_function = self.get_object()
-
-        if not hog_function.enabled:
-            return Response({"error": "Cannot broadcast: function is disabled"}, status=400)
-
-        actors_query = {
-            "kind": "ActorsQuery",
-            "properties": hog_function.filters.get("properties", None),
-            "select": ["id", "any(pdi.distinct_id)", "properties", "created_at"],
-        }
-
-        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
-
-        if not hasattr(response, "results"):
-            return Response({"error": "No results from actors query"}, status=400)
-
-        for result in response.results:
-            globals = {
-                "event": {
-                    "event": "$broadcast",
-                    "elements_chain": "",
-                    "distinct_id": str(result[1]),
-                    "timestamp": result[3].isoformat(),
-                },
-                "person": {
-                    "id": str(result[0]),
-                    "distinct_id": str(result[1]),
-                    "properties": json.loads(result[2]),
-                    "created_at": result[3].isoformat(),
-                },
-            }
-            create_hog_invocation_test(
-                team_id=hog_function.team_id,
-                hog_function_id=hog_function.id,
-                payload={
-                    "globals": globals,
-                    "configuration": HogFunctionSerializer(hog_function).data,
-                    "mock_async_functions": False,
-                },
-            )
-
-        return Response({"success": True})
-
     def perform_create(self, serializer):
         serializer.save()
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
-            scope="HogFunction",
-            activity="created",
-            detail=Detail(
-                name=serializer.instance.name,
-                type=humanize_hog_function_type(serializer.instance.type),
-            ),
+        log_activity_from_viewset(
+            self,
+            serializer.instance,
+            name=serializer.instance.name,
+            detail_type=humanize_hog_function_type(serializer.instance.type),
         )
 
     def perform_update(self, serializer):
         instance_id = serializer.instance.id
 
         try:
+            # nosemgrep: idor-lookup-without-team (ID from already team-scoped instance)
             before_update = HogFunction.objects.get(pk=instance_id)
         except HogFunction.DoesNotExist:
             before_update = None
 
         serializer.save()
 
-        changes = changes_between("HogFunction", previous=before_update, current=serializer.instance)
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=instance_id,
-            scope="HogFunction",
-            activity="updated",
-            detail=Detail(
-                changes=changes,
-                name=serializer.instance.name,
-                type=humanize_hog_function_type(serializer.instance.type),
-            ),
+        log_activity_from_viewset(
+            self,
+            serializer.instance,
+            name=serializer.instance.name,
+            previous=before_update,
+            detail_type=humanize_hog_function_type(serializer.instance.type),
         )
 
-    @action(methods=["PATCH"], detail=False)
+    @extend_schema(
+        request=HogFunctionRearrangeSerializer,
+        responses={200: HogFunctionSerializer(many=True)},
+        filters=False,
+    )
+    @action(methods=["PATCH"], detail=False, pagination_class=None)
     def rearrange(self, request: Request, *args, **kwargs) -> Response:
         """Update the execution order of multiple HogFunctions."""
         team = self.team
@@ -654,3 +679,69 @@ class HogFunctionViewSet(
 
         serializer = self.get_serializer(transformations, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=["POST"])
+    def enable_backfills(self, request: Request, *args, **kwargs):
+        from posthog.batch_exports.http import BatchExportSerializer
+
+        hog_function = self.get_object()
+
+        # Check if backfill is already enabled
+        if hog_function.batch_export_id:
+            return Response({"error": "Backfills already enabled for this function"}, status=400)
+
+        # Only event-sourced destinations support backfills
+        if hog_function.type != HogFunctionType.DESTINATION:
+            return Response(
+                {"error": "Backfills are only supported for destination functions."},
+                status=400,
+            )
+        source = (hog_function.filters or {}).get("source", "events")
+        if source != "events":
+            return Response(
+                {"error": "Backfills are only supported for event-sourced destinations."},
+                status=400,
+            )
+
+        # Check feature flag for backfill-workflows-destination
+        team = Team.objects.get(id=self.team_id)
+        if not posthoganalytics.feature_enabled(
+            "backfill-workflows-destination",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        ):
+            raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
+
+        # Prepare batch export data matching the frontend's structure
+        batch_export_data = {
+            "name": hog_function.name,
+            "paused": True,
+            "interval": "hour",
+            "model": "events",
+            "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
+            "destination": {
+                "type": "Workflows",
+                "config": {"hog_function_id": str(hog_function.id)},
+            },
+        }
+
+        batch_export_serializer = BatchExportSerializer(
+            data=batch_export_data, context={"team_id": self.team_id, "request": request}
+        )
+
+        if not batch_export_serializer.is_valid():
+            return Response(batch_export_serializer.errors, status=400)
+
+        batch_export = batch_export_serializer.save()
+
+        hog_function.batch_export_id = batch_export.id
+        hog_function.save(update_fields=["batch_export_id"])
+
+        return Response({"batch_export_id": str(batch_export.id)})

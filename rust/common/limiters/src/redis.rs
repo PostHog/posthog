@@ -143,15 +143,10 @@ impl RedisLimiter {
                         )
                         .set(set.len() as f64);
 
-                        // Two-phase update to avoid partial cache states during concurrent reads:
-                        // Phase 1: Add all new items first (better to temporarily over-limit than under-limit)
-                        let new_set: std::collections::HashSet<_> = set.into_iter().collect();
-                        for item in &new_set {
-                            limited.insert(item.clone(), true);
+                        limited.clear();
+                        for item in set {
+                            limited.insert(item, true);
                         }
-
-                        // Phase 2: Remove items not in new set
-                        limited.retain(|k, _| new_set.contains(k));
                     }
                     Err(e) => {
                         tracing::warn!("Failed to update cache from Redis: {:?}", e);

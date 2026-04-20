@@ -1,7 +1,6 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -12,13 +11,16 @@ export const manifest: ProductManifest = {
         webAnalyticsWebVitals: (): string => `/web/web-vitals`,
         webAnalyticsPageReports: (): string => `/web/page-reports`,
         webAnalyticsMarketing: (): string => `/web/marketing`,
+        webAnalyticsHealth: (): string => `/web/health`,
+        webAnalyticsLive: (): string => `/web/live`,
+        webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
     },
     fileSystemTypes: {},
     treeItemsProducts: [
         {
             path: 'Web analytics',
-            intents: [ProductKey.WEB_ANALYTICS, ProductKey.MARKETING_ANALYTICS],
-            category: 'Analytics',
+            intents: [ProductKey.WEB_ANALYTICS],
+            category: ProductItemCategory.ANALYTICS,
             iconType: 'web_analytics',
             iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
             href: urls.webAnalytics(),
@@ -26,15 +28,5 @@ export const manifest: ProductManifest = {
             sceneKeys: ['WebAnalytics'],
         },
     ],
-    treeItemsMetadata: [
-        {
-            path: 'Marketing settings',
-            category: 'Unreleased',
-            iconType: 'marketing_settings',
-            href: urls.marketingAnalytics(),
-            flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-            sceneKey: 'WebAnalyticsMarketing',
-            sceneKeys: ['WebAnalyticsMarketing'],
-        },
-    ],
+    treeItemsMetadata: [],
 }

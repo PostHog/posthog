@@ -1,0 +1,14 @@
+[package]
+name = "common-continuous-profiling"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+envconfig = { workspace = true }
+pyroscope = "0.5"
+pyroscope_pprofrs = "0.2"
+thiserror = { workspace = true }
+tracing = { workspace = true }

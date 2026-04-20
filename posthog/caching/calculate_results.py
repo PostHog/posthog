@@ -10,10 +10,14 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
-from posthog.models import Dashboard, DashboardTile, Insight, Team, User
+from posthog.models import Insight, Team, User
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult
@@ -52,6 +56,8 @@ def calculate_for_query_based_insight(
     filters_override: Optional[dict] = None,
     variables_override: Optional[dict] = None,
     tile_filters_override: Optional[dict] = None,
+    query_override: Optional[dict] = None,
+    analytics_props: Optional[AnalyticsProps] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -71,11 +77,14 @@ def calculate_for_query_based_insight(
     # Tile filters overrides all other filters
     if tile_filters_override is not None and tile_filters_override != {}:
         dashboard_filters_json = tile_filters_override
-        variables_override_json = None
+
+    query_json: dict | None = query_override if query_override is not None else insight.query
+    if query_json is None:
+        raise ValueError("Insight has no query and no query_override was provided")
 
     response = process_response = process_query_dict(
         team,
-        insight.query,
+        query_json,
         dashboard_filters_json=dashboard_filters_json,
         variables_override_json=variables_override_json,
         execution_mode=execution_mode,
@@ -84,6 +93,7 @@ def calculate_for_query_based_insight(
         dashboard_id=dashboard.pk if dashboard else None,
         # QUERY_ASYNC provides extended max execution time for insight queries
         limit_context=LimitContext.QUERY_ASYNC,
+        analytics_props=analytics_props,
     )
 
     if isinstance(process_response, BaseModel):

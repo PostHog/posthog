@@ -11,19 +11,22 @@ export interface FilterBarProps {
     left?: React.ReactNode
     right?: React.ReactNode
     className?: string
+    showBorderBottom?: boolean
 }
 
-export const FilterBar = ({ top, left, right, className }: FilterBarProps): JSX.Element => {
+export const FilterBar = ({ top, left, right, className, showBorderBottom }: FilterBarProps): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
 
     return (
-        <SceneStickyBar className={className}>
+        <SceneStickyBar className={className} showBorderBottom={showBorderBottom}>
             {top}
 
             <div className="flex flex-col md:flex-row md:justify-between gap-2">
-                <div className="flex items-start shrink-0">
+                <div className={clsx('flex items-start shrink-0', !right && 'flex-1')}>
                     <div className="flex flex-1 flex-row gap-2 items-center">
-                        <div className="flex flex-row gap-1 items-center flex-1 md:flex-none">{left}</div>
+                        <div className={clsx('flex flex-row gap-1 items-center flex-1', right && 'md:flex-none')}>
+                            {left}
+                        </div>
 
                         <LemonButton
                             type="secondary"
@@ -35,15 +38,13 @@ export const FilterBar = ({ top, left, right, className }: FilterBarProps): JSX.
                     </div>
                 </div>
 
-                {/* On more than mobile, just display Foldable Fields, on smaller delegate displaying it to the expanded state */}
-                <div className="hidden sm:flex gap-2">
-                    <FoldableFilters>{right}</FoldableFilters>
-                </div>
-
+                {/* Render right content once - on mobile it's collapsible, on sm+ always visible */}
                 <div
                     className={clsx(
-                        'flex sm:hidden flex-col gap-2 overflow-hidden transition-all duration-200',
-                        expanded ? 'max-h-[500px]' : 'max-h-0'
+                        'flex gap-2',
+                        'sm:max-h-none',
+                        'max-sm:flex-col max-sm:overflow-hidden max-sm:transition-all max-sm:duration-200',
+                        expanded ? 'max-sm:max-h-[500px]' : 'max-sm:max-h-0'
                     )}
                 >
                     <FoldableFilters>{right}</FoldableFilters>
@@ -55,7 +56,7 @@ export const FilterBar = ({ top, left, right, className }: FilterBarProps): JSX.
 
 const FoldableFilters = ({ children }: React.PropsWithChildren<{}>): JSX.Element => {
     return (
-        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
+        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full items-start">
             {children}
         </div>
     )

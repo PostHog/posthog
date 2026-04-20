@@ -1,25 +1,44 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
+import { IconArchive, IconCopy, IconScreen } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layout/scenes/SceneLayout'
 
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
+import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
+import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
-    const logic = workflowLogic(props)
-    const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
-    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue } = useActions(logic)
+    const {
+        workflow,
+        hasUnsavedChanges,
+        isWorkflowSubmitting,
+        workflowLoading,
+        workflowHasErrors,
+        workflowHasActionErrors,
+    } = useValues(workflowLogic)
+    const { saveWorkflowPartial, submitWorkflow, setWorkflowValue, duplicate, archiveWorkflow, discardChanges } =
+        useActions(workflowLogic)
+    const { searchParams } = useValues(router)
+    const editTemplateId = searchParams.editTemplateId as string | undefined
+    const templateId = searchParams.templateId as string | undefined
+    const templateLogic = workflowTemplateLogic({ ...props, editTemplateId })
+    const { showSaveAsTemplateModal } = useActions(templateLogic)
 
     const isSavedWorkflow = props.id && props.id !== 'new'
-    const isManualWorkflow = workflow?.trigger?.type === 'manual' || workflow?.trigger?.type === 'schedule'
+    const isCreatedFromTemplate = props.id === 'new' && !!templateId
+    const isManualWorkflow = ['manual', 'batch'].includes(workflow?.trigger?.type || '')
     const [displayStatus, setDisplayStatus] = useState(workflow?.status)
     const [isTransitioning, setIsTransitioning] = useState(false)
     const prevStatusRef = useRef(workflow?.status)
-
     useEffect(() => {
         // Only transition if status actually changed (not on initial mount)
         if (workflow?.status !== displayStatus && prevStatusRef.current !== undefined) {
@@ -39,6 +58,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
 
     return (
         <>
+            <SaveAsTemplateModal {...props} editTemplateId={editTemplateId} />
             <SceneTitleSection
                 name={workflow?.name}
                 description={workflow?.description}
@@ -61,8 +81,15 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         })
                                     }
                                     size="small"
-                                    disabledReason={workflowChanged ? 'Save changes first' : undefined}
+                                    disabledReason={
+                                        hasUnsavedChanges
+                                            ? 'Save changes first'
+                                            : workflow?.status === 'draft' && workflowHasActionErrors
+                                              ? 'Fix all errors before enabling'
+                                              : undefined
+                                    }
                                     className="transition-colors duration-300 ease-in-out"
+                                    data-attr="workflow-launch"
                                 >
                                     <span
                                         className={`inline-block transition-opacity duration-300 ease-in-out ${
@@ -73,9 +100,41 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     </span>
                                 </LemonButton>
                                 <LemonDivider vertical />
+                                <ScenePanel>
+                                    <ScenePanelActionsSection>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => duplicate()}
+                                            data-attr="workflow-duplicate-btn"
+                                        >
+                                            <IconCopy />
+                                            Duplicate
+                                        </ButtonPrimitive>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={showSaveAsTemplateModal}
+                                            data-attr="workflow-save-as-template-btn"
+                                        >
+                                            <IconScreen />
+                                            Save as template
+                                        </ButtonPrimitive>
+                                    </ScenePanelActionsSection>
+                                    <ScenePanelDivider />
+                                    <ScenePanelActionsSection>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => archiveWorkflow(workflow)}
+                                            variant="danger"
+                                            data-attr="workflow-archive-btn"
+                                        >
+                                            <IconArchive />
+                                            Archive
+                                        </ButtonPrimitive>
+                                    </ScenePanelActionsSection>
+                                </ScenePanel>
                             </>
                         )}
-                        {workflowChanged && (
+                        {hasUnsavedChanges && (
                             <LemonButton
                                 data-attr="discard-workflow-changes"
                                 type="secondary"
@@ -85,23 +144,37 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 Clear changes
                             </LemonButton>
                         )}
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            htmlType="submit"
-                            form="workflow"
-                            onClick={submitWorkflow}
-                            loading={isWorkflowSubmitting}
-                            disabledReason={
-                                workflowHasErrors
-                                    ? 'Some fields still need work'
-                                    : workflowChanged
-                                      ? undefined
-                                      : 'No changes to save'
-                            }
-                        >
-                            {props.id === 'new' ? 'Create' : 'Save'}
-                        </LemonButton>
+                        {editTemplateId ? (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={showSaveAsTemplateModal}
+                                loading={isWorkflowSubmitting}
+                            >
+                                Update template
+                            </LemonButton>
+                        ) : (
+                            <LemonButton
+                                data-attr="workflow-save"
+                                type="primary"
+                                size="small"
+                                htmlType="submit"
+                                form="workflow"
+                                onClick={submitWorkflow}
+                                loading={isWorkflowSubmitting}
+                                disabledReason={
+                                    workflowHasErrors
+                                        ? 'Some fields still need work'
+                                        : isCreatedFromTemplate
+                                          ? undefined
+                                          : hasUnsavedChanges
+                                            ? undefined
+                                            : 'No changes to save'
+                                }
+                            >
+                                {props.id === 'new' ? 'Create as draft' : 'Save'}
+                            </LemonButton>
+                        )}
                     </>
                 }
             />

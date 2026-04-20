@@ -5,16 +5,17 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isKeyOf } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { SDK, SDKInstructionsMap, SDKTag } from '~/types'
+import { SDK, SDKInstructionsMap, SDKTag, SDKTagOverrides } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
-import { allSDKs } from './allSDKs'
+import { ALL_SDKS } from './allSDKs'
 import type { sdksLogicType } from './sdksLogicType'
 
 /*
@@ -26,16 +27,13 @@ To add SDK instructions for your product:
     6. Add the SDK component to your product onboarding component
 */
 
-const getSourceOptions = (availableSDKInstructionsMap: SDKInstructionsMap): LemonSelectOptions<string> => {
-    const filteredSDKsTags = allSDKs
-        .filter((sdk) => Object.keys(availableSDKInstructionsMap).includes(sdk.key))
-        .flatMap((sdk) => sdk.tags)
-    const uniqueTags = filteredSDKsTags.filter((item, index) => filteredSDKsTags.indexOf(item) === index)
-    const selectOptions = uniqueTags.map((tag) => ({
+const getSourceOptions = (sdks: SDK[]): LemonSelectOptions<string> => {
+    const allTags = sdks.flatMap((sdk) => sdk.tags)
+    const uniqueTags = allTags.filter((item, index) => allTags.indexOf(item) === index)
+    return uniqueTags.map((tag) => ({
         label: tag,
         value: tag,
     }))
-    return selectOptions
 }
 
 /*
@@ -49,7 +47,7 @@ export const sdksLogic = kea<sdksLogicType>([
         values: [
             onboardingLogic,
             ['productKey'],
-            liveEventsTableLogic({ tabId: 'onboarding' }),
+            liveEventsLogic,
             ['eventHosts'],
             featureFlagLogic,
             ['featureFlags'],
@@ -68,6 +66,7 @@ export const sdksLogic = kea<sdksLogicType>([
         setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
         resetSDKs: true,
         setAvailableSDKInstructionsMap: (sdkInstructionMap: SDKInstructionsMap) => ({ sdkInstructionMap }),
+        setSDKTagOverrides: (sdkTagOverrides: SDKTagOverrides) => ({ sdkTagOverrides }),
         setShowSideBySide: (showSideBySide: boolean) => ({ showSideBySide }),
         setPanel: (panel: 'instructions' | 'options') => ({ panel }),
         setHasSnippetEvents: (hasSnippetEvents: boolean) => ({ hasSnippetEvents }),
@@ -103,6 +102,12 @@ export const sdksLogic = kea<sdksLogicType>([
             {} as SDKInstructionsMap,
             {
                 setAvailableSDKInstructionsMap: (_, { sdkInstructionMap }) => sdkInstructionMap,
+            },
+        ],
+        sdkTagOverrides: [
+            {} as SDKTagOverrides,
+            {
+                setSDKTagOverrides: (_, { sdkTagOverrides }) => sdkTagOverrides,
             },
         ],
         showSideBySide: [
@@ -195,13 +200,17 @@ export const sdksLogic = kea<sdksLogicType>([
                         ORDER BY latest_timestamp DESC
                         LIMIT 7`
 
-                    const res = await api.queryHogQL(query, {
-                        queryParams: {
-                            values: {
-                                protocol: window.location.protocol,
+                    const res = await api.queryHogQL(
+                        query,
+                        { scene: 'Onboarding', productKey: 'platform_and_support' },
+                        {
+                            queryParams: {
+                                values: {
+                                    protocol: window.location.protocol,
+                                },
                             },
-                        },
-                    })
+                        }
+                    )
                     const hasEvents = !!(res.results?.length ?? 0 > 0)
                     const snippetHosts = res.results?.map((result) => result[1]).filter((val) => !!val) ?? []
                     if (hasEvents) {
@@ -220,9 +229,17 @@ export const sdksLogic = kea<sdksLogicType>([
                     if (selectedTag && !sdk.tags.includes(selectedTag)) {
                         return false
                     }
-                    if (searchTerm && !sdk.name.toLowerCase().includes(searchTerm.toLowerCase())) {
-                        return false
+
+                    if (searchTerm) {
+                        const term = searchTerm.toLowerCase()
+                        const nameMatch = sdk.name.toLowerCase().includes(term)
+                        const searchTermsMatch = sdk.searchTerms?.some((t) => t.toLowerCase().includes(term))
+
+                        if (!nameMatch && !searchTermsMatch) {
+                            return false
+                        }
                     }
+
                     return true
                 })
             },
@@ -230,18 +247,24 @@ export const sdksLogic = kea<sdksLogicType>([
     }),
     listeners(({ actions, values }) => ({
         filterSDKs: () => {
-            const filteredSDks: SDK[] = allSDKs
-                .filter((sdk) => {
-                    if (!values.sourceFilter || !sdk) {
-                        return true
-                    }
-                    return sdk.tags.includes(values.sourceFilter as SDKTag)
-                })
-                .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
+            const availableSDKKeys = Object.keys(values.availableSDKInstructionsMap)
+            const availableSDKs = ALL_SDKS.filter((sdk) => availableSDKKeys.includes(sdk.key)).map((sdk) =>
+                isKeyOf(sdk.key, values.sdkTagOverrides)
+                    ? { ...sdk, tags: values.sdkTagOverrides[sdk.key] as SDKTag[] }
+                    : sdk
+            )
+
+            const filteredSDks = values.sourceFilter
+                ? availableSDKs.filter((sdk) => sdk.tags?.includes(values.sourceFilter as SDKTag))
+                : availableSDKs
+
             actions.setSDKs(filteredSDks)
-            actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
+            actions.setSourceOptions(getSourceOptions(availableSDKs))
         },
         setAvailableSDKInstructionsMap: () => {
+            actions.filterSDKs()
+        },
+        setSDKTagOverrides: () => {
             actions.filterSDKs()
         },
         setSDKs: () => {
@@ -258,10 +281,9 @@ export const sdksLogic = kea<sdksLogicType>([
             actions.resetSDKs()
         },
         resetSDKs: () => {
-            actions.filterSDKs()
             actions.setSelectedSDK(null)
             actions.setSourceFilter(null)
-            actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
+            actions.filterSDKs()
         },
         setSelectedSDK: () => {
             if (values.selectedSDK) {
@@ -288,7 +310,7 @@ export const sdksLogic = kea<sdksLogicType>([
     }),
     urlToAction(({ actions }) => ({
         '/onboarding/:productKey': (_productKey, { sdk }) => {
-            const matchedSDK = allSDKs.find((s) => s.key === sdk)
+            const matchedSDK = ALL_SDKS.find((s) => s.key === sdk)
             if (matchedSDK) {
                 actions.setSelectedSDK(matchedSDK)
             }

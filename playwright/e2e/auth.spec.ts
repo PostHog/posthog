@@ -6,17 +6,17 @@ import { LOGIN_PASSWORD, LOGIN_USERNAME, expect, test } from '../utils/playwrigh
 test.describe('Auth', () => {
     let loginPage: LoginPage
     test.beforeEach(async ({ page }) => {
-        await page.locator('[data-attr=menu-item-me]').click()
+        await page.locator('[data-attr=new-account-menu-button]').click()
         loginPage = new LoginPage(page)
     })
 
     test('Logout', async ({ page }) => {
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
         await expect(page).toHaveURL('/login')
     })
 
     test('Logout and login', async ({ page }) => {
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
 
         await loginPage.enterUsername(LOGIN_USERNAME)
         await expect(page.locator('[data-attr=login-email]')).toHaveValue(LOGIN_USERNAME)
@@ -32,7 +32,7 @@ test.describe('Auth', () => {
     })
 
     test('Logout and verify Google login button has correct link', async ({ page }) => {
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
 
         await page.setAppContext('preflight', {
             available_social_auth_providers: {
@@ -44,7 +44,7 @@ test.describe('Auth', () => {
     })
 
     test('Try logging in improperly and then properly', async ({ page }) => {
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
 
         await loginPage.enterUsername(LOGIN_USERNAME)
         await expect(page.locator('[data-attr=login-email]')).toHaveValue(LOGIN_USERNAME)
@@ -65,8 +65,7 @@ test.describe('Auth', () => {
     })
 
     test('Redirect to appropriate place after login', async ({ page }) => {
-        // Use the logout button instead of GET request
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.goto('/logout', { waitUntil: 'commit' })
         await expect(page).toHaveURL(/\/login/)
 
         await page.goto('/activity/explore')
@@ -83,8 +82,7 @@ test.describe('Auth', () => {
     })
 
     test('Redirect to appropriate place after login with complex URL', async ({ page }) => {
-        // Use the logout button instead of GET request
-        await page.locator('[data-attr=top-menu-item-logout]').click()
+        await page.goto('/logout')
         await expect(page).toHaveURL(/\/login/)
 
         await page.goto('/insights?search=testString')
@@ -108,13 +106,11 @@ test.describe('Auth', () => {
 
     test('Logout in another tab results in logout in the current tab too', async ({ page, context }) => {
         const secondPage = await context.newPage()
-        // Navigate to app and use logout button (Django 5 compliant)
-        await secondPage.goto('/')
-        await secondPage.locator('[data-attr=top-menu-item-logout]').click()
+        await secondPage.goto('/logout')
+        await secondPage.waitForURL(/\/login/)
 
-        // Now interact with the original page
-        // forces a click so that the visibility of other elements doesn't interfere
-        await page.locator('[data-attr=menu-item-settings]').click({ force: true })
-        await expect(page).toHaveURL('/login') // Should be redirected
+        // Reload the page to trigger API calls that will detect the logout
+        await page.reload()
+        await page.waitForURL(/\/login/, { timeout: 30000 })
     })
 })

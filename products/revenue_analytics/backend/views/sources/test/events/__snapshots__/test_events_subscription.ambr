@@ -32,7 +32,7 @@
             max(timestamp) AS max_timestamp,
             addDays(max_timestamp, 45) AS max_timestamp_plus_dropoff_days
      FROM events
-     WHERE true
+     WHERE and(true, isNotNull(subscription_id))
      GROUP BY subscription_id,
               person_id)
   ORDER BY started_at DESC

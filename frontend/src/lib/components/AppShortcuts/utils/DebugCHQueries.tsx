@@ -2,14 +2,14 @@ import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import { actions, afterMount, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { IconCodeInsert, IconCopy, IconRefresh } from '@posthog/icons'
+import { IconCodeInsert, IconCopy, IconRefresh, IconSearch } from '@posthog/icons'
 
-import { ChartConfiguration, ChartDataset } from 'lib/Chart'
-import { Chart, ChartItem } from 'lib/Chart'
 import api from 'lib/api'
+import { Chart, ChartConfiguration, ChartDataset } from 'lib/Chart'
 import { dayjs } from 'lib/dayjs'
+import { useChart } from 'lib/hooks/useChart'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -25,6 +25,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, Realm, Reg
 
 import { CodeSnippet, Language } from '../../CodeSnippet'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
+import { FlamegraphViewer } from './FlamegraphViewer'
 
 export function openCHQueriesDebugModal(): void {
     LemonDialog.open({
@@ -64,6 +65,7 @@ export interface Query {
     execution_time: number
     path: string
     logComment: Record<string, unknown>
+    profile_events: Record<string, number>
 }
 
 export interface DebugResponse {
@@ -72,10 +74,18 @@ export interface DebugResponse {
     hourly_stats: DataPoint[]
 }
 
+export interface ProfilingResult {
+    folded_stacks: string[]
+    sample_count: number
+    execution_time_ms: number
+    _query: string
+}
+
 const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
     path(['lib', 'components', 'CommandPalette', 'DebugCHQueries']),
     actions({
         setPathFilter: (path: string | null) => ({ path }),
+        runProfile: (query: string) => ({ query }),
     }),
     reducers({
         pathFilter: [
@@ -84,17 +94,51 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
                 setPathFilter: (_, { path }) => path,
             },
         ],
+        profilingQuerySql: [
+            null as string | null,
+            {
+                runProfile: (_, { query }) => query,
+                runProfileSuccess: () => null,
+                runProfileFailure: () => null,
+            },
+        ],
     }),
-    loaders(({ props }: { props: { insightId: string } }) => ({
+    loaders(({ props }: { props: { insightId?: number; experimentId?: number } }) => ({
         debugResponse: [
             {} as DebugResponse,
             {
                 loadDebugResponse: async () => {
                     const params = new URLSearchParams()
                     if (props.insightId) {
-                        params.append('insight_id', props.insightId)
+                        params.append('insight_id', String(props.insightId))
+                    } else if (props.experimentId) {
+                        params.append('experiment_id', String(props.experimentId))
                     }
                     return await api.get(`api/debug_ch_queries/?${params.toString()}`)
+                },
+            },
+        ],
+        profilingResult: [
+            null as ProfilingResult | null,
+            {
+                runProfile: async ({ query }: { query: string }) => {
+                    const { profile_query_id, execution_time_ms } = await api.create('api/debug_ch_queries/profile/', {
+                        query,
+                    })
+
+                    const maxAttempts = 10
+                    const intervalMs = 2000
+                    for (let i = 0; i < maxAttempts; i++) {
+                        await new Promise((resolve) => setTimeout(resolve, intervalMs))
+                        const result = await api.get(
+                            `api/debug_ch_queries/profile_results/?profile_query_id=${profile_query_id}`
+                        )
+                        if (result.status === 'complete') {
+                            return { ...result, execution_time_ms, _query: query }
+                        }
+                    }
+
+                    throw new Error('No profiling samples collected. The query may have been too fast to sample.')
                 },
             },
         ],
@@ -139,13 +183,12 @@ const generateHourlyLabels = (days: number): string[] => {
 }
 
 const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
-    const canvasRef = useRef<HTMLCanvasElement>(null)
     const labels = generateHourlyLabels(14)
 
-    useEffect(() => {
-        if (canvasRef.current) {
-            Chart.register(ChartjsPluginStacked100, ChartDataLabels)
+    Chart.register(ChartjsPluginStacked100, ChartDataLabels)
 
+    const { canvasRef } = useChart({
+        getConfig: () => {
             const dataMap = new Map(data.map((d) => [d.hour, d]))
 
             const successfulQueries = labels.map((label) => dataMap.get(label)?.successful_queries || 0)
@@ -201,7 +244,7 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
                         grid: {
                             drawOnChartArea: false,
                         },
-                        max: maxResponseTime * 2, // Double to have more room for the other bars
+                        max: maxResponseTime * 2,
                     },
                 },
                 plugins: {
@@ -211,28 +254,37 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
                 },
             }
 
-            const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
-                type: 'bar',
+            return {
+                type: 'bar' as const,
                 data: { labels, datasets },
                 options,
                 plugins: [ChartDataLabels],
-            })
-
-            return () => newChart.destroy()
-        }
-    }, [data, labels])
+            }
+        },
+        deps: [data, labels],
+    })
 
     return <canvas ref={canvasRef} className="h-[300px] w-full" />
 }
 
 interface DebugCHQueriesProps {
     insightId?: number | null
+    experimentId?: number | null
 }
 
-export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element {
-    const logic = debugCHQueriesLogic({ insightId })
-    const { debugResponseLoading, filteredQueries, pathFilter, paths, debugResponse } = useValues(logic)
-    const { setPathFilter, loadDebugResponse } = useActions(logic)
+export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps): JSX.Element {
+    const logic = debugCHQueriesLogic({ insightId, experimentId: experimentId ?? undefined })
+    const {
+        debugResponseLoading,
+        filteredQueries,
+        pathFilter,
+        paths,
+        debugResponse,
+        profilingQuerySql,
+        profilingResult,
+        profilingResultLoading,
+    } = useValues(logic)
+    const { setPathFilter, loadDebugResponse, runProfile } = useActions(logic)
 
     const errorTrackingLink = (key: string, value: string | number): string => {
         return urls.errorTracking({
@@ -405,6 +457,34 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                             </LemonTag>
                                         ) : null}
                                     </div>
+                                    {item.logComment.product === 'experiments' ? (
+                                        <div className="flex flex-wrap gap-1">
+                                            {typeof item.logComment.experiment_name === 'string' ? (
+                                                <LemonTag type="highlight" className="inline-block">
+                                                    <span className="font-bold tracking-wide">Experiment:</span>{' '}
+                                                    <span>{item.logComment.experiment_name}</span>
+                                                </LemonTag>
+                                            ) : null}
+                                            {typeof item.logComment.experiment_metric_name === 'string' ? (
+                                                <LemonTag type="completion" className="inline-block">
+                                                    <span className="font-bold tracking-wide">Metric:</span>{' '}
+                                                    <span>{item.logComment.experiment_metric_name}</span>
+                                                </LemonTag>
+                                            ) : null}
+                                            {typeof item.logComment.experiment_execution_path === 'string' ? (
+                                                <LemonTag
+                                                    type={
+                                                        item.logComment.experiment_execution_path === 'precomputed'
+                                                            ? 'success'
+                                                            : 'default'
+                                                    }
+                                                    className="inline-block"
+                                                >
+                                                    {item.logComment.experiment_execution_path}
+                                                </LemonTag>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                     {item.exception && (
                                         <LemonBanner type="error" className="text-xs font-mono">
                                             <div>{item.exception}</div>
@@ -440,10 +520,37 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                         >
                                             Debug{' '}
                                             <span>
-                                                {'kind' in item.logComment.query ? item.logComment.query.kind : 'query'}
+                                                {'kind' in item.logComment.query
+                                                    ? String(item.logComment.query.kind)
+                                                    : 'query'}
                                             </span>{' '}
                                             in new tab
                                         </LemonButton>
+                                    ) : null}
+                                    {item.status === 2 ? (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            fullWidth
+                                            center
+                                            icon={<IconSearch />}
+                                            loading={profilingResultLoading && profilingQuerySql === item.query}
+                                            onClick={() => runProfile(item.query)}
+                                            className="my-0"
+                                        >
+                                            Profile this query
+                                        </LemonButton>
+                                    ) : null}
+                                    {profilingResult && profilingResult._query === item.query ? (
+                                        <div className="mt-2 border rounded p-2">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="text-xs font-semibold">
+                                                    CPU profile: {profilingResult.sample_count} samples,{' '}
+                                                    {profilingResult.execution_time_ms}ms
+                                                </span>
+                                            </div>
+                                            <FlamegraphViewer foldedStacks={profilingResult.folded_stacks} />
+                                        </div>
                                     ) : null}
                                 </div>
                             )
@@ -600,7 +707,7 @@ function QueryContext({ item }: { item: Query }): JSX.Element | null {
                     ) : null}
                     <tr>
                         <td>Container hostname</td>
-                        <td>{container_hostname}</td>
+                        <td>{String(container_hostname ?? '')}</td>
                     </tr>
                 </tbody>
             </table>

@@ -29,18 +29,18 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.models.integration import DatabricksIntegration, Integration
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     DatabricksBatchExportInputs,
 )
-from posthog.models.integration import DatabricksIntegration, Integration
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     events_model_default_fields,
@@ -74,6 +74,12 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     # Raised when we hit our self-imposed long running operation timeout.
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account.
     "DatabricksOperationTimeoutError",
+    # Raised when the Databricks catalog is not found.
+    "DatabricksCatalogNotFoundError",
+    # Raised when the Databricks schema is not found.
+    "DatabricksSchemaNotFoundError",
+    # Raised when the Databricks warehouse is stopped.
+    "DatabricksWarehouseStoppedError",
 ]
 
 DatabricksField = tuple[str, str]
@@ -81,12 +87,6 @@ DatabricksField = tuple[str, str]
 
 class DatabricksConnectionError(Exception):
     """Error for Databricks connection."""
-
-    pass
-
-
-class DatabricksInsufficientPermissionsError(Exception):
-    """Error for Databricks permission."""
 
     pass
 
@@ -111,7 +111,18 @@ class DatabricksSchemaNotFoundError(Exception):
         super().__init__(f"Schema '{schema}' not found")
 
 
-class DatabricksOperationTimeoutError(Exception):
+class DatabricksOperationError(Exception):
+    """Super class for errors raised while executing an operation in databricks."""
+
+    def __init__(self, operation: str, reason: str, remediation: str | None = None):
+        msg = f"Failed to execute '{operation}': {reason}"
+        if remediation:
+            msg += f". {remediation}"
+
+        super().__init__(msg)
+
+
+class DatabricksOperationTimeoutError(DatabricksOperationError):
     """Error raised when we hit our self-imposed long running operation timeout.
 
     We impose this timeout to prevent operations from running for too long, which could cause SLA violations and consume
@@ -120,8 +131,22 @@ class DatabricksOperationTimeoutError(Exception):
 
     def __init__(self, operation: str, timeout: float):
         super().__init__(
-            f"{operation} timed out after {timeout} seconds. If this happens regularly, you may want to increase the size of your Databricks SQL warehouse."
+            operation,
+            f"Timed out after {timeout} seconds",
+            "If this happens regularly, you may want to increase the size of your Databricks SQL warehouse.",
         )
+
+
+class DatabricksInsufficientPermissionsError(DatabricksOperationError):
+    """Error for Databricks permission."""
+
+    pass
+
+
+class DatabricksWarehouseStoppedError(DatabricksOperationError):
+    """Error for when a Databricks warehouse is stopped."""
+
+    pass
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -419,6 +444,8 @@ class DatabricksClient:
         except ServerOperationError as err:
             if err.message and "[NO_SUCH_CATALOG_EXCEPTION]" in err.message:
                 raise DatabricksCatalogNotFoundError(catalog)
+            elif _is_warehouse_stopped_error(err):
+                raise DatabricksWarehouseStoppedError("USE CATALOG", err.message)
             raise
 
     async def use_schema(self, schema: str):
@@ -445,11 +472,19 @@ class DatabricksClient:
 
         await self.acreate_table(table_name=table_name, fields=fields)
 
-        yield table_name
-
-        if delete is True:
-            self.logger.info("Deleting Databricks table %s", table_name)
-            await self.adelete_table(table_name)
+        try:
+            yield table_name
+        finally:
+            if delete is True:
+                self.logger.info("Deleting Databricks table %s", table_name)
+                try:
+                    await self.adelete_table(table_name)
+                except DatabricksInsufficientPermissionsError as err:
+                    self.external_logger.warning(
+                        "Table '%s' may not be properly cleaned up due to missing necessary permissions: %s",
+                        table_name,
+                        err,
+                    )
 
     async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
         """Asynchronously create the Databricks delta table if it doesn't exist."""
@@ -465,7 +500,7 @@ class DatabricksClient:
             await self.execute_query(query, fetch_results=False)
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(f"Failed to create table: {err.message}")
+                raise DatabricksInsufficientPermissionsError("CREATE TABLE", err.message)
             raise
 
     async def adelete_table(self, table_name: str):
@@ -474,15 +509,20 @@ class DatabricksClient:
             await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False)
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(f"Failed to delete table: {err.message}")
+                raise DatabricksInsufficientPermissionsError("DROP TABLE", err.message)
             raise
 
     async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_path: str, file_name: str):
         """Asynchronously put a local file stream to a Databricks volume."""
-        await self.execute_query(
-            f"PUT '__input_stream__' INTO '{volume_path}/{file_name}' OVERWRITE",
-            query_kwargs={"input_stream": file},
-        )
+        try:
+            await self.execute_query(
+                f"PUT '__input_stream__' INTO '{volume_path}/{file_name}' OVERWRITE",
+                query_kwargs={"input_stream": file},
+            )
+        except OperationalError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"PUT INTO '{volume_path}/{file_name}'", err.message)
+            raise
 
     async def acopy_into_table_from_volume(
         self,
@@ -500,12 +540,10 @@ class DatabricksClient:
         try:
             await self.execute_async_query(query, fetch_results=False, timeout=timeout)
         except TimeoutError:
-            raise DatabricksOperationTimeoutError(operation="Copy into table from volume", timeout=timeout)
+            raise DatabricksOperationTimeoutError(operation=f"COPY INTO {table_name} FROM VOLUME", timeout=timeout)
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(
-                    f"Failed to copy data from volume into table: {err.message}"
-                )
+                raise DatabricksInsufficientPermissionsError(f"COPY INTO {table_name} FROM VOLUME", err.message)
             raise
 
     def _get_copy_into_table_from_volume_query(
@@ -551,9 +589,18 @@ class DatabricksClient:
         """Manage a volume in Databricks by ensuring it exists while in context."""
         self.logger.info("Creating Databricks volume %s", volume)
         await self.acreate_volume(volume)
-        yield volume
-        self.logger.info("Deleting Databricks volume %s", volume)
-        await self.adelete_volume(volume)
+        try:
+            yield volume
+        finally:
+            self.logger.info("Deleting Databricks volume %s", volume)
+            try:
+                await self.adelete_volume(volume)
+            except DatabricksInsufficientPermissionsError as err:
+                self.external_logger.warning(
+                    "Volume '%s' may not be properly cleaned up due to missing necessary permissions: %s",
+                    volume,
+                    err,
+                )
 
     async def acreate_volume(self, volume: str):
         """Asynchronously create a Databricks volume."""
@@ -564,7 +611,7 @@ class DatabricksClient:
             )
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(f"Failed to create volume: {err.message}")
+                raise DatabricksInsufficientPermissionsError("CREATE VOLUME", err.message)
             raise
 
     async def adelete_volume(self, volume: str):
@@ -576,7 +623,7 @@ class DatabricksClient:
             )
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
-                raise DatabricksInsufficientPermissionsError(f"Failed to delete volume: {err.message}")
+                raise DatabricksInsufficientPermissionsError("DELETE VOLUME", err.message)
             raise
 
     async def aget_table_columns(self, table_name: str) -> list[str]:
@@ -598,7 +645,7 @@ class DatabricksClient:
             except DatabaseError as err:
                 if "Expected field named: DataAccessConfigID" in str(err):
                     raise DatabricksInsufficientPermissionsError(
-                        f"Failed to get table columns: {err}. Please check that you have SELECT permissions on the table."
+                        "GET TABLE COLUMNS", str(err), "Please check that you have SELECT permissions on the table."
                     )
                 raise
             return column_names
@@ -656,7 +703,19 @@ class DatabricksClient:
         try:
             await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
         except TimeoutError:
+            self.logger.exception(
+                "Merge timed-out",
+                with_schema_evolution=with_schema_evolution,
+                query="MERGE",
+                query_details=merge_query,
+                timeout=timeout,
+            )
             raise DatabricksOperationTimeoutError(operation="Merge into target table", timeout=timeout)
+        except Exception:
+            self.logger.exception(
+                "Merge failed", with_schema_evolution=with_schema_evolution, query="MERGE", query_details=merge_query
+            )
+            raise
 
     def _get_merge_query_with_schema_evolution(
         self,
@@ -871,11 +930,22 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
     return DatabricksIntegration(integration)
 
 
-def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
+def _is_insufficient_permissions_error(err: DatabaseError) -> bool:
     """Check if the error is an insufficient permissions error."""
     if err.message is None:
         return False
-    return "INSUFFICIENT_PERMISSIONS" in err.message or "PERMISSION_DENIED" in err.message
+    return (
+        "INSUFFICIENT_PERMISSIONS" in err.message
+        or "PERMISSION_DENIED" in err.message
+        or "AuthorizationFailure" in err.message
+    )
+
+
+def _is_warehouse_stopped_error(err: ServerOperationError) -> bool:
+    """Check if the error is a warehouse stopped error."""
+    if err.message is None:
+        return False
+    return "warehouse" in err.message and "stopped" in err.message
 
 
 def _get_long_running_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:
@@ -906,8 +976,9 @@ class DatabricksConsumer(Consumer):
         self,
         client: DatabricksClient,
         volume_path: str,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.client = client
         self.volume_path = volume_path
@@ -1025,6 +1096,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
+            stage_folder=inputs.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -1073,6 +1145,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 consumer = DatabricksConsumer(
                     client=databricks_client,
                     volume_path=volume_path,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
 
                 transformer: ChunkTransformerProtocol = ParquetStreamTransformer(
@@ -1133,7 +1206,9 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Databricks table."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

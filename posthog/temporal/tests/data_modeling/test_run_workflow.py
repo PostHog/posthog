@@ -3,7 +3,7 @@ import re
 import uuid
 import asyncio
 import datetime as dt
-import functools
+from typing import cast
 
 import pytest
 import unittest.mock
@@ -13,12 +13,16 @@ from django.conf import settings
 from django.test import override_settings
 
 import pyarrow as pa
-import aioboto3
 import deltalake
 import pytest_asyncio
 import temporalio.common
 import temporalio.worker
 from asgiref.sync import sync_to_async
+from temporalio import (
+    activity as temporal_activity,
+    workflow as temporal_workflow,
+)
+from temporalio.testing import WorkflowEnvironment
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
@@ -26,6 +30,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_modeling import run_workflow as run_workflow_module
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
     CleanupRunningJobsActivityInputs,
@@ -40,10 +45,12 @@ from posthog.temporal.data_modeling.run_workflow import (
     create_job_model_activity,
     fail_jobs_activity,
     finish_run_activity,
+    hogql_table,
     materialize_model,
     run_dag_activity,
     start_run_activity,
 )
+from posthog.temporal.ducklake.types import DuckLakeCopyModelInput
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
 
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
@@ -108,12 +115,12 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
 
     calls = magic_mock.mock_calls
 
-    assert all(
-        call.args[0] in models_materialized for call in calls
-    ), f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
-    assert all(
-        call.args[1].pk == ateam.pk for call in calls
-    ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    assert all(call.args[0] in models_materialized for call in calls), (
+        f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
+    )
+    assert all(call.args[1].pk == ateam.pk for call in calls), (
+        f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    )
     assert len(calls) == len(models_materialized)
     assert results.completed == set(dag.keys())
 
@@ -203,51 +210,17 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
 
     calls = magic_mock.mock_calls
 
-    assert all(
-        call.args[0] in models_materialized for call in calls
-    ), f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
-    assert all(
-        call.args[1].pk == ateam.pk for call in calls
-    ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    assert all(call.args[0] in models_materialized for call in calls), (
+        f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
+    )
+    assert all(call.args[1].pk == ateam.pk for call in calls), (
+        f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    )
     assert len(calls) == len(models_materialized)
 
     assert results.completed == expected_completed
     assert results.failed == expected_failed
     assert results.ancestor_failed == expected_ancestor_failed
-
-
-TEST_ROOT_BUCKET = "test-data-modeling"
-SESSION = aioboto3.Session()
-create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
-
-
-@pytest.fixture
-def bucket_name(request) -> str:
-    """Name for a test S3 bucket."""
-    try:
-        return request.param
-    except AttributeError:
-        return f"{TEST_ROOT_BUCKET}-{str(uuid.uuid4())}"
-
-
-@pytest_asyncio.fixture
-async def minio_client(bucket_name):
-    """Manage an S3 client to interact with a MinIO bucket.
-
-    Yields the client after creating a bucket. Upon resuming, we delete
-    the contents and the bucket itself.
-    """
-    async with create_test_client(
-        "s3",
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    ) as minio_client:
-        try:
-            await minio_client.head_bucket(Bucket=bucket_name)
-        except:
-            await minio_client.create_bucket(Bucket=bucket_name)
-
-        yield minio_client
 
 
 def mock_to_session_credentials(class_self):
@@ -311,10 +284,10 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -327,7 +300,6 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -374,10 +346,10 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
     )
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -390,7 +362,6 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -419,10 +390,10 @@ async def test_materialize_model_nullable_nothing_column(ateam, bucket_name, min
     )
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -435,7 +406,6 @@ async def test_materialize_model_nullable_nothing_column(ateam, bucket_name, min
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -463,10 +433,10 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -479,7 +449,6 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -785,19 +754,13 @@ async def test_run_workflow_with_minio_bucket(
     expected_events_a = [event for event in all_expected_events if event["distinct_id"] == "a"]
     expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
 
-    workflow_id = str(uuid.uuid4())
-    inputs = RunWorkflowInputs(
-        team_id=ateam.pk,
-        select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0) for saved_query in saved_queries],
-    )
-
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         freeze_time(TEST_TIME),
     ):
@@ -818,14 +781,21 @@ async def test_run_workflow_with_minio_bucket(
         ):
             # Ensure the team exists in the DB context before running workflow
             await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
-            await temporal_client.execute_workflow(
-                RunWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.DATA_MODELING_TASK_QUEUE,
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=30),
-            )
+
+            for saved_query in saved_queries:
+                workflow_id = str(uuid.uuid4())
+                inputs = RunWorkflowInputs(
+                    team_id=ateam.pk,
+                    select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0)],
+                )
+                await temporal_client.execute_workflow(
+                    RunWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
 
             tables_and_queries = {}
 
@@ -835,10 +805,10 @@ async def test_run_workflow_with_minio_bucket(
                 delta_table = deltalake.DeltaTable(
                     table_uri=f"s3://{bucket_name}/team_{ateam.pk}_model_{query.id.hex}/modeling/{query.normalized_name}",
                     storage_options={
-                        "aws_access_key_id": str(settings.AIRBYTE_BUCKET_KEY),
-                        "aws_secret_access_key": str(settings.AIRBYTE_BUCKET_SECRET),
+                        "aws_access_key_id": str(settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY),
+                        "aws_secret_access_key": str(settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET),
                         "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-                        "region_name": str(settings.AIRBYTE_BUCKET_REGION),
+                        "region_name": str(settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION),
                         "AWS_ALLOW_HTTP": "true",
                         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
                     },
@@ -880,12 +850,13 @@ async def test_run_workflow_with_minio_bucket(
                 warehouse_table = await DataWarehouseTable.objects.aget(team_id=ateam.pk, id=query.table_id)
                 assert warehouse_table is not None, f"DataWarehouseTable for {query.name} not found"
                 # Match the 50 page_view events defined above
-                assert warehouse_table.row_count == len(
-                    expected_data
-                ), f"Row count for {query.name} not the expected value"
-                assert (
-                    warehouse_table.size_in_s3_mib is not None and warehouse_table.size_in_s3_mib != 0
-                ), f"Table size in mib for {query.name} is not set"
+                assert warehouse_table.row_count == len(expected_data), (
+                    f"Row count for {query.name} not the expected value"
+                )
+                assert warehouse_table.size_in_s3_mib is not None and warehouse_table.size_in_s3_mib != 0, (
+                    f"Table size in mib for {query.name} is not set"
+                )
+                assert warehouse_table.credential_id is None, "Table has credentials set when it shouldn't"
 
             job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
             assert job.storage_delta_mib is not None and job.storage_delta_mib != 0, f"Job storage delta is not set"
@@ -911,10 +882,10 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         freeze_time(TEST_TIME),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", mock_materialize_model),
@@ -948,6 +919,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
     assert job is not None
     assert job.status == DataModelingJob.Status.FAILED
+    assert job.rows_materialized == 0
 
 
 async def test_run_workflow_revert_materialization(
@@ -967,10 +939,10 @@ async def test_run_workflow_revert_materialization(
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         freeze_time(TEST_TIME),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
@@ -1004,10 +976,161 @@ async def test_run_workflow_revert_materialization(
     job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
     assert job is not None
     assert job.status == DataModelingJob.Status.FAILED
+    assert job.rows_materialized == 0
 
     for query in saved_queries:
         await database_sync_to_async(query.refresh_from_db)()
         assert query.is_materialized is False
+
+
+async def test_run_workflow_timeout_exceeded(
+    minio_client,
+    ateam,
+    bucket_name,
+    pageview_events,
+    saved_queries,
+    temporal_client,
+):
+    workflow_id = str(uuid.uuid4())
+    inputs = RunWorkflowInputs(team_id=ateam.pk)
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        freeze_time(TEST_TIME),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table") as mock_hogql_table,
+        unittest.mock.patch(
+            "posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"
+        ) as mock_pause_saved_query_schedule,
+    ):
+        mock_hogql_table.side_effect = Exception(
+            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.12.129 (official build))"
+        )
+
+        async with temporalio.worker.Worker(
+            temporal_client,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
+            workflows=[RunWorkflow],
+            activities=[
+                start_run_activity,
+                build_dag_activity,
+                run_dag_activity,
+                finish_run_activity,
+                create_job_model_activity,
+                fail_jobs_activity,
+                cleanup_running_jobs_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            # Ensure the team exists in the DB context before running workflow
+            await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
+            await temporal_client.execute_workflow(
+                RunWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    # Temporal shouldn't reattempt the activity
+    assert mock_hogql_table.call_count == 1
+    mock_pause_saved_query_schedule.assert_called()
+
+    job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
+    assert job is not None
+    assert job.status == DataModelingJob.Status.FAILED
+    assert job.rows_materialized == 0
+
+    for query in saved_queries:
+        await database_sync_to_async(query.refresh_from_db)()
+        assert query.is_materialized is False
+        assert query.sync_frequency_interval is None
+
+
+async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
+    model_label = "model-under-test"
+    ducklake_model = DuckLakeCopyModelInput(
+        model_label=model_label,
+        saved_query_id=str(uuid.uuid4()),
+        table_uri="s3://source/table",
+    )
+
+    @temporal_activity.defn
+    async def cleanup_stub(inputs):
+        return None
+
+    @temporal_activity.defn
+    async def create_job_stub(inputs):
+        return "job-child"
+
+    @temporal_activity.defn
+    async def build_dag_stub(inputs) -> run_workflow_module.DAG:
+        return {model_label: ModelNode(label=model_label, selected=True)}
+
+    @temporal_activity.defn
+    async def start_run_stub(inputs):
+        return None
+
+    @temporal_activity.defn
+    async def run_dag_stub(inputs):
+        return run_workflow_module.Results(
+            completed={model_label},
+            failed=set(),
+            ancestor_failed=set(),
+            ducklake_models=[ducklake_model],
+        )
+
+    @temporal_activity.defn
+    async def finish_run_stub(inputs):
+        return None
+
+    @temporal_activity.defn
+    async def fail_jobs_stub(inputs):
+        return None
+
+    monkeypatch.setattr(run_workflow_module, "cleanup_running_jobs_activity", cleanup_stub)
+    monkeypatch.setattr(run_workflow_module, "create_job_model_activity", create_job_stub)
+    monkeypatch.setattr(run_workflow_module, "build_dag_activity", build_dag_stub)
+    monkeypatch.setattr(run_workflow_module, "start_run_activity", start_run_stub)
+    monkeypatch.setattr(run_workflow_module, "run_dag_activity", run_dag_stub)
+    monkeypatch.setattr(run_workflow_module, "finish_run_activity", finish_run_stub)
+    monkeypatch.setattr(run_workflow_module, "fail_jobs_activity", fail_jobs_stub)
+
+    with override_settings(DUCKLAKE_TASK_QUEUE="ducklake-test"):
+        child_ducklake_workflow_runs.clear()
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="ducklake-test",
+                workflows=[RunWorkflow, DummyDuckLakeCopyDataModelingWorkflow],
+                activities=[
+                    cleanup_stub,
+                    create_job_stub,
+                    build_dag_stub,
+                    start_run_stub,
+                    run_dag_stub,
+                    finish_run_stub,
+                    fail_jobs_stub,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    RunWorkflow.run,
+                    RunWorkflowInputs(team_id=1),
+                    id=str(uuid.uuid4()),
+                    task_queue="ducklake-test",
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
+
+    assert len(child_ducklake_workflow_runs) == 1
+    assert child_ducklake_workflow_runs[0]["team_id"] == 1
+    assert child_ducklake_workflow_runs[0]["models"][0]["model_label"] == model_label
 
 
 async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):
@@ -1034,10 +1157,10 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch.dict(os.environ, {"SCHEMA__NAMING": "direct"}, clear=True),
     ):
@@ -1055,7 +1178,6 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1090,7 +1212,8 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
         )
 
         batch1 = pa.RecordBatch.from_arrays(
-            [problematic_data, pa.array([1], type=pa.int64())], names=["high_precision_decimal", "regular_column"]
+            cast(list[pa.Array], [problematic_data, pa.array([1], type=pa.int64())]),
+            names=["high_precision_decimal", "regular_column"],
         )
 
         async def async_generator():
@@ -1101,10 +1224,10 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
     ):
@@ -1119,7 +1242,6 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1163,7 +1285,8 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
         )
 
         batch1 = pa.RecordBatch.from_arrays(
-            [manageable_data, pa.array([1], type=pa.int64())], names=["manageable_decimal", "regular_column"]
+            cast(list[pa.Array], [manageable_data, pa.array([1], type=pa.int64())]),
+            names=["manageable_decimal", "regular_column"],
         )
 
         async def async_generator():
@@ -1174,10 +1297,10 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
     ):
@@ -1192,7 +1315,6 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1217,53 +1339,91 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
         assert saved_query.is_materialized is True
 
 
-async def test_cleanup_running_jobs_activity(activity_environment, ateam):
-    """Test cleanup marks all existing RUNNING jobs as FAILED when starting a new run."""
-    old_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="old-1", workflow_run_id="run-1"
+@pytest.mark.parametrize(
+    "saved_query_ids_fn, expected_a, expected_b",
+    [
+        pytest.param(
+            lambda sq_a, sq_b: [sq_a.id.hex],
+            DataModelingJob.Status.FAILED,
+            DataModelingJob.Status.RUNNING,
+            id="uuid_hex",
+        ),
+        pytest.param(
+            lambda sq_a, sq_b: [sq_a.name],
+            DataModelingJob.Status.FAILED,
+            DataModelingJob.Status.RUNNING,
+            id="name_label",
+        ),
+        pytest.param(
+            lambda sq_a, sq_b: [], DataModelingJob.Status.FAILED, DataModelingJob.Status.FAILED, id="team_wide_fallback"
+        ),
+    ],
+)
+async def test_cleanup_running_jobs_activity(activity_environment, ateam, saved_query_ids_fn, expected_a, expected_b):
+    sq_a = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam, name="query_a", query={"query": "SELECT 1", "kind": "HogQLQuery"}
     )
-    recent_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="recent-1", workflow_run_id="run-2"
+    sq_b = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam, name="query_b", query={"query": "SELECT 2", "kind": "HogQLQuery"}
+    )
+    job_a = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam, saved_query=sq_a, status=DataModelingJob.Status.RUNNING, workflow_id="wf-a", workflow_run_id="run-a"
     )
     completed_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.COMPLETED, workflow_id="completed-1", workflow_run_id="run-3"
+        team=ateam,
+        saved_query=sq_a,
+        status=DataModelingJob.Status.COMPLETED,
+        workflow_id="wf-c",
+        workflow_run_id="run-c",
+    )
+    job_b = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam, saved_query=sq_b, status=DataModelingJob.Status.RUNNING, workflow_id="wf-b", workflow_run_id="run-b"
     )
 
-    await activity_environment.run(cleanup_running_jobs_activity, CleanupRunningJobsActivityInputs(team_id=ateam.pk))
+    saved_query_ids = saved_query_ids_fn(sq_a, sq_b)
+    inputs = CleanupRunningJobsActivityInputs(team_id=ateam.pk)
+    if saved_query_ids:
+        inputs.saved_query_ids = saved_query_ids
+    await activity_environment.run(cleanup_running_jobs_activity, inputs)
 
-    await database_sync_to_async(old_job.refresh_from_db)()
-    await database_sync_to_async(recent_job.refresh_from_db)()
+    await database_sync_to_async(job_a.refresh_from_db)()
     await database_sync_to_async(completed_job.refresh_from_db)()
+    await database_sync_to_async(job_b.refresh_from_db)()
 
-    assert old_job.status == DataModelingJob.Status.FAILED
-    assert old_job.error is not None
-    assert "Job timed out" in old_job.error
-    assert recent_job.status == DataModelingJob.Status.FAILED
-    assert recent_job.error is not None
-    assert "Job timed out" in recent_job.error
+    assert job_a.status == expected_a
+    assert job_a.error is not None if expected_a == DataModelingJob.Status.FAILED else job_a.error is None
     assert completed_job.status == DataModelingJob.Status.COMPLETED
+    assert job_b.status == expected_b
 
 
 async def test_create_job_model_activity_cleans_up_running_jobs(activity_environment, ateam, temporal_client):
     """Test that orphaned jobs are cleaned up when running the full workflow."""
-    # Create old orphaned job
+    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam, name="test_query", query={"query": "SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"}
+    )
+
+    # Create old orphaned job for the same saved query
     orphaned_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="orphaned-1", workflow_run_id="run-1"
+        team=ateam,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id="orphaned-1",
+        workflow_run_id="run-1",
     )
     await database_sync_to_async(DataModelingJob.objects.filter(id=orphaned_job.id).update)(
         updated_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2)
     )
 
-    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
-        team=ateam, name="test_query", query={"query": "SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"}
+    await activity_environment.run(
+        cleanup_running_jobs_activity,
+        CleanupRunningJobsActivityInputs(team_id=ateam.pk, saved_query_ids=[saved_query.id.hex]),
     )
-
-    await activity_environment.run(cleanup_running_jobs_activity, CleanupRunningJobsActivityInputs(team_id=ateam.pk))
 
     await database_sync_to_async(orphaned_job.refresh_from_db)()
     assert orphaned_job.status == DataModelingJob.Status.FAILED
+    assert orphaned_job.rows_materialized == 0
     assert orphaned_job.error is not None
-    assert "Job timed out" in orphaned_job.error
+    assert "Preempted" in orphaned_job.error
 
     with unittest.mock.patch("temporalio.activity.info") as mock_info:
         mock_info.return_value.workflow_id = "new-workflow"
@@ -1307,10 +1467,10 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=6),
@@ -1329,7 +1489,6 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1354,10 +1513,10 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1370,7 +1529,6 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1403,10 +1561,10 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1419,7 +1577,6 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1452,10 +1609,10 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client, tru
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1468,7 +1625,6 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client, tru
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1501,10 +1657,10 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
 
     with override_settings(
         BUCKET_URL=f"s3://{bucket_name}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_REGION="us-east-1",
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1512,16 +1668,16 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
             workflow_id="test_workflow",
         )
 
-        key, delta_table, job_id = await materialize_model(
+        key, delta_table, _ = await materialize_model(
             saved_query.id.hex,
             ateam,
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
         assert key == saved_query.normalized_name
+        assert delta_table is not None
 
         table = delta_table.to_pyarrow_table()
         assert table.num_rows == 1
@@ -1534,3 +1690,121 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
 
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED
+
+
+async def test_materialize_model_empty_results(ateam, bucket_name, minio_client):
+    """Test that materialize_model raises NonRetryableException when query returns no results."""
+    query = "SELECT 1 WHERE 1 = 0"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="empty_results_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    async def mock_hogql_table(*args, **kwargs):
+        return
+        yield  # makes this a generator but nothing is ever yielded because of the return
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=0),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+        )
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
+        assert job.error is not None
+        assert "returned no results" in job.error
+
+
+child_ducklake_workflow_runs: list[dict] = []
+
+
+@temporal_workflow.defn(name="ducklake-copy.data-modeling")
+class DummyDuckLakeCopyDataModelingWorkflow:
+    @temporal_workflow.run
+    async def run(self, inputs: dict) -> None:
+        child_ducklake_workflow_runs.append(inputs)
+
+
+async def test_hogql_table_applies_custom_modifier_to_sessions_query(ateam):
+    """Test that team-level bounceRateDurationSeconds is applied to sessions queries.
+
+    The $is_bounce calculation uses bounceRateDurationSeconds. Without the fix to pass
+    modifiers to HogQLContext, the default value (10) would be used instead of the
+    team's custom value.
+    """
+    # Set custom bounce rate duration (default is 10)
+    custom_bounce_rate_duration = 123
+    ateam.modifiers = {"bounceRateDurationSeconds": custom_bounce_rate_duration}
+    await database_sync_to_async(ateam.save)()
+
+    captured_sql = None
+
+    async def mock_astream_query(self, query, *args, **kwargs):
+        nonlocal captured_sql
+        captured_sql = query
+        # returns early but yield makes this a generator. intentional unreachable
+        return
+        yield  # type: ignore[unreachable]
+
+    logger = unittest.mock.AsyncMock()
+    query = "SELECT $is_bounce FROM sessions LIMIT 1"
+    with unittest.mock.patch(
+        "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow",
+        mock_astream_query,
+    ):
+        try:
+            async for _ in hogql_table(query, ateam, logger):
+                break
+        except (StopAsyncIteration, StopIteration):
+            pass
+
+    assert captured_sql is not None, "SQL was not captured"
+    assert str(custom_bounce_rate_duration) in captured_sql, (
+        f"Expected bounce rate duration {custom_bounce_rate_duration} in SQL, got: {captured_sql}"
+    )
+
+
+async def test_create_default_modifiers_for_team_in_async_context(ateam):
+    """Test that create_default_modifiers_for_team must be wrapped with database_sync_to_async in async context.
+
+    The function accesses team.organization.created_at via person_on_events_mode_flag_based_default,
+    which triggers a lazy load of the organization foreign key. Without database_sync_to_async,
+    this raises SynchronousOnlyOperation in an async context.
+
+    This is a regression test for the fix that wrapped the call in hogql_table and get_query_row_count.
+    """
+    from django.core.exceptions import SynchronousOnlyOperation
+
+    from posthog.hogql.modifiers import create_default_modifiers_for_team
+
+    # fetch team without select_related to ensure organization needs lazy loading
+    team = await database_sync_to_async(Team.objects.get)(id=ateam.pk)
+    # mock is_cloud() to return true so that the code path accessing team.organization.created_at is triggered
+    with unittest.mock.patch("posthog.models.team.team.is_cloud", return_value=True):
+        # calling directly raises
+        with pytest.raises(SynchronousOnlyOperation):
+            create_default_modifiers_for_team(team)
+        # wrapped doesn't raise
+        await database_sync_to_async(create_default_modifiers_for_team)(team)

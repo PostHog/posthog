@@ -16,7 +16,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { CurrencyCode, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -214,7 +213,10 @@ export function GoalsConfiguration(): JSX.Element {
     }
 
     const handleDeleteGoal = (index: number): void => {
-        deleteGoal(index)
+        const goal = goals[index]
+        if (window.confirm(`Are you sure you want to delete the goal "${goal.name}"?`)) {
+            deleteGoal(index)
+        }
     }
 
     const handleCancelAdd = (): void => {
@@ -366,10 +368,7 @@ export function GoalsConfiguration(): JSX.Element {
     const dataSource = isAdding ? [...goals, EMPTY_GOAL] : goals
 
     return (
-        <SceneSection
-            title="Goals"
-            description="Set revenue targets for specific dates to track your progress. You can track goals based on your monthly/quarterly/yearly targets. These can be displayed either on your MRR/ARR or gross revenue charts on the revenue analytics dashboard!"
-        >
+        <>
             <div className={cn('flex flex-col items-end w-full')}>
                 <AccessControlAction
                     resourceType={AccessControlResourceType.RevenueAnalytics}
@@ -387,6 +386,7 @@ export function GoalsConfiguration(): JSX.Element {
                                   ? 'Finish editing current goal first'
                                   : undefined
                         }
+                        data-attr="revenue-analytics-add-goal-button"
                     >
                         Add Goal
                     </LemonButton>
@@ -404,6 +404,6 @@ export function GoalsConfiguration(): JSX.Element {
                 rowKey={(record) => `${record.name}-${record.due_date}`}
                 emptyState="No goals configured yet"
             />
-        </SceneSection>
+        </>
     )
 }

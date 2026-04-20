@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from flaky import flaky
+from asgiref.sync import sync_to_async
 
 from posthog.models.team.team import Team
 from posthog.tasks.test.test_usage_report import freeze_time
@@ -21,6 +21,7 @@ from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
+@sync_to_async
 def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
     source = ExternalDataSource.objects.create(
         team=team,
@@ -64,7 +65,8 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
+@pytest.mark.asyncio
+async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
     job_inputs = {
         "host": " host.com   ",
         "port": 5432,
@@ -74,13 +76,14 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
         "schema": "schema       ",
     }
 
-    activity_inputs = _setup(team, job_inputs)
+    activity_inputs = await _setup(team, job_inputs)
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
+        mock.patch("posthog.temporal.data_imports.sources.common.mixins._is_host_safe", return_value=(True, None)),
     ):
-        activity_environment.run(import_data_activity_sync, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         mock_postgres_source.assert_called_once_with(
             tunnel=mock.ANY,
@@ -97,11 +100,14 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             incremental_field_type=None,
             chunk_size_override=None,
             team_id=team.id,
+            require_ssl=True,
+            is_initial_sync=True,
         )
 
 
 @pytest.mark.django_db(transaction=True)
-def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs):
+@pytest.mark.asyncio
+async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs):
     job_inputs = {
         "host": "host.com",
         "port": 5432,
@@ -111,13 +117,14 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
         "schema": "schema",
     }
 
-    activity_inputs = _setup(team, job_inputs)
+    activity_inputs = await _setup(team, job_inputs)
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
+        mock.patch("posthog.temporal.data_imports.sources.common.mixins._is_host_safe", return_value=(True, None)),
     ):
-        activity_environment.run(import_data_activity_sync, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         mock_postgres_source.assert_called_once_with(
             tunnel=mock.ANY,
@@ -134,11 +141,14 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
             db_incremental_field_last_value=None,
             chunk_size_override=None,
             team_id=team.id,
+            require_ssl=True,
+            is_initial_sync=True,
         )
 
 
 @pytest.mark.django_db(transaction=True)
-def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **kwargs):
+@pytest.mark.asyncio
+async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **kwargs):
     job_inputs = {
         "host": "host.com",
         "port": "5432",
@@ -160,13 +170,14 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
         },
     }
 
-    activity_inputs = _setup(team, job_inputs)
+    activity_inputs = await _setup(team, job_inputs)
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
+        mock.patch("posthog.temporal.data_imports.sources.common.mixins._is_host_safe", return_value=(True, None)),
     ):
-        activity_environment.run(import_data_activity_sync, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         mock_postgres_source.assert_called_once_with(
             tunnel=mock.ANY,
@@ -183,13 +194,15 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
             db_incremental_field_last_value=None,
             chunk_size_override=None,
             team_id=team.id,
+            require_ssl=True,
+            is_initial_sync=True,
         )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@flaky(max_runs=3, min_passes=1)
-def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **kwargs):
+@pytest.mark.flaky(reruns=2)
+async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **kwargs):
     job_inputs = {
         "host": "host.com",
         "port": "5432",
@@ -211,7 +224,7 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
         },
     }
 
-    activity_inputs = _setup(team, job_inputs)
+    activity_inputs = await _setup(team, job_inputs)
 
     def mock_get_tunnel(self_class, host, port):
         class MockedTunnel:
@@ -230,8 +243,9 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
         mock.patch.object(SSHTunnel, "get_tunnel", mock_get_tunnel),
+        mock.patch("posthog.temporal.data_imports.sources.common.mixins._is_host_safe", return_value=(True, None)),
     ):
-        activity_environment.run(import_data_activity_sync, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         mock_postgres_source.assert_called_once_with(
             tunnel=mock.ANY,
@@ -248,6 +262,8 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
             db_incremental_field_last_value=None,
             chunk_size_override=None,
             team_id=team.id,
+            require_ssl=True,
+            is_initial_sync=True,
         )
 
 
@@ -265,11 +281,11 @@ def test_report_heartbeat_timeout_first_attempt(team):
     mock_info.current_attempt_scheduled_time = datetime.now()
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
+        "posthog.temporal.data_imports.pipelines.common.extract.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -290,11 +306,11 @@ def test_report_heartbeat_timeout_no_heartbeat_timeout(team):
     mock_info.current_attempt_scheduled_time = datetime.now()
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
+        "posthog.temporal.data_imports.pipelines.common.extract.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -315,11 +331,11 @@ def test_report_heartbeat_timeout_no_current_attempt_scheduled_time(team):
     mock_info.current_attempt_scheduled_time = None  # No current attempt scheduled time
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
+        "posthog.temporal.data_imports.pipelines.common.extract.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -343,11 +359,11 @@ def test_report_heartbeat_timeout_no_heartbeat_details(team):
     mock_info.heartbeat_details = None  # No heartbeat details
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
+        "posthog.temporal.data_imports.pipelines.common.extract.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -371,11 +387,11 @@ def test_report_heartbeat_timeout_heartbeat_details_are_not_a_tuple(team):
     mock_info.heartbeat_details = 123  # Not a tuple
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
+        "posthog.temporal.data_imports.pipelines.common.extract.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -399,11 +415,11 @@ def test_report_heartbeat_timeout_heartbeat_details_last_item_is_not_a_dict(team
     mock_info.heartbeat_details = ({"host": "value"}, "not_a_dict")  # Last item is not a dict
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
+        "posthog.temporal.data_imports.pipelines.common.extract.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -427,11 +443,11 @@ def test_report_heartbeat_timeout_heartbeat_details_missing_host_or_ts(team):
     mock_info.heartbeat_details = ({"some_other_key": "value"},)  # Missing 'ts' and 'host' key
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
+        "posthog.temporal.data_imports.pipelines.common.extract.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -454,11 +470,11 @@ def test_report_heartbeat_timeout_heartbeat_within_timeout(team):
     mock_info.heartbeat_details = ({"host": "value", "ts": datetime.now().timestamp()},)  # Valid heartbeat details
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info", return_value=mock_info
+        "posthog.temporal.data_imports.pipelines.common.extract.activity.info", return_value=mock_info
     ) as mock_activity_info:
-        from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+        from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-        _report_heartbeat_timeout(activity_inputs, logger)
+        report_heartbeat_timeout(activity_inputs, logger)
 
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
@@ -485,16 +501,16 @@ def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
 
         with (
             mock.patch(
-                "posthog.temporal.data_imports.workflow_activities.import_data_sync.activity.info",
+                "posthog.temporal.data_imports.pipelines.common.extract.activity.info",
                 return_value=mock_info,
             ) as mock_activity_info,
             mock.patch(
-                "posthog.temporal.data_imports.workflow_activities.import_data_sync.posthoganalytics.capture"
+                "posthog.temporal.data_imports.pipelines.common.extract.posthoganalytics.capture"
             ) as mock_posthog_capture,
         ):
-            from posthog.temporal.data_imports.workflow_activities.import_data_sync import _report_heartbeat_timeout
+            from posthog.temporal.data_imports.pipelines.common.extract import report_heartbeat_timeout
 
-            _report_heartbeat_timeout(activity_inputs, logger)
+            report_heartbeat_timeout(activity_inputs, logger)
 
             mock_activity_info.assert_called_once()
             logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")

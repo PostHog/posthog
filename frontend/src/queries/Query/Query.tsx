@@ -6,12 +6,12 @@ import { HogDebug } from 'scenes/debug/HogDebug'
 import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { WebVitals } from '~/queries/nodes/WebVitals/WebVitals'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import {
     AnyResponseType,
     DashboardFilter,
@@ -23,6 +23,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { EndpointsUsageOverviewNode, EndpointsUsageTrendsNode } from 'products/endpoints/frontend/nodes'
 import {
     RevenueAnalyticsGrossRevenueNode,
     RevenueAnalyticsMRRNode,
@@ -37,6 +38,8 @@ import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdow
 import {
     isDataTableNode,
     isDataVisualizationNode,
+    isEndpointsUsageOverviewQuery,
+    isEndpointsUsageTrendsQuery,
     isHogQuery,
     isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
@@ -102,7 +105,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         }
     }, [propsQuery]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const query = readOnly ? propsQuery : localQuery
+    const query = readOnly || propsSetQuery ? propsQuery : localQuery
     const setQuery = propsSetQuery ?? localSetQuery
 
     const queryContext = props.context || {}
@@ -147,6 +150,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
+                embedded={embedded}
                 editMode={!!editMode}
                 variablesOverride={props.variablesOverride}
             />
@@ -218,6 +222,24 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
         component = (
             <RevenueAnalyticsTopCustomersNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
+    } else if (isEndpointsUsageOverviewQuery(query)) {
+        component = (
+            <EndpointsUsageOverviewNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
+    } else if (isEndpointsUsageTrendsQuery(query)) {
+        component = (
+            <EndpointsUsageTrendsNode
                 attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}

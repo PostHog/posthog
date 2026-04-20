@@ -2,11 +2,11 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { processAllSnapshots, SourceKey, ViewportResolution } from '@posthog/replay-shared'
+
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
-import { ViewportResolution } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
-import { processAllSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import { sessionRecordingMetaLogic } from 'scenes/session-recordings/player/sessionRecordingMetaLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -92,13 +92,17 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             })
         })
 
-        it('fetch metadata error', async () => {
+        it('fetch metadata error with 500 sets loadMetaError but not isNotFound', async () => {
             silenceKeaLoadersErrors()
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
                     '/api/environments/:team_id/session_recordings/:id': () => [500, { status: 0 }],
                 },
+            })
+            const metaLogic = sessionRecordingMetaLogic({
+                sessionRecordingId: '2',
+                blobV2PollingDisabled: true,
             })
             logic.mount()
             logic.actions.loadRecordingMeta()
@@ -120,6 +124,31 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                         fullyLoaded: false,
                     },
                 })
+
+            expect(metaLogic.values.isNotFound).toBe(false)
+            expect(metaLogic.values.loadMetaError).toBe(true)
+            resumeKeaLoadersErrors()
+        })
+
+        it('fetch metadata error with 404 sets isNotFound but not loadMetaError', async () => {
+            silenceKeaLoadersErrors()
+            logic.unmount()
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id': () => [404, { detail: 'Not found.' }],
+                },
+            })
+            const metaLogic = sessionRecordingMetaLogic({
+                sessionRecordingId: '2',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+            logic.actions.loadRecordingMeta()
+
+            await expectLogic(logic).toDispatchActionsInAnyOrder(['loadRecordingMetaFailure']).toFinishAllListeners()
+
+            expect(metaLogic.values.isNotFound).toBe(true)
+            expect(metaLogic.values.loadMetaError).toBe(false)
             resumeKeaLoadersErrors()
         })
 
@@ -208,6 +237,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                     'loadEventsSuccess',
                     'loadRecordingCommentsSuccess',
                     'loadRecordingNotebookCommentsSuccess',
+                    'setProcessedSnapshots',
                 ])
                 .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
         })
@@ -217,7 +247,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
     describe('deduplicateSnapshots', () => {
         const sources: SessionRecordingSnapshotSource[] = [
             {
-                source: 'blob',
+                source: 'blob_v2',
                 start_timestamp: '2025-05-14T15:37:18.897000Z',
                 end_timestamp: '2025-05-14T15:42:18.378000Z',
                 blob_key: '1',
@@ -230,22 +260,22 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             href: '',
         })
 
-        const callProcessing = (snapshots: RecordingSnapshot[]): RecordingSnapshot[] | undefined => {
+        const callProcessing = (snapshots: RecordingSnapshot[]): Promise<RecordingSnapshot[]> => {
             return processAllSnapshots(
                 sources,
                 {
-                    'blob-1': {
+                    'blob_v2-1': {
                         source: { source: SnapshotSourceType.blob_v2, blob_key: 'blob-1' },
                         snapshots,
                     },
                 } as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-                {},
+                { snapshots: {} },
                 fakeViewportForTimestamp,
                 '12345'
             )
         }
 
-        it('should remove duplicate snapshots and sort by timestamp', () => {
+        it('should remove duplicate snapshots and sort by timestamp', async () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
             const snapshotsWithDuplicates = snapshots
                 .slice(0, 2)
@@ -254,10 +284,10 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
             expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
 
-            expect(callProcessing(snapshots)).toEqual(callProcessing(snapshotsWithDuplicates))
+            expect(await callProcessing(snapshots)).toEqual(await callProcessing(snapshotsWithDuplicates))
         })
 
-        it('should cope with two not duplicate snapshots with the same timestamp and delay', () => {
+        it('should cope with two not duplicate snapshots with the same timestamp and delay', async () => {
             // these two snapshots are not duplicates but have the same timestamp and delay
             // this regression test proves that we deduplicate them against themselves
             // prior to https://github.com/PostHog/posthog/pull/20019
@@ -265,26 +295,28 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             // the result would be one event longer, introducing, instead of removing, a duplicate
             const verySimilarSnapshots: RecordingSnapshot[] = [
                 {
-                    windowId: '1',
+                    windowId: 1,
                     type: 3,
                     data: { source: 2, type: 0, id: 33, x: 852.7421875, y: 133.1640625 },
                     timestamp: 1682952389798,
                 },
                 {
-                    windowId: '1',
+                    windowId: 1,
                     type: 3,
                     data: { source: 2, type: 2, id: 33, x: 852, y: 133, pointerType: 0 },
                     timestamp: 1682952389798,
                 },
             ]
             // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
-            expect(callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(verySimilarSnapshots)
+            expect(await callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
+                verySimilarSnapshots
+            )
         })
 
-        it('should match snapshot', () => {
+        it('should match snapshot', async () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
 
-            expect(callProcessing(snapshots)).toMatchSnapshot()
+            expect(await callProcessing(snapshots)).toMatchSnapshot()
         })
     })
 })
