@@ -1343,6 +1343,11 @@ export interface LLMSkillFileInputApi {
 }
 
 /**
+ * Arbitrary key-value metadata.
+ */
+export type LLMSkillListApiMetadata = { [key: string]: unknown }
+
+/**
  * List serializer that omits the body field for progressive disclosure (Level 1).
  */
 export interface LLMSkillListApi {
@@ -1370,7 +1375,7 @@ export interface LLMSkillListApi {
     /** List of pre-approved tools the skill may use. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
-    metadata?: unknown
+    metadata?: LLMSkillListApiMetadata
     /** Bundled files to include with the initial version (scripts, references, assets). */
     files?: LLMSkillFileInputApi[]
     readonly version: number
@@ -1392,6 +1397,11 @@ export interface PaginatedLLMSkillListListApi {
     previous?: string | null
     results: LLMSkillListApi[]
 }
+
+/**
+ * Arbitrary key-value metadata.
+ */
+export type LLMSkillApiMetadata = { [key: string]: unknown }
 
 export interface LLMSkillApi {
     readonly id: string
@@ -1420,7 +1430,7 @@ export interface LLMSkillApi {
     /** List of pre-approved tools the skill may use. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
-    metadata?: unknown
+    metadata?: LLMSkillApiMetadata
     /** Bundled files to include with the initial version (scripts, references, assets). */
     files?: LLMSkillFileInputApi[]
     readonly version: number

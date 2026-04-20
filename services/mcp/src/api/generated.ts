@@ -19574,6 +19574,11 @@ export namespace Schemas {
       readonly last_used_at: string | null;
     }
 
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type LLMSkillMetadata = {[key: string]: unknown};
+
     export interface LLMSkillFileInput {
       /**
        * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
@@ -19616,7 +19621,7 @@ export namespace Schemas {
       /** List of pre-approved tools the skill may use. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
-      metadata?: unknown;
+      metadata?: LLMSkillMetadata;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       readonly version: number;
@@ -19647,6 +19652,11 @@ export namespace Schemas {
     }
 
     /**
+     * Arbitrary key-value metadata.
+     */
+    export type LLMSkillListMetadata = {[key: string]: unknown};
+
+    /**
      * List serializer that omits the body field for progressive disclosure (Level 1).
      */
     export interface LLMSkillList {
@@ -19674,7 +19684,7 @@ export namespace Schemas {
       /** List of pre-approved tools the skill may use. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
-      metadata?: unknown;
+      metadata?: LLMSkillListMetadata;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       readonly version: number;

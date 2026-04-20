@@ -214,6 +214,11 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         default=list,
         help_text="List of pre-approved tools the skill may use.",
     )
+    metadata = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Arbitrary key-value metadata.",
+    )
     files = LLMSkillFileInputSerializer(
         many=True,
         required=False,
