@@ -549,74 +549,33 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly updated_at?: string
 }
 
-export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof IntegrationKindApi]
-
-export const IntegrationKindApi = {
-    Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
-    Salesforce: 'salesforce',
-    Hubspot: 'hubspot',
-    GooglePubsub: 'google-pubsub',
-    GoogleCloudServiceAccount: 'google-cloud-service-account',
-    GoogleCloudStorage: 'google-cloud-storage',
-    GoogleAds: 'google-ads',
-    GoogleSheets: 'google-sheets',
-    LinkedinAds: 'linkedin-ads',
-    Snapchat: 'snapchat',
-    Intercom: 'intercom',
-    Email: 'email',
-    Twilio: 'twilio',
-    Linear: 'linear',
-    Github: 'github',
-    Gitlab: 'gitlab',
-    MetaAds: 'meta-ads',
-    Clickup: 'clickup',
-    RedditAds: 'reddit-ads',
-    Databricks: 'databricks',
-    TiktokAds: 'tiktok-ads',
-    BingAds: 'bing-ads',
-    Vercel: 'vercel',
-    AzureBlob: 'azure-blob',
-    Firebase: 'firebase',
-    Jira: 'jira',
-    PinterestAds: 'pinterest-ads',
-    CustomerioApp: 'customerio-app',
-    CustomerioWebhook: 'customerio-webhook',
-    CustomerioTrack: 'customerio-track',
-} as const
-
-export interface ErrorTrackingExternalReferenceIntegrationApi {
-    display_name: string
-    id: number
-    kind: IntegrationKindApi
+export interface ErrorTrackingExternalReferenceIntegrationResultApi {
+    readonly id: number
+    readonly kind: string
+    readonly display_name: string
 }
 
-export interface ErrorTrackingExternalReferenceApi {
-    external_url: string
-    id: string
-    integration: ErrorTrackingExternalReferenceIntegrationApi
+export interface ErrorTrackingExternalReferenceResultApi {
+    readonly id: string
+    readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
+    integration_id: number
+    config: unknown
+    issue: string
+    readonly external_url: string
 }
 
-export interface PaginatedErrorTrackingExternalReferenceListApi {
+export interface PaginatedErrorTrackingExternalReferenceResultListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingExternalReferenceApi[]
-}
-
-export interface PatchedErrorTrackingExternalReferenceApi {
-    readonly id?: string
-    readonly integration?: ErrorTrackingExternalReferenceIntegrationApi
-    integration_id?: number
-    config?: unknown
-    issue?: string
-    readonly external_url?: string
+    results: ErrorTrackingExternalReferenceResultApi[]
 }
 
 export interface ErrorTrackingFingerprintApi {
-    fingerprint: string
+    readonly id: string
+    readonly fingerprint: string
     readonly issue_id: string
     readonly created_at: string
 }
@@ -768,7 +727,7 @@ export interface ErrorTrackingIssueFullApi {
     description?: string | null
     first_seen: string
     assignee: ErrorTrackingIssueAssignmentApi
-    external_issues: ErrorTrackingExternalReferenceApi[]
+    external_issues: ErrorTrackingExternalReferenceResultApi[]
     /** @nullable */
     readonly cohort: ErrorTrackingIssueFullApiCohort
 }
@@ -799,7 +758,7 @@ export interface PatchedErrorTrackingIssueFullApi {
     description?: string | null
     first_seen?: string
     assignee?: ErrorTrackingIssueAssignmentApi
-    external_issues?: ErrorTrackingExternalReferenceApi[]
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
     /** @nullable */
     readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
 }

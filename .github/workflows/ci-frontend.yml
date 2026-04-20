@@ -48,6 +48,7 @@ jobs:
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
                         - 'playwright/**'
+                        - 'docs/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files

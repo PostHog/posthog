@@ -653,6 +653,13 @@ const AssistantFunnelsEventsNode = z.object({
     math: AssistantFunnelsMath.describe(
         'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
+    optionalInFunnel: z.coerce
+        .boolean()
+        .describe(
+            "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required)."
+        )
+        .default(false)
+        .optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
@@ -664,6 +671,13 @@ const AssistantFunnelsActionsNode = z.object({
         'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
     name: z.string().describe('Action name from the plan.'),
+    optionalInFunnel: z.coerce
+        .boolean()
+        .describe(
+            "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required)."
+        )
+        .default(false)
+        .optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
@@ -702,14 +716,33 @@ const RetentionType = z.enum(['retention_recurring', 'retention_first_time', 're
 
 const AssistantRetentionEventsNode = z.object({
     custom_name: z.string().describe('Custom name for the event if it is needed to be renamed.').optional(),
-    name: z.string().describe('Event name from the plan.'),
+    id: z
+        .string()
+        .describe(
+            'The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.'
+        ),
+    name: z
+        .string()
+        .describe(
+            'Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.'
+        )
+        .optional(),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for the event.').optional(),
     type: z.literal('events').default('events'),
 })
 
 const AssistantRetentionActionsNode = z.object({
-    id: z.coerce.number().describe('Action ID from the plan.'),
-    name: z.string().describe('Action name from the plan.'),
+    id: z.coerce
+        .number()
+        .describe(
+            'The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.'
+        ),
+    name: z
+        .string()
+        .describe(
+            "Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching."
+        )
+        .optional(),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for the action.').optional(),
     type: z.literal('actions').default('actions'),
 })

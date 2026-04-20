@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Create serializer — accepts bundled files as write-only input on POST.",
     "properties": {
         "allowed_tools": {
             "description": "List of pre-approved tools the skill may use.",

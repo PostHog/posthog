@@ -12,6 +12,7 @@
  */
 import { parseJSON } from '../utils/json-parse'
 import { createTrackedRE2 } from '../utils/tracked-re2'
+import type { LogBodyParseResult } from './log-body-parse'
 import type { LogRecord } from './log-record-avro'
 
 export const PII_REDACTED = '{{REDACTED}}'
@@ -119,11 +120,30 @@ function scrubJsonValue(value: unknown): unknown {
 }
 
 /** If body is JSON object/array, scrub nested strings and re-serialize; if invalid JSON, scrub as plain text. */
-function scrubBodyField(record: LogRecord): void {
+function scrubBodyField(record: LogRecord, bodyParse?: LogBodyParseResult): void {
     if (record.body == null) {
         return
     }
     const body = record.body
+
+    if (bodyParse) {
+        switch (bodyParse.kind) {
+            case 'empty':
+                return
+            case 'invalid_json':
+                record.body = scrubPlainString(bodyParse.raw)
+                return
+            case 'json_object_or_array':
+                record.body = JSON.stringify(scrubJsonValue(bodyParse.value))
+                return
+            case 'json_string':
+                record.body = JSON.stringify(scrubPlainString(bodyParse.value))
+                return
+            case 'json_primitive':
+                return
+        }
+    }
+
     try {
         const parsed = parseJSON(body)
         if (parsed !== null && typeof parsed === 'object') {
@@ -157,9 +177,14 @@ function scrubStringMap(map: Record<string, string> | null): Record<string, stri
     return out
 }
 
+export type ScrubLogRecordOptions = {
+    /** When set, body scrubbing reuses this parse so callers can parse `record.body` once (e.g. with JSON enrich). */
+    bodyParse?: LogBodyParseResult
+}
+
 /** Mutate record in place: body, attributes, resource_attributes, and common string metadata fields. */
-export function scrubLogRecord(record: LogRecord): void {
-    scrubBodyField(record)
+export function scrubLogRecord(record: LogRecord, options?: ScrubLogRecordOptions): void {
+    scrubBodyField(record, options?.bodyParse)
     record.attributes = scrubStringMap(record.attributes)
     record.resource_attributes = scrubStringMap(record.resource_attributes)
     if (record.service_name) {

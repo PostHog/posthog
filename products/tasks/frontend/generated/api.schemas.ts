@@ -232,6 +232,16 @@ export const OriginProductEnumApi = {
     SignalReport: 'signal_report',
 } as const
 
+/**
+ * * `implementation` - Implementation
+ */
+export type SignalReportTaskRelationshipEnumApi =
+    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
+
+export const SignalReportTaskRelationshipEnumApi = {
+    Implementation: 'implementation',
+} as const
+
 export interface PatchedTaskApi {
     readonly id?: string
     /** @nullable */
@@ -254,6 +264,7 @@ export interface PatchedTaskApi {
     github_integration?: number | null
     /** @nullable */
     signal_report?: string | null
+    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
     /** JSON schema for the task. This is used to validate the output of the task. */
     json_schema?: unknown | null
     /** If true, this task is for internal use and should not be exposed to end users. */

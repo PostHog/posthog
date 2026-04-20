@@ -71,10 +71,10 @@ export namespace Schemas {
     * `flag` - flag
     * `workflow_variable` - workflow_variable
      */
-    export type TypeE27Enum = typeof TypeE27Enum[keyof typeof TypeE27Enum];
+    export type Type3f6Enum = typeof Type3f6Enum[keyof typeof Type3f6Enum];
 
 
-    export const TypeE27Enum = {
+    export const Type3f6Enum = {
       Event: 'event',
       EventMetadata: 'event_metadata',
       Feature: 'feature',
@@ -112,10 +112,10 @@ export namespace Schemas {
     * `regex` - regex
     * `not_regex` - not_regex
      */
-    export type DeviceTypesMatchTypeEnum = typeof DeviceTypesMatchTypeEnum[keyof typeof DeviceTypesMatchTypeEnum];
+    export type StringPropertyFilterOperatorEnum = typeof StringPropertyFilterOperatorEnum[keyof typeof StringPropertyFilterOperatorEnum];
 
 
-    export const DeviceTypesMatchTypeEnum = {
+    export const StringPropertyFilterOperatorEnum = {
       Exact: 'exact',
       IsNot: 'is_not',
       Icontains: 'icontains',
@@ -159,7 +159,7 @@ export namespace Schemas {
     * `revenue_analytics` - revenue_analytics
     * `flag` - flag
     * `workflow_variable` - workflow_variable */
-      type?: TypeE27Enum;
+      type?: Type3f6Enum;
       /** String value to match against. */
       value: string;
       /** String comparison operator.
@@ -170,7 +170,7 @@ export namespace Schemas {
     * `not_icontains` - not_icontains
     * `regex` - regex
     * `not_regex` - not_regex */
-      operator?: DeviceTypesMatchTypeEnum;
+      operator?: StringPropertyFilterOperatorEnum;
     }
 
     /**
@@ -228,7 +228,7 @@ export namespace Schemas {
     * `revenue_analytics` - revenue_analytics
     * `flag` - flag
     * `workflow_variable` - workflow_variable */
-      type?: TypeE27Enum;
+      type?: Type3f6Enum;
       /** Numeric value to compare against. */
       value: number;
       /** Numeric comparison operator.
@@ -293,7 +293,7 @@ export namespace Schemas {
     * `revenue_analytics` - revenue_analytics
     * `flag` - flag
     * `workflow_variable` - workflow_variable */
-      type?: TypeE27Enum;
+      type?: Type3f6Enum;
       /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
       value: string[];
       /** Array comparison operator.
@@ -310,10 +310,10 @@ export namespace Schemas {
     * `is_date_before` - is_date_before
     * `is_date_after` - is_date_after
      */
-    export type Operator382Enum = typeof Operator382Enum[keyof typeof Operator382Enum];
+    export type DatePropertyFilterOperatorEnum = typeof DatePropertyFilterOperatorEnum[keyof typeof DatePropertyFilterOperatorEnum];
 
 
-    export const Operator382Enum = {
+    export const DatePropertyFilterOperatorEnum = {
       IsDateExact: 'is_date_exact',
       IsDateBefore: 'is_date_before',
       IsDateAfter: 'is_date_after',
@@ -354,7 +354,7 @@ export namespace Schemas {
     * `revenue_analytics` - revenue_analytics
     * `flag` - flag
     * `workflow_variable` - workflow_variable */
-      type?: TypeE27Enum;
+      type?: Type3f6Enum;
       /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
       value: string;
       /** Date comparison operator.
@@ -362,17 +362,17 @@ export namespace Schemas {
     * `is_date_exact` - is_date_exact
     * `is_date_before` - is_date_before
     * `is_date_after` - is_date_after */
-      operator?: Operator382Enum;
+      operator?: DatePropertyFilterOperatorEnum;
     }
 
     /**
      * * `is_set` - is_set
     * `is_not_set` - is_not_set
      */
-    export type OperatorA04Enum = typeof OperatorA04Enum[keyof typeof OperatorA04Enum];
+    export type Operator3e6Enum = typeof Operator3e6Enum[keyof typeof Operator3e6Enum];
 
 
-    export const OperatorA04Enum = {
+    export const Operator3e6Enum = {
       IsSet: 'is_set',
       IsNotSet: 'is_not_set',
     } as const;
@@ -412,12 +412,12 @@ export namespace Schemas {
     * `revenue_analytics` - revenue_analytics
     * `flag` - flag
     * `workflow_variable` - workflow_variable */
-      type?: TypeE27Enum;
+      type?: Type3f6Enum;
       /** Existence check operator.
 
     * `is_set` - is_set
     * `is_not_set` - is_not_set */
-      operator: OperatorA04Enum;
+      operator: Operator3e6Enum;
     }
 
     export type ActionStepPropertyFilter = StringPropertyFilter | NumericPropertyFilter | ArrayPropertyFilter | DatePropertyFilter | ExistencePropertyFilter;
@@ -5455,8 +5455,13 @@ export namespace Schemas {
       readonly last_checked_at: string | null;
       /** @nullable */
       readonly next_check_at: string | null;
-      /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
+      /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
       readonly checks: readonly AlertCheck[];
+      /**
+       * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+       * @nullable
+       */
+      readonly checks_total: number | null;
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
@@ -6337,10 +6342,10 @@ export namespace Schemas {
      * * `minimal` - minimal
     * `detailed` - detailed
      */
-    export type ModeE35Enum = typeof ModeE35Enum[keyof typeof ModeE35Enum];
+    export type Mode02aEnum = typeof Mode02aEnum[keyof typeof Mode02aEnum];
 
 
-    export const ModeE35Enum = {
+    export const Mode02aEnum = {
       Minimal: 'minimal',
       Detailed: 'detailed',
     } as const;
@@ -6355,7 +6360,7 @@ export namespace Schemas {
 
     * `minimal` - minimal
     * `detailed` - detailed */
-      mode?: ModeE35Enum;
+      mode?: Mode02aEnum;
       /**
        * LLM model used for cached summaries
        * @nullable
@@ -7554,10 +7559,10 @@ export namespace Schemas {
      * * `interactive` - interactive
     * `background` - background
      */
-    export type Mode051Enum = typeof Mode051Enum[keyof typeof Mode051Enum];
+    export type ModeA07Enum = typeof ModeA07Enum[keyof typeof ModeA07Enum];
 
 
-    export const Mode051Enum = {
+    export const ModeA07Enum = {
       Interactive: 'interactive',
       Background: 'background',
     } as const;
@@ -7636,7 +7641,7 @@ export namespace Schemas {
 
     * `interactive` - interactive
     * `background` - background */
-      mode?: Mode051Enum;
+      mode?: ModeA07Enum;
       /**
        * Git branch to checkout in the sandbox
        * @maxLength 255
@@ -7932,7 +7937,7 @@ export namespace Schemas {
 
     * `interactive` - interactive
     * `background` - background */
-      mode?: Mode051Enum;
+      mode?: ModeA07Enum;
       /**
        * Git branch to checkout in the sandbox
        * @maxLength 255
@@ -8682,10 +8687,10 @@ export namespace Schemas {
     * `desktop_audio` - Desktop audio
     * `slack` - Slack huddle
      */
-    export type Platform0afEnum = typeof Platform0afEnum[keyof typeof Platform0afEnum];
+    export type Platform9aaEnum = typeof Platform9aaEnum[keyof typeof Platform9aaEnum];
 
 
-    export const Platform0afEnum = {
+    export const Platform9aaEnum = {
       Zoom: 'zoom',
       Teams: 'teams',
       Meet: 'meet',
@@ -8700,10 +8705,10 @@ export namespace Schemas {
     * `ready` - Ready
     * `error` - Error
      */
-    export type StatusD05Enum = typeof StatusD05Enum[keyof typeof StatusD05Enum];
+    export type Status292Enum = typeof Status292Enum[keyof typeof Status292Enum];
 
 
-    export const StatusD05Enum = {
+    export const Status292Enum = {
       Recording: 'recording',
       Uploading: 'uploading',
       Processing: 'processing',
@@ -8732,7 +8737,7 @@ export namespace Schemas {
       readonly sdk_upload_id: string;
       /** @nullable */
       recall_recording_id?: string | null;
-      platform: Platform0afEnum;
+      platform: Platform9aaEnum;
       /**
        * @maxLength 255
        * @nullable
@@ -8749,7 +8754,7 @@ export namespace Schemas {
        * @nullable
        */
       duration_seconds?: number | null;
-      status?: StatusD05Enum;
+      status?: Status292Enum;
       /** @nullable */
       notes?: string | null;
       /** @nullable */
@@ -12726,10 +12731,10 @@ export namespace Schemas {
     * `Failed` - Failed
     * `Running` - Running
      */
-    export type Status550Enum = typeof Status550Enum[keyof typeof Status550Enum];
+    export type StatusD5cEnum = typeof StatusD5cEnum[keyof typeof StatusD5cEnum];
 
 
-    export const Status550Enum = {
+    export const StatusD5cEnum = {
       Cancelled: 'Cancelled',
       Modified: 'Modified',
       Completed: 'Completed',
@@ -12779,7 +12784,7 @@ export namespace Schemas {
     * `Completed` - Completed
     * `Failed` - Failed
     * `Running` - Running */
-      readonly status: Status550Enum | NullEnum | null;
+      readonly status: StatusD5cEnum | NullEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
       /** @nullable */
@@ -12883,7 +12888,7 @@ export namespace Schemas {
     * `Completed` - Completed
     * `Failed` - Failed
     * `Running` - Running */
-      readonly status: Status550Enum | NullEnum | null;
+      readonly status: StatusD5cEnum | NullEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
       /** @nullable */
@@ -13373,7 +13378,7 @@ export namespace Schemas {
       readonly sdk_upload_id: string;
       /** @nullable */
       recall_recording_id?: string | null;
-      platform: Platform0afEnum;
+      platform: Platform9aaEnum;
       /**
        * @maxLength 255
        * @nullable
@@ -13390,7 +13395,7 @@ export namespace Schemas {
        * @nullable
        */
       duration_seconds?: number | null;
-      status?: StatusD05Enum;
+      status?: Status292Enum;
       /** @nullable */
       notes?: string | null;
       /** @nullable */
@@ -13438,6 +13443,26 @@ export namespace Schemas {
       Desktop: 'Desktop',
       Mobile: 'Mobile',
       Tablet: 'Tablet',
+    } as const;
+
+    /**
+     * * `regex` - regex
+    * `not_regex` - not_regex
+    * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+     */
+    export type DeviceTypesMatchTypeEnum = typeof DeviceTypesMatchTypeEnum[keyof typeof DeviceTypesMatchTypeEnum];
+
+
+    export const DeviceTypesMatchTypeEnum = {
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
     } as const;
 
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
@@ -14336,10 +14361,10 @@ export namespace Schemas {
     * `Boolean` - Boolean
     * `Duration` - Duration
      */
-    export type PropertyType02dEnum = typeof PropertyType02dEnum[keyof typeof PropertyType02dEnum];
+    export type PropertyType549Enum = typeof PropertyType549Enum[keyof typeof PropertyType549Enum];
 
 
-    export const PropertyType02dEnum = {
+    export const PropertyType549Enum = {
       DateTime: 'DateTime',
       String: 'String',
       Numeric: 'Numeric',
@@ -14361,7 +14386,7 @@ export namespace Schemas {
       readonly updated_by: UserBasic;
       /** @nullable */
       readonly is_seen_on_filtered_events: boolean | null;
-      property_type?: PropertyType02dEnum | BlankEnum | NullEnum | null;
+      property_type?: PropertyType549Enum | BlankEnum | NullEnum | null;
       verified?: boolean;
       /** @nullable */
       readonly verified_at: string | null;
@@ -14414,10 +14439,10 @@ export namespace Schemas {
      * * `user` - user
     * `role` - role
      */
-    export type TypeDe9Enum = typeof TypeDe9Enum[keyof typeof TypeDe9Enum];
+    export type Type079Enum = typeof Type079Enum[keyof typeof Type079Enum];
 
 
-    export const TypeDe9Enum = {
+    export const Type079Enum = {
       User: 'user',
       Role: 'role',
     } as const;
@@ -14427,7 +14452,7 @@ export namespace Schemas {
 
     * `user` - user
     * `role` - role */
-      type: TypeDe9Enum;
+      type: Type079Enum;
       /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
       id: number | string;
     }
@@ -14505,8 +14530,24 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ErrorTrackingExternalReferenceIntegrationResult {
+      readonly id: number;
+      readonly kind: string;
+      readonly display_name: string;
+    }
+
+    export interface ErrorTrackingExternalReferenceResult {
+      readonly id: string;
+      readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
+      integration_id: number;
+      config: unknown;
+      issue: string;
+      readonly external_url: string;
+    }
+
     export interface ErrorTrackingFingerprint {
-      fingerprint: string;
+      readonly id: string;
+      readonly fingerprint: string;
       readonly issue_id: string;
       readonly created_at: string;
     }
@@ -14552,7 +14593,7 @@ export namespace Schemas {
 
     * `user` - user
     * `role` - role */
-      type: TypeDe9Enum;
+      type: Type079Enum;
       /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
       id: number | string;
     }
@@ -14613,7 +14654,7 @@ export namespace Schemas {
       description?: string | null;
       first_seen: string;
       assignee: ErrorTrackingIssueAssignment;
-      external_issues: ErrorTrackingExternalReference[];
+      external_issues: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
       readonly cohort: ErrorTrackingIssueFullCohort;
     }
@@ -14869,10 +14910,10 @@ export namespace Schemas {
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
      */
-    export type Provider2f4Enum = typeof Provider2f4Enum[keyof typeof Provider2f4Enum];
+    export type Provider519Enum = typeof Provider519Enum[keyof typeof Provider519Enum];
 
 
-    export const Provider2f4Enum = {
+    export const Provider519Enum = {
       Openai: 'openai',
       Anthropic: 'anthropic',
       Gemini: 'gemini',
@@ -14884,7 +14925,7 @@ export namespace Schemas {
      * Nested serializer for model configuration.
      */
     export interface ModelConfiguration {
-      provider: Provider2f4Enum;
+      provider: Provider519Enum;
       /** @maxLength 100 */
       model: string;
       /** @nullable */
@@ -15977,11 +16018,12 @@ export namespace Schemas {
     * `Granola` - Granola
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
+    * `ClickHouse` - ClickHouse
      */
-    export type SourceTypeCbeEnum = typeof SourceTypeCbeEnum[keyof typeof SourceTypeCbeEnum];
+    export type SourceType9a7Enum = typeof SourceType9a7Enum[keyof typeof SourceType9a7Enum];
 
 
-    export const SourceTypeCbeEnum = {
+    export const SourceType9a7Enum = {
       Ashby: 'Ashby',
       Supabase: 'Supabase',
       CustomerIO: 'CustomerIO',
@@ -16123,6 +16165,7 @@ export namespace Schemas {
       Granola: 'Granola',
       BuildBetter: 'BuildBetter',
       Convex: 'Convex',
+      ClickHouse: 'ClickHouse',
     } as const;
 
     /**
@@ -16136,7 +16179,7 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: SourceTypeCbeEnum;
+      readonly source_type: SourceType9a7Enum;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -16297,10 +16340,10 @@ export namespace Schemas {
     * `person` - person
     * `group` - group
      */
-    export type Type576Enum = typeof Type576Enum[keyof typeof Type576Enum];
+    export type Type380Enum = typeof Type380Enum[keyof typeof Type380Enum];
 
 
-    export const Type576Enum = {
+    export const Type380Enum = {
       Cohort: 'cohort',
       Person: 'person',
       Group: 'group',
@@ -16342,7 +16385,7 @@ export namespace Schemas {
     * `cohort` - cohort
     * `person` - person
     * `group` - group */
-      type?: Type576Enum;
+      type?: Type380Enum;
       /**
        * Resolved cohort name for cohort-type filters.
        * @nullable
@@ -16378,7 +16421,7 @@ export namespace Schemas {
     * `cohort` - cohort
     * `person` - person
     * `group` - group */
-      type?: Type576Enum;
+      type?: Type380Enum;
       /**
        * Resolved cohort name for cohort-type filters.
        * @nullable
@@ -16393,10 +16436,24 @@ export namespace Schemas {
 
     * `is_set` - is_set
     * `is_not_set` - is_not_set */
-      operator: OperatorA04Enum;
+      operator: Operator3e6Enum;
       /** Optional value. Runtime behavior determines whether this is ignored. */
       value?: unknown;
     }
+
+    /**
+     * * `is_date_exact` - is_date_exact
+    * `is_date_after` - is_date_after
+    * `is_date_before` - is_date_before
+     */
+    export type FeatureFlagFilterPropertyDateSchemaOperatorEnum = typeof FeatureFlagFilterPropertyDateSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyDateSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertyDateSchemaOperatorEnum = {
+      IsDateExact: 'is_date_exact',
+      IsDateAfter: 'is_date_after',
+      IsDateBefore: 'is_date_before',
+    } as const;
 
     export interface FeatureFlagFilterPropertyDateSchema {
       /** Property key used in this feature flag condition. */
@@ -16406,7 +16463,7 @@ export namespace Schemas {
     * `cohort` - cohort
     * `person` - person
     * `group` - group */
-      type?: Type576Enum;
+      type?: Type380Enum;
       /**
        * Resolved cohort name for cohort-type filters.
        * @nullable
@@ -16422,7 +16479,7 @@ export namespace Schemas {
     * `is_date_exact` - is_date_exact
     * `is_date_after` - is_date_after
     * `is_date_before` - is_date_before */
-      operator: Operator382Enum;
+      operator: FeatureFlagFilterPropertyDateSchemaOperatorEnum;
       /** Date value in ISO format or relative date expression. */
       value: string;
     }
@@ -16461,7 +16518,7 @@ export namespace Schemas {
     * `cohort` - cohort
     * `person` - person
     * `group` - group */
-      type?: Type576Enum;
+      type?: Type380Enum;
       /**
        * Resolved cohort name for cohort-type filters.
        * @nullable
@@ -16508,7 +16565,7 @@ export namespace Schemas {
     * `cohort` - cohort
     * `person` - person
     * `group` - group */
-      type?: Type576Enum;
+      type?: Type380Enum;
       /**
        * Resolved cohort name for cohort-type filters.
        * @nullable
@@ -17040,10 +17097,10 @@ export namespace Schemas {
     * `active` - Active
     * `archived` - Archived
      */
-    export type Status118Enum = typeof Status118Enum[keyof typeof Status118Enum];
+    export type StatusA5eEnum = typeof StatusA5eEnum[keyof typeof StatusA5eEnum];
 
 
-    export const Status118Enum = {
+    export const StatusA5eEnum = {
       Draft: 'draft',
       Active: 'active',
       Archived: 'archived',
@@ -17136,7 +17193,7 @@ export namespace Schemas {
       name?: string | null;
       description?: string;
       readonly version: number;
-      status?: Status118Enum;
+      status?: StatusA5eEnum;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -17158,7 +17215,7 @@ export namespace Schemas {
       readonly name: string | null;
       readonly description: string;
       readonly version: number;
-      readonly status: Status118Enum;
+      readonly status: StatusA5eEnum;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -17280,17 +17337,17 @@ export namespace Schemas {
      * * `hog` - hog
     * `liquid` - liquid
      */
-    export type TemplatingEnum = typeof TemplatingEnum[keyof typeof TemplatingEnum];
+    export type Templating186Enum = typeof Templating186Enum[keyof typeof Templating186Enum];
 
 
-    export const TemplatingEnum = {
+    export const Templating186Enum = {
       Hog: 'hog',
       Liquid: 'liquid',
     } as const;
 
     export interface InputsItem {
       value?: unknown;
-      templating?: TemplatingEnum;
+      templating?: Templating186Enum;
       readonly bytecode: readonly unknown[];
       readonly order: number;
       readonly transpiled: unknown;
@@ -17357,6 +17414,22 @@ export namespace Schemas {
       PosthogBusinessHours: 'posthog_business_hours',
     } as const;
 
+    /**
+     * * `True` - True
+    * `False` - False
+    * `hog` - hog
+    * `liquid` - liquid
+     */
+    export type InputsSchemaItemTemplatingEnum = typeof InputsSchemaItemTemplatingEnum[keyof typeof InputsSchemaItemTemplatingEnum];
+
+
+    export const InputsSchemaItemTemplatingEnum = {
+      True: true,
+      False: false,
+      Hog: 'hog',
+      Liquid: 'liquid',
+    } as const;
+
     export type InputsSchemaItemChoicesItem = {[key: string]: unknown};
 
     export interface InputsSchemaItem {
@@ -17374,7 +17447,7 @@ export namespace Schemas {
       requires_field?: string;
       integration_field?: string;
       requiredScopes?: string;
-      templating?: boolean | 'hog' | 'liquid';
+      templating?: InputsSchemaItemTemplatingEnum;
     }
 
     export interface HogFunctionMasking {
@@ -18572,10 +18645,10 @@ export namespace Schemas {
     * `customerio-webhook` - Customerio Webhook
     * `customerio-track` - Customerio Track
      */
-    export type KindE4eEnum = typeof KindE4eEnum[keyof typeof KindE4eEnum];
+    export type KindEc9Enum = typeof KindEc9Enum[keyof typeof KindEc9Enum];
 
 
-    export const KindE4eEnum = {
+    export const KindEc9Enum = {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
@@ -18615,7 +18688,7 @@ export namespace Schemas {
      */
     export interface Integration {
       readonly id: number;
-      kind: KindE4eEnum;
+      kind: KindEc9Enum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -19423,10 +19496,10 @@ export namespace Schemas {
     * `numeric` - numeric
     * `boolean` - boolean
      */
-    export type KindD08Enum = typeof KindD08Enum[keyof typeof KindD08Enum];
+    export type Kind01eEnum = typeof Kind01eEnum[keyof typeof Kind01eEnum];
 
 
-    export const KindD08Enum = {
+    export const Kind01eEnum = {
       Categorical: 'categorical',
       Numeric: 'numeric',
       Boolean: 'boolean',
@@ -19550,7 +19623,7 @@ export namespace Schemas {
 
     export interface LLMProviderKey {
       readonly id: string;
-      provider: Provider2f4Enum;
+      provider: Provider519Enum;
       /** @maxLength 255 */
       name: string;
       readonly state: LLMProviderKeyStateEnum;
@@ -19570,19 +19643,22 @@ export namespace Schemas {
      */
     export type LLMSkillMetadata = {[key: string]: unknown};
 
-    export interface LLMSkillFileInput {
-      /**
-       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-       * @maxLength 500
-       */
+    export interface LLMSkillFileManifest {
+      /** @maxLength 500 */
       path: string;
-      /** Text content of the file. */
-      content: string;
-      /**
-       * MIME type of the file content.
-       * @maxLength 100
-       */
+      /** @maxLength 100 */
       content_type?: string;
+    }
+
+    export interface LLMSkillOutlineEntry {
+      /**
+       * Markdown heading level (1-6).
+       * @minimum 1
+       * @maximum 6
+       */
+      level: number;
+      /** Heading text. */
+      text: string;
     }
 
     export interface LLMSkill {
@@ -19613,8 +19689,76 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
+      /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+      readonly files: readonly LLMSkillFileManifest[];
+      /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+      readonly outline: readonly LLMSkillOutlineEntry[];
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly deleted: boolean;
+      readonly is_latest: boolean;
+      readonly latest_version: number;
+      readonly version_count: number;
+      readonly first_version_created_at: string;
+    }
+
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type LLMSkillCreateMetadata = {[key: string]: unknown};
+
+    export interface LLMSkillFileInput {
+      /**
+       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+       * @maxLength 500
+       */
+      path: string;
+      /** Text content of the file. */
+      content: string;
+      /**
+       * MIME type of the file content.
+       * @maxLength 100
+       */
+      content_type?: string;
+    }
+
+    /**
+     * Create serializer — accepts bundled files as write-only input on POST.
+     */
+    export interface LLMSkillCreate {
+      readonly id: string;
+      /**
+       * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+       * @maxLength 64
+       */
+      name: string;
+      /**
+       * What this skill does and when to use it. Max 4096 characters.
+       * @maxLength 4096
+       */
+      description: string;
+      /** The SKILL.md instruction content (markdown). */
+      body: string;
+      /**
+       * License name or reference to a bundled license file.
+       * @maxLength 255
+       */
+      license?: string;
+      /**
+       * Environment requirements (intended product, system packages, network access, etc.).
+       * @maxLength 500
+       */
+      compatibility?: string;
+      /** List of pre-approved tools the skill may use. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata. */
+      metadata?: LLMSkillCreateMetadata;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
+      /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+      readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -19648,7 +19792,7 @@ export namespace Schemas {
     export type LLMSkillListMetadata = {[key: string]: unknown};
 
     /**
-     * List serializer that omits the body field for progressive disclosure (Level 1).
+     * List serializer that omits body and file manifest — progressive disclosure (Level 1).
      */
     export interface LLMSkillList {
       readonly id: string;
@@ -19676,8 +19820,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
-      /** Bundled files to include with the initial version (scripts, references, assets). */
-      files?: LLMSkillFileInput[];
+      /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+      readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -20204,7 +20348,7 @@ export namespace Schemas {
     export interface PropertyDefinition {
       readonly id: string;
       readonly name: string;
-      readonly property_type: PropertyType02dEnum | NullEnum | null;
+      readonly property_type: PropertyType549Enum | NullEnum | null;
       readonly type: PropertyDefinitionTypeEnum;
     }
 
@@ -20227,7 +20371,7 @@ export namespace Schemas {
       team: number;
       property_definition: string;
       readonly property_definition_details: PropertyDefinition;
-      property_type: PropertyType02dEnum;
+      property_type: PropertyType549Enum;
       /**
        * @minimum 0
        * @maximum 32767
@@ -20330,7 +20474,7 @@ export namespace Schemas {
     }
 
     export interface MessageTemplateContent {
-      templating?: TemplatingEnum;
+      templating?: Templating186Enum;
       email?: EmailTemplate | null;
     }
 
@@ -21250,13 +21394,13 @@ export namespace Schemas {
       results: ErrorTrackingAssignmentRule[];
     }
 
-    export interface PaginatedErrorTrackingExternalReferenceList {
+    export interface PaginatedErrorTrackingExternalReferenceResultList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: ErrorTrackingExternalReference[];
+      results: ErrorTrackingExternalReferenceResult[];
     }
 
     export interface PaginatedErrorTrackingFingerprintList {
@@ -22301,7 +22445,7 @@ export namespace Schemas {
       readonly id: string;
       readonly name: string;
       readonly description: string;
-      readonly kind: KindD08Enum;
+      readonly kind: Kind01eEnum;
       readonly archived: boolean;
       /** Current immutable configuration version number. */
       readonly current_version: number;
@@ -23060,7 +23204,7 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: SourceTypeCbeEnum;
+      readonly source_type: SourceType9a7Enum;
     }
 
     export type TableColumnsItem = {[key: string]: unknown};
@@ -23921,8 +24065,13 @@ export namespace Schemas {
       readonly last_checked_at?: string | null;
       /** @nullable */
       readonly next_check_at?: string | null;
-      /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
+      /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
       readonly checks?: readonly AlertCheck[];
+      /**
+       * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+       * @nullable
+       */
+      readonly checks_total?: number | null;
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
@@ -24472,7 +24621,7 @@ export namespace Schemas {
     * `Completed` - Completed
     * `Failed` - Failed
     * `Running` - Running */
-      readonly status?: Status550Enum | NullEnum | null;
+      readonly status?: StatusD5cEnum | NullEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
       /** @nullable */
@@ -24605,7 +24754,7 @@ export namespace Schemas {
       readonly sdk_upload_id?: string;
       /** @nullable */
       recall_recording_id?: string | null;
-      platform?: Platform0afEnum;
+      platform?: Platform9aaEnum;
       /**
        * @maxLength 255
        * @nullable
@@ -24622,7 +24771,7 @@ export namespace Schemas {
        * @nullable
        */
       duration_seconds?: number | null;
-      status?: StatusD05Enum;
+      status?: Status292Enum;
       /** @nullable */
       notes?: string | null;
       /** @nullable */
@@ -24862,7 +25011,7 @@ export namespace Schemas {
       readonly updated_by?: UserBasic;
       /** @nullable */
       readonly is_seen_on_filtered_events?: boolean | null;
-      property_type?: PropertyType02dEnum | BlankEnum | NullEnum | null;
+      property_type?: PropertyType549Enum | BlankEnum | NullEnum | null;
       verified?: boolean;
       /** @nullable */
       readonly verified_at?: string | null;
@@ -24899,15 +25048,6 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
       /** User or role to assign matching issues to. */
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
-    }
-
-    export interface PatchedErrorTrackingExternalReference {
-      readonly id?: string;
-      readonly integration?: ErrorTrackingExternalReferenceIntegration;
-      integration_id?: number;
-      config?: unknown;
-      issue?: string;
-      readonly external_url?: string;
     }
 
     /**
@@ -24963,7 +25103,7 @@ export namespace Schemas {
       description?: string | null;
       first_seen?: string;
       assignee?: ErrorTrackingIssueAssignment;
-      external_issues?: ErrorTrackingExternalReference[];
+      external_issues?: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
       readonly cohort?: PatchedErrorTrackingIssueFullCohort;
     }
@@ -25276,7 +25416,7 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: SourceTypeCbeEnum;
+      readonly source_type?: SourceType9a7Enum;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -25451,7 +25591,7 @@ export namespace Schemas {
       name?: string | null;
       description?: string;
       readonly version?: number;
-      status?: Status118Enum;
+      status?: StatusA5eEnum;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
@@ -25721,7 +25861,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegration {
       readonly id?: number;
-      kind?: KindE4eEnum;
+      kind?: KindEc9Enum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -25743,7 +25883,7 @@ export namespace Schemas {
 
     export interface PatchedLLMProviderKey {
       readonly id?: string;
-      provider?: Provider2f4Enum;
+      provider?: Provider519Enum;
       /** @maxLength 255 */
       name?: string;
       readonly state?: LLMProviderKeyStateEnum;
@@ -25902,7 +26042,7 @@ export namespace Schemas {
       team?: number;
       property_definition?: string;
       readonly property_definition_details?: PropertyDefinition;
-      property_type?: PropertyType02dEnum;
+      property_type?: PropertyType549Enum;
       /**
        * @minimum 0
        * @maximum 32767
@@ -26682,7 +26822,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: KindE4eEnum;
+      readonly kind: KindEc9Enum;
       readonly display_name: string;
     }
 
@@ -27135,6 +27275,26 @@ export namespace Schemas {
 
     export type SurveyQuestionInputSchema = SurveyOpenQuestionSchema | SurveyLinkQuestionSchema | SurveyRatingQuestionSchema | SurveySingleChoiceQuestionSchema | SurveyMultipleChoiceQuestionSchema;
 
+    /**
+     * * `regex` - regex
+    * `not_regex` - not_regex
+    * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+     */
+    export type UrlMatchTypeEnum = typeof UrlMatchTypeEnum[keyof typeof UrlMatchTypeEnum];
+
+
+    export const UrlMatchTypeEnum = {
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+    } as const;
+
     export interface SurveyConditionEventValueSchema {
       /** Event name that triggers the survey. */
       name: string;
@@ -27163,7 +27323,7 @@ export namespace Schemas {
     * `is_not` - is_not
     * `icontains` - icontains
     * `not_icontains` - not_icontains */
-      urlMatchType?: DeviceTypesMatchTypeEnum;
+      urlMatchType?: UrlMatchTypeEnum;
       events?: SurveyEventsConditionSchema;
       /** Device types that should match for this survey to be shown. */
       deviceTypes?: DeviceTypesEnum[];
@@ -27505,6 +27665,16 @@ export namespace Schemas {
      */
     export type PatchedTaskLatestRun = {[key: string]: unknown} | null | null;
 
+    /**
+     * * `implementation` - Implementation
+     */
+    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
+
+
+    export const SignalReportTaskRelationshipEnum = {
+      Implementation: 'implementation',
+    } as const;
+
     export interface PatchedTask {
       readonly id?: string;
       /** @nullable */
@@ -27527,6 +27697,7 @@ export namespace Schemas {
       github_integration?: number | null;
       /** @nullable */
       signal_report?: string | null;
+      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
       /** JSON schema for the task. This is used to validate the output of the task. */
       json_schema?: unknown | null;
       /** If true, this task is for internal use and should not be exposed to end users. */
@@ -28467,7 +28638,7 @@ export namespace Schemas {
       /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
       value: string | number | boolean | (string | number)[];
       operator?: PropertyItemOperatorEnum | BlankEnum | NullEnum | null;
-      type?: TypeE27Enum | BlankEnum;
+      type?: Type3f6Enum | BlankEnum;
     }
 
     export interface Property {
@@ -31577,7 +31748,7 @@ export namespace Schemas {
     * `categorical` - categorical
     * `numeric` - numeric
     * `boolean` - boolean */
-      kind: KindD08Enum;
+      kind: Kind01eEnum;
       /** New scorers are always created as active. */
       archived?: boolean;
       /** Initial immutable scorer configuration. */
@@ -31785,7 +31956,7 @@ export namespace Schemas {
 
     * `minimal` - minimal
     * `detailed` - detailed */
-      mode?: ModeE35Enum;
+      mode?: Mode02aEnum;
       /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
       data?: unknown;
       /** Force regenerate summary, bypassing cache */
@@ -32425,7 +32596,7 @@ export namespace Schemas {
 
     * `interactive` - interactive
     * `background` - background */
-      mode?: Mode051Enum;
+      mode?: ModeA07Enum;
       /**
        * Git branch to checkout in the sandbox
        * @maxLength 255
@@ -32986,6 +33157,10 @@ export namespace Schemas {
      * Maximum number of check results to return (default 5, max 500). Applied after date filtering.
      */
     checks_limit?: number;
+    /**
+     * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
+     */
+    checks_offset?: number;
     };
 
     export type EnvironmentsBatchExportsListParams = {
@@ -33278,7 +33453,10 @@ export namespace Schemas {
      * Number of results to return per page.
      */
     limit?: number;
-    saved_query_id?: string;
+    /**
+     * @nullable
+     */
+    saved_query_id?: string | null;
     };
 
     export type EnvironmentsDataWarehouseCheckDatabaseNameRetrieveParams = {
@@ -36121,6 +36299,10 @@ export namespace Schemas {
      * Maximum number of check results to return (default 5, max 500). Applied after date filtering.
      */
     checks_limit?: number;
+    /**
+     * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
+     */
+    checks_offset?: number;
     };
 
     export type AnnotationsListParams = {
@@ -36598,7 +36780,10 @@ export namespace Schemas {
      * Number of results to return per page.
      */
     limit?: number;
-    saved_query_id?: string;
+    /**
+     * @nullable
+     */
+    saved_query_id?: string | null;
     };
 
     export type DataWarehouseCheckDatabaseNameRetrieveParams = {
