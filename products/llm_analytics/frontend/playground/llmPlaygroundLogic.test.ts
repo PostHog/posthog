@@ -1112,6 +1112,21 @@ describe('llmPlaygroundLogic', () => {
             ])
         })
 
+        it('should not stack-overflow on deeply nested message wrappers in output', () => {
+            // Simulate a pathological `{ message: { message: … } }` chain deeper than the cap.
+            let output: unknown = { role: 'assistant', content: 'buried' }
+            for (let i = 0; i < 500; i++) {
+                output = { message: output }
+            }
+            const input = [{ role: 'user', content: 'hi' }]
+
+            expect(() => llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })).not.toThrow()
+            // The wrapper chain is longer than MAX_OUTPUT_FLATTEN_DEPTH (100), so the output is
+            // dropped entirely and only the input message remains.
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0]).toEqual({ role: 'user', content: 'hi' })
+        })
+
         it('should default output messages without a role to assistant', () => {
             const output = [{ content: 'Standalone reply' }]
 

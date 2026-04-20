@@ -299,12 +299,17 @@ function normalizeMessageContent(content: unknown): string {
     return safeStringify(content)
 }
 
+// Safety cap on recursion depth in flattenOutputMessages. Trace payloads can't have true cycles
+// (they come from `JSON.parse`), but deeply nested `{ message: { message: … } }` chains or arrays
+// of arrays could run the stack down — bail early and hand back an empty list instead.
+const MAX_OUTPUT_FLATTEN_DEPTH = 100
+
 // Flattens a raw generation output (string, single message, message array, or an
 // OpenAI/LiteLLM-style { choices: [...] } wrapper) into a list of RawMessage entries
 // without splitting structured content blocks — unlike `normalizeMessages` from utils,
 // which fans out tool_use/tool_result blocks into separate display bubbles.
-function flattenOutputMessages(output: unknown): RawMessage[] {
-    if (output == null) {
+function flattenOutputMessages(output: unknown, depth: number = 0): RawMessage[] {
+    if (output == null || depth > MAX_OUTPUT_FLATTEN_DEPTH) {
         return []
     }
 
@@ -313,15 +318,15 @@ function flattenOutputMessages(output: unknown): RawMessage[] {
     }
 
     if (Array.isArray(output)) {
-        return output.flatMap(flattenOutputMessages)
+        return output.flatMap((item) => flattenOutputMessages(item, depth + 1))
     }
 
     if (isObject(output)) {
         if (Array.isArray(output.choices)) {
-            return output.choices.flatMap(flattenOutputMessages)
+            return output.choices.flatMap((item) => flattenOutputMessages(item, depth + 1))
         }
         if (isObject(output.message)) {
-            return flattenOutputMessages(output.message)
+            return flattenOutputMessages(output.message, depth + 1)
         }
         return [
             {
