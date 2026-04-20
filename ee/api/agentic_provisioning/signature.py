@@ -109,8 +109,8 @@ def compute_signature(secret: str, timestamp: int, body: bytes) -> str:
     return _compute_hmac(secret, str(timestamp), body)
 
 
-def _compute_hmac(secret: str, timestamp_str: str, body: bytes) -> str:
-    mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
+def _compute_hmac(signing_key: str, timestamp_str: str, body: bytes) -> str:
+    mac = hmac.new(signing_key.encode(), digestmod=hashlib.sha256)
     mac.update(f"{timestamp_str}.".encode())
     mac.update(body)
     return mac.digest().hex()

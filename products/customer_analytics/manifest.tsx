@@ -11,18 +11,18 @@ export const manifest: ProductManifest = {
     scenes: {
         CustomerAnalytics: {
             import: () => import('./frontend/CustomerAnalyticsScene'),
-            defaultDocsPath: '/docs/customer-analytics',
             projectBased: true,
             name: 'Customer analytics',
             description: 'Understand how your customers interact with your product ',
             iconType: 'cohort',
+            settingsSection: 'environment-customer-analytics',
         },
         CustomerAnalyticsConfiguration: {
             import: () =>
                 import('./frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
-            defaultDocsPath: '/docs/customer-analytics/configure-your-dashboard',
             projectBased: true,
             name: 'Customer analytics configuration',
+            settingsSection: 'environment-customer-analytics',
         },
         CustomerJourneyBuilder: {
             import: () => import('./frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),

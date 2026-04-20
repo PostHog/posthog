@@ -239,6 +239,7 @@ class PropertySwapper(CloningVisitor):
         qualify = self.visit(node.qualify)
         group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
         order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
+        interpolate = [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
 
         self._inside_where_depth = saved_where_depth  # restore parent scope
 
@@ -258,6 +259,7 @@ class PropertySwapper(CloningVisitor):
             group_by=group_by,
             group_by_mode=node.group_by_mode,
             order_by=order_by,
+            interpolate=interpolate,
             limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,

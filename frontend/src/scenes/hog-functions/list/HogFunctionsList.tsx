@@ -47,7 +47,7 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
     },
     'error-tracking': {
         label: 'Error tracking',
-        url: urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
+        url: urls.settings('environment-error-tracking', 'error-tracking-alerting'),
     },
     'insight-alerts': { label: 'Insight alerts' },
     'experiment-alerts': { label: 'Experiment alerts' },
@@ -297,7 +297,7 @@ export function HogFunctionList({
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container flex flex-col gap-4">
             <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
@@ -306,25 +306,31 @@ export function HogFunctionList({
                     onChange={(e) => setFilters({ search: e })}
                 />
                 {!hideFeedback ? (
-                    <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
+                    <Link
+                        className="hidden @lg:inline text-sm font-semibold"
+                        subtle
+                        onClick={() => openFeedbackDialog(props.type)}
+                    >
                         Can't find what you're looking for?
                     </Link>
                 ) : null}
                 <div className="flex-1" />
-                <div className="flex flex-col xl:flex-row items-center gap-0.5 xl:gap-2 shrink-0">
+                <div className="hidden @lg:flex flex-col xl:flex-row items-center gap-0.5 xl:gap-2 shrink-0">
                     <span className="text-xs xl:text-sm">Created by:</span>
                     <MemberSelect
                         value={filters.createdBy || null}
                         onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                     />
                 </div>
-                <LemonCheckbox
-                    label="Show paused"
-                    bordered
-                    size="small"
-                    checked={filters.showPaused}
-                    onChange={(e) => setFilters({ showPaused: e ?? undefined })}
-                />
+                <div className="hidden @lg:block">
+                    <LemonCheckbox
+                        label="Show paused"
+                        bordered
+                        size="small"
+                        checked={filters.showPaused}
+                        onChange={(e) => setFilters({ showPaused: e ?? undefined })}
+                    />
+                </div>
                 {extraControls}
             </div>
 

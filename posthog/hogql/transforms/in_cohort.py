@@ -15,8 +15,10 @@ def resolve_in_cohorts(
     node: _T_AST,
     dialect: HogQLDialect,
     stack: Optional[list[ast.SelectQuery]] = None,
-    context: Optional[HogQLContext] = None,
+    context: HogQLContext | None = None,
 ):
+    if context is None:
+        raise QueryError("context is required to resolve IN COHORT")
     InCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
 
 
@@ -278,8 +280,8 @@ class InCohortResolver(TraversingVisitor):
     def __init__(
         self,
         dialect: HogQLDialect,
+        context: HogQLContext,
         stack: Optional[list[ast.SelectQuery]] = None,
-        context: Optional[HogQLContext] = None,
     ):
         super().__init__()
         self.stack: list[ast.SelectQuery] = stack or []
@@ -408,9 +410,12 @@ class InCohortResolver(TraversingVisitor):
                     constraint_type="ON",
                 ),
             )
+            current_scope = self.stack[-1].type
+            if current_scope is None:
+                raise QueryError("Could not resolve current select scope")
             new_join = cast(
                 ast.JoinExpr,
-                resolve_types(new_join, self.context, self.dialect, [self.stack[-1].type]),
+                resolve_types(new_join, self.context, self.dialect, [current_scope]),
             )
             if inline_ast is not None:
                 resolve_lazy_tables(new_join, self.dialect, [self.stack[-1]], self.context)
@@ -419,11 +424,13 @@ class InCohortResolver(TraversingVisitor):
                         ast.JoinExpr,
                         self.context.property_swapper.visit(new_join),
                     )
+            if new_join.constraint is None or not isinstance(new_join.constraint.expr, ast.CompareOperation):
+                raise QueryError("Expected cohort join constraint to be a compare operation")
             new_join.constraint.expr.left = resolve_types(
                 ast.Field(chain=[f"in_cohort__{cohort_id}", "person_id"]),
                 self.context,
                 self.dialect,
-                [self.stack[-1].type],
+                [current_scope],
             )
             new_join.constraint.expr.right = clone_expr(compare.left)
             if last_join:
@@ -436,6 +443,6 @@ class InCohortResolver(TraversingVisitor):
             ast.Field(chain=[f"in_cohort__{cohort_id}", "matched"]),
             self.context,
             self.dialect,
-            [self.stack[-1].type],
+            [current_scope],
         )
-        compare.right = resolve_types(ast.Constant(value=1), self.context, self.dialect, [self.stack[-1].type])
+        compare.right = resolve_types(ast.Constant(value=1), self.context, self.dialect, [current_scope])
