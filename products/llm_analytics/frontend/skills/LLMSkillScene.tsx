@@ -25,7 +25,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { llmSkillsNameFilesRetrieve } from '../generated/api'
 import type { LLMSkillFileApi, LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
-import { SKILL_NAME_MAX_LENGTH, SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
+import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
+import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 
 export const scene: SceneExport<SkillLogicProps> = {
@@ -421,7 +422,8 @@ function SkillFileViewer({
                     { version }
                 )
                 setContent(fileData.content)
-            } catch {
+            } catch (e) {
+                console.error('Failed to load file content', e)
                 setContent('Failed to load file content.')
             } finally {
                 setLoading(false)
@@ -506,7 +508,7 @@ function SkillEditForm({ isHistoricalVersion }: { isHistoricalVersion: boolean }
             >
                 <LemonTextArea
                     placeholder="Extract PDF text, fill forms, merge files. Use when handling PDFs."
-                    maxLength={1024}
+                    maxLength={SKILL_DESCRIPTION_MAX_LENGTH}
                     minRows={2}
                     maxRows={4}
                 />
@@ -525,7 +527,7 @@ function SkillEditForm({ isHistoricalVersion }: { isHistoricalVersion: boolean }
             </LemonField>
 
             <LemonField name="license" label="License" help="Optional. License name or reference.">
-                <LemonInput placeholder="Apache-2.0" fullWidth />
+                <LemonInput placeholder="Apache-2.0" maxLength={255} fullWidth />
             </LemonField>
 
             <LemonField
@@ -533,7 +535,7 @@ function SkillEditForm({ isHistoricalVersion }: { isHistoricalVersion: boolean }
                 label="Compatibility"
                 help="Optional. Environment requirements (intended product, system packages, network access)."
             >
-                <LemonInput placeholder="Requires git, docker, and internet access" fullWidth />
+                <LemonInput placeholder="Requires git, docker, and internet access" maxLength={500} fullWidth />
             </LemonField>
         </div>
     )

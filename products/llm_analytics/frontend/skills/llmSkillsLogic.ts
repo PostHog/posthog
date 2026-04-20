@@ -157,7 +157,8 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 await llmSkillsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), skillName)
                 lemonToast.info(`${skillName || 'Skill'} has been archived.`)
                 await asyncActions.loadSkills(false)
-            } catch {
+            } catch (e) {
+                console.error('Failed to archive skill', e)
                 lemonToast.error('Failed to archive skill')
             }
         },
@@ -169,7 +170,8 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 })
                 lemonToast.success(`Skill duplicated as "${newName}".`)
                 router.actions.push(urls.llmAnalyticsSkill(newName))
-            } catch {
+            } catch (e) {
+                console.error('Failed to duplicate skill', e)
                 lemonToast.error('Failed to duplicate skill')
             }
         },

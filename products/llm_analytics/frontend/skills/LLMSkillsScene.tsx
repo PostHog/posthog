@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
@@ -21,8 +22,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { LLMSkillListApi } from '../generated/api.schemas'
-import { SKILL_NAME_MAX_LENGTH } from './llmSkillLogic'
 import { SKILLS_PER_PAGE, llmSkillsLogic } from './llmSkillsLogic'
+import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 
 export const scene: SceneExport = {
@@ -114,23 +115,13 @@ export function LLMSkillsScene(): JSX.Element {
                                                         <LemonInput
                                                             data-attr="llma-skill-duplicate-name"
                                                             placeholder="my-skill-copy"
+                                                            maxLength={SKILL_NAME_MAX_LENGTH}
                                                             autoFocus
                                                         />
                                                     </LemonField>
                                                 ),
                                                 errors: {
-                                                    newName: (name: string) =>
-                                                        !name
-                                                            ? 'You must enter a name'
-                                                            : name.toLowerCase() === 'new'
-                                                              ? "'new' is a reserved name"
-                                                              : name.length > SKILL_NAME_MAX_LENGTH
-                                                                ? `Name must be ${SKILL_NAME_MAX_LENGTH} characters or fewer`
-                                                                : !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)
-                                                                  ? 'Lowercase letters, numbers, and hyphens only'
-                                                                  : name.includes('--')
-                                                                    ? 'Consecutive hyphens are not allowed'
-                                                                    : undefined,
+                                                    newName: (name: string) => validateSkillName(name),
                                                 },
                                                 onSubmit: async ({ newName }) => {
                                                     duplicateSkill(skill.name, newName)

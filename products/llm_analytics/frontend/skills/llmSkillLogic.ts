@@ -18,6 +18,7 @@ import {
 import type { LLMSkillApi, LLMSkillListApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
 import type { llmSkillLogicType } from './llmSkillLogicType'
 import { llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
+import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from './skillConstants'
 
 export enum SkillMode {
     View = 'view',
@@ -57,7 +58,6 @@ const DEFAULT_SKILL_FORM_VALUES: SkillFormValues = {
 }
 
 const SKILL_VERSIONS_LIMIT = 50
-export const SKILL_NAME_MAX_LENGTH = 64
 
 async function fetchResolvedSkill(
     skillName: string,
@@ -150,21 +150,11 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             options: { showErrorsOnTouch: true },
 
             errors: ({ name, description, body }) => ({
-                name: !name?.trim()
-                    ? 'Name is required'
-                    : name.toLowerCase() === 'new'
-                      ? "'new' is a reserved name"
-                      : name.length > SKILL_NAME_MAX_LENGTH
-                        ? `Name must be ${SKILL_NAME_MAX_LENGTH} characters or fewer`
-                        : !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)
-                          ? 'Only lowercase letters, numbers, and hyphens allowed'
-                          : name.includes('--')
-                            ? 'Consecutive hyphens are not allowed'
-                            : undefined,
+                name: validateSkillName(name),
                 description: !description?.trim()
                     ? 'Description is required'
-                    : description.length > 1024
-                      ? 'Description must be 1024 characters or fewer'
+                    : description.length > SKILL_DESCRIPTION_MAX_LENGTH
+                      ? `Description must be ${SKILL_DESCRIPTION_MAX_LENGTH} characters or fewer`
                       : undefined,
                 body: !body?.trim() ? 'Skill body is required' : undefined,
             }),
@@ -320,7 +310,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                         ...router.values.searchParams,
                         [LLM_SKILLS_FORCE_RELOAD_PARAM]: String(Date.now()),
                     })
-                } catch {
+                } catch (e) {
+                    console.error('Failed to archive skill', e)
                     lemonToast.error('Failed to archive skill')
                 }
             }
@@ -352,7 +343,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                     versions: [...values.skill.versions, ...appendedVersions],
                     has_more: response.has_more,
                 })
-            } catch {
+            } catch (e) {
+                console.error('Failed to load more versions', e)
                 lemonToast.error('Failed to load more versions')
             } finally {
                 actions.setVersionsLoading(false)
