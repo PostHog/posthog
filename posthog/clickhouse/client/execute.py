@@ -14,6 +14,10 @@ from django.conf import settings as app_settings
 
 import sqlparse
 import structlog
+from cachetools import (
+    TTLCache,
+    cached as cachetools_cached,
+)
 from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -148,14 +152,12 @@ def default_settings() -> dict:
     }
 
 
+_team_ai_cache: TTLCache = TTLCache(maxsize=10000, ttl=300)
+_team_ai_cache_lock = threading.RLock()
+
+
+@cachetools_cached(_team_ai_cache, lock=_team_ai_cache_lock)
 def get_team_ai_data_processing_approved(team_id: int) -> Optional[bool]:
-    # 5-minute TTL: the time bucket is baked into the inner lru_cache key, so org consent
-    # toggles propagate within that window without a per-query DB hit.
-    return _get_team_ai_data_processing_approved_cached(team_id, round(time.time() / 300))
-
-
-@lru_cache(maxsize=10000)
-def _get_team_ai_data_processing_approved_cached(team_id: int, _ttl_bucket: int) -> Optional[bool]:
     from posthog.models.team import Team
 
     return (

@@ -5,12 +5,13 @@ import asyncio
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.execute import _get_team_ai_data_processing_approved_cached
+from posthog.clickhouse.client.execute import get_team_ai_data_processing_approved
 from posthog.clickhouse.query_tagging import (
     _PROJECT_ROOT_PREFIX,
     _SOURCE_SKIP_PREFIXES,
@@ -343,9 +344,10 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["source_file"] == "posthog/clickhouse/test/test_query_tagging.py"
         assert comment["source_line"] > 0
 
-    def test_sync_execute_populates_ai_data_processing_approved_when_approved(self):
-        _get_team_ai_data_processing_approved_cached.cache_clear()
-        self.organization.is_ai_data_processing_approved = True
+    @parameterized.expand([("approved", True), ("not_approved", False)])
+    def test_sync_execute_populates_ai_data_processing_approved(self, _name, approved):
+        get_team_ai_data_processing_approved.cache_clear()
+        self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
 
         marker = str(uuid.uuid4())
@@ -355,24 +357,10 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         comment = self._get_log_comment(marker)
 
-        assert comment["ai_data_processing_approved"] is True
-
-    def test_sync_execute_populates_ai_data_processing_approved_when_not_approved(self):
-        _get_team_ai_data_processing_approved_cached.cache_clear()
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save()
-
-        marker = str(uuid.uuid4())
-        reset_query_tags()
-        tag_queries(kind="request", id="test", team_id=self.team.pk)
-        sync_execute(f"SELECT '{marker}'")  # noqa: S608
-
-        comment = self._get_log_comment(marker)
-
-        assert comment["ai_data_processing_approved"] is False
+        assert comment["ai_data_processing_approved"] is approved
 
     def test_sync_execute_omits_ai_data_processing_approved_without_team_id(self):
-        _get_team_ai_data_processing_approved_cached.cache_clear()
+        get_team_ai_data_processing_approved.cache_clear()
 
         marker = str(uuid.uuid4())
         reset_query_tags()
