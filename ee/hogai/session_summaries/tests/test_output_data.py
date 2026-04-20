@@ -547,12 +547,6 @@ class TestSessionSummarySerializerValidation:
         serializer = SessionSummarySerializer(data=_get_valid_summary_data())
         assert serializer.is_valid()
 
-    def test_validation_skipped_with_streaming_validation_context(self) -> None:
-        data = _get_valid_summary_data()
-        data["session_outcome"] = None
-        serializer = SessionSummarySerializer(data=data, context={"streaming_validation": True})
-        assert serializer.is_valid()
-
     @pytest.mark.parametrize(
         "path,value,expected_error_field",
         [

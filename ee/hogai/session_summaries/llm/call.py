@@ -99,7 +99,7 @@ async def call_llm(
     trigger_session_id: str | None = None,
 ) -> OpenAIResponse:
     """
-    LLM non-streaming call.
+    LLM call using the Responses API.
     """
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_id)

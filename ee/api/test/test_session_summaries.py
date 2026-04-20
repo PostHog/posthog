@@ -139,7 +139,6 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(started_kwargs["summary_source"], "api")
         self.assertEqual(started_kwargs["summary_type"], "group")
         self.assertEqual(started_kwargs["session_ids"], ["session1", "session2"])
-        self.assertFalse(started_kwargs["is_streaming"])
         mock_capture_generated.assert_called_once()
         generated_kwargs = mock_capture_generated.call_args[1]
         self.assertEqual(generated_kwargs["summary_source"], "api")

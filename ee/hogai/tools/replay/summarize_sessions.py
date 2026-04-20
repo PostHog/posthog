@@ -151,7 +151,6 @@ class SummarizeSessionsTool(MaxTool):
             tracking_id=tracking_id,
             summary_source="chat",
             summary_type=summary_type,
-            is_streaming=False,
             session_ids=session_ids,
         )
         try:
@@ -178,7 +177,6 @@ class SummarizeSessionsTool(MaxTool):
                 tracking_id=tracking_id,
                 summary_source="chat",
                 summary_type=summary_type,
-                is_streaming=False,
                 session_ids=session_ids,
                 success=False,
                 error_type=type(err).__name__,
@@ -191,7 +189,6 @@ class SummarizeSessionsTool(MaxTool):
             tracking_id=tracking_id,
             summary_source="chat",
             summary_type=summary_type,
-            is_streaming=False,
             session_ids=session_ids,
             success=True,
         )

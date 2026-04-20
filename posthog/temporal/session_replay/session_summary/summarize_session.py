@@ -320,8 +320,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
         start_time = temporalio.workflow.now()
-        # Only the video flow reports progress — the event-based flow uses
-        # Redis streaming and pseudo-progress derived from the JSON shape.
+        # Only the video flow reports progress via workflow queries.
         progress = self._progress if inputs.video_based else None
         _set_phase(progress, "fetching_data")
         session_got_data = await temporalio.workflow.execute_activity(
@@ -748,7 +747,7 @@ async def _start_video_summary_workflow(inputs: SingleSessionSummaryInputs, work
 
 
 async def _execute_single_session_summary_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) -> None:
-    """Execute the single-session summary workflow without streaming."""
+    """Execute the single-session summary workflow."""
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     await client.execute_workflow(
@@ -831,7 +830,7 @@ async def execute_summarize_session(
     trigger_session_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Start the direct summarization workflow (no streaming) and return the summary.
+    Start the summarization workflow and return the summary.
     Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
     # Check if summary already exists before starting the Temporal workflow

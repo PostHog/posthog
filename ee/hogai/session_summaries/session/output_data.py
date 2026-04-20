@@ -212,13 +212,7 @@ class SessionSummarySerializer(IntermediateSessionSummarySerializer):
     sentiment = SessionSentimentSerializer(required=False, allow_null=True)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        """
-        Validate that all LLM-generated fields are present and properly filled.
-        Fields are optional during streaming but must be complete in final output.
-        """
-        if self.context.get("streaming_validation"):
-            # Disable strict validation for streaming, as the context could be incomplete
-            return attrs
+        """Validate that all LLM-generated fields are present and properly filled."""
         errors: dict[str, list[str]] = {}
         # Validate top-level fields
         segments = attrs.get("segments")
@@ -311,7 +305,6 @@ def _remove_hallucinated_events(
     # Reverse to not break indexes
     for group_index, event_index, event in reversed(hallucinated_events):
         if final_validation:
-            # Log only on final validation to not spam during regular streaming (as validation errors are expected)
             logger.warning(
                 f"Removing hallucinated event {event} from the raw session summary for session_id {session_id}",
                 session_id=session_id,
@@ -327,7 +320,6 @@ def load_raw_session_summary_from_llm_content(
     if not raw_content:
         msg = f"No LLM content found when summarizing session_id {session_id}"
         if final_validation:
-            # Log only on final validation to not spam during regular streaming (as validation errors are expected)
             logger.error(msg, session_id=session_id, signals_type="session-summaries")
         raise SummaryValidationError(msg)
     try:
@@ -397,8 +389,7 @@ def load_raw_session_summary_from_llm_content(
 def _validate_enriched_summary(
     data: dict[str, Any], session_id: str, final_validation: bool
 ) -> SessionSummarySerializer:
-    # Avoid strict validation, if it's not the final step, as the context could be incomplete because of the streaming
-    session_summary = SessionSummarySerializer(data=data, context={"streaming_validation": not final_validation})
+    session_summary = SessionSummarySerializer(data=data)
     # Validate even when processing incomplete chunks as the `.data` can't be used without validation check
     if not session_summary.is_valid():
         # Most of the fields are optional, so failed validation should be reported
@@ -490,7 +481,6 @@ def _calculate_segment_meta(
         or start_event_id is None
         or end_event_id is None
         # All the proper event IDs are 8 characters long
-        # If shorter - could still not fully streamed yet
         or len(start_event_id) != 8
         or len(end_event_id) != 8
     ):
@@ -590,7 +580,6 @@ def _calculate_segment_meta(
         fallback_start_event_id is None
         or fallback_end_event_id is None
         # All the proper event IDs are 8 characters long
-        # If shorter - could still not fully streamed yet
         or len(fallback_start_event_id) != 8
         or len(fallback_end_event_id) != 8
     ):

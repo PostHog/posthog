@@ -159,7 +159,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             tracking_id=tracking_id,
             summary_source="api",
             summary_type="group",
-            is_streaming=False,
             session_ids=session_ids,
         )
         # Summarize provided sessions
@@ -178,7 +177,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source="api",
                 summary_type="group",
-                is_streaming=False,
                 session_ids=session_ids,
                 success=True,
             )
@@ -196,7 +194,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source="api",
                 summary_type="group",
-                is_streaming=False,
                 session_ids=session_ids,
                 success=False,
                 error_type=type(err).__name__,
@@ -275,7 +272,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             tracking_id=tracking_id,
             summary_source="api",
             summary_type="single",
-            is_streaming=False,
             session_ids=session_ids,
         )
         # Summarize provided sessions individually
@@ -292,7 +288,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source="api",
                 summary_type="single",
-                is_streaming=False,
                 session_ids=session_ids,
                 success=True,
             )
@@ -310,7 +305,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source="api",
                 summary_type="single",
-                is_streaming=False,
                 session_ids=session_ids,
                 success=False,
                 error_type=type(err).__name__,

@@ -1440,7 +1440,6 @@ class SessionRecordingViewSet(
             tracking_id=tracking_id,
             summary_source="api",
             summary_type="single",
-            is_streaming=False,
             session_ids=[session_id],
             video_based=True,
         )

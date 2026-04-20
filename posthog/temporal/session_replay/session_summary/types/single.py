@@ -23,8 +23,7 @@ class SingleSessionSummaryInputs:
 class SingleSessionProgress(TypedDict):
     """Progress state exposed by SummarizeSingleSessionWorkflow via get_progress query.
 
-    Populated only for the video-based flow — the event-based flow uses its own
-    streaming mechanism and leaves this untouched.
+    Populated only for the video-based flow.
     """
 
     phase: str
