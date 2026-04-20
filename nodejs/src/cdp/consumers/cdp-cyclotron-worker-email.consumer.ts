@@ -57,7 +57,15 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
 
         // Atomic consume: request all tokens in one call, then check how many we over-consumed.
         // This eliminates the race window where multiple workers peek the same token count.
-        const [[, rateLimit]] = await this.emailRateLimiter.rateLimitMany([['global-email', invocations.length]])
+        // Fail open: if Redis is down, process the full batch without rate limiting.
+        let rateLimit: { tokens: number; isRateLimited: boolean }
+        try {
+            ;[[, rateLimit]] = await this.emailRateLimiter.rateLimitMany([['global-email', invocations.length]])
+        } catch (err) {
+            logger.error('Email rate limiter failed, processing batch without rate limiting', { error: String(err) })
+            return super.processInvocations(invocations)
+        }
+
         const overConsumed = Math.max(0, -Math.floor(rateLimit.tokens))
         const toProcess = invocations.slice(0, invocations.length - overConsumed)
         const toDefer = invocations.slice(toProcess.length)
