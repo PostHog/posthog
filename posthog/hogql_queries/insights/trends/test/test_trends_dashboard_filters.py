@@ -499,7 +499,7 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_to == "2024-07-14"
 
         # but properties are not
-        assert query_runner.query.properties == []
+        assert query_runner.query.properties is None
 
         # validations pass
         query_runner.validate()
