@@ -60,6 +60,7 @@ depends_on = [
     "ee",
     "products.analytics_platform",
     "products.batch_exports",
+    "products.ci_monitoring",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
@@ -305,6 +306,14 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.ci_monitoring"
+depends_on = [
+    "posthog",
+    "products.tasks",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.metrics"
 depends_on = [
 ]
@@ -470,7 +479,7 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
+    "products\\.(ci_monitoring|experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
 ]
 
 # Legacy leaks — core (posthog/ee) imports these internals directly.

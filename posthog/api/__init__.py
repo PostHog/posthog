@@ -28,6 +28,12 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
+from products.ci_monitoring.backend.presentation.views import (
+    CIRunViewSet as CIMonitoringRunViewSet,
+    QuarantineViewSet as CIMonitoringQuarantineViewSet,
+    RepoViewSet as CIMonitoringRepoViewSet,
+    TestCaseViewSet as CIMonitoringTestCaseViewSet,
+)
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -1310,6 +1316,31 @@ projects_router.register(
 )
 
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
+
+projects_router.register(
+    r"ci_monitoring/repos",
+    CIMonitoringRepoViewSet,
+    "project_ci_monitoring_repos",
+    ["project_id"],
+)
+projects_router.register(
+    r"ci_monitoring/runs",
+    CIMonitoringRunViewSet,
+    "project_ci_monitoring_runs",
+    ["project_id"],
+)
+projects_router.register(
+    r"ci_monitoring/tests",
+    CIMonitoringTestCaseViewSet,
+    "project_ci_monitoring_tests",
+    ["project_id"],
+)
+projects_router.register(
+    r"ci_monitoring/quarantines",
+    CIMonitoringQuarantineViewSet,
+    "project_ci_monitoring_quarantines",
+    ["project_id"],
+)
 
 register_grandfathered_environment_nested_viewset(
     r"datasets",
