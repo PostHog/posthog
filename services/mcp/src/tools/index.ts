@@ -97,19 +97,9 @@ export const getToolsFromContext = async (
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
 
-    // Progressive disclosure: merge session-enabled toolsets from cache with
-    // any toolsets pre-enabled via the ?toolsets=a,b query param.
-    let enabledToolsetsForFilter: string[] | undefined
-    if (options?.progressive) {
-        const sessionEnabled = ((await context.cache.get('enabledToolsets' as any)) ?? []) as string[]
-        const fromQuery = options?.enabledToolsets ?? []
-        enabledToolsetsForFilter = Array.from(new Set([...sessionEnabled, ...fromQuery]))
-    }
-
     const effectiveOptions: ToolFilterOptions = {
         ...options,
         ...(aiConsentGiven !== undefined ? { aiConsentGiven } : {}),
-        ...(enabledToolsetsForFilter !== undefined ? { enabledToolsets: enabledToolsetsForFilter } : {}),
     }
     const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
     // The toolsets meta-tool only exists in progressive mode — skip it in default mode so

@@ -45,29 +45,36 @@ function createMockContext(scopes: string[] = ['*'], initialCache: Record<string
 }
 
 describe('Progressive disclosure — tool-name filtering', () => {
-    it('progressive mode without enabled toolsets exposes only bootstrap tools', () => {
-        const names = getToolsForFeatures({ progressive: true })
+    it('progressive mode with empty enabledToolsets[] exposes only bootstrap tools', () => {
+        // Note: `progressive: true` alone doesn't filter — you have to pass `enabledToolsets: []`
+        // to opt into bootstrap-only. This lets mcp.ts register the full catalog at init and
+        // dynamically `.enable()` tools without needing to re-init the session.
+        const names = getToolsForFeatures({ progressive: true, enabledToolsets: [] })
         const set = new Set(names)
         for (const bt of BOOTSTRAP_TOOL_NAMES) {
             expect(set.has(bt), `bootstrap tool missing: ${bt}`).toBe(true)
         }
-        // Non-bootstrap tools should be gone
         expect(set.has('feature-flag-get-all')).toBe(false)
         expect(set.has('experiment-get-all')).toBe(false)
     })
 
-    it('progressive mode with ?toolsets=flags surfaces flag tools', () => {
+    it('progressive mode with enabledToolsets=undefined returns the full catalog (for register-all init path)', () => {
+        const names = getToolsForFeatures({ progressive: true })
+        expect(names).toContain('feature-flag-get-all')
+        expect(names).toContain('experiment-get-all')
+    })
+
+    it('progressive mode + enabledToolsets=[flags] surfaces flag tools only', () => {
         const names = getToolsForFeatures({
             progressive: true,
             enabledToolsets: ['flags'],
         })
         expect(names).toContain('feature-flag-get-all')
         expect(names).toContain('create-feature-flag')
-        // Flag tools yes, dashboard tools no
         expect(names).not.toContain('dashboard-create')
     })
 
-    it('progressive mode honours multiple enabled toolsets', () => {
+    it('progressive mode + enabledToolsets=[flags,experiments] surfaces both', () => {
         const names = getToolsForFeatures({
             progressive: true,
             enabledToolsets: ['flags', 'experiments'],
@@ -82,7 +89,6 @@ describe('Progressive disclosure — tool-name filtering', () => {
             progressive: true,
             enabledToolsets: ['analytics', 'not-a-real-toolset'],
         })
-        // Analytics tools are there; nothing about the unknown id caused an error.
         expect(names).toContain('query-run')
     })
 
@@ -151,13 +157,13 @@ describe('Progressive disclosure — toolsets meta-tool', () => {
         expect(body.error).toMatch(/requires a 'name'/)
     })
 
-    it('enabling then filtering surfaces the toolset', async () => {
+    it('enabling a toolset then filtering via getToolsForFeatures surfaces its tools', async () => {
         const context = createMockContext()
-        const before = await getToolsFromContext(context, { progressive: true })
-        expect(before.map((t) => t.name)).not.toContain('feature-flag-get-all')
         await toolsetsHandler(context, { action: 'enable', name: 'flags' })
-        const after = await getToolsFromContext(context, { progressive: true })
-        const names = after.map((t) => t.name)
+        const enabled = ((await context.cache.get('enabledToolsets' as any)) ?? []) as string[]
+        expect(enabled).toEqual(['flags'])
+        // Simulate the mcp.ts filter: progressive + explicitly-passed enabled ids
+        const names = getToolsForFeatures({ progressive: true, enabledToolsets: enabled })
         expect(names).toContain('feature-flag-get-all')
         expect(names).toContain('toolsets')
     })

@@ -183,8 +183,13 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
         })
     }
 
-    if (progressive) {
-        const enabled = new Set(enabledToolsets ?? [])
+    // Progressive-disclosure filter: only applied when the caller explicitly provides
+    // `enabledToolsets` (an array — can be empty for "bootstrap only"). When the caller sets
+    // `progressive: true` but leaves `enabledToolsets` undefined, the full catalog is returned
+    // (registration happens upfront so the toolsets meta-tool can `.enable()` tools dynamically
+    // without a session re-init).
+    if (progressive && enabledToolsets !== undefined) {
+        const enabled = new Set(enabledToolsets)
         entries = entries.filter(([toolName, definition]) => {
             if (isBootstrapTool(toolName)) {
                 return true

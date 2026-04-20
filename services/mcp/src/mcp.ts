@@ -36,6 +36,7 @@ import { registerUiAppResources } from '@/resources/ui-apps'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import { ENABLED_TOOLSETS_KEY } from '@/tools/toolsets/manage'
+import { toolsetIdForFeature } from '@/tools/toolsets/taxonomy'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -64,6 +65,11 @@ export type RequestProperties = {
     progressive?: boolean
     /** Toolset ids to pre-enable on connect (from ?toolsets=a,b URL param). */
     initialToolsets?: string[]
+    /**
+     * MCP clientInfo.name parsed from the initialize request body in the worker fetch
+     * handler — more reliable than `getInitializeRequest()` from inside the DO.
+     */
+    earlyClientName?: string
 }
 
 export class MCP extends McpAgent<Env> {
@@ -352,10 +358,17 @@ export class MCP extends McpAgent<Env> {
         )
     }
 
+    /**
+     * Map of tool-name → RegisteredTool returned by `McpServer.registerTool()`. Used by the
+     * `toolsets` meta-tool to flip individual tools `.enable()`/`.disable()` at runtime, which
+     * the SDK surfaces via `tools/list` filtering + auto-fired `notifications/tools/list_changed`.
+     */
+    _toolRegistrations: Map<string, { enable: () => void; disable: () => void }> = new Map()
+
     registerTool<TSchema extends z.ZodObject>(
         tool: Tool<TSchema>,
         handler: (params: z.infer<TSchema>) => Promise<any>
-    ): void {
+    ): { enable: () => void; disable: () => void } {
         const wrappedHandler = async (params: z.infer<TSchema>): Promise<any> => {
             const validation = tool.schema.safeParse(params)
 
@@ -455,7 +468,7 @@ export class MCP extends McpAgent<Env> {
             }
         }
 
-        this.server.registerTool(
+        const registered = this.server.registerTool(
             tool.name,
             {
                 title: tool.title,
@@ -465,7 +478,29 @@ export class MCP extends McpAgent<Env> {
                 ...(normalizedMeta ? { _meta: normalizedMeta } : {}),
             },
             wrappedHandler as unknown as ToolCallback<TSchema['shape']>
-        )
+        ) as unknown as { enable: () => void; disable: () => void }
+        this._toolRegistrations.set(tool.name, registered)
+        return registered
+    }
+
+    /**
+     * Flip `_toolRegistrations` enabled state for every tool whose feature maps to `toolsetId`.
+     * The SDK auto-fires `notifications/tools/list_changed` on each `.enable()`/`.disable()`,
+     * so compatible MCP clients re-request `tools/list` and see the updated catalog.
+     */
+    applyToolsetToRegistrations(
+        toolsetId: string | undefined,
+        action: 'enable' | 'disable',
+        toolDefs: Record<string, { feature: string }>
+    ): void {
+        if (!toolsetId) return
+        for (const [name, registered] of this._toolRegistrations.entries()) {
+            const def = toolDefs[name]
+            if (!def) continue
+            if (toolsetIdForFeature(def.feature) !== toolsetId) continue
+            if (action === 'enable') registered.enable()
+            else registered.disable()
+        }
     }
 
     /**
@@ -505,7 +540,26 @@ export class MCP extends McpAgent<Env> {
             readOnly,
             progressive,
             initialToolsets,
+            earlyClientName,
         } = this.requestProperties
+
+        // Stash clientInfo captured from the initialize body so progressive-mode tool calls
+        // can detect known-unsupported clients even across requests in the same session.
+        // Bypassing the State type here because the cache union is already crowded with
+        // per-feature prefix-keys; mcpClientName is a simple string lookup.
+        const cacheUntyped = this.cache as unknown as {
+            get: (k: string) => Promise<unknown>
+            set: (k: string, v: unknown) => Promise<void>
+        }
+        if (earlyClientName) {
+            this._mcpClientName = earlyClientName
+            await cacheUntyped.set('mcpClientName', earlyClientName)
+        } else {
+            const cached = await cacheUntyped.get('mcpClientName')
+            if (typeof cached === 'string') {
+                this._mcpClientName = cached
+            }
+        }
 
         // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
@@ -560,7 +614,9 @@ export class MCP extends McpAgent<Env> {
             registerUiAppResources(this.server, context),
         ])
 
-        // Register tools
+        // Register tools. In progressive mode we still fetch the full catalog (so we can
+        // dynamically `.enable()` tools on demand without needing to re-init the session),
+        // then disable non-bootstrap, non-enabled ones below.
         const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
@@ -569,8 +625,10 @@ export class MCP extends McpAgent<Env> {
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
-            progressive,
-            enabledToolsets: initialToolsets,
+            // Fetch catalog unfiltered by progressive state; we handle enable/disable on
+            // the registered tool refs below so tools/list_changed just works.
+            progressive: progressive ? true : undefined,
+            enabledToolsets: undefined,
         })
 
         // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
@@ -580,16 +638,25 @@ export class MCP extends McpAgent<Env> {
             this._api.config.oauthClientName = oauthClientName
         }
 
+        const { isBootstrapTool } = await import('@/tools/toolsets/taxonomy')
+        const { getToolDefinitions } = await import('@/tools/toolDefinitions')
+        const toolDefs = getToolDefinitions(version)
+
+        // Resolve initial enabled toolsets: merge session cache with ?toolsets=<ids>
+        const sessionEnabled = ((await this.cache.get(ENABLED_TOOLSETS_KEY as any)) ?? []) as string[]
+        const enabledToolsets = new Set<string>([...sessionEnabled, ...(initialToolsets ?? [])])
+
         for (const tool of allTools) {
             const typedTool = tool as Tool<z.ZodObject>
+            let registered: { enable: () => void; disable: () => void }
             if (progressive && typedTool.name === 'toolsets') {
-                // Wrap the toolsets meta-tool so enable/disable calls fire
-                // notifications/tools/list_changed and (for known-unsupported clients)
-                // include a reconnect hint in the response.
-                this.registerTool(typedTool, async (params: any) => {
+                // Wrap the toolsets meta-tool so enable/disable calls flip individual tool
+                // registrations. The SDK's `.enable()` / `.disable()` auto-fires
+                // notifications/tools/list_changed, so compatible clients auto-refresh.
+                registered = this.registerTool(typedTool, async (params: any) => {
                     const result = (await typedTool.handler(context, params)) as Record<string, unknown>
                     if (params?.action === 'enable' || params?.action === 'disable') {
-                        this.notifyToolListChanged()
+                        this.applyToolsetToRegistrations(params.name, params.action, toolDefs)
                         await this.resolveClientInfo()
                         if (!clientSupportsListChanged(this._mcpClientName)) {
                             const enabled = ((await context.cache.get(ENABLED_TOOLSETS_KEY as any)) ?? []) as string[]
@@ -603,7 +670,19 @@ export class MCP extends McpAgent<Env> {
                     return result
                 })
             } else {
-                this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+                registered = this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+            }
+
+            // In progressive mode, disable everything that isn't bootstrap or in an
+            // already-enabled toolset. Keep the registration so the toolsets meta-tool
+            // can `.enable()` it later without needing a full re-init.
+            if (progressive) {
+                if (isBootstrapTool(typedTool.name)) continue
+                const def = toolDefs[typedTool.name]
+                const toolsetId = def ? toolsetIdForFeature(def.feature) : undefined
+                if (!toolsetId || !enabledToolsets.has(toolsetId)) {
+                    registered.disable()
+                }
             }
         }
 

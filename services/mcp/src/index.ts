@@ -272,6 +272,30 @@ const handleRequest = async (
     const toolsetsParam = url.searchParams.get('toolsets')
     const initialToolsets = toolsetsParam ? toolsetsParam.split(',').filter(Boolean) : undefined
 
+    // Peek at initialize request body to capture clientInfo.name early. We do this here
+    // rather than reading via the SDK's `getInitializeRequest()` in the DO because that
+    // hasn't persisted reliably in our testing; parsing the body is deterministic.
+    let earlyClientName: string | undefined
+    if (progressive && request.method === 'POST') {
+        try {
+            const cloned = request.clone()
+            const bodyText = await cloned.text()
+            if (bodyText) {
+                const parsed = JSON.parse(bodyText)
+                const messages = Array.isArray(parsed) ? parsed : [parsed]
+                for (const msg of messages) {
+                    if (msg?.method === 'initialize') {
+                        const name = msg?.params?.clientInfo?.name
+                        if (typeof name === 'string') earlyClientName = name
+                        break
+                    }
+                }
+            }
+        } catch {
+            // ignore — body may not be parseable
+        }
+    }
+
     const extraContextProps = {
         features,
         tools,
@@ -280,6 +304,7 @@ const handleRequest = async (
         readOnly,
         progressive,
         initialToolsets,
+        ...(earlyClientName ? { earlyClientName } : {}),
     }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
