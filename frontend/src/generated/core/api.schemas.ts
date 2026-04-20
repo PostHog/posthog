@@ -68,7 +68,7 @@ export interface SubscriptionDeliveryApi {
      */
     readonly finished_at: string | null
     /**
-     * AI-generated summary sent in the delivery, if subscription.summary_enabled was on.
+     * AI-generated summary included in this delivery, when one was produced.
      * @nullable
      */
     readonly change_summary: string | null
