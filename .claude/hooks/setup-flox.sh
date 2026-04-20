@@ -5,33 +5,19 @@
 # CLAUDE_ENV_FILE is only available in SessionStart hooks:
 # https://code.claude.com/docs/en/hooks#sessionstart
 
-HOOK_LOG="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/setup-flox.log"
-log_hook() {
-  printf '%s reason=%s remote=%q env_file=%s project=%q\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    "$1" \
-    "${CLAUDE_CODE_REMOTE:-}" \
-    "${CLAUDE_ENV_FILE:+set}" \
-    "${CLAUDE_PROJECT_DIR:-}" \
-    >> "$HOOK_LOG" 2>/dev/null || true
-}
+# Records the hook's exit path as env vars so future sessions can inspect
+# what happened via `echo $POSTHOG_FLOX_HOOK_EXIT` — cheap breadcrumb for
+# diagnosing failures like the cross-worktree cache pollution we hit before.
 mark_exit() {
-  log_hook "$1"
   if [ -n "$CLAUDE_ENV_FILE" ]; then
     printf 'export POSTHOG_FLOX_HOOK_EXIT=%q\n' "$1" >> "$CLAUDE_ENV_FILE"
     printf 'export POSTHOG_FLOX_HOOK_STARTED=%q\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$CLAUDE_ENV_FILE"
   fi
 }
-log_hook started
 
-# Skip on Claude web (no flox there); distinguish from a missing CLAUDE_ENV_FILE
-# so the log tells us which branch fired.
-if [ "$CLAUDE_CODE_REMOTE" = "true" ]; then
-  log_hook remote
-  exit 0
-fi
-if [ -z "$CLAUDE_ENV_FILE" ]; then
-  log_hook no_env_file
+# Skip on Claude web (no flox there); skip if CLAUDE_ENV_FILE is unset since
+# we'd have nowhere to write the captured env anyway.
+if [ "$CLAUDE_CODE_REMOTE" = "true" ] || [ -z "$CLAUDE_ENV_FILE" ]; then
   exit 0
 fi
 
