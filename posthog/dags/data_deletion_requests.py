@@ -554,19 +554,21 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
     Operator enables this sensor manually from the Dagster UI when ready to
     process approved requests.
     """
-    active_runs = context.instance.get_run_records(
-        dagster.RunsFilter(
-            job_name__in=_DELETION_JOB_NAMES,
-            statuses=[
-                dagster.DagsterRunStatus.QUEUED,
-                dagster.DagsterRunStatus.NOT_STARTED,
-                dagster.DagsterRunStatus.STARTING,
-                dagster.DagsterRunStatus.STARTED,
-            ],
-        ),
-    )
-    if len(active_runs) > 0:
-        return dagster.SkipReason(f"A deletion job is already running ({len(active_runs)} active). Waiting.")
+    active_statuses = [
+        dagster.DagsterRunStatus.QUEUED,
+        dagster.DagsterRunStatus.NOT_STARTED,
+        dagster.DagsterRunStatus.STARTING,
+        dagster.DagsterRunStatus.STARTED,
+    ]
+    active_count = 0
+    for job_name in _DELETION_JOB_NAMES:
+        active_count += len(
+            context.instance.get_run_records(
+                dagster.RunsFilter(job_name=job_name, statuses=active_statuses),
+            )
+        )
+    if active_count > 0:
+        return dagster.SkipReason(f"A deletion job is already running ({active_count} active). Waiting.")
 
     next_request = DataDeletionRequest.objects.filter(status=RequestStatus.APPROVED).order_by("approved_at").first()
     if next_request is None:
@@ -575,9 +577,11 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
     if next_request.request_type == RequestType.EVENT_REMOVAL:
         job = data_deletion_request_event_removal
         load_op = "load_deletion_request"
-    else:
+    elif next_request.request_type == RequestType.PROPERTY_REMOVAL:
         job = data_deletion_request_property_removal
         load_op = "load_property_removal_request"
+    else:
+        return dagster.SkipReason(f"Unknown request_type for request {next_request.pk}: {next_request.request_type}")
 
     context.log.info(
         f"Launching {job.name} for request {next_request.pk} "
