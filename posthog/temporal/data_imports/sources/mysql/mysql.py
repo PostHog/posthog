@@ -766,9 +766,9 @@ def mysql_source(
 
     def _stream_with_optional_force_index(
         force_index_name: str | None,
-        lower_bound_cursor_value: Any,
+        db_incremental_field_last_value: Any,
     ) -> Iterator[tuple[Any, Any]]:
-        """Open a fresh connection and stream rows from `lower_bound_cursor_value`.
+        """Open a fresh connection and stream rows from `db_incremental_field_last_value`.
 
         Yields (arrow_table, last_cursor_value_in_batch) pairs so the caller can
         track progress for a fallback resume. The `last_cursor_value_in_batch`
@@ -808,7 +808,7 @@ def mysql_source(
                         should_use_incremental_field,
                         incremental_field,
                         incremental_field_type,
-                        lower_bound_cursor_value,
+                        db_incremental_field_last_value,
                         force_index_name=force_index_name,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
@@ -840,12 +840,12 @@ def mysql_source(
                         yield arrow_batch, last_cursor_in_batch
 
     def _force_index_fallback(
-        lower_bound_cursor_value: Any,
+        db_incremental_field_last_value: Any,
     ) -> Iterator[tuple[Any, Any]]:
         """Re-run the streaming query with FORCE INDEX after a bad-plan timeout.
 
         Opens a fresh connection (the previous one is dead), looks up a usable
-        index on the incremental field, and streams from `lower_bound_cursor_value`
+        index on the incremental field, and streams from `db_incremental_field_last_value`
         (the last committed cursor, if any — else the sync's starting cursor).
         If no suitable index exists, re-raises the original exception by yielding
         nothing and raising.
@@ -882,7 +882,7 @@ def mysql_source(
             raise
 
         logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad-plan timeout")
-        yield from _stream_with_optional_force_index(force_index_name, lower_bound_cursor_value)
+        yield from _stream_with_optional_force_index(force_index_name, db_incremental_field_last_value)
 
     def get_rows() -> Iterator[Any]:
         last_cursor_value = db_incremental_field_last_value
@@ -890,7 +890,7 @@ def mysql_source(
         try:
             for arrow_batch, batch_cursor in _stream_with_optional_force_index(
                 force_index_name=None,
-                lower_bound_cursor_value=db_incremental_field_last_value,
+                db_incremental_field_last_value=db_incremental_field_last_value,
             ):
                 if batch_cursor is not None:
                     last_cursor_value = batch_cursor
