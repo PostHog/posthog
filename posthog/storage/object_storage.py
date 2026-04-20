@@ -305,6 +305,20 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
+    def copy(self, bucket: str, source_key: str, target_key: str) -> None:
+        try:
+            self.aws_client.copy({"Bucket": bucket, "Key": source_key}, bucket, target_key)
+        except Exception as e:
+            logger.exception(
+                "object_storage.copy_failed",
+                bucket=bucket,
+                source_key=source_key,
+                target_key=target_key,
+                error=e,
+            )
+            capture_exception(e)
+            raise ObjectStorageError("copy failed") from e
+
     def delete(self, bucket: str, key: str) -> None:
         response = {}
         try:
@@ -400,6 +414,14 @@ def copy_objects(source_prefix: str, target_prefix: str) -> int:
             target_prefix=target_prefix,
         )
         or 0
+    )
+
+
+def copy(source_key: str, target_key: str, bucket: str | None = None) -> None:
+    return object_storage_client().copy(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
+        source_key=source_key,
+        target_key=target_key,
     )
 
 
