@@ -342,7 +342,7 @@ export const logsAlertsDestinationsDeleteCreate = async (
 }
 
 /**
- * Paginated event history for this alert, newest first. Returns both worker-produced check rows (fires, resolves, errors, transitions) and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold changes) — distinguished by the `kind` field. Optional `?kind=...` query filter narrows to a single kind.
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind.
  */
 export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params?: LogsAlertsEventsListParams) => {
     const normalizedParams = new URLSearchParams()

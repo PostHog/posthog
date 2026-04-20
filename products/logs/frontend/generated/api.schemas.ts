@@ -345,13 +345,6 @@ export const LogsAlertEventKindEnumApi = {
     ThresholdChange: 'threshold_change',
 } as const
 
-/**
- * Read-only serializer for LogsAlertEvent rows surfaced by the /events/ action.
-
-Mixes worker-produced CHECK rows (result_count, threshold_breached set) with
-control-plane rows (result_count=None, threshold_breached=False) — callers
-distinguish by `kind`.
- */
 export interface LogsAlertEventApi {
     readonly id: string
     readonly created_at: string
