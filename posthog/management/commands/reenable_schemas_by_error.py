@@ -20,9 +20,9 @@ class Command(BaseCommand):
             help="Error substring to match against latest_error (case-insensitive)",
         )
         parser.add_argument(
-            "--dry-run",
+            "--live-run",
             action="store_true",
-            help="List affected schemas without re-enabling them",
+            help="Actually re-enable schemas. Without this flag the command only lists matches (dry-run).",
         )
         parser.add_argument(
             "--source-type",
@@ -45,7 +45,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         error_substring = options["error"]
-        dry_run = options["dry_run"]
+        live_run = options["live_run"]
         source_type = options["source_type"]
         disabled_after = options["disabled_after"]
         disabled_before = options["disabled_before"]
@@ -89,8 +89,12 @@ class Command(BaseCommand):
                 f"name={schema.name} source_type={schema.source.source_type}"
             )
 
-        if dry_run:
-            self.stdout.write(self.style.WARNING(f"\nDry run — {len(schemas)} schema(s) would be re-enabled."))
+        if not live_run:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"\nDry run — {len(schemas)} schema(s) would be re-enabled. Pass --live-run to execute."
+                )
+            )
             return
 
         succeeded = 0

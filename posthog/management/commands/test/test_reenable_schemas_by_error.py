@@ -54,7 +54,7 @@ class TestReenableSchemasByError:
             latest_error="OperationalError: connection is insecure (try using sslmode=require)",
         )
 
-        call_command("reenable_schemas_by_error", "connection is insecure")
+        call_command("reenable_schemas_by_error", "connection is insecure", live_run=True)
 
         mock_update.assert_called_once_with(schema_id=str(schema.id), team_id=team.id, should_sync=True)
 
@@ -66,11 +66,11 @@ class TestReenableSchemasByError:
             latest_error="OperationalError: CONNECTION IS INSECURE",
         )
 
-        call_command("reenable_schemas_by_error", "connection is insecure")
+        call_command("reenable_schemas_by_error", "connection is insecure", live_run=True)
 
         assert mock_update.call_count == 1
 
-    def test_dry_run_does_not_reenable(self, mock_update, team):
+    def test_default_is_dry_run(self, mock_update, team):
         source = _create_source(team)
         _create_schema(
             source,
@@ -78,7 +78,7 @@ class TestReenableSchemasByError:
             latest_error="connection is insecure",
         )
 
-        call_command("reenable_schemas_by_error", "connection is insecure", dry_run=True)
+        call_command("reenable_schemas_by_error", "connection is insecure")
 
         mock_update.assert_not_called()
 
@@ -90,7 +90,7 @@ class TestReenableSchemasByError:
             latest_error="connection is insecure",
         )
 
-        call_command("reenable_schemas_by_error", "connection is insecure")
+        call_command("reenable_schemas_by_error", "connection is insecure", live_run=True)
 
         mock_update.assert_not_called()
 
@@ -102,7 +102,7 @@ class TestReenableSchemasByError:
             latest_error="password authentication failed",
         )
 
-        call_command("reenable_schemas_by_error", "connection is insecure")
+        call_command("reenable_schemas_by_error", "connection is insecure", live_run=True)
 
         mock_update.assert_not_called()
 
@@ -116,7 +116,7 @@ class TestReenableSchemasByError:
         schema.deleted = True
         schema.save()
 
-        call_command("reenable_schemas_by_error", "connection is insecure")
+        call_command("reenable_schemas_by_error", "connection is insecure", live_run=True)
 
         mock_update.assert_not_called()
 
@@ -126,7 +126,7 @@ class TestReenableSchemasByError:
         pg_schema = _create_schema(pg_source, name="pg_table", should_sync=False, latest_error="connection is insecure")
         _create_schema(mysql_source, name="mysql_table", should_sync=False, latest_error="connection is insecure")
 
-        call_command("reenable_schemas_by_error", "connection is insecure", source_type="Postgres")
+        call_command("reenable_schemas_by_error", "connection is insecure", source_type="Postgres", live_run=True)
 
         mock_update.assert_called_once_with(schema_id=str(pg_schema.id), team_id=team.id, should_sync=True)
 
@@ -136,12 +136,12 @@ class TestReenableSchemasByError:
         _create_schema(source_1, name="t1", should_sync=False, latest_error="connection is insecure")
         _create_schema(source_2, name="t2", should_sync=False, latest_error="connection is insecure")
 
-        call_command("reenable_schemas_by_error", "connection is insecure")
+        call_command("reenable_schemas_by_error", "connection is insecure", live_run=True)
 
         assert mock_update.call_count == 2
 
     def test_no_matches_prints_warning(self, mock_update, team, capsys):
-        call_command("reenable_schemas_by_error", "nonexistent error string")
+        call_command("reenable_schemas_by_error", "nonexistent error string", live_run=True)
 
         mock_update.assert_not_called()
         captured = capsys.readouterr()
@@ -154,7 +154,7 @@ class TestReenableSchemasByError:
 
         mock_update.side_effect = [Exception("temporal down"), None]
 
-        call_command("reenable_schemas_by_error", "connection is insecure")
+        call_command("reenable_schemas_by_error", "connection is insecure", live_run=True)
 
         assert mock_update.call_count == 2
 
@@ -171,7 +171,9 @@ class TestReenableSchemasByError:
             updated_at=datetime(2026, 4, 16, 18, 0, 0, tzinfo=UTC)
         )
 
-        call_command("reenable_schemas_by_error", "connection is insecure", disabled_after=cutoff.isoformat())
+        call_command(
+            "reenable_schemas_by_error", "connection is insecure", disabled_after=cutoff.isoformat(), live_run=True
+        )
 
         mock_update.assert_called_once_with(schema_id=str(new_schema.id), team_id=team.id, should_sync=True)
 
@@ -188,7 +190,9 @@ class TestReenableSchemasByError:
             updated_at=datetime(2026, 4, 18, 0, 0, 0, tzinfo=UTC)
         )
 
-        call_command("reenable_schemas_by_error", "connection is insecure", disabled_before=cutoff.isoformat())
+        call_command(
+            "reenable_schemas_by_error", "connection is insecure", disabled_before=cutoff.isoformat(), live_run=True
+        )
 
         mock_update.assert_called_once_with(schema_id=str(old_schema.id), team_id=team.id, should_sync=True)
 
@@ -207,6 +211,7 @@ class TestReenableSchemasByError:
             "connection is insecure",
             disabled_after="2026-04-16T17:00:00Z",
             disabled_before="2026-04-17T00:00:00Z",
+            live_run=True,
         )
 
         mock_update.assert_called_once_with(schema_id=str(during.id), team_id=team.id, should_sync=True)
