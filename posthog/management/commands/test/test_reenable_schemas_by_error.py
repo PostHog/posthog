@@ -158,60 +158,32 @@ class TestReenableSchemasByError:
 
         assert mock_update.call_count == 2
 
-    def test_disabled_after_filter(self, mock_update, team):
+    @pytest.mark.parametrize(
+        "disabled_after,disabled_before,expected_name",
+        [
+            ("2026-04-17T00:00:00+00:00", None, "new"),
+            (None, "2026-04-16T00:00:00+00:00", "old"),
+            ("2026-04-16T17:00:00+00:00", "2026-04-17T00:00:00+00:00", "during"),
+        ],
+    )
+    def test_date_filters(self, mock_update, team, disabled_after, disabled_before, expected_name):
         source = _create_source(team)
-        old_schema = _create_schema(source, name="old", should_sync=False, latest_error="connection is insecure")
-        new_schema = _create_schema(source, name="new", should_sync=False, latest_error="connection is insecure")
-
-        cutoff = datetime(2026, 4, 16, 17, 0, 0, tzinfo=UTC)
-        ExternalDataSchema.objects.filter(id=old_schema.id).update(
-            updated_at=datetime(2026, 4, 15, 0, 0, 0, tzinfo=UTC)
-        )
-        ExternalDataSchema.objects.filter(id=new_schema.id).update(
-            updated_at=datetime(2026, 4, 16, 18, 0, 0, tzinfo=UTC)
-        )
-
-        call_command(
-            "reenable_schemas_by_error", "connection is insecure", disabled_after=cutoff.isoformat(), live_run=True
-        )
-
-        mock_update.assert_called_once_with(schema_id=str(new_schema.id), team_id=team.id, should_sync=True)
-
-    def test_disabled_before_filter(self, mock_update, team):
-        source = _create_source(team)
-        old_schema = _create_schema(source, name="old", should_sync=False, latest_error="connection is insecure")
-        new_schema = _create_schema(source, name="new", should_sync=False, latest_error="connection is insecure")
-
-        cutoff = datetime(2026, 4, 17, 0, 0, 0, tzinfo=UTC)
-        ExternalDataSchema.objects.filter(id=old_schema.id).update(
-            updated_at=datetime(2026, 4, 16, 18, 0, 0, tzinfo=UTC)
-        )
-        ExternalDataSchema.objects.filter(id=new_schema.id).update(
-            updated_at=datetime(2026, 4, 18, 0, 0, 0, tzinfo=UTC)
-        )
-
-        call_command(
-            "reenable_schemas_by_error", "connection is insecure", disabled_before=cutoff.isoformat(), live_run=True
-        )
-
-        mock_update.assert_called_once_with(schema_id=str(old_schema.id), team_id=team.id, should_sync=True)
-
-    def test_disabled_after_and_before_combined(self, mock_update, team):
-        source = _create_source(team)
-        before = _create_schema(source, name="before", should_sync=False, latest_error="connection is insecure")
+        old = _create_schema(source, name="old", should_sync=False, latest_error="connection is insecure")
         during = _create_schema(source, name="during", should_sync=False, latest_error="connection is insecure")
-        after = _create_schema(source, name="after", should_sync=False, latest_error="connection is insecure")
+        new = _create_schema(source, name="new", should_sync=False, latest_error="connection is insecure")
 
-        ExternalDataSchema.objects.filter(id=before.id).update(updated_at=datetime(2026, 4, 15, 0, 0, 0, tzinfo=UTC))
+        ExternalDataSchema.objects.filter(id=old.id).update(updated_at=datetime(2026, 4, 15, 0, 0, 0, tzinfo=UTC))
         ExternalDataSchema.objects.filter(id=during.id).update(updated_at=datetime(2026, 4, 16, 20, 0, 0, tzinfo=UTC))
-        ExternalDataSchema.objects.filter(id=after.id).update(updated_at=datetime(2026, 4, 18, 0, 0, 0, tzinfo=UTC))
+        ExternalDataSchema.objects.filter(id=new.id).update(updated_at=datetime(2026, 4, 18, 0, 0, 0, tzinfo=UTC))
 
-        call_command(
-            "reenable_schemas_by_error",
-            "connection is insecure",
-            disabled_after="2026-04-16T17:00:00Z",
-            disabled_before="2026-04-17T00:00:00Z",
-            live_run=True,
-        )
+        expected_schema = {"old": old, "during": during, "new": new}[expected_name]
 
-        mock_update.assert_called_once_with(schema_id=str(during.id), team_id=team.id, should_sync=True)
+        kwargs: dict = {"live_run": True}
+        if disabled_after:
+            kwargs["disabled_after"] = disabled_after
+        if disabled_before:
+            kwargs["disabled_before"] = disabled_before
+
+        call_command("reenable_schemas_by_error", "connection is insecure", **kwargs)
+
+        mock_update.assert_called_once_with(schema_id=str(expected_schema.id), team_id=team.id, should_sync=True)

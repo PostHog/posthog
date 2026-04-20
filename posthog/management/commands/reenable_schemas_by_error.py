@@ -49,14 +49,10 @@ class Command(BaseCommand):
         disabled_after = options["disabled_after"]
         disabled_before = options["disabled_before"]
 
-        schemas = (
-            ExternalDataSchema.objects.select_related("source")
-            .filter(
-                should_sync=False,
-                deleted=False,
-                latest_error__icontains=error_substring,
-            )
-            .exclude(latest_error__isnull=True)
+        schemas = ExternalDataSchema.objects.select_related("source").filter(
+            should_sync=False,
+            deleted=False,
+            latest_error__icontains=error_substring,
         )
 
         if source_type:
