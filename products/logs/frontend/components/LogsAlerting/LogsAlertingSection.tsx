@@ -77,7 +77,7 @@ function LogsAlertModalContent({ editingAlert }: { editingAlert: LogsAlertConfig
                 >
                     <LemonModal.Header>
                         <h3>{editingAlert ? 'Edit alert' : 'New alert'}</h3>
-                        <p className="text-muted text-sm m-0">Alerts are checked every minute.</p>
+                        <p className="text-muted text-sm m-0">Alerts are checked every 5 minutes.</p>
                     </LemonModal.Header>
                     <LemonModal.Content>
                         {isBroken && editingAlert && (
