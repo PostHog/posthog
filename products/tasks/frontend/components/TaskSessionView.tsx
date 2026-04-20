@@ -67,7 +67,11 @@ export function filterDuplicateInitialPromptEntry(entries: LogEntry[], initialPr
     }
 
     const [firstEntry, ...restEntries] = entries
-    if (firstEntry.type !== 'user' || firstEntry.message?.trim() !== normalizedPrompt) {
+    if (
+        firstEntry.type !== 'user' ||
+        firstEntry.message?.trim() !== normalizedPrompt ||
+        (firstEntry.attachments?.length ?? 0) > 0
+    ) {
         return entries
     }
 
@@ -88,6 +92,11 @@ export function mergeDuplicateUserPromptEntries(entries: LogEntry[]): LogEntry[]
 
             if (!previousHasAttachments && currentHasAttachments) {
                 mergedEntries[mergedEntries.length - 1] = entry
+            } else if (previousHasAttachments && currentHasAttachments) {
+                mergedEntries[mergedEntries.length - 1] = {
+                    ...previousEntry,
+                    attachments: [...(previousEntry.attachments ?? []), ...(entry.attachments ?? [])],
+                }
             }
 
             return mergedEntries
