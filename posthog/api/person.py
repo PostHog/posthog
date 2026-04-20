@@ -61,6 +61,7 @@ from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.person.util import (
     delete_person,
+    delete_persons_from_postgres,
     get_person_by_pk_or_uuid,
     get_persons_by_distinct_ids,
     get_persons_by_uuids,
@@ -637,12 +638,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
+        deleted_persons: builtins.list[Person] = []
         if not keep_person:
+            # Send ClickHouse deletion events and log activity per person
             for person in persons:
                 try:
                     delete_person(person=person)
-                    self.perform_destroy(person)
                     persons_deleted += 1
+                    deleted_persons.append(person)
                 except Exception:
                     logger.exception("Failed to delete person", person_uuid=str(person.uuid))
                     errors.append({"person_uuid": str(person.uuid)})
@@ -657,6 +660,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     activity="deleted",
                     detail=Detail(name=str(person.uuid)),
                 )
+            # Postgres deletes happen after CH deletes. If the Postgres batch fails,
+            # persons may remain in Postgres that are already marked deleted in ClickHouse.
+            delete_persons_from_postgres(self.team_id, deleted_persons)
 
         if delete_events:
             self._queue_event_deletion(persons)
