@@ -8,6 +8,11 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "order": {
+            "description": "Sort order. Defaults to `-joined_at`.",
+            "enum": ["-joined_at", "joined_at"],
+            "type": "string"
         }
     },
     "type": "object"

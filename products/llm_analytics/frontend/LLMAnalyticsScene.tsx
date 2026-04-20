@@ -42,7 +42,11 @@ import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import {
+    buildApplyUrlStatePayload,
+    LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    llmAnalyticsSharedLogic,
+} from './llmAnalyticsSharedLogic'
 import { LLMAnalyticsTools } from './LLMAnalyticsTools'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
@@ -174,8 +178,8 @@ function LLMAnalyticsDashboard(): JSX.Element {
 }
 
 function LLMAnalyticsGenerations(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
-    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { applyUrlState } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { searchParams } = useValues(router)
     const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
         useActions(llmAnalyticsGenerationsLogic)
@@ -236,13 +240,16 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 if (!isEventsQuery(query.source)) {
                     throw new Error('Invalid query')
                 }
-                setDates(query.source.after || null, query.source.before || null)
-                setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-
-                const newPropertyFilters = query.source.properties || []
-                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
-                    setPropertyFilters(newPropertyFilters)
-                }
+                applyUrlState(
+                    buildApplyUrlStatePayload({
+                        dateFrom: query.source.after || null,
+                        dateTo: query.source.before || null,
+                        shouldFilterTestAccounts: query.source.filterTestAccounts || false,
+                        propertyFilters: query.source.properties || [],
+                        currentDateFilter: dateFilter,
+                        currentPropertyFilters,
+                    })
+                )
 
                 if (query.source.select) {
                     setGenerationsColumns(query.source.select)

@@ -57,9 +57,14 @@ func (m Model) renderHeader() string {
 		sortInfo = headerMetaStyle.Render(fmt.Sprintf("▼ %s", m.sortMode))
 	}
 
-	spacerW := max(m.width-lipgloss.Width(stripesStyle)-lipgloss.Width(brand)-lipgloss.Width(sortInfo)-lipgloss.Width(procInfo)-lipgloss.Width(meta)-1, 0)
+	var groupInfo string
+	if m.isGrouped() {
+		groupInfo = headerMetaStyle.Render(fmt.Sprintf("☰ %s", m.activeGroupDim()))
+	}
+
+	spacerW := max(m.width-lipgloss.Width(stripesStyle)-lipgloss.Width(brand)-lipgloss.Width(groupInfo)-lipgloss.Width(sortInfo)-lipgloss.Width(procInfo)-lipgloss.Width(meta)-1, 0)
 	spacer := lipgloss.NewStyle().Width(spacerW).Render("")
-	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, sortInfo, procInfo, "•", meta)
+	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, groupInfo, sortInfo, procInfo, "•", meta)
 }
 
 func (m Model) renderSidebar() string {
@@ -67,6 +72,10 @@ func (m Model) renderSidebar() string {
 
 	// Usable column width inside the border
 	innerW := m.effectiveSidebarWidth() - 1
+
+	if m.isGrouped() {
+		return m.renderGroupedSidebar(h, innerW)
+	}
 
 	// Determine the vertical slice of the services list to render based
 	// on the current cursor position and servicesOffset
@@ -116,6 +125,74 @@ func (m Model) renderSidebar() string {
 	return borderFor(m.isDark, m.focusedPane == focusServices).Height(h).Render(strings.Join(rows, "\n"))
 }
 
+// renderGroupedSidebar renders the sidebar with group headers interspersed.
+func (m Model) renderGroupedSidebar(h, innerW int) string {
+	entries := m.sidebarEntries
+	n := len(entries)
+
+	// Compute scroll state for entries (similar to sidebarScrollState but for entries)
+	start := min(max(m.servicesOffset, 0), max(0, n-1))
+	canScrollUp := start > 0
+	avail := h
+	if canScrollUp {
+		avail--
+	}
+	canScrollDown := start+avail < n
+	if canScrollDown {
+		avail--
+	}
+	avail = max(avail, 1)
+	visibleEnd := min(n, start+avail)
+
+	var rows []string
+
+	if canScrollUp {
+		rows = append(rows, scrollArrowStyle.Width(innerW).Render("▲"))
+	}
+
+	for i := start; i < visibleEnd; i++ {
+		e := entries[i]
+		if e.spacer {
+			rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
+			continue
+		}
+		if e.isHeader() {
+			label := truncate(e.groupHeader, innerW-1)
+			rows = append(rows, groupHeaderStyle.Width(innerW).Render(label))
+			continue
+		}
+
+		p := e.proc
+		status := p.Status()
+		iconChar := statusIconChar(status)
+		if status == process.StatusPending {
+			iconChar = ansi.Strip(m.spinner.View())
+		}
+		iconColor := statusIconColor(status)
+
+		name := truncate(p.Name, innerW-3)
+		rows = append(rows, renderSidebarRow(sidebarRow{
+			icon:      iconChar,
+			name:      name,
+			iconColor: iconColor,
+			selected:  i == m.entryCursor,
+			unread:    p.Unread(),
+			innerW:    innerW,
+			isDark:    m.isDark,
+		}))
+	}
+
+	if canScrollDown {
+		rows = append(rows, scrollArrowStyle.Width(innerW).Render("▼"))
+	}
+
+	for len(rows) < h {
+		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
+	}
+
+	return borderFor(m.isDark, m.focusedPane == focusServices).Height(h).Render(strings.Join(rows, "\n"))
+}
+
 func (m Model) sidebarHeight() int {
 	fh := m.footerHeight()
 	h := m.height - headerHeight - fh
@@ -129,6 +206,9 @@ func (m Model) sidebarHeight() int {
 func (m Model) sidebarScrollState() (canScrollUp, canScrollDown bool, visibleH int) {
 	h := m.sidebarHeight()
 	n := len(m.services)
+	if m.isGrouped() {
+		n = len(m.sidebarEntries)
+	}
 	if n <= h {
 		return false, false, h
 	}
@@ -151,6 +231,10 @@ func (m Model) sidebarScrollState() (canScrollUp, canScrollDown bool, visibleH i
 // Keep selected process row within the visible
 // sidebar window by adjusting servicesOffset
 func (m *Model) ensureSidebarCursorVisible() {
+	if m.isGrouped() {
+		m.ensureGroupedCursorVisible()
+		return
+	}
 	_, _, h := m.sidebarScrollState()
 	if len(m.services) <= m.sidebarHeight() {
 		m.servicesOffset = 0
@@ -167,6 +251,45 @@ func (m *Model) ensureSidebarCursorVisible() {
 	}
 	if m.servicesCursor >= m.servicesOffset+h {
 		m.servicesOffset = m.servicesCursor - h + 1
+	}
+}
+
+// ensureGroupedCursorVisible keeps the entryCursor visible in grouped mode.
+func (m *Model) ensureGroupedCursorVisible() {
+	n := len(m.sidebarEntries)
+	h := m.sidebarHeight()
+
+	if n <= h {
+		m.servicesOffset = 0
+		return
+	}
+
+	// Compute available rows accounting for scroll arrows
+	canScrollUp := m.servicesOffset > 0
+	avail := h
+	if canScrollUp {
+		avail--
+	}
+	canScrollDown := m.servicesOffset+avail < n
+	if canScrollDown {
+		avail--
+	}
+	avail = max(avail, 1)
+
+	maxOffset := n - avail
+	if m.servicesOffset > maxOffset {
+		m.servicesOffset = max(maxOffset, 0)
+	}
+
+	if m.entryCursor < m.servicesOffset {
+		m.servicesOffset = m.entryCursor
+		// Show the group header above if immediately preceding
+		if m.entryCursor > 0 && m.sidebarEntries[m.entryCursor-1].isHeader() {
+			m.servicesOffset = m.entryCursor - 1
+		}
+	}
+	if m.entryCursor >= m.servicesOffset+avail {
+		m.servicesOffset = m.entryCursor - avail + 1
 	}
 }
 
