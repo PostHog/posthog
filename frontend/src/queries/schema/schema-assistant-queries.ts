@@ -565,6 +565,12 @@ export interface AssistantFunnelNodeShared {
      */
     math?: AssistantFunnelsMath
     properties?: AssistantPropertyFilter[]
+    /**
+     * If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen.
+     * Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).
+     * @default false
+     */
+    optionalInFunnel?: boolean
 }
 
 export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'>, AssistantFunnelNodeShared {
@@ -728,7 +734,11 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
 export interface AssistantRetentionEventsNode {
     type: 'events'
     /**
-     * Event name from the plan.
+     * Event name from the plan — the same string as `name`. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan.
+     */
+    id: string
+    /**
+     * Event name from the plan — must be identical to `id`.
      */
     name: string
     /**
