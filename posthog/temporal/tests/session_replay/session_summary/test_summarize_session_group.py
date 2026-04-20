@@ -1996,7 +1996,7 @@ class TestSessionBatchFetchExpectedSkips:
             redis_key_base="test_key_base",
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
-            model_to_use="gpt-4.1",
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             summary_title="Test summary",
         )
 
@@ -2040,7 +2040,7 @@ class TestSessionBatchFetchExpectedSkips:
             redis_key_base="test_key_base",
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
-            model_to_use="gpt-4.1",
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             summary_title="Test summary",
         )
 
@@ -2084,7 +2084,7 @@ class TestSessionBatchFetchExpectedSkips:
             redis_key_base="test_key_base",
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
-            model_to_use="gpt-4.1",
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             summary_title="Test summary",
         )
 
@@ -2132,7 +2132,7 @@ class TestSessionBatchFetchExpectedSkips:
             redis_key_base="test_key_base",
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
-            model_to_use="gpt-4.1",
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             summary_title="Test summary",
         )
 

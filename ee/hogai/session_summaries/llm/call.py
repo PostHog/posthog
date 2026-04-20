@@ -4,7 +4,6 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
-from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.responses import Response as OpenAIResponse
 from posthoganalytics.ai.openai import AsyncOpenAI, OpenAI
 from posthoganalytics.client import Client
@@ -17,8 +16,6 @@ from ee.hogai.session_summaries.constants import (
     BASE_LLM_CALL_TIMEOUT_S,
     SESSION_SUMMARIES_REASONING_EFFORT,
     SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS,
-    SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS,
-    SESSION_SUMMARIES_TEMPERATURE,
 )
 
 logger = structlog.get_logger(__name__)
@@ -100,7 +97,7 @@ async def call_llm(
     user_id: int,
     user_distinct_id: str | None = None,
     trigger_session_id: str | None = None,
-) -> ChatCompletion | OpenAIResponse:
+) -> OpenAIResponse:
     """
     LLM non-streaming call.
     """
@@ -108,31 +105,20 @@ async def call_llm(
     user_param = _prepare_user_param(user_id)
     client = get_async_openai_client()
     posthog_props = _build_posthog_props(trigger_session_id)
-    if model in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
-        result = await client.chat.completions.create(  # type: ignore[call-overload]
-            messages=messages,
-            model=model,
-            temperature=SESSION_SUMMARIES_TEMPERATURE,
-            user=user_param,
-            posthog_trace_id=trace_id,
-            posthog_distinct_id=user_distinct_id,
-            posthog_properties=posthog_props,
-        )
-    elif model in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
-        result = await client.responses.create(  # type: ignore[call-overload]
-            input=messages,
-            model=model,
-            reasoning={"effort": SESSION_SUMMARIES_REASONING_EFFORT},
-            user=user_param,
-            posthog_trace_id=trace_id,
-            posthog_distinct_id=user_distinct_id,
-            posthog_properties=posthog_props,
-        )
-    else:
+    if model not in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
         msg = (
             f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
-            f"{SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS | SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS}"
+            f"{SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS}"
         )
         logger.error(msg, session_id=session_id, signals_type="session-summaries")
         raise ValueError(msg)
+    result = await client.responses.create(  # type: ignore[call-overload]
+        input=messages,
+        model=model,
+        reasoning={"effort": SESSION_SUMMARIES_REASONING_EFFORT},
+        user=user_param,
+        posthog_trace_id=trace_id,
+        posthog_distinct_id=user_distinct_id,
+        posthog_properties=posthog_props,
+    )
     return result

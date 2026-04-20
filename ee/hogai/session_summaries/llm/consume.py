@@ -5,8 +5,6 @@ from typing import Any
 
 import openai
 import structlog
-from openai.types.chat.chat_completion import ChatCompletion
-from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from openai.types.responses import Response as OpenAIResponse
 from prometheus_client import Histogram
 
@@ -60,17 +58,9 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 )
 
 
-def get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk | OpenAIResponse) -> str:
-    """Return text content from a ChatCompletion or streaming chunk."""
-    if isinstance(llm_response, OpenAIResponse):
-        return llm_response.output_text
-    if not llm_response or not llm_response.choices:
-        return ""  # If no choices generated yet
-    if isinstance(llm_response, ChatCompletion):
-        content = llm_response.choices[0].message.content
-    elif isinstance(llm_response, ChatCompletionChunk):
-        content = llm_response.choices[0].delta.content
-    return content if content else ""
+def get_raw_content(llm_response: OpenAIResponse) -> str:
+    """Return text content from an OpenAI Response."""
+    return llm_response.output_text
 
 
 def get_exception_event_ids_from_summary(session_summary: SessionSummarySerializer) -> list[str]:
