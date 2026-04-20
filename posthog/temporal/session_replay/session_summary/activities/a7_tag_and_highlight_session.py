@@ -6,7 +6,7 @@ The tagging LLM call happens in A4 as a follow-up turn in the same conversation
 that produced the consolidation. This activity only handles the Kafka produce.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import structlog
 import temporalio
@@ -33,7 +33,7 @@ async def tag_and_highlight_session_activity(
     """Write session tags and highlight flag to ClickHouse via Kafka."""
     try:
         team = await Team.objects.aget(id=inputs.team_id)
-        metadata = await database_sync_to_async(SessionReplayEvents().get_metadata)(
+        metadata = await database_sync_to_async(SessionReplayEvents().get_metadata, thread_sensitive=False)(
             session_id=inputs.session_id,
             team=team,
         )
@@ -57,7 +57,7 @@ async def tag_and_highlight_session_activity(
 def _produce_to_kafka(
     inputs: VideoSummarySingleSessionInputs,
     tagging: SessionTaggingOutput,
-    session_start_time,
+    session_start_time: datetime,
 ) -> None:
     """Produce a Kafka message to write tags and highlight flag to ClickHouse.
 
