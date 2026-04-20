@@ -3531,10 +3531,25 @@ class FeatureFlagViewSet(
                     flag_dict["team_id"] = evaluation_flag.team_id
 
                     override_definitions = {feature_flag.key: flag_dict}
-                except Exception:
-                    # Log the error but continue without override definitions
+                except Exception as e:
+                    # For historical evaluation, serialization failure is critical
+                    if timestamp:
+                        logger.exception("Failed to serialize flag for override")
+                        capture_exception(e)
+                        return Response(
+                            {"error": "Failed to prepare historical flag definition for evaluation."},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        )
+                    # For current evaluation, can continue without override
                     logger.exception("Failed to serialize flag for override")
                     override_definitions = None
+
+            internal_token = os.getenv("INTERNAL_REQUEST_TOKEN")
+            if not internal_token:
+                return Response(
+                    {"error": "Server misconfiguration: INTERNAL_REQUEST_TOKEN not set"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
             rust_response = get_flags_from_service(
                 token=team_token,
@@ -3544,7 +3559,7 @@ class FeatureFlagViewSet(
                 person_properties=person_properties,
                 only_use_override_person_properties=timestamp is not None,
                 flag_keys=[feature_flag.key],
-                internal_request_token=os.getenv("INTERNAL_REQUEST_TOKEN"),
+                internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
             )
 
