@@ -22,16 +22,15 @@ regression debugging, and materializing results as insights, dashboards, or aler
 
 ## Tools
 
-| Tool                                      | Purpose                                                             |
-| ----------------------------------------- | ------------------------------------------------------------------- |
-| `posthog:get-llm-total-costs-for-project` | One-shot: daily total cost broken down by model (last N days)       |
-| `posthog:execute-sql`                     | Ad-hoc HogQL for any cost aggregation — the workhorse of this skill |
-| `posthog:query-llm-traces-list`           | List traces with rolled-up cost, token, and error metrics           |
-| `posthog:query-llm-trace`                 | Cost breakdown of a single trace across all its events              |
-| `posthog:read-data-schema`                | Discover which custom properties exist for breakdowns               |
-| `posthog:insight-create`                  | Materialize a cost chart as a saved insight                         |
-| `posthog:dashboard-create`                | Bundle cost insights into a dashboard                               |
-| `posthog:alert-create`                    | Alert when cost crosses a threshold                                 |
+| Tool                            | Purpose                                                             |
+| ------------------------------- | ------------------------------------------------------------------- |
+| `posthog:execute-sql`           | Ad-hoc HogQL for any cost aggregation — the workhorse of this skill |
+| `posthog:query-llm-traces-list` | List traces with rolled-up cost, token, and error metrics           |
+| `posthog:query-llm-trace`       | Cost breakdown of a single trace across all its events              |
+| `posthog:read-data-schema`      | Discover which custom properties exist for breakdowns               |
+| `posthog:insight-create`        | Materialize a cost chart as a saved insight                         |
+| `posthog:dashboard-create`      | Bundle cost insights into a dashboard                               |
+| `posthog:alert-create`          | Alert when cost crosses a threshold                                 |
 
 ## Cost properties
 
@@ -161,21 +160,6 @@ WHERE event = '$ai_generation'
     AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY model, properties.$ai_cache_reporting_exclusive
 ```
-
-## Workflow: answer "how much are we spending?"
-
-Default to the pre-built MCP tool when the user just wants the headline number:
-
-```json
-posthog:get-llm-total-costs-for-project
-{ "projectId": <id>, "days": 30 }
-```
-
-Returns a trends series of daily total cost broken down by model over the last
-N days (default 6). Links back to `/llm-observability` so the user can drill in.
-
-For anything beyond the default shape (different time range, different grouping,
-formula), drop to SQL — see the patterns below.
 
 ## Workflow: breakdown patterns
 
@@ -485,14 +469,26 @@ a custom one.
 ```json
 posthog:alert-create
 {
-  "insight": "<insight_id>",
+  "insight": <insight_id>,
   "name": "Daily LLM cost over $100",
-  "threshold": {"configuration": {"absoluteThreshold": {"upper": 100}}},
-  "condition": {"type": "absolute_value"}
+  "subscribed_users": [<user_id>],
+  "threshold": {
+    "configuration": {
+      "bounds": {"upper": 100},
+      "type": "absolute"
+    }
+  },
+  "condition": {"type": "absolute_value"},
+  "config": {"series_index": 0},
+  "enabled": true
 }
 ```
 
 The insight must be a single-value trends query (e.g. bold-number daily cost).
+`subscribed_users` is required and must contain at least one user id from the
+same team. `threshold.configuration.type` is `"absolute"` or `"percentage"`;
+`condition.type` is `"absolute_value"`, `"relative_increase"`, or
+`"relative_decrease"` (see `services/mcp/src/generated/alerts/api.ts`).
 
 ## Constructing UI links
 
