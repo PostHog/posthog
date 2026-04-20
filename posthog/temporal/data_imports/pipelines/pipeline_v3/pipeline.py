@@ -90,6 +90,10 @@ class PipelineV3(Generic[ResumableData]):
         self._resource = source_response
         self._resource_name = source_response.name
 
+        # Allow user-specified primary keys to override auto-detected ones
+        if schema.primary_key_columns:
+            self._resource.primary_keys = schema.primary_key_columns
+
         self._job = job
         self._reset_pipeline = reset_pipeline
         self._logger = logger

@@ -1,7 +1,7 @@
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import ClassVar, Optional, Union
 
 from posthog.schema import (
     AttributionMode,
@@ -67,6 +67,8 @@ TRACKED_FIELDS: list[TrackedField] = [
     TrackedField("campaign", "utm_campaign", "utm_campaign_name"),
     TrackedField("source", "utm_source", "utm_source_name"),
     TrackedField("medium", "utm_medium", "utm_medium_name"),
+    TrackedField("content", "utm_content", "utm_content_name"),
+    TrackedField("term", "utm_term", "utm_term_name"),
     TrackedField("referring_domain", "$referring_domain", None, "$direct"),
     TrackedField("gclid", "$gclid"),
     TrackedField("fbclid", "$fbclid"),
@@ -88,6 +90,12 @@ class ConversionGoalProcessor:
     index: int
     team: Team
     config: MarketingAnalyticsConfig
+
+    _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
+        MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
+        MarketingAnalyticsDrillDownLevel.CONTENT: "content",
+        MarketingAnalyticsDrillDownLevel.TERM: "term",
+    }
 
     def get_cte_name(self) -> str:
         """Get unique CTE name for this conversion goal"""
@@ -203,6 +211,33 @@ class ConversionGoalProcessor:
             return self._generate_array_based_query(additional_conditions)
         return self._generate_direct_query(additional_conditions)
 
+    def build_array_collection_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
+        """Build the per-person array-collection subquery.
+
+        This is the upstream stage of the attribution pipeline: for each
+        person, it groups conversion events and UTM pageviews into parallel
+        arrays. The downstream ``build_attribution_pipeline`` consumes this.
+        """
+        conversion_event: Optional[str] = self.goal.event if self.goal.kind == "EventsNode" else None
+        where_conditions = self.get_base_where_conditions()
+        where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
+        where_conditions.extend(additional_conditions)
+        return self._build_array_collection_subquery(conversion_event, where_conditions)
+
+    def build_attribution_pipeline(self, array_source: ast.SelectQuery) -> ast.SelectQuery:
+        """Apply ARRAY JOIN, attribution and final aggregation on top of an
+        array-collection source."""
+        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
+
+        if self.config.is_multi_touch:
+            array_join = self._build_multi_touch_array_join_subquery(array_source, attribution_window_seconds)
+            attribution = self._build_multi_touch_attribution_subquery(array_join)
+        else:
+            array_join = self._build_single_touch_array_join_subquery(array_source, attribution_window_seconds)
+            attribution = self._build_single_touch_attribution_subquery(array_join)
+
+        return self._build_final_aggregation_query(attribution)
+
     def _generate_array_based_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Generate array-based query with attribution logic for Events/Actions"""
         if self.config.attribution_window_days > 0:
@@ -211,25 +246,8 @@ class ConversionGoalProcessor:
 
     def _generate_funnel_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window"""
-        conversion_event: Optional[str] = self.goal.event if self.goal.kind == "EventsNode" else None
-
-        # Build complete WHERE conditions
-        where_conditions = self.get_base_where_conditions()
-        where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
-        where_conditions.extend(additional_conditions)
-
-        # Build nested query structure for attribution
-        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
-        array_collection = self._build_array_collection_subquery(conversion_event, where_conditions)
-
-        if self.config.is_multi_touch:
-            array_join = self._build_multi_touch_array_join_subquery(array_collection, attribution_window_seconds)
-            attribution = self._build_multi_touch_attribution_subquery(array_join)
-        else:
-            array_join = self._build_single_touch_array_join_subquery(array_collection, attribution_window_seconds)
-            attribution = self._build_single_touch_attribution_subquery(array_join)
-
-        return self._build_final_aggregation_query(attribution)
+        array_collection = self.build_array_collection_query(additional_conditions)
+        return self.build_attribution_pipeline(array_collection)
 
     def _build_array_collection_subquery(
         self, conversion_event: Optional[str], where_conditions: list[ast.Expr]
@@ -1418,8 +1436,24 @@ class ConversionGoalProcessor:
                 ),
             ]
             group_by = [source_expr]
+        elif level in (
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            utm_expr = field_exprs[self._UTM_LEVEL_FIELD_MAP[level]]
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=utm_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                ast.Alias(
+                    alias=self.config.get_conversion_goal_column_name(self.index),
+                    expr=self._get_aggregation_expr(),
+                ),
+            ]
+            group_by = [utm_expr]
         else:
-            # Campaign level (default)
             # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
             select_columns = [
                 ast.Alias(alias=self.config.match_key_field, expr=campaign_expr),
@@ -1576,8 +1610,21 @@ class ConversionGoalProcessor:
                 ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
             ]
             group_by = [source_expr]
+        elif level in (
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            utm_expr = field_exprs[self._UTM_LEVEL_FIELD_MAP[level]]
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=utm_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
+            ]
+            group_by = [utm_expr]
         else:
-            # Campaign level (default)
             select_columns = [
                 ast.Alias(alias=self.config.match_key_field, expr=campaign_expr),
                 ast.Alias(alias=self.config.campaign_field, expr=campaign_expr),

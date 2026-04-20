@@ -14,8 +14,10 @@ def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
 
     try:
         table = DataWarehouseTable.objects.get(team_id=team_id, id=table_id)
-        for column in table.columns.keys():
-            table.columns[column]["valid"] = table.validate_column_type(column)
+        columns = table.columns or {}
+        for column in columns.keys():
+            columns[column]["valid"] = table.validate_column_type(column)
+        table.columns = columns
         table.save()
 
         if ph_client:

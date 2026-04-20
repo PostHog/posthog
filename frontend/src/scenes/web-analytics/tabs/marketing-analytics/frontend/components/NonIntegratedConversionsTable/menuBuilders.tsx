@@ -2,9 +2,10 @@ import { IconChevronRight, IconTrash } from '@posthog/icons'
 
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
 import { NativeMarketingSource } from '~/queries/schema/schema-general'
+
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { CampaignMappingInfo, MappingTypes, SourceMappingStatus } from './mappingUtils'
 
@@ -29,7 +30,7 @@ function createMapToItems(
 ): LemonMenuItem[] {
     return integrations.map((integration) => ({
         label: `Map to ${integration}`,
-        icon: <DataWarehouseSourceIcon type={integration} size="xsmall" disableTooltip />,
+        icon: <SourceIcon type={integration} size="xsmall" disableTooltip />,
         onClick: () => onOpenSettings?.(integration, utmValue),
     }))
 }

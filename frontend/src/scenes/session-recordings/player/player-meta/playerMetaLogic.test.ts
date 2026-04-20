@@ -64,4 +64,12 @@ describe('playerMetaLogic', () => {
                 .toMatchValues({ loading: false })
         })
     })
+
+    describe('summaryDisabledReason', () => {
+        it('returns an error string when events are not yet loaded', () => {
+            expectLogic(logic).toMatchValues({
+                summaryDisabledReason: expect.stringContaining('Session events are not available yet'),
+            })
+        })
+    })
 })

@@ -10,16 +10,18 @@ import { Breadcrumb } from '~/types'
 import {
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
+    visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
     visualReviewRunsSnapshotHistoryList,
     visualReviewRunsSnapshotsList,
+    visualReviewRunsToleratedHashesList,
 } from '../generated/api'
 import type {
-    ApproveSnapshotInputApi,
     RepoApi,
     RunApi,
     SnapshotApi,
     SnapshotHistoryEntryApi,
+    ToleratedHashEntryApi,
 } from '../generated/api.schemas'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
@@ -37,13 +39,24 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     actions({
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
         approveChanges: true,
+        approveChangesSuccess: true,
+        approveChangesFailure: true,
         approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
+        markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
     }),
     reducers({
         selectedSnapshotId: [
             null as string | null,
             {
                 setSelectedSnapshotId: (_, { snapshotId }) => snapshotId,
+            },
+        ],
+        isApproving: [
+            false,
+            {
+                approveChanges: () => true,
+                approveChangesSuccess: () => false,
+                approveChangesFailure: () => false,
             },
         ],
     }),
@@ -92,6 +105,19 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 },
             },
         ],
+        toleratedHashes: [
+            [] as ToleratedHashEntryApi[],
+            {
+                loadToleratedHashes: async (identifier: string) => {
+                    const response = await visualReviewRunsToleratedHashesList(
+                        String(values.currentProjectId),
+                        props.runId,
+                        { identifier }
+                    )
+                    return response.results
+                },
+            },
+        ],
     })),
     selectors({
         selectedSnapshot: [
@@ -108,9 +134,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             (snapshots): SnapshotApi[] => snapshots.filter((s) => s.result !== 'unchanged'),
         ],
         hasChanges: [(s) => [s.changedSnapshots], (changedSnapshots): boolean => changedSnapshots.length > 0],
-        unapprovedChangesCount: [
+        unreviewedChangesCount: [
             (s) => [s.changedSnapshots],
-            (changedSnapshots): number => changedSnapshots.filter((s) => s.review_state !== 'approved').length,
+            (changedSnapshots): number =>
+                changedSnapshots.filter((s) => s.review_state !== 'approved' && s.review_state !== 'tolerated').length,
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
         breadcrumbs: [
@@ -133,6 +160,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             const snapshot = values.selectedSnapshot
             if (snapshot) {
                 actions.loadSnapshotHistory(snapshot.identifier)
+                actions.loadToleratedHashes(snapshot.identifier)
             }
         },
         loadRunSuccess: () => {
@@ -142,36 +170,25 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             const snapshot = values.selectedSnapshot
             if (snapshot) {
                 actions.loadSnapshotHistory(snapshot.identifier)
+                actions.loadToleratedHashes(snapshot.identifier)
             }
         },
         approveChanges: async () => {
-            const { changedSnapshots, run } = values
-            if (!run || changedSnapshots.length === 0) {
+            const { run } = values
+            if (!run) {
                 return
-            }
-
-            // Only approve snapshots that have a current artifact with a hash
-            const approvableSnapshots = changedSnapshots.filter((s) => s.current_artifact?.content_hash)
-            if (approvableSnapshots.length === 0) {
-                lemonToast.error('No snapshots with artifacts to approve')
-                return
-            }
-
-            const approvalPayload = {
-                snapshots: approvableSnapshots.map(
-                    (s): ApproveSnapshotInputApi => ({
-                        identifier: s.identifier,
-                        new_hash: s.current_artifact!.content_hash,
-                    })
-                ),
             }
 
             try {
-                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)
+                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, {
+                    approve_all: true,
+                })
+                actions.approveChangesSuccess()
                 lemonToast.success('Changes approved successfully')
                 actions.loadRun()
                 actions.loadSnapshots()
             } catch (e: any) {
+                actions.approveChangesFailure()
                 lemonToast.error(e?.detail || e?.message || 'Failed to approve changes')
             }
         },
@@ -199,9 +216,24 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to approve snapshot')
             }
         },
+        markAsTolerated: async ({ snapshot }) => {
+            try {
+                await visualReviewRunsTolerateCreate(String(values.currentProjectId), props.runId, {
+                    snapshot_id: snapshot.id,
+                })
+                lemonToast.success('Marked as tolerated')
+                actions.loadRun()
+                actions.loadSnapshots()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
+            }
+        },
     })),
-    urlToAction(({ actions, values }) => ({
-        '/visual_review/runs/:runId': (_params, { snapshot }) => {
+    urlToAction(({ actions, values, props }) => ({
+        '/visual_review/runs/:runId': ({ runId }, _searchParams, { snapshot }) => {
+            if (runId !== props.runId) {
+                return
+            }
             if (snapshot && snapshot !== values.selectedSnapshotId) {
                 actions.setSelectedSnapshotId(snapshot)
             }

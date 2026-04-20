@@ -18,8 +18,9 @@ import {
     DataWarehouseSourceRowCount,
 } from '~/types'
 
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
-import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
 
 export enum DataWarehouseTab {
@@ -35,7 +36,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         values: [
             databaseTableListLogic,
             ['database', 'dataWarehouseTables', 'databaseLoading'],
-            externalDataSourcesLogic,
+            sourcesDataLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
             ['billingPeriodUTC', 'billing'],
@@ -45,7 +46,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         actions: [
             databaseTableListLogic,
             ['loadDatabase'],
-            externalDataSourcesLogic,
+            sourcesDataLogic,
             ['loadSources'],
             billingLogic,
             ['loadBilling'],

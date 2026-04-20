@@ -258,13 +258,22 @@ export class PlaywrightSetup {
     }
 
     async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
-        // Use page.request to share cookies/session with the browser context
-        await page.request.post(`${this.baseURL}/api/login/`, {
-            data: {
+        await page.goto(`${this.baseURL}/login`)
+        await page.evaluate(
+            async ({ email, password }) => {
+                await fetch('/api/login/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password }),
+                })
+            },
+            {
                 email: workspace.user_email,
                 password: LOGIN_PASSWORD,
-            },
-        })
+            }
+        )
     }
 
     /**

@@ -74,6 +74,7 @@ function ScheduleTimezoneHint(): JSX.Element | null {
     const tz = shortTimeZone(currentTeam.timezone) ?? currentTeam.timezone
     return (
         <Tooltip
+            interactive
             title={
                 <>
                     Times are in the{' '}

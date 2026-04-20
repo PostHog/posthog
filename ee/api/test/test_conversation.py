@@ -1,10 +1,11 @@
 import uuid
 import datetime
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.http import HttpResponse
+from django.http import StreamingHttpResponse
 from django.test import override_settings
 from django.utils import timezone
 
@@ -83,10 +84,12 @@ class TestConversation(APIBaseTest):
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
         )
 
-    def _get_streaming_content(self, response):
+    def _get_streaming_content(self, response: Any) -> bytes:
         return b"".join(response.streaming_content)
 
-    def _create_mock_streaming_response(self, streaming_content, *args, **kwargs):
+    def _create_mock_streaming_response(
+        self, streaming_content: Any, *args: Any, **kwargs: Any
+    ) -> StreamingHttpResponse:
         """Helper to create a mock StreamingHttpResponse that actually processes the streaming content."""
 
         # Actually consume the generator to ensure the mocked methods are called
@@ -97,8 +100,8 @@ class TestConversation(APIBaseTest):
             # If there's an issue with the async generator, use fallback
             content = _generator_serialized_value
 
-        mock_response = HttpResponse(content, content_type="text/event-stream")
-        mock_response.streaming_content = [content]
+        mock_response = StreamingHttpResponse([content], content_type="text/event-stream")
+        cast(Any, mock_response).streaming_content = [content]
         return mock_response
 
     def test_create_conversation(self):
@@ -117,7 +120,8 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
                 self.assertEqual(Conversation.objects.count(), 1)
-                conversation: Conversation = Conversation.objects.first()
+                conversation = Conversation.objects.first()
+                assert conversation is not None
                 self.assertEqual(conversation.user, self.user)
                 self.assertEqual(conversation.team, self.team)
                 # Check that the method was called with workflow_inputs

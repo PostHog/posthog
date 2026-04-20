@@ -485,8 +485,12 @@ class InviteSignupSerializer(serializers.Serializer):
                     if passkey_credential and session_user_uuid and not password:
                         extra_fields["uuid"] = uuid_module.UUID(session_user_uuid)
 
+                    invite_email = invite.target_email
+                    if not invite_email:
+                        raise serializers.ValidationError("Invite is missing a target email")
+
                     user = User.objects.create_user(
-                        invite.target_email,
+                        invite_email,
                         password,
                         first_name,
                         is_email_verified=False,
