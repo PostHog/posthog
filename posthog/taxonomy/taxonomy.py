@@ -1918,11 +1918,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens in the reasoning output from the LLM API.",
             "examples": [23],
         },
-        "$ai_stop_reason": {
-            "label": "AI stop reason (LLM)",
-            "description": "The reason the LLM stopped generating tokens. Provider-specific values such as 'stop', 'end_turn', 'tool_use', 'length', 'max_tokens', 'STOP', 'SAFETY', etc.",
-            "examples": ["stop", "end_turn", "tool_use"],
-        },
         "$ai_input_cost_usd": {
             "label": "AI input cost USD (LLM)",
             "description": "The cost in USD of the input tokens sent to the LLM API.",
