@@ -569,6 +569,51 @@
             "readOnlyHint": false
         }
     },
+    "subscriptions-test-delivery-create": {
+        "description": "Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription is already in flight.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Send test delivery",
+        "title": "Send test delivery",
+        "required_scopes": ["subscription:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "subscriptions-deliveries-list": {
+        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List subscription deliveries",
+        "title": "List subscription deliveries",
+        "required_scopes": ["subscription:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "subscriptions-deliveries-retrieve": {
+        "description": "Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value, timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state. recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get subscription delivery",
+        "title": "Get subscription delivery",
+        "required_scopes": ["subscription:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "dashboards-get-all": {
         "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
