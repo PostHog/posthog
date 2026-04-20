@@ -1,4 +1,12 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { ConversationsApiKeySetting } from '@posthog/products-conversations/frontend/settings/ConversationsApiKeySetting'
+import { ConversationsApiSetting } from '@posthog/products-conversations/frontend/settings/ConversationsApiSetting'
+import { ConversationsEmailSetting } from '@posthog/products-conversations/frontend/settings/ConversationsEmailSetting'
+import { ConversationsNotificationsSetting } from '@posthog/products-conversations/frontend/settings/ConversationsNotificationsSetting'
+import { ConversationsPublicTokenSetting } from '@posthog/products-conversations/frontend/settings/ConversationsPublicTokenSetting'
+import { ConversationsSlackSetting } from '@posthog/products-conversations/frontend/settings/ConversationsSlackSetting'
+import { ConversationsWidgetConfigSetting } from '@posthog/products-conversations/frontend/settings/ConversationsWidgetConfigSetting'
+import { ConversationsWidgetSetting } from '@posthog/products-conversations/frontend/settings/ConversationsWidgetSetting'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
@@ -11,6 +19,7 @@ import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
+import { VisualReviewSettings } from '@posthog/products-visual-review/frontend/settings/VisualReviewSettings'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
@@ -38,12 +47,12 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
-import { ApiSection } from 'products/conversations/frontend/scenes/settings/ApiSection'
-import { EmailSection } from 'products/conversations/frontend/scenes/settings/EmailSection'
-import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
-import { SlackSection } from 'products/conversations/frontend/scenes/settings/SlackSection'
-import { WidgetSection } from 'products/conversations/frontend/scenes/settings/WidgetSection'
-import { WorkflowsSection } from 'products/conversations/frontend/scenes/settings/WorkflowsSection'
+import { ApiSection } from 'products/conversations/frontend/settings/ApiSection'
+import { EmailSection } from 'products/conversations/frontend/settings/EmailSection'
+import { NotificationsSection } from 'products/conversations/frontend/settings/NotificationsSection'
+import { SlackSection } from 'products/conversations/frontend/settings/SlackSection'
+import { WidgetSection } from 'products/conversations/frontend/settings/WidgetSection'
+import { WorkflowsSection } from 'products/conversations/frontend/settings/WorkflowsSection'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -63,7 +72,6 @@ import { DataColorThemes } from './environment/DataColorThemes'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
 import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
-import { ErrorTrackingConfigurationMovedBanner } from './environment/ErrorTrackingConfigurationMovedBanner'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import {
@@ -513,11 +521,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         group: 'Products',
         settings: [
             {
-                id: 'banner',
-                title: null,
-                component: <ErrorTrackingConfigurationMovedBanner />,
-            },
-            {
                 id: 'error-tracking-exception-autocapture',
                 title: 'Exception autocapture',
                 description:
@@ -526,32 +529,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
                 component: <ExceptionAutocaptureToggle />,
                 keywords: ['crash', 'bug', 'exception', 'stack trace'],
-            },
-            {
-                id: 'error-tracking-integrations',
-                title: 'Integrations',
-                description: 'Connect error tracking with external services like GitHub or Linear.',
-                component: <ErrorTrackingIntegrations />,
-                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-error-tracking-configuration',
-        title: 'Error tracking',
-        group: 'Products',
-        hideFromNavigation: true,
-        settings: [
-            {
-                id: 'error-tracking-exception-autocapture',
-                title: 'Exception autocapture',
-                description:
-                    'Automatically capture frontend exceptions using onError and onUnhandledRejection listeners in the web JavaScript SDK.',
-                docsUrl: 'https://posthog.com/docs/error-tracking',
-                platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
-                component: <ExceptionAutocaptureToggle />,
-                keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                subGroup: 'Capture',
             },
             {
                 id: 'error-tracking-alerting',
@@ -559,6 +537,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Configure alerts to get notified when new errors occur or error rates spike.',
                 component: <ErrorTrackingAlerting />,
                 keywords: ['notification', 'alert', 'threshold', 'spike'],
+                subGroup: 'Alerts',
+            },
+            {
+                id: 'error-tracking-spike-detection',
+                title: 'Spike detection',
+                component: <SpikeDetectionSettings />,
+                subGroup: 'Alerts',
             },
             {
                 id: 'error-tracking-suppression-rules',
@@ -566,11 +551,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Filter out exceptions that match the given filters.',
                 component: <SuppressionRules />,
                 keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
-            },
-            {
-                id: 'error-tracking-spike-detection',
-                title: 'Spike detection',
-                component: <SpikeDetectionSettings />,
+                subGroup: 'Grouping & routing',
             },
             {
                 id: 'error-tracking-auto-assignment',
@@ -578,6 +559,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Automatically assign errors to team members based on rules you define.',
                 component: <AssignmentRules />,
                 keywords: ['assign', 'owner', 'team', 'rule', 'routing'],
+                subGroup: 'Grouping & routing',
             },
             {
                 id: 'error-tracking-custom-grouping',
@@ -585,6 +567,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Define rules for how errors are grouped together into issues.',
                 component: <GroupingRules />,
                 keywords: ['group', 'merge', 'fingerprint', 'dedup'],
+                subGroup: 'Grouping & routing',
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -593,6 +576,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/error-tracking/upload-source-maps',
                 component: <SymbolSets />,
                 keywords: ['source map', 'sourcemap', 'debug', 'minified', 'stack trace'],
+                subGroup: 'Sources & releases',
             },
             {
                 id: 'error-tracking-releases',
@@ -601,6 +585,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/error-tracking/releases',
                 component: <Releases />,
                 keywords: ['version', 'deploy', 'release', 'regression'],
+                subGroup: 'Sources & releases',
+            },
+            {
+                id: 'error-tracking-integrations',
+                title: 'Integrations',
+                description: 'Connect error tracking with external services like GitHub or Linear.',
+                component: <ErrorTrackingIntegrations />,
+                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
+                subGroup: 'Integrations',
             },
         ],
     },
@@ -827,6 +820,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
                 component: <ProjectAccountFiltersSetting />,
                 keywords: ['test account', 'internal', 'exclude', 'filter'],
+                subGroup: 'General',
             },
             {
                 id: 'data-theme',
@@ -841,15 +835,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Customize the color palette used in charts and visualizations.',
                 component: <DataColorThemes />,
                 keywords: ['color', 'palette', 'chart', 'visualization'],
-            },
-            {
-                id: 'persons-on-events',
-                title: 'Person properties mode',
-                description:
-                    'Choose the behavior of person property filters. For best performance, use person properties from the time of the event.',
-                component: <PersonsOnEvents />,
-                flag: '!SETTINGS_PERSONS_ON_EVENTS_HIDDEN', // Setting hidden for Cloud orgs created since June 2024
-                keywords: ['person', 'properties', 'join', 'query', 'performance'],
+                subGroup: 'General',
             },
             {
                 id: 'correlation-analysis',
@@ -859,24 +845,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/product-analytics/funnels#correlation-analysis',
                 component: <CorrelationConfig />,
                 keywords: ['funnel', 'conversion', 'exclude', 'property'],
-            },
-            {
-                id: 'person-display-name',
-                title: 'Person display name',
-                description:
-                    'Choose which person properties are used to display names in the UI (e.g. email, name, username).',
-                docsUrl: 'https://posthog.com/docs/data/persons',
-                component: <PersonDisplayNameProperties />,
-                keywords: ['name', 'email', 'identity', 'display'],
-            },
-            {
-                id: 'person-last-seen-at',
-                title: 'Person last seen tracking',
-                description:
-                    'When enabled, PostHog tracks when each person was last active. The value updates hourly and is visible in the People list.',
-                docsUrl: 'https://posthog.com/docs/data/persons',
-                component: <PersonLastSeenAtEnabled />,
-                keywords: ['person', 'last seen', 'activity', 'tracking'],
+                subGroup: 'Analysis',
             },
             {
                 id: 'path-cleaning',
@@ -886,6 +855,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/product-analytics/paths#path-cleaning-rules',
                 component: <PathCleaningFiltersConfig />,
                 keywords: ['url', 'regex', 'normalize', 'path analysis'],
+                subGroup: 'Analysis',
             },
             {
                 id: 'human-friendly-comparison-periods',
@@ -894,6 +864,27 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'When comparing against a previous month or year, compare against the same day of the week instead of the same calendar date. A year comparison becomes 52 weeks, and a month comparison becomes 4 weeks.',
                 component: <HumanFriendlyComparisonPeriodsSetting />,
                 keywords: ['compare', 'period', 'week', 'month', 'year', 'seasonality'],
+                subGroup: 'Analysis',
+            },
+            {
+                id: 'person-display-name',
+                title: 'Person display name',
+                description:
+                    'Choose which person properties are used to display names in the UI (e.g. email, name, username).',
+                docsUrl: 'https://posthog.com/docs/data/persons',
+                component: <PersonDisplayNameProperties />,
+                keywords: ['name', 'email', 'identity', 'display'],
+                subGroup: 'People & groups',
+            },
+            {
+                id: 'person-last-seen-at',
+                title: 'Person last seen tracking',
+                description:
+                    'When enabled, PostHog tracks when each person was last active. The value updates hourly and is visible in the People list.',
+                docsUrl: 'https://posthog.com/docs/data/persons',
+                component: <PersonLastSeenAtEnabled />,
+                keywords: ['person', 'last seen', 'activity', 'tracking'],
+                subGroup: 'People & groups',
             },
             {
                 id: 'group-analytics',
@@ -903,6 +894,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <GroupAnalyticsConfig />,
                 flag: '!CUSTOMER_ANALYTICS',
                 keywords: ['company', 'organization', 'team', 'group type'],
+                subGroup: 'People & groups',
+            },
+            {
+                id: 'persons-on-events',
+                title: 'Person properties mode',
+                description:
+                    'Choose the behavior of person property filters. For best performance, use person properties from the time of the event.',
+                component: <PersonsOnEvents />,
+                flag: '!SETTINGS_PERSONS_ON_EVENTS_HIDDEN', // Setting hidden for Cloud orgs created since June 2024
+                keywords: ['person', 'properties', 'join', 'query', 'performance'],
+                subGroup: 'Advanced',
             },
             {
                 id: 'persons-join-mode',
@@ -912,6 +914,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <PersonsJoinMode />,
                 flag: 'SETTINGS_PERSONS_JOIN_MODE',
                 keywords: ['join', 'inner', 'left', 'personless'],
+                subGroup: 'Advanced',
             },
             {
                 id: 'session-table-version',
@@ -921,6 +924,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <SessionsTableVersion />,
                 flag: 'SETTINGS_SESSION_TABLE_VERSION',
                 keywords: ['session', 'table', 'version', 'uuidv7'],
+                subGroup: 'Advanced',
             },
         ],
     },
@@ -992,6 +996,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/session-replay',
                 component: <ReplayGeneral />,
                 keywords: ['recording', 'video', 'screen', 'session'],
+                subGroup: 'General',
+            },
+            {
+                id: 'replay-triggers',
+                title: 'Recording conditions',
+                description:
+                    'Control when recordings start and stop. Use URL triggers, event triggers, or sampling to manage recording volume.',
+                docsUrl: 'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record',
+                component: <ReplayTriggers />,
+                keywords: ['trigger', 'url', 'event', 'sample', 'condition', 'filter'],
+                subGroup: 'General',
             },
             {
                 id: 'replay-log-capture',
@@ -1001,6 +1016,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.sessionReplayLogCapture,
                 component: <LogCaptureSettings />,
                 keywords: ['console', 'log', 'debug', 'error'],
+                subGroup: 'Capture',
             },
             {
                 id: 'replay-canvas-capture',
@@ -1011,25 +1027,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.sessionReplayCanvasCapture,
                 component: <CanvasCaptureSettings />,
                 keywords: ['canvas', 'webgl', 'drawing', 'chart'],
-            },
-            {
-                id: 'replay-triggers',
-                title: 'Recording conditions',
-                description:
-                    'Control when recordings start and stop. Use URL triggers, event triggers, or sampling to manage recording volume.',
-                docsUrl: 'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record',
-                component: <ReplayTriggers />,
-                keywords: ['trigger', 'url', 'event', 'sample', 'condition', 'filter'],
-            },
-            {
-                id: 'replay-masking',
-                title: 'Privacy and masking',
-                description:
-                    'Choose what data gets masked in your session recordings. For more control, configure masking directly in your code.',
-                docsUrl: 'https://posthog.com/docs/session-replay/privacy',
-                platformSupport: FEATURE_SUPPORT.sessionReplayMasking,
-                component: <ReplayMaskingSettings />,
-                keywords: ['redact', 'sensitive', 'pii', 'hide', 'mask', 'privacy', 'gdpr'],
+                subGroup: 'Capture',
             },
             {
                 id: 'replay-network',
@@ -1040,6 +1038,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.sessionReplayCaptureRequests,
                 component: <ReplayNetworkCapture />,
                 keywords: ['xhr', 'fetch', 'api', 'request', 'response', 'performance'],
+                subGroup: 'Capture',
             },
             {
                 id: 'replay-network-headers-payloads',
@@ -1050,6 +1049,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.sessionReplayCaptureHeadersAndPayloads,
                 component: <ReplayNetworkHeadersPayloads />,
                 keywords: ['headers', 'payload', 'body', 'request', 'response'],
+                subGroup: 'Capture',
+            },
+            {
+                id: 'replay-masking',
+                title: 'Privacy and masking',
+                description:
+                    'Choose what data gets masked in your session recordings. For more control, configure masking directly in your code.',
+                docsUrl: 'https://posthog.com/docs/session-replay/privacy',
+                platformSupport: FEATURE_SUPPORT.sessionReplayMasking,
+                component: <ReplayMaskingSettings />,
+                keywords: ['redact', 'sensitive', 'pii', 'hide', 'mask', 'privacy', 'gdpr'],
+                subGroup: 'Privacy',
             },
             {
                 id: 'replay-authorized-domains',
@@ -1060,6 +1071,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayAuthorizedDomains />,
                 allowForTeam: (t) => !!t?.recording_domains?.length,
                 keywords: ['domain', 'whitelist', 'allowlist'],
+                subGroup: 'Privacy',
             },
             {
                 id: 'replay-retention',
@@ -1075,6 +1087,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Control how long your recordings are stored. Changes only affect the retention period for future recordings.',
                 component: <ReplayDataRetentionSettings />,
                 keywords: ['storage', 'retention', 'delete', 'days', 'months'],
+                subGroup: 'Data',
             },
             {
                 id: 'replay-integrations',
@@ -1089,6 +1102,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Configure integrations to create and link issues from session replays.',
                 component: <ReplayIntegrations />,
                 keywords: ['integration', 'connect', 'third-party'],
+                subGroup: 'Integrations',
             },
         ],
     },
@@ -1132,6 +1146,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Configure which domains are tracked in web analytics. Wildcards are not allowed — URLs must be concrete and launchable.',
                 component: <TeamAuthorizedURLs />,
                 keywords: ['domain', 'website', 'url'],
+                subGroup: 'Domains & attribution',
             },
             {
                 id: 'channel-type',
@@ -1140,6 +1155,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/data/channel-type',
                 component: <CustomChannelTypes />,
                 keywords: ['utm', 'source', 'medium', 'referrer', 'attribution'],
+                subGroup: 'Domains & attribution',
             },
             {
                 id: 'cookieless-server-hash-mode',
@@ -1149,49 +1165,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/tutorials/cookieless-tracking',
                 component: <CookielessServerHashModeSetting />,
                 keywords: ['cookie', 'privacy', 'gdpr', 'tracking', 'consent'],
-            },
-            {
-                id: 'bounce-rate-duration',
-                title: 'Bounce rate duration',
-                description:
-                    'Set how long a user can stay on a page (in seconds) before the session is not counted as a bounce. Default is 10 seconds.',
-                docsUrl: 'https://posthog.com/tutorials/bounce-rate',
-                component: <BounceRateDurationSetting />,
-                keywords: ['bounce', 'session', 'duration', 'seconds'],
-            },
-            {
-                id: 'bounce-rate-page-view-mode',
-                title: 'Bounce rate page view mode',
-                description:
-                    'Choose how pageviews are counted as part of the bounce rate calculation. Other factors like autocaptures and session duration are also considered.',
-                component: <BounceRatePageViewModeSetting />,
-                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
-                keywords: ['bounce', 'pageview', 'url', 'calculation'],
-            },
-            {
-                id: 'session-join-mode',
-                title: 'Session join mode',
-                description:
-                    "Choose which join mode to use for sessions. Don't change this unless you know what you're doing.",
-                component: <SessionsV2JoinModeSettings />,
-                flag: 'SETTINGS_SESSIONS_V2_JOIN',
-                keywords: ['session', 'join', 'string', 'uuid'],
-            },
-            {
-                id: 'web-analytics-pre-aggregated-tables',
-                title: 'Pre-aggregated tables',
-                description: 'Configure pre-aggregated tables to speed up web analytics queries.',
-                component: <PreAggregatedTablesSetting />,
-                flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
-                keywords: ['performance', 'speed', 'query', 'materialized'],
-            },
-            {
-                id: 'web-analytics-opt-in-pre-aggregated-tables-and-api',
-                title: 'New query engine',
-                description: 'Enable the new pre-aggregated query engine for faster web analytics.',
-                component: <WebAnalyticsEnablePreAggregatedTables />,
-                flag: 'WEB_ANALYTICS_API',
-                keywords: ['performance', 'speed', 'query', 'api'],
+                subGroup: 'Capture',
             },
             {
                 id: 'web-vitals-autocapture',
@@ -1201,6 +1175,55 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.webVitals,
                 component: <WebVitalsAutocaptureSettings />,
                 keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance', 'core web vitals'],
+                subGroup: 'Capture',
+            },
+            {
+                id: 'bounce-rate-duration',
+                title: 'Bounce rate duration',
+                description:
+                    'Set how long a user can stay on a page (in seconds) before the session is not counted as a bounce. Default is 10 seconds.',
+                docsUrl: 'https://posthog.com/tutorials/bounce-rate',
+                component: <BounceRateDurationSetting />,
+                keywords: ['bounce', 'session', 'duration', 'seconds'],
+                subGroup: 'Sessions',
+            },
+            {
+                id: 'bounce-rate-page-view-mode',
+                title: 'Bounce rate page view mode',
+                description:
+                    'Choose how pageviews are counted as part of the bounce rate calculation. Other factors like autocaptures and session duration are also considered.',
+                component: <BounceRatePageViewModeSetting />,
+                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
+                keywords: ['bounce', 'pageview', 'url', 'calculation'],
+                subGroup: 'Sessions',
+            },
+            {
+                id: 'session-join-mode',
+                title: 'Session join mode',
+                description:
+                    "Choose which join mode to use for sessions. Don't change this unless you know what you're doing.",
+                component: <SessionsV2JoinModeSettings />,
+                flag: 'SETTINGS_SESSIONS_V2_JOIN',
+                keywords: ['session', 'join', 'string', 'uuid'],
+                subGroup: 'Sessions',
+            },
+            {
+                id: 'web-analytics-pre-aggregated-tables',
+                title: 'Pre-aggregated tables',
+                description: 'Configure pre-aggregated tables to speed up web analytics queries.',
+                component: <PreAggregatedTablesSetting />,
+                flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
+                keywords: ['performance', 'speed', 'query', 'materialized'],
+                subGroup: 'Performance',
+            },
+            {
+                id: 'web-analytics-opt-in-pre-aggregated-tables-and-api',
+                title: 'New query engine',
+                description: 'Enable the new pre-aggregated query engine for faster web analytics.',
+                component: <WebAnalyticsEnablePreAggregatedTables />,
+                flag: 'WEB_ANALYTICS_API',
+                keywords: ['performance', 'speed', 'query', 'api'],
+                subGroup: 'Performance',
             },
         ],
     },
@@ -1217,6 +1240,100 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/privacy',
                 component: <IPCapture />,
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation', 'discard'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-conversations',
+        title: 'Conversations',
+        group: 'Products',
+        flag: 'PRODUCT_CONVERSATIONS',
+        settings: [
+            {
+                id: 'conversations-api',
+                title: 'Conversations API',
+                description: 'Enable the conversations API to allow access for tickets and messages from your users.',
+                docsUrl: 'https://posthog.com/docs/support/javascript-api',
+                component: <ConversationsApiSetting />,
+                keywords: ['support', 'chat', 'ticket', 'message', 'conversation'],
+                subGroup: 'API',
+            },
+            {
+                id: 'conversations-api-key',
+                title: 'API key',
+                description: 'Manage the secret API key for server-side conversations API access.',
+                component: <ConversationsApiKeySetting />,
+                keywords: ['api', 'key', 'secret', 'token', 'authentication'],
+                subGroup: 'API',
+            },
+            {
+                id: 'conversations-public-token',
+                title: 'Public token',
+                description: 'View and regenerate the public token used to authenticate widget requests.',
+                component: <ConversationsPublicTokenSetting />,
+                keywords: ['token', 'public', 'widget', 'authentication'],
+                subGroup: 'API',
+            },
+            {
+                id: 'conversations-widget',
+                title: 'In-app widget',
+                description: 'Add a chat widget to your website for customers to reach you directly.',
+                docsUrl: 'https://posthog.com/docs/support/widget',
+                component: <ConversationsWidgetSetting />,
+                keywords: ['widget', 'chat', 'support', 'embed'],
+                subGroup: 'Widget',
+            },
+            {
+                id: 'conversations-widget-config',
+                title: 'Widget configuration',
+                description: 'Configure the appearance, domains, and identification form for the in-app widget.',
+                docsUrl: 'https://posthog.com/docs/support/widget',
+                component: <ConversationsWidgetConfigSetting />,
+                keywords: ['widget', 'domain', 'color', 'position', 'greeting', 'form'],
+                subGroup: 'Widget',
+            },
+            {
+                id: 'conversations-slack',
+                title: 'Slack integration',
+                description:
+                    'Connect Slack to receive ticket notifications and manage conversations from your workspace.',
+                component: <ConversationsSlackSetting />,
+                keywords: ['slack', 'integration', 'channel', 'notification'],
+                subGroup: 'Channels',
+            },
+            {
+                id: 'conversations-email-channel',
+                title: 'Email channel',
+                description: 'Connect email addresses to send and receive support messages via email.',
+                component: <ConversationsEmailSetting />,
+                flag: 'PRODUCT_SUPPORT_EMAIL_CHANNEL',
+                keywords: ['email', 'channel', 'smtp', 'inbound'],
+                subGroup: 'Channels',
+            },
+            {
+                id: 'conversations-notifications',
+                title: 'Notifications',
+                description: 'Configure email and browser notifications for new tickets and messages.',
+                component: <ConversationsNotificationsSetting />,
+                keywords: ['notification', 'email', 'browser', 'alert'],
+                subGroup: 'Notifications',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-visual-review',
+        title: 'Visual review',
+        group: 'Products',
+        flag: 'VISUAL_REVIEW',
+        settings: [
+            {
+                id: 'visual-review-repos',
+                title: 'Repository configuration',
+                description: 'Connect GitHub repositories and configure baseline paths for visual regression testing.',
+                component: <VisualReviewSettings />,
+                keywords: ['github', 'visual', 'review', 'snapshot', 'baseline', 'regression'],
             },
         ],
     },

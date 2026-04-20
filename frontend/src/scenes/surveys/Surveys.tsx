@@ -21,7 +21,7 @@ import { AccessControlLevel, AccessControlResourceType, ActivityScope, SurveyEve
 
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { DuplicateToProjectModal } from './DuplicateToProjectModal'
-import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
+import { SurveysDisabledBanner } from './SurveySettings'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
@@ -104,11 +104,9 @@ function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived' },
                     { key: SurveysTabs.Notifications, label: 'Notifications' },
                     { key: SurveysTabs.History, label: 'History' },
-                    { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
                 sceneInset={true}
             />
-            {tab === SurveysTabs.Settings && <SurveySettings />}
             {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>

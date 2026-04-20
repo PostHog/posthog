@@ -10,13 +10,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ErrorTrackingAssignmentRuleApi,
+    ErrorTrackingAssignmentRuleCreateRequestApi,
+    ErrorTrackingAssignmentRuleUpdateRequestApi,
     ErrorTrackingAssignmentRulesListParams,
     ErrorTrackingExternalReferenceApi,
     ErrorTrackingExternalReferencesListParams,
     ErrorTrackingFingerprintApi,
     ErrorTrackingFingerprintsListParams,
     ErrorTrackingGroupingRuleApi,
-    ErrorTrackingGroupingRulesListParams,
+    ErrorTrackingGroupingRuleCreateRequestApi,
+    ErrorTrackingGroupingRuleListResponseApi,
     ErrorTrackingIssueFullApi,
     ErrorTrackingIssueMergeRequestApi,
     ErrorTrackingIssueMergeResponseApi,
@@ -39,7 +42,6 @@ import type {
     PaginatedErrorTrackingAssignmentRuleListApi,
     PaginatedErrorTrackingExternalReferenceListApi,
     PaginatedErrorTrackingFingerprintListApi,
-    PaginatedErrorTrackingGroupingRuleListApi,
     PaginatedErrorTrackingIssueFullListApi,
     PaginatedErrorTrackingRecommendationListApi,
     PaginatedErrorTrackingReleaseListApi,
@@ -48,6 +50,7 @@ import type {
     PaginatedErrorTrackingSuppressionRuleListApi,
     PaginatedErrorTrackingSymbolSetListApi,
     PatchedErrorTrackingAssignmentRuleApi,
+    PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
     PatchedErrorTrackingExternalReferenceApi,
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingIssueFullApi,
@@ -112,14 +115,14 @@ export const getErrorTrackingAssignmentRulesCreateUrl = (projectId: string) => {
 
 export const errorTrackingAssignmentRulesCreate = async (
     projectId: string,
-    errorTrackingAssignmentRuleApi: NonReadonly<ErrorTrackingAssignmentRuleApi>,
+    errorTrackingAssignmentRuleCreateRequestApi: ErrorTrackingAssignmentRuleCreateRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingAssignmentRuleApi> => {
     return apiMutator<ErrorTrackingAssignmentRuleApi>(getErrorTrackingAssignmentRulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingAssignmentRuleApi),
+        body: JSON.stringify(errorTrackingAssignmentRuleCreateRequestApi),
     })
 }
 
@@ -145,14 +148,14 @@ export const getErrorTrackingAssignmentRulesUpdateUrl = (projectId: string, id: 
 export const errorTrackingAssignmentRulesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingAssignmentRuleApi: NonReadonly<ErrorTrackingAssignmentRuleApi>,
+    errorTrackingAssignmentRuleUpdateRequestApi: ErrorTrackingAssignmentRuleUpdateRequestApi,
     options?: RequestInit
-): Promise<ErrorTrackingAssignmentRuleApi> => {
-    return apiMutator<ErrorTrackingAssignmentRuleApi>(getErrorTrackingAssignmentRulesUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingAssignmentRulesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingAssignmentRuleApi),
+        body: JSON.stringify(errorTrackingAssignmentRuleUpdateRequestApi),
     })
 }
 
@@ -163,14 +166,14 @@ export const getErrorTrackingAssignmentRulesPartialUpdateUrl = (projectId: strin
 export const errorTrackingAssignmentRulesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingAssignmentRuleApi: NonReadonly<PatchedErrorTrackingAssignmentRuleApi>,
+    patchedErrorTrackingAssignmentRuleUpdateRequestApi: PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
     options?: RequestInit
-): Promise<ErrorTrackingAssignmentRuleApi> => {
-    return apiMutator<ErrorTrackingAssignmentRuleApi>(getErrorTrackingAssignmentRulesPartialUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingAssignmentRulesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingAssignmentRuleApi),
+        body: JSON.stringify(patchedErrorTrackingAssignmentRuleUpdateRequestApi),
     })
 }
 
@@ -422,37 +425,18 @@ export const errorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
     })
 }
 
-export const getErrorTrackingGroupingRulesListUrl = (
-    projectId: string,
-    params?: ErrorTrackingGroupingRulesListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/error_tracking/grouping_rules/?${stringifiedParams}`
-        : `/api/environments/${projectId}/error_tracking/grouping_rules/`
+export const getErrorTrackingGroupingRulesListUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/grouping_rules/`
 }
 
 export const errorTrackingGroupingRulesList = async (
     projectId: string,
-    params?: ErrorTrackingGroupingRulesListParams,
     options?: RequestInit
-): Promise<PaginatedErrorTrackingGroupingRuleListApi> => {
-    return apiMutator<PaginatedErrorTrackingGroupingRuleListApi>(
-        getErrorTrackingGroupingRulesListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<ErrorTrackingGroupingRuleListResponseApi> => {
+    return apiMutator<ErrorTrackingGroupingRuleListResponseApi>(getErrorTrackingGroupingRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getErrorTrackingGroupingRulesCreateUrl = (projectId: string) => {
@@ -461,14 +445,14 @@ export const getErrorTrackingGroupingRulesCreateUrl = (projectId: string) => {
 
 export const errorTrackingGroupingRulesCreate = async (
     projectId: string,
-    errorTrackingGroupingRuleApi: NonReadonly<ErrorTrackingGroupingRuleApi>,
+    errorTrackingGroupingRuleCreateRequestApi: ErrorTrackingGroupingRuleCreateRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingGroupingRuleApi> => {
     return apiMutator<ErrorTrackingGroupingRuleApi>(getErrorTrackingGroupingRulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingGroupingRuleApi),
+        body: JSON.stringify(errorTrackingGroupingRuleCreateRequestApi),
     })
 }
 

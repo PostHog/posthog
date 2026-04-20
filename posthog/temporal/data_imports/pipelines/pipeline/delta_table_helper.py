@@ -290,10 +290,26 @@ class DeltaTableHelper:
                 )
 
             try:
+
+                def _write_deltalake(
+                    table_or_uri: str | deltalake.DeltaTable,
+                    table_data: pa.Table,
+                    partition_by: str | None,
+                    mode: Literal["error", "append", "overwrite", "ignore"],
+                    schema_mode: Literal["merge", "overwrite"] | None,
+                ) -> None:
+                    deltalake.write_deltalake(
+                        table_or_uri=table_or_uri,
+                        data=table_data,
+                        partition_by=partition_by,
+                        mode=mode,
+                        schema_mode=schema_mode,
+                    )
+
                 await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=delta_table,
-                    data=data,
+                    _write_deltalake,
+                    delta_table,
+                    data,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode=mode,
                     schema_mode=schema_mode,
@@ -302,10 +318,25 @@ class DeltaTableHelper:
                 await self._logger.adebug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
                 capture_exception(e)
 
+                def _overwrite_schema(
+                    table_or_uri: str | deltalake.DeltaTable,
+                    table_data: pa.Table,
+                    partition_by: None,
+                    mode: Literal["error", "append", "overwrite", "ignore"],
+                    schema_mode: Literal["overwrite"],
+                ) -> None:
+                    deltalake.write_deltalake(
+                        table_or_uri=table_or_uri,
+                        data=table_data,
+                        partition_by=partition_by,
+                        mode=mode,
+                        schema_mode=schema_mode,
+                    )
+
                 await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=delta_table,
-                    data=data,
+                    _overwrite_schema,
+                    delta_table,
+                    data,
                     partition_by=None,
                     mode=mode,
                     schema_mode="overwrite",

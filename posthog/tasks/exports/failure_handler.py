@@ -27,6 +27,7 @@ from posthog.errors import (
     CHQueryErrorTypeMismatch,
     CHQueryErrorUnknownFunction,
     CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnknownTable,
     CHQueryErrorUnsupportedMethod,
 )
 from posthog.exceptions import (
@@ -102,6 +103,7 @@ USER_QUERY_ERRORS = (
     CHQueryErrorUnsupportedMethod,
     ResolutionError,
     CHQueryErrorInvalidJoinOnExpression,
+    CHQueryErrorUnknownTable,
     ExcelColumnLimitExceeded,
 )
 
