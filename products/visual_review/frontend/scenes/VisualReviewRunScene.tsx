@@ -148,8 +148,10 @@ export function VisualReviewRunScene(): JSX.Element {
     }
 
     // Review summary (from loaded snapshots — paginated but covers actionable ones first)
+    // Quarantined snapshots don't need review — exclude from pending count
     const reviewPending = snapshots.filter(
-        (s: SnapshotApi) => s.result !== 'unchanged' && s.review_state === 'pending'
+        (s: SnapshotApi) =>
+            s.result !== 'unchanged' && s.review_state === 'pending' && !quarantinedIdentifierSet.has(s.identifier)
     ).length
     const reviewApproved = snapshots.filter((s: SnapshotApi) => s.review_state === 'approved').length
     const reviewTolerated = snapshots.filter((s: SnapshotApi) => s.review_state === 'tolerated').length
