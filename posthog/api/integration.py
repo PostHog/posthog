@@ -247,13 +247,41 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
 
             # If the frontend forwarded an OAuth code from "Request user authorization during installation",
-            # exchange it for the connecting user's GitHub login and store it on the integration.
+            # exchange it for the connecting user's GitHub identity + user-to-server tokens. We store the
+            # login on the integration (shown on the integration card) and upsert a UserSocialIdentity so
+            # the same install also powers attribution and user-authored pull requests.
+            #
+            # Note: this is the *authorization* endpoint, not a second *installation* flow — there's no
+            # repo-selection UI. The returned user-to-server token's effective scope is
+            # (App installations the user has permission to use) ∩ (the user's own GitHub permissions).
+            # Repo coverage is governed by the team Integration's installation selection; if the user has
+            # GitHub-level access to a repo that the team installation covers, the UTS works there with no
+            # extra consent.
             code = config.get("code")
             if code:
-                github_login = GitHubIntegration.github_login_from_code(code)
-                if github_login:
-                    instance.config["connecting_user_github_login"] = github_login
+                authorization = GitHubIntegration.github_user_from_code(code)
+                if authorization is not None:
+                    instance.config["connecting_user_github_login"] = authorization.gh_login
                     instance.save(update_fields=["config"])
+
+                    # Multiple PostHog users may point at the same GitHub uid, so no cross-user
+                    # collision check is needed on the identity row itself.
+                    identity, _ = UserSocialIdentity.objects.get_or_create(
+                        user=request.user,
+                        provider="github",
+                        defaults={"uid": str(authorization.gh_id)},
+                    )
+                    if identity.uid != str(authorization.gh_id):
+                        identity.uid = str(authorization.gh_id)
+                    apply_github_authorization(
+                        identity,
+                        gh_id=authorization.gh_id,
+                        gh_login=authorization.gh_login,
+                        access_token=authorization.access_token,
+                        refresh_token=authorization.refresh_token,
+                        access_token_expires_in=authorization.access_token_expires_in,
+                        refresh_token_expires_in=authorization.refresh_token_expires_in,
+                    )
 
             return instance
 
