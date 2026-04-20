@@ -528,6 +528,17 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
+class RegularMembersManager(models.Manager):
+    """Manager filtered to non-guest memberships. Prefer this for any query that wants
+    the set of first-class org members: admin screens, member counts for billing, @-mention
+    directories, etc. Guests live alongside regular members in the same table but are a
+    categorically separate access class governed by GuestResourceGrant.
+    """
+
+    def get_queryset(self) -> QuerySet:
+        return super().get_queryset().filter(is_guest=False)
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
@@ -549,6 +560,13 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         related_query_name="organization_membership",
     )
     level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level)
+    is_guest = models.BooleanField(
+        default=False,
+        help_text=(
+            "Guest memberships are categorically separate from regular members; their access is governed by "
+            "GuestResourceGrant. Prefer the `.regular` manager unless you explicitly need guests."
+        ),
+    )
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # Persisted at invite acceptance so the welcome dialog can attribute who invited the member —
@@ -563,6 +581,9 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
 
     # Transient flag set by the pre_save signal to communicate level changes to post_save.
     _level_changed: bool = False
+
+    objects: models.Manager = models.Manager()
+    regular: RegularMembersManager = RegularMembersManager()
 
     class Meta:
         constraints = [
