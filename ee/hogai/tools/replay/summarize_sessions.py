@@ -153,7 +153,6 @@ class SummarizeSessionsTool(MaxTool):
             summary_type=summary_type,
             is_streaming=False,
             session_ids=session_ids,
-            video_based=False,
         )
         try:
             # Summarize the sessions
@@ -181,7 +180,6 @@ class SummarizeSessionsTool(MaxTool):
                 summary_type=summary_type,
                 is_streaming=False,
                 session_ids=session_ids,
-                video_based=False,
                 success=False,
                 error_type=type(err).__name__,
                 error_message=str(err),
@@ -195,7 +193,6 @@ class SummarizeSessionsTool(MaxTool):
             summary_type=summary_type,
             is_streaming=False,
             session_ids=session_ids,
-            video_based=False,
             success=True,
         )
         return content, artifact
