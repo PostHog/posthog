@@ -14,7 +14,6 @@ export function FeedbackDisplay({ conversationId }: FeedbackDisplayProps): JSX.E
     const { isPromptVisible } = useValues(feedbackPromptLogic({ conversationId }))
     const { submitRating } = useActions(feedbackPromptLogic({ conversationId }))
 
-    // Global keyboard shortcuts - capture phase intercepts before input fields
     useEffect(() => {
         if (!isPromptVisible) {
             return
@@ -28,6 +27,17 @@ export function FeedbackDisplay({ conversationId }: FeedbackDisplayProps): JSX.E
         }
 
         const handleGlobalKeyDown = (e: KeyboardEvent): void => {
+            // Don't trigger keyboard shortcuts when typing in an editable element
+            const target = e.target
+            if (
+                target instanceof HTMLInputElement ||
+                target instanceof HTMLTextAreaElement ||
+                target instanceof HTMLSelectElement ||
+                (target instanceof HTMLElement && target.isContentEditable)
+            ) {
+                return
+            }
+
             const rating = keyToRating[e.key]
             if (rating) {
                 e.preventDefault()
