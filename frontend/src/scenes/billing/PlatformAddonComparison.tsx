@@ -2,16 +2,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import {
-    IconAI,
     IconActivity,
     IconCheckCircle,
     IconCrown,
-    IconGear,
     IconGroups,
     IconHeadset,
     IconInfinity,
     IconLock,
-    IconServer,
     IconShield,
     IconShieldLock,
     IconShieldPeople,
@@ -57,12 +54,11 @@ const CORE_FEATURES: Record<string, CoreFeature[]> = {
         { icon: <IconCrown />, label: 'Dedicated account manager' },
     ],
     [BillingPlan.Teams]: [
-        { icon: <IconGear />, label: 'Automatic provisioning' },
-        { icon: <IconServer />, label: 'Managed reverse proxy' },
-        { icon: <IconAI />, label: 'Product Analytics AI' },
-        { icon: <IconShieldLock />, label: 'Enforce SSO login' },
-        { icon: <IconLock />, label: 'Enforce 2FA' },
         { icon: <IconHeadset />, label: 'Priority support' },
+        { icon: <IconActivity />, label: 'Activity logs' },
+        { icon: <IconLock />, label: 'Access control' },
+        { icon: <IconShieldLock />, label: 'SSO & 2FA enforcement' },
+        { icon: <IconShield />, label: 'HIPAA BAA' },
     ],
 }
 
