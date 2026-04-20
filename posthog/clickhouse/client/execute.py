@@ -148,6 +148,24 @@ def default_settings() -> dict:
     }
 
 
+def get_team_ai_data_processing_approved(team_id: int) -> Optional[bool]:
+    """Look up whether the organization owning this team has approved sending data to AI providers.
+
+    Cached with a 5-minute TTL via time bucketing, so operator toggles of the org-level consent
+    eventually propagate without a per-query DB hit.
+    """
+    return _get_team_ai_data_processing_approved_cached(team_id, round(time.time() / 300))
+
+
+@lru_cache(maxsize=10000)
+def _get_team_ai_data_processing_approved_cached(team_id: int, _ttl_bucket: int) -> Optional[bool]:
+    from posthog.models.team import Team
+
+    return (
+        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
+    )
+
+
 @lru_cache(maxsize=1)
 def clickhouse_at_least_228() -> bool:
     from posthog.version_requirement import ServiceVersionRequirement
@@ -328,6 +346,9 @@ def sync_execute(
     query_log_tags = tags.model_copy(deep=True)
     query_log_tags.source_file = source_file
     query_log_tags.source_line = source_line
+
+    if query_log_tags.team_id is not None and query_log_tags.ai_data_processing_approved is None:
+        query_log_tags.ai_data_processing_approved = get_team_ai_data_processing_approved(query_log_tags.team_id)
 
     settings = {
         **core_settings,

@@ -168,6 +168,10 @@ class QueryTags(BaseModel):
     # ai events rollout
     ai_query_source: Optional[str] = None
 
+    # whether the team's organization has approved sending data to AI providers for analysis
+    # populated centrally in sync_execute from team_id
+    ai_data_processing_approved: Optional[bool] = None
+
     # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None

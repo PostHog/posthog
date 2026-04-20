@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute import _get_team_ai_data_processing_approved_cached
 from posthog.clickhouse.query_tagging import (
     _PROJECT_ROOT_PREFIX,
     _SOURCE_SKIP_PREFIXES,
@@ -295,6 +296,34 @@ def test_source_file_excluded_from_json_when_none():
     assert "source_line" not in data
 
 
+def test_ai_data_processing_approved_serialization():
+    qt_true = QueryTags(
+        team_id=1,
+        ai_data_processing_approved=True,
+        git_commit="test",
+        container_hostname="test",
+        service_name="test",
+    )
+    assert '"ai_data_processing_approved":true' in qt_true.to_json()
+
+    qt_false = QueryTags(
+        team_id=1,
+        ai_data_processing_approved=False,
+        git_commit="test",
+        container_hostname="test",
+        service_name="test",
+    )
+    assert '"ai_data_processing_approved":false' in qt_false.to_json()
+
+    qt_unset = QueryTags(
+        team_id=1,
+        git_commit="test",
+        container_hostname="test",
+        service_name="test",
+    )
+    assert "ai_data_processing_approved" not in qt_unset.to_json()
+
+
 def test_source_file_included_in_json_when_set():
     qt = QueryTags(
         source_file="posthog/api/query.py",
@@ -341,3 +370,43 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         assert comment["source_file"] == "posthog/clickhouse/test/test_query_tagging.py"
         assert comment["source_line"] > 0
+
+    def test_sync_execute_populates_ai_data_processing_approved_when_approved(self):
+        _get_team_ai_data_processing_approved_cached.cache_clear()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk)
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["ai_data_processing_approved"] is True
+
+    def test_sync_execute_populates_ai_data_processing_approved_when_not_approved(self):
+        _get_team_ai_data_processing_approved_cached.cache_clear()
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk)
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["ai_data_processing_approved"] is False
+
+    def test_sync_execute_omits_ai_data_processing_approved_without_team_id(self):
+        _get_team_ai_data_processing_approved_cached.cache_clear()
+
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test")
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert "ai_data_processing_approved" not in comment
