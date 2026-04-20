@@ -306,7 +306,7 @@ class TestGetGitIdentityEnvVars(TestCase):
 
 class TestGetSandboxGitHubToken(TestCase):
     @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
-    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_identity")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_user_authorship_prefers_cached_token_over_identity(
         self, mock_get_github_token, mock_get_identity, mock_cached
@@ -327,7 +327,7 @@ class TestGetSandboxGitHubToken(TestCase):
         mock_get_github_token.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
-    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_identity")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_user_authorship_falls_back_to_user_identity(
         self, mock_get_github_token, mock_get_identity, mock_cached
@@ -346,7 +346,7 @@ class TestGetSandboxGitHubToken(TestCase):
         mock_get_github_token.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
-    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_identity")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
     def test_user_authorship_raises_when_neither_cached_token_nor_identity(
         self, mock_get_identity, mock_cached
     ) -> None:

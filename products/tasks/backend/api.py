@@ -79,7 +79,7 @@ from .temporal.process_task.utils import (
     cache_github_user_token,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
-    get_user_github_identity,
+    get_user_github_integration,
     parse_run_state,
 )
 
@@ -361,8 +361,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # or the task creator has linked GitHub from Settings so the server has stored
         # user-to-server tokens. No-repo runs skip this gate since they never touch GitHub.
         if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
-            github_identity = get_user_github_identity(task.created_by)
-            if github_identity is None or github_identity.refresh_token_expired() or not github_identity.refresh_token:
+            user_github_integration = get_user_github_integration(task.created_by)
+            if (
+                user_github_integration is None
+                or user_github_integration.refresh_token_expired()
+                or not user_github_integration.refresh_token
+            ):
                 return Response(
                     {
                         "type": "validation_error",

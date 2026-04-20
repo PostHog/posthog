@@ -14,7 +14,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user_social_identity import (
     GITHUB_PROVIDER,
     ReauthorizationRequired,
-    UserGitHubIdentity,
+    UserGitHubIntegration,
     UserSocialIdentity,
 )
 from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
@@ -289,14 +289,14 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     return github_integration.integration.access_token or None
 
 
-def get_user_github_identity(user: User | None) -> UserGitHubIdentity | None:
-    """Return the requesting user's GitHub identity wrapper, if linked."""
+def get_user_github_integration(user: User | None) -> UserGitHubIntegration | None:
+    """Return the requesting user's GitHub integration wrapper, if linked."""
     if user is None:
         return None
     identity = UserSocialIdentity.objects.filter(user=user, provider=GITHUB_PROVIDER).first()
     if identity is None:
         return None
-    return UserGitHubIdentity(identity)
+    return UserGitHubIntegration(identity)
 
 
 # TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
@@ -340,12 +340,12 @@ def get_sandbox_github_token(
         cached = get_cached_github_user_token(run_id)
         if cached:
             return cached
-        github_identity = get_user_github_identity(created_by)
-        if github_identity is None:
+        user_github_integration = get_user_github_integration(created_by)
+        if user_github_integration is None:
             raise ReauthorizationRequired(
                 f"User-authored run {run_id} requires a linked GitHub account with repo access."
             )
-        return github_identity.get_usable_access_token()
+        return user_github_integration.get_usable_access_token()
 
     if github_integration_id is None:
         return None

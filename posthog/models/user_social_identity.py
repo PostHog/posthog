@@ -125,7 +125,7 @@ class ReauthorizationRequired(Exception):
     """The stored GitHub tokens cannot produce a usable access token; user must re-authorize."""
 
 
-class UserGitHubIdentity:
+class UserGitHubIntegration:
     """Helper for operating on a GitHub ``UserSocialIdentity`` row's tokens.
 
     Mirrors :class:`GitHubIntegration` but for the user-to-server tokens stored
@@ -139,7 +139,7 @@ class UserGitHubIdentity:
 
     def __init__(self, identity: UserSocialIdentity) -> None:
         if identity.provider != GITHUB_PROVIDER:
-            raise Exception("UserGitHubIdentity initialized with non-github identity")
+            raise Exception("UserGitHubIntegration initialized with non-github identity")
         self.identity = identity
 
     @property
@@ -254,11 +254,11 @@ class UserGitHubIdentity:
         Deletion keeps the "every GitHub identity row carries working tokens"
         invariant intact; the user falls back to the Connect flow.
         """
-        logger.info("UserGitHubIdentity: discarding identity", user_id=self.identity.user_id, reason=reason)
+        logger.info("UserGitHubIntegration: discarding identity", user_id=self.identity.user_id, reason=reason)
         try:
             self.identity.delete()
         except Exception:
-            logger.warning("UserGitHubIdentity: failed to delete unusable identity", exc_info=True)
+            logger.warning("UserGitHubIntegration: failed to delete unusable identity", exc_info=True)
 
 
 def _coerce_int(value: Any) -> int | None:
