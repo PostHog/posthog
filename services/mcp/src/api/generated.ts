@@ -5789,6 +5789,8 @@ export namespace Schemas {
       /** @nullable */
       completed_at: string | null;
       is_stale?: boolean;
+      /** @nullable */
+      superseded_by_id?: string | null;
       metadata?: RunMetadata;
     }
 
@@ -17327,6 +17329,7 @@ export namespace Schemas {
     * `native_email` - native_email
     * `posthog_assignee` - posthog_assignee
     * `posthog_ticket_tags` - posthog_ticket_tags
+    * `posthog_business_hours` - posthog_business_hours
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -17344,6 +17347,7 @@ export namespace Schemas {
       NativeEmail: 'native_email',
       PosthogAssignee: 'posthog_assignee',
       PosthogTicketTags: 'posthog_ticket_tags',
+      PosthogBusinessHours: 'posthog_business_hours',
     } as const;
 
     /**
@@ -19691,7 +19695,7 @@ export namespace Schemas {
       readonly last_checked_at: string | null;
       readonly consecutive_failures: number;
       /**
-       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertCheck without denormalization so retention-aware cleanup rules stay the only source of truth.
+       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
        * @nullable
        */
       readonly last_error_message: string | null;
@@ -25679,7 +25683,7 @@ export namespace Schemas {
       readonly last_checked_at?: string | null;
       readonly consecutive_failures?: number;
       /**
-       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertCheck without denormalization so retention-aware cleanup rules stay the only source of truth.
+       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
        * @nullable
        */
       readonly last_error_message?: string | null;
@@ -35402,6 +35406,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string;
     };
 
     export type OauthApplicationsListParams = {

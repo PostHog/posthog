@@ -122,16 +122,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Comments allow you to provide context and discussions on various elements in PostHog.',
         iconType: 'comment',
     },
-    [Scene.CustomerAnalytics]: {
-        projectBased: true,
-        name: 'Customer analytics',
-        settingsSection: 'environment-customer-analytics',
-    },
+    [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
         activityScope: ActivityScope.DASHBOARD,
         iconType: 'dashboard',
-        settingsSection: 'environment-product-analytics',
     },
     [Scene.Dashboards]: {
         projectBased: true,
@@ -139,7 +134,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         description: 'Create and manage your dashboards',
         iconType: 'dashboard',
-        settingsSection: 'environment-product-analytics',
     },
     [Scene.DataManagement]: {
         projectBased: true,
@@ -188,19 +182,16 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Experiment',
         activityScope: ActivityScope.EXPERIMENT,
         iconType: 'experiment',
-        settingsSection: 'environment-experiments',
     },
     [Scene.ExperimentsSharedMetric]: {
         projectBased: true,
         name: '',
         activityScope: ActivityScope.EXPERIMENT,
-        settingsSection: 'environment-experiments',
     },
     [Scene.ExperimentsSharedMetrics]: {
         projectBased: true,
         name: 'Shared metrics',
         activityScope: ActivityScope.EXPERIMENT,
-        settingsSection: 'environment-experiments',
     },
     [Scene.Experiments]: {
         projectBased: true,
@@ -209,7 +200,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.',
         iconType: 'experiment',
-        settingsSection: 'environment-experiments',
     },
     [Scene.Activity]: {
         projectBased: true,
@@ -232,7 +222,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
-        settingsSection: 'environment-feature-flags',
     },
     [Scene.FeatureFlags]: {
         projectBased: true,
@@ -240,7 +229,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once.',
         activityScope: ActivityScope.FEATURE_FLAG,
-        settingsSection: 'environment-feature-flags',
     },
     [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
     [Scene.Group]: {
@@ -254,7 +242,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Heatmaps',
         iconType: 'heatmap',
         description: 'Heatmaps are a way to visualize user behavior on your website.',
-        settingsSection: 'environment-heatmaps',
     },
     [Scene.Inbox]: {
         projectBased: true,
@@ -265,26 +252,22 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Heatmap',
         iconType: 'heatmap',
-        settingsSection: 'environment-heatmaps',
     },
     [Scene.HeatmapNew]: {
         projectBased: true,
         name: 'New heatmap',
         iconType: 'heatmap',
-        settingsSection: 'environment-heatmaps',
     },
     [Scene.HeatmapRecording]: {
         projectBased: true,
         name: 'Heatmap recording',
         iconType: 'heatmap',
-        settingsSection: 'environment-heatmaps',
     },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
         activityScope: ActivityScope.INSIGHT,
-        settingsSection: 'environment-product-analytics',
     },
     [Scene.InsightQuickStart]: {
         projectBased: true,
@@ -313,13 +296,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
     [Scene.EmailMFAVerify]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Login]: { onlyUnauthenticated: true, layout: 'plain' },
-    [Scene.Max]: {
-        projectBased: true,
-        name: 'Max',
-        layout: 'app-raw-no-header',
-        hideProjectNotice: true,
-        settingsSection: 'environment-max',
-    },
+    [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
     [Scene.Models]: {
         projectBased: true,
         name: 'Models',
@@ -424,25 +401,21 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'File playback',
         activityScope: ActivityScope.REPLAY,
-        settingsSection: 'environment-replay',
     },
     [Scene.ReplayPlaylist]: {
         projectBased: true,
         name: 'Replay playlist',
         activityScope: ActivityScope.REPLAY,
-        settingsSection: 'environment-replay',
     },
     [Scene.ReplaySettings]: {
         projectBased: true,
         name: 'Settings',
         activityScope: ActivityScope.REPLAY,
-        settingsSection: 'environment-replay',
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
         name: 'Replay recording',
         activityScope: ActivityScope.REPLAY,
-        settingsSection: 'environment-replay',
     },
     [Scene.Replay]: {
         projectBased: true,
@@ -452,7 +425,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'session_replay',
         description:
             'Replay recordings of user sessions to understand how users interact with your product or website.',
-        settingsSection: 'environment-replay',
     },
     [Scene.ReplayKiosk]: {
         projectBased: true,
@@ -460,7 +432,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         layout: 'plain',
         hideProjectNotice: true,
-        settingsSection: 'environment-replay',
     },
     [Scene.ResourceTransfer]: {
         projectBased: true,
@@ -471,7 +442,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Revenue analytics',
         layout: 'app-container',
-        settingsSection: 'environment-revenue-analytics',
     },
     [Scene.MarketingAnalytics]: {
         projectBased: true,
@@ -480,7 +450,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
         iconType: 'marketing_analytics',
-        settingsSection: 'environment-marketing-analytics',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -488,7 +457,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Track, analyze, and experiment with user behavior.',
         activityScope: ActivityScope.INSIGHT,
         iconType: 'product_analytics',
-        settingsSection: 'environment-product-analytics',
     },
     [Scene.Health]: {
         projectBased: true,
@@ -542,19 +510,16 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
-        settingsSection: 'environment-surveys',
         layout: 'app-raw-no-header',
     },
     [Scene.SurveyFormBuilder]: {
         projectBased: true,
         name: 'Create form',
-        settingsSection: 'environment-surveys',
     },
     [Scene.Survey]: {
         projectBased: true,
         name: 'Survey',
         activityScope: ActivityScope.SURVEY,
-        settingsSection: 'environment-surveys',
     },
     [Scene.Surveys]: {
         projectBased: true,
@@ -562,7 +527,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.SURVEY,
         description: 'Create surveys to collect feedback from your users',
         iconType: 'survey',
-        settingsSection: 'environment-surveys',
     },
     [Scene.ProductTours]: {
         projectBased: true,
@@ -591,31 +555,26 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         description: 'Analyze your marketing analytics data to understand your marketing performance.',
         iconType: 'marketing_settings',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
         name: 'Page reports',
         layout: 'app-container',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.WebAnalyticsWebVitals]: {
         projectBased: true,
         name: 'Web vitals',
         layout: 'app-container',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.WebAnalyticsHealth]: {
         projectBased: true,
         name: 'Health',
         layout: 'app-container',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.WebAnalyticsLive]: {
         projectBased: true,
         name: 'Live',
         layout: 'app-container',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.WebAnalytics]: {
         projectBased: true,
@@ -623,7 +582,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         description: 'Analyze your web analytics data to understand website performance and user behavior.',
         iconType: 'web_analytics',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     [Scene.OrganizationDeactivated]: {

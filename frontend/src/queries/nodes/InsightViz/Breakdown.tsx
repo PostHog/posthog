@@ -7,9 +7,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { EditorFilterProps } from '~/types'
 
 export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
-    const { breakdownFilter, display, isTrends, isFunnels, isSingleSeriesOutput, hasDataWarehouseSeries } = useValues(
-        insightVizDataLogic(insightProps)
-    )
+    const { breakdownFilter, display, isTrends, isFunnels } = useValues(insightVizDataLogic(insightProps))
     const { updateBreakdownFilter, updateDisplay } = useActions(insightVizDataLogic(insightProps))
     const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
 
@@ -25,11 +23,6 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
                 updateDisplay={updateDisplay}
                 showLabel={!editorPanelsEnabled}
                 showInlineOptions={editorPanelsEnabled}
-                disabledReason={
-                    isTrends && !isSingleSeriesOutput && hasDataWarehouseSeries
-                        ? 'Breakdowns are not supported for multiple series types when at least one of them is a data warehouse series.'
-                        : undefined
-                }
             />
         </>
     )

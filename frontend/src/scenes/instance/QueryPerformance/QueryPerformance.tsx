@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconDatabase } from '@posthog/icons'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -180,73 +180,90 @@ export function QueryPerformance(): JSX.Element {
                 }}
             />
 
-            <h2 className="mt-4">Slowest experiment queries</h2>
-            <div className="flex gap-2 mb-4 items-center">
-                {TIME_RANGE_OPTIONS.map(({ label, hours }) => (
-                    <LemonButton
-                        key={hours}
-                        type={hoursBack === hours ? 'primary' : 'tertiary'}
-                        size="small"
-                        onClick={() => setHoursBack(hours)}
-                    >
-                        {label}
-                    </LemonButton>
-                ))}
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={() => loadSlowestQueries()}
-                    disabledReason={slowestQueriesLoading ? 'Loading...' : undefined}
-                >
-                    Refresh
-                </LemonButton>
-            </div>
-            <LemonTable
-                columns={slowestQueryColumns}
-                dataSource={slowestQueries}
-                loading={slowestQueriesLoading}
-                emptyState="No experiment queries found in this time range"
-                pagination={{ pageSize: 20 }}
-                className="overflow-visible! flex-none!"
-                expandable={{
-                    expandedRowRender: function ExpandedQuery(item) {
-                        return (
-                            <div className="p-2">
-                                {item.exception && (
-                                    <div className="mb-2">
-                                        <CodeSnippet
-                                            language={Language.Text}
-                                            thing="error"
-                                            maxLinesWithoutExpansion={5}
+            <LemonTabs
+                activeKey="experiments"
+                tabs={[
+                    {
+                        key: 'experiments',
+                        label: 'Experiments',
+                        content: (
+                            <>
+                                <h2>Slowest queries</h2>
+                                <div className="flex gap-2 mb-4 items-center">
+                                    {TIME_RANGE_OPTIONS.map(({ label, hours }) => (
+                                        <LemonButton
+                                            key={hours}
+                                            type={hoursBack === hours ? 'primary' : 'tertiary'}
+                                            size="small"
+                                            onClick={() => setHoursBack(hours)}
                                         >
-                                            {item.exception}
-                                        </CodeSnippet>
-                                    </div>
-                                )}
-                                <CodeSnippet language={Language.SQL} thing="query" maxLinesWithoutExpansion={10}>
-                                    {item.query}
-                                </CodeSnippet>
-                            </div>
-                        )
-                    },
-                }}
-            />
+                                            {label}
+                                        </LemonButton>
+                                    ))}
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => loadSlowestQueries()}
+                                        disabledReason={slowestQueriesLoading ? 'Loading...' : undefined}
+                                    >
+                                        Refresh
+                                    </LemonButton>
+                                </div>
+                                <LemonTable
+                                    columns={slowestQueryColumns}
+                                    dataSource={slowestQueries}
+                                    loading={slowestQueriesLoading}
+                                    emptyState="No queries found in this time range"
+                                    pagination={{ pageSize: 20 }}
+                                    className="overflow-visible! flex-none!"
+                                    expandable={{
+                                        expandedRowRender: function ExpandedQuery(item) {
+                                            return (
+                                                <div className="p-2">
+                                                    {item.exception && (
+                                                        <div className="mb-2">
+                                                            <CodeSnippet
+                                                                language={Language.Text}
+                                                                thing="error"
+                                                                maxLinesWithoutExpansion={5}
+                                                            >
+                                                                {item.exception}
+                                                            </CodeSnippet>
+                                                        </div>
+                                                    )}
+                                                    <CodeSnippet
+                                                        language={Language.SQL}
+                                                        thing="query"
+                                                        maxLinesWithoutExpansion={10}
+                                                    >
+                                                        {item.query}
+                                                    </CodeSnippet>
+                                                </div>
+                                            )
+                                        },
+                                    }}
+                                />
 
-            <h2 className="mt-8">Experiment precomputation</h2>
-            <LemonInput
-                type="search"
-                placeholder="Search by organization name..."
-                value={search}
-                onChange={setSearch}
-                className="mb-4 max-w-md"
-            />
-            <LemonTable
-                columns={precomputationColumns}
-                dataSource={precomputationTeams}
-                loading={precomputationTeamsLoading}
-                emptyState={search ? 'No teams found' : 'No teams have precomputation enabled'}
-                pagination={{ pageSize: 20 }}
-                className="overflow-visible! flex-none!"
+                                <h2 className="mt-8">Precomputation</h2>
+                                <LemonInput
+                                    type="search"
+                                    placeholder="Search by organization name..."
+                                    value={search}
+                                    onChange={setSearch}
+                                    className="mb-4 max-w-md"
+                                />
+                                <LemonTable
+                                    columns={precomputationColumns}
+                                    dataSource={precomputationTeams}
+                                    loading={precomputationTeamsLoading}
+                                    emptyState={search ? 'No teams found' : 'No teams have precomputation enabled'}
+                                    pagination={{ pageSize: 20 }}
+                                    className="overflow-visible! flex-none!"
+                                />
+                            </>
+                        ),
+                    },
+                ]}
             />
         </SceneContent>
     )

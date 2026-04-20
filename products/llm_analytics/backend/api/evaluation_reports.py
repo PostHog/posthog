@@ -334,11 +334,12 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         workflow_id = f"eval-report-manual-{report.id}-{dt.datetime.now(tz=dt.UTC).strftime('%Y%m%dT%H%M')}"
         try:
             client = sync_connect()
+            # mypy can't resolve Temporal's start_workflow overloads for string-named workflows.
             async_to_sync(client.start_workflow)(  # type: ignore[misc]
-                GENERATE_EVAL_REPORT_WORKFLOW_NAME,
-                GenerateAndDeliverEvalReportWorkflowInput(report_id=str(report.id), manual=True),
+                GENERATE_EVAL_REPORT_WORKFLOW_NAME,  # type: ignore[arg-type]
+                GenerateAndDeliverEvalReportWorkflowInput(report_id=str(report.id), manual=True),  # type: ignore[arg-type]
                 id=workflow_id,
-                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=settings.LLMA_TASK_QUEUE,
             )
         except Exception as exc:
             # Temporal's WorkflowAlreadyStarted is a subclass of RPCError / Exception depending
