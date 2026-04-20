@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
@@ -34,6 +36,10 @@ def make_context(
         in_trial_period=in_trial_period,
         seat_created_at=seat_created_at,
     )
+
+
+# Product name that is genuinely not in DEFAULT_USER_COST_LIMITS, used across test classes.
+UNCONFIGURED_PRODUCT = "unknown_product"
 
 
 class TestProductCostLimitConfig:
@@ -681,10 +687,6 @@ class TestTeamRateLimitMultipliers:
         get_settings.cache_clear()
 
 
-# Product name that is genuinely not in DEFAULT_USER_COST_LIMITS, used across test classes.
-UNCONFIGURED_PRODUCT = "unknown_product"
-
-
 class TestUnconfiguredProductsUseDefaults:
     """Products without user_cost_limits config use default limits ($100/24h burst, $1000/30d sustained)."""
 
@@ -799,8 +801,22 @@ class TestUnconfiguredProductsUseDefaults:
 
         monkeypatch.setenv(
             "LLM_GATEWAY_USER_COST_LIMITS",
-            '{"posthog_code": {"burst_limit_usd": 100, "burst_window_seconds": 86400, "sustained_limit_usd": 1000, "sustained_window_seconds": 2592000}, '
-            f'"{UNCONFIGURED_PRODUCT}": {{"burst_limit_usd": 50, "burst_window_seconds": 3600, "sustained_limit_usd": 200, "sustained_window_seconds": 86400}}}}',
+            json.dumps(
+                {
+                    "posthog_code": {
+                        "burst_limit_usd": 100,
+                        "burst_window_seconds": 86400,
+                        "sustained_limit_usd": 1000,
+                        "sustained_window_seconds": 2592000,
+                    },
+                    UNCONFIGURED_PRODUCT: {
+                        "burst_limit_usd": 50,
+                        "burst_window_seconds": 3600,
+                        "sustained_limit_usd": 200,
+                        "sustained_window_seconds": 86400,
+                    },
+                }
+            ),
         )
         get_settings.cache_clear()
 
