@@ -87,20 +87,15 @@ class TestSessionSummariesAPI(APIBaseTest):
 
     @patch("ee.api.session_summaries.capture_session_summary_generated")
     @patch("ee.api.session_summaries.capture_session_summary_started")
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
     def test_create_summaries_success(
         self,
         mock_execute: Mock,
         mock_find_sessions: Mock,
-        mock_feature_enabled: Mock,
         mock_capture_started: Mock,
         mock_capture_generated: Mock,
     ) -> None:
-        """Test successful creation of session summaries"""
-        # Setup mocks
-        mock_feature_enabled.side_effect = [True, False, False]  # Allow summaries, but not video validation (2 checks)
         mock_find_sessions.return_value = (
             datetime(2024, 1, 1, 10, 0, 0),
             datetime(2024, 1, 1, 11, 0, 0),
@@ -148,11 +143,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Tracking IDs should match
         self.assertEqual(started_kwargs["tracking_id"], generated_kwargs["tracking_id"])
 
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    def test_create_summaries_missing_session_ids(self, mock_feature_enabled: Mock) -> None:
-        """Test validation error when session_ids is missing"""
-        mock_feature_enabled.return_value = True
-
+    def test_create_summaries_missing_session_ids(self) -> None:
         response = self.client.post(
             self.url,
             {"focus_area": "test"},
@@ -163,21 +154,14 @@ class TestSessionSummariesAPI(APIBaseTest):
         error: dict[str, Any] = response.json()
         self.assertEqual(error["attr"], "session_ids")
 
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    def test_create_summaries_empty_session_ids(self, mock_feature_enabled: Mock) -> None:
-        """Test validation error when session_ids is empty"""
-        mock_feature_enabled.return_value = True
-
+    def test_create_summaries_empty_session_ids(self) -> None:
         response = self._make_api_request(session_ids=[])
 
         self.assertEqual(response.status_code, 400)
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertEqual(error["attr"], "session_ids")
 
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    def test_create_summaries_too_many_session_ids(self, mock_feature_enabled: Mock) -> None:
-        """Test validation error when too many session_ids provided"""
-        mock_feature_enabled.return_value = True
+    def test_create_summaries_too_many_session_ids(self) -> None:
         session_ids: list[str] = [f"session{i}" for i in range(303)]  # More than max of 300
 
         response = self._make_api_request(session_ids=session_ids)
@@ -186,10 +170,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertEqual(error["attr"], "session_ids")
 
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    def test_create_summaries_focus_area_too_long(self, mock_feature_enabled: Mock) -> None:
-        """Test validation error when focus_area is too long"""
-        mock_feature_enabled.return_value = True
+    def test_create_summaries_focus_area_too_long(self) -> None:
         long_focus_area: str = "x" * 501  # More than max of 500
 
         response = self._make_api_request(session_ids=["session1"], focus_area=long_focus_area)
@@ -205,15 +186,6 @@ class TestSessionSummariesAPI(APIBaseTest):
         response = self._make_api_request(session_ids=["session1"])
 
         self.assertEqual(response.status_code, 401)
-
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    def test_create_summaries_feature_disabled(self, mock_feature_enabled: Mock) -> None:
-        """Test error when replay-video-based-summarization feature is disabled"""
-        mock_feature_enabled.return_value = False
-        response = self._make_api_request(session_ids=["session1"])
-        self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertIn("Session summaries are not enabled", str(error))
 
     @patch("ee.api.session_summaries.is_cloud")
     def test_create_summaries_not_cloud(self, mock_is_cloud: Mock) -> None:
@@ -235,12 +207,8 @@ class TestSessionSummariesAPI(APIBaseTest):
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Session summaries are only supported in PostHog Cloud", str(error))
 
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
-    def test_create_summaries_session_not_found(self, mock_find_sessions: Mock, mock_feature_enabled: Mock) -> None:
-        """Test error when session doesn't exist or doesn't belong to team"""
-        # Setup mocks
-        mock_feature_enabled.return_value = True
+    def test_create_summaries_session_not_found(self, mock_find_sessions: Mock) -> None:
         # Mock find_sessions_timestamps to raise validation error for not found sessions
         mock_find_sessions.side_effect = exceptions.ValidationError(
             "Sessions not found or do not belong to this team: nonexistent_session"
@@ -252,18 +220,13 @@ class TestSessionSummariesAPI(APIBaseTest):
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Sessions not found or do not belong to this team: nonexistent_session", str(error))
 
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
     def test_create_summaries_execution_failure(
         self,
         mock_execute: Mock,
         mock_find_sessions: Mock,
-        mock_feature_enabled: Mock,
     ) -> None:
-        """Test handling of execution failures"""
-        # Setup mocks
-        mock_feature_enabled.return_value = True
         mock_find_sessions.return_value = (
             datetime(2024, 1, 1, 10, 0, 0),
             datetime(2024, 1, 1, 11, 0, 0),
@@ -293,17 +256,13 @@ class TestSessionSummariesAPI(APIBaseTest):
         response = self.client.delete(self.url)
         self.assertEqual(response.status_code, 405)
 
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_create_summaries_individually_success(
         self,
         mock_execute: Mock,
         mock_find_sessions: Mock,
-        mock_feature_enabled: Mock,
     ) -> None:
-        """Test successful creation of individual session summaries"""
-        mock_feature_enabled.return_value = True
         mock_find_sessions.return_value = (
             datetime(2024, 1, 1, 10, 0, 0),
             datetime(2024, 1, 1, 11, 0, 0),
@@ -322,17 +281,13 @@ class TestSessionSummariesAPI(APIBaseTest):
             self.assertIn("segment_outcomes", data[session_id])
             self.assertIn("session_outcome", data[session_id])
 
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_create_summaries_individually_partial_failure(
         self,
         mock_execute: Mock,
         mock_find_sessions: Mock,
-        mock_feature_enabled: Mock,
     ) -> None:
-        """Test that partial failures return only successful summaries"""
-        mock_feature_enabled.return_value = True
         mock_find_sessions.return_value = (
             datetime(2024, 1, 1, 10, 0, 0),
             datetime(2024, 1, 1, 11, 0, 0),
