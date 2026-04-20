@@ -456,6 +456,40 @@ function scheduleDiagnosticsFlush(
     }
 }
 
+export function categorizeReplayerInitError(error: unknown): string {
+    if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
+        if (error.message.includes('CustomElementRegistry') || error.message.includes('custom element')) {
+            return 'Replayer init failed: recording contains an invalid custom element tag'
+        }
+        return `Replayer init failed: DOMException ${error.name}`
+    }
+    if (error instanceof Error) {
+        return `Replayer init failed: ${error.message.slice(0, 80)}`
+    }
+    return 'Replayer init failed: unknown error'
+}
+
+function reportReplayerInitError(
+    error: unknown,
+    cache: Record<string, any>,
+    actions: {
+        playerErrorSeen: (error: any) => void
+        flushDoctorDiagnostics: (d: DoctorDiagnostics) => void
+    }
+): void {
+    const err = error instanceof Error ? error : new Error(String(error))
+    const category = categorizeReplayerInitError(error)
+
+    cache.rrwebWarningCount = (cache.rrwebWarningCount || 0) + 1
+    if (!cache.rrwebWarningSummary) {
+        cache.rrwebWarningSummary = {}
+    }
+    cache.rrwebWarningSummary[category] = (cache.rrwebWarningSummary[category] || 0) + 1
+    scheduleDiagnosticsFlush(cache, actions)
+
+    actions.playerErrorSeen(err)
+}
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -1319,87 +1353,105 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             cache.disposables.add(
                 () => {
-                    const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                    let replayer: Replayer
+                    try {
+                        replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                    } catch (err) {
+                        // Some recordings contain non-spec tags (for example <webview>) that trigger
+                        // synchronous DOMExceptions from customElements.define while rrweb rebuilds
+                        // the DOM. Swallow the error so one malformed recording doesn't crash the
+                        // player, and surface it through the doctor tab diagnostics.
+                        reportReplayerInitError(err, cache, actions)
+                        canvasPlugin.destroy()
+                        hlsPlugin.destroy()
+                        return () => {}
+                    }
                     const iframeCleanups: (() => void)[] = []
 
                     replayer.on('fullsnapshot-rebuilded', () => {
-                        const iframeContentWindow = replayer.iframe.contentWindow
-                        const iframeDocument = iframeContentWindow?.document
-                        const iframeFetch = iframeContentWindow?.fetch
+                        try {
+                            const iframeContentWindow = replayer.iframe.contentWindow
+                            const iframeDocument = iframeContentWindow?.document
+                            const iframeFetch = iframeContentWindow?.fetch
 
-                        const setupErrorHandlers = (): void => {
+                            const setupErrorHandlers = (): void => {
+                                if (
+                                    iframeFetch &&
+                                    !(iframeFetch as any).__isWrappedForErrorReporting &&
+                                    iframeContentWindow
+                                ) {
+                                    const originalFetch = iframeFetch
+                                    const windowRef = new WeakRef(iframeContentWindow)
+
+                                    iframeContentWindow.fetch = wrapFetchAndReport({
+                                        fetch: iframeFetch,
+                                        onError: (errorDetails: ResourceErrorDetails) => {
+                                            actions.caughtAssetErrorFromIframe(errorDetails)
+                                        },
+                                    })
+                                    ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+
+                                    iframeCleanups.push(() => {
+                                        const window = windowRef.deref()
+                                        if (window && window.fetch) {
+                                            window.fetch = originalFetch
+                                            delete (window.fetch as any).__isWrappedForErrorReporting
+                                        }
+                                    })
+                                }
+
+                                if (iframeContentWindow) {
+                                    iframeCleanups.push(
+                                        registerErrorListeners({
+                                            iframeWindow: iframeContentWindow,
+                                            onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                                        })
+                                    )
+                                }
+                            }
+
                             if (
-                                iframeFetch &&
-                                !(iframeFetch as any).__isWrappedForErrorReporting &&
-                                iframeContentWindow
+                                values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
+                                iframeDocument &&
+                                iframeDocument.readyState === 'loading'
                             ) {
-                                const originalFetch = iframeFetch
-                                const windowRef = new WeakRef(iframeContentWindow)
+                                let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
 
-                                iframeContentWindow.fetch = wrapFetchAndReport({
-                                    fetch: iframeFetch,
-                                    onError: (errorDetails: ResourceErrorDetails) => {
-                                        actions.caughtAssetErrorFromIframe(errorDetails)
-                                    },
-                                })
-                                ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+                                const onReady = (): void => {
+                                    setupErrorHandlers()
+
+                                    if (
+                                        replayer &&
+                                        values.currentTimestamp !== undefined &&
+                                        values.sessionPlayerData.start
+                                    ) {
+                                        const currentTime =
+                                            values.currentTimestamp - values.sessionPlayerData.start.valueOf()
+                                        replayer.pause(currentTime)
+                                        pauseTimeoutId = setTimeout(() => {
+                                            if (replayer) {
+                                                replayer.pause(currentTime)
+                                            }
+                                        }, 0)
+                                    }
+
+                                    iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                                }
+                                iframeDocument.addEventListener('DOMContentLoaded', onReady)
 
                                 iframeCleanups.push(() => {
-                                    const window = windowRef.deref()
-                                    if (window && window.fetch) {
-                                        window.fetch = originalFetch
-                                        delete (window.fetch as any).__isWrappedForErrorReporting
+                                    iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                                    if (pauseTimeoutId !== null) {
+                                        clearTimeout(pauseTimeoutId)
                                     }
                                 })
-                            }
-
-                            if (iframeContentWindow) {
-                                iframeCleanups.push(
-                                    registerErrorListeners({
-                                        iframeWindow: iframeContentWindow,
-                                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
-                                    })
-                                )
-                            }
-                        }
-
-                        if (
-                            values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
-                            iframeDocument &&
-                            iframeDocument.readyState === 'loading'
-                        ) {
-                            let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-                            const onReady = (): void => {
+                            } else {
                                 setupErrorHandlers()
-
-                                if (
-                                    replayer &&
-                                    values.currentTimestamp !== undefined &&
-                                    values.sessionPlayerData.start
-                                ) {
-                                    const currentTime =
-                                        values.currentTimestamp - values.sessionPlayerData.start.valueOf()
-                                    replayer.pause(currentTime)
-                                    pauseTimeoutId = setTimeout(() => {
-                                        if (replayer) {
-                                            replayer.pause(currentTime)
-                                        }
-                                    }, 0)
-                                }
-
-                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
                             }
-                            iframeDocument.addEventListener('DOMContentLoaded', onReady)
-
-                            iframeCleanups.push(() => {
-                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                                if (pauseTimeoutId !== null) {
-                                    clearTimeout(pauseTimeoutId)
-                                }
-                            })
-                        } else {
-                            setupErrorHandlers()
+                        } catch (err) {
+                            // Rebuilds can throw on subsequent FullSnapshot events for the same
+                            // reasons that construction can (invalid custom element names, etc.).
+                            reportReplayerInitError(err, cache, actions)
                         }
                     })
 

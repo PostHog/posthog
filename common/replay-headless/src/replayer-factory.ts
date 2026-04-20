@@ -36,6 +36,22 @@ export interface ReplayerSetup {
     initialURL: string
 }
 
+/**
+ * Thrown when rrweb can't build the DOM for a recording — for example because
+ * the captured page contains a non-spec tag (`<webview>`) that triggers a
+ * DOMException from `customElements.define` during node reconstruction. These
+ * are not retryable: the recording itself is malformed.
+ */
+export class InvalidRecordingError extends Error {
+    readonly cause: unknown
+
+    constructor(message: string, cause: unknown) {
+        super(message)
+        this.name = 'InvalidRecordingError'
+        this.cause = cause
+    }
+}
+
 function buildViewportLookup(events: ViewportEvent[]): (timestamp: number) => ViewportResolution | undefined {
     if (!events.length) {
         return () => undefined
@@ -106,20 +122,30 @@ export async function createReplayer(
     const firstTimestamp = snapshots[0].timestamp
     const events: eventWithTime[] = [...snapshots]
 
-    const replayer = new Replayer(events, {
-        root: rootEl,
-        ...COMMON_REPLAYER_CONFIG,
-        insertStyleRules: [
-            ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
-            ...(config.playbackSpeed >= 2
-                ? ['*, *::before, *::after { animation: none !important; transition: none !important; }']
-                : []),
-        ],
-        mouseTail: config.mouseTail,
-        useVirtualDom: false,
-        plugins: [CorsPlugin, HLSPlayerPlugin, AudioMuteReplayerPlugin(true), CanvasReplayerPlugin(events)],
-        speed: config.playbackSpeed,
-    })
+    let replayer: Replayer
+    try {
+        replayer = new Replayer(events, {
+            root: rootEl,
+            ...COMMON_REPLAYER_CONFIG,
+            insertStyleRules: [
+                ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
+                ...(config.playbackSpeed >= 2
+                    ? ['*, *::before, *::after { animation: none !important; transition: none !important; }']
+                    : []),
+            ],
+            mouseTail: config.mouseTail,
+            useVirtualDom: false,
+            plugins: [CorsPlugin, HLSPlayerPlugin, AudioMuteReplayerPlugin(true), CanvasReplayerPlugin(events)],
+            speed: config.playbackSpeed,
+        })
+    } catch (err) {
+        // rrweb throws synchronously when the snapshot contains a non-spec tag
+        // like <webview> that fails customElements.define. Surface as a typed,
+        // non-retryable error so callers can classify it separately from transient
+        // init failures.
+        const message = err instanceof Error ? err.message : String(err)
+        throw new InvalidRecordingError(`Failed to build replayer from snapshots: ${message}`, err)
+    }
 
     let initialURL = ''
     for (const e of events) {

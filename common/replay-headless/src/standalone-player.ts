@@ -2,7 +2,7 @@ import { DataLoadError } from './data-loader'
 import { HostBridge } from './host-bridge'
 import { MetadataFooter } from './metadata-footer'
 import { PlaybackController } from './playback-controller'
-import { createReplayer } from './replayer-factory'
+import { InvalidRecordingError, createReplayer } from './replayer-factory'
 import type { PlayerConfig } from './types'
 import { ViewportScaler } from './viewport-scaler'
 
@@ -55,8 +55,15 @@ try {
     const config = bridge.getConfig()
     init(config, bridge).catch((err) => {
         const message = err instanceof Error ? err.message : String(err)
-        const retryable = err instanceof DataLoadError ? err.retryable : true
-        const code = err instanceof DataLoadError ? 'DATA_LOAD_FAILED' : 'INIT_FAILED'
+        let retryable = true
+        let code = 'INIT_FAILED'
+        if (err instanceof DataLoadError) {
+            retryable = err.retryable
+            code = 'DATA_LOAD_FAILED'
+        } else if (err instanceof InvalidRecordingError) {
+            retryable = false
+            code = 'INVALID_RECORDING'
+        }
         bridge.setError({ code, message, retryable })
         bridge.signalEnded()
     })

@@ -22,7 +22,7 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp } from './sessionRecordingPlayerLogic'
+import { categorizeReplayerInitError, findNewEvents, findSegmentForTimestamp } from './sessionRecordingPlayerLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
 
@@ -174,6 +174,36 @@ describe('findSegmentForTimestamp', () => {
         expect(result?.windowId).toBe(undefined)
         expect(result?.startTimestamp).toBe(3000)
         expect(result?.endTimestamp).toBe(2001)
+    })
+})
+
+describe('categorizeReplayerInitError', () => {
+    it('classifies the webview CustomElementRegistry DOMException as an invalid custom element tag', () => {
+        const err = new DOMException(
+            `Failed to execute 'define' on 'CustomElementRegistry': "webview" is not a valid custom element name`,
+            'SyntaxError'
+        )
+        expect(categorizeReplayerInitError(err)).toBe(
+            'Replayer init failed: recording contains an invalid custom element tag'
+        )
+    })
+
+    it('classifies other DOMExceptions by name', () => {
+        const err = new DOMException('Some other DOM problem', 'InvalidStateError')
+        expect(categorizeReplayerInitError(err)).toBe('Replayer init failed: DOMException InvalidStateError')
+    })
+
+    it('truncates long Error messages', () => {
+        const longMessage = 'x'.repeat(200)
+        const err = new Error(longMessage)
+        const category = categorizeReplayerInitError(err)
+        expect(category.startsWith('Replayer init failed: ')).toBe(true)
+        expect(category.length).toBeLessThanOrEqual('Replayer init failed: '.length + 80)
+    })
+
+    it('falls back to a generic message for non-Error throwables', () => {
+        expect(categorizeReplayerInitError('boom')).toBe('Replayer init failed: unknown error')
+        expect(categorizeReplayerInitError(undefined)).toBe('Replayer init failed: unknown error')
     })
 })
 
