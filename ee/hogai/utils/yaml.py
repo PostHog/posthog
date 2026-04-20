@@ -15,7 +15,7 @@ class YamlOutputParser(BaseOutputParser):
         """Parse YAML text into generic JSON-like structure."""
         # Strip potential markdown markers, if present
         try:
-            cleaned_text = text.strip("```yaml").strip("```").strip()  # noqa: B005 stable approach with streaming chunks
+            cleaned_text = text.strip("```yaml").strip("```").strip()  # noqa: B005
             return yaml.safe_load(cleaned_text)
         except yaml.YAMLError as e:
             # Catch only YAML-specific errors that makes sense to try to fix, raise other errors

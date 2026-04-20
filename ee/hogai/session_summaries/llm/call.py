@@ -12,11 +12,7 @@ from rest_framework import exceptions
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 
-from ee.hogai.session_summaries.constants import (
-    BASE_LLM_CALL_TIMEOUT_S,
-    SESSION_SUMMARIES_REASONING_EFFORT,
-    SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS,
-)
+from ee.hogai.session_summaries.constants import BASE_LLM_CALL_TIMEOUT_S, SESSION_SUMMARIES_REASONING_EFFORT
 
 logger = structlog.get_logger(__name__)
 
@@ -105,13 +101,6 @@ async def call_llm(
     user_param = _prepare_user_param(user_id)
     client = get_async_openai_client()
     posthog_props = _build_posthog_props(trigger_session_id)
-    if model not in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
-        msg = (
-            f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
-            f"{SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS}"
-        )
-        logger.error(msg, session_id=session_id, signals_type="session-summaries")
-        raise ValueError(msg)
     result = await client.responses.create(  # type: ignore[call-overload]
         input=messages,
         model=model,

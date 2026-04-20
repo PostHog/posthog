@@ -11,7 +11,7 @@ from prometheus_client import Histogram
 from posthog.temporal.session_replay.session_summary.state import generate_state_id_from_session_ids
 
 from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.llm.call import call_llm
 from ee.hogai.session_summaries.session.output_data import (
     SessionSummaryIssueTypes,
@@ -198,7 +198,7 @@ async def get_llm_session_group_patterns_combination(
         input_prompt=prompt.patterns_prompt,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
-        model=SESSION_SUMMARIES_SYNC_MODEL,
+        model=SESSION_SUMMARIES_MODEL,
         trace_id=trace_id,
         user_id=user_id,
         user_distinct_id=user_distinct_id,
@@ -266,7 +266,7 @@ async def get_llm_single_session_summary(
             msg = f"Failed to parse LLM response for session summary, session_id {session_id}: {raw_content}"
             logger.error(msg, session_id=session_id, user_id=user_id, signals_type="session-summaries")
             raise ValueError(msg)
-        # If parsing succeeds, yield the new chunk
+        # Return the parsed session summary
         return session_summary
     except (SummaryValidationError, ValueError) as err:
         # The only way to raise such errors is data hallucinations and inconsistencies (like missing mapping data).

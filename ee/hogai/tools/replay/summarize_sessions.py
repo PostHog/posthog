@@ -23,7 +23,7 @@ from posthog.temporal.session_replay.session_summary.types.group import (
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
     MAX_SESSIONS_TO_SUMMARIZE,
-    SESSION_SUMMARIES_SYNC_MODEL,
+    SESSION_SUMMARIES_MODEL,
 )
 from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStringifier
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
@@ -288,7 +288,7 @@ class SummarizeSessionsTool(MaxTool):
                     session_id=session_id,
                     user=self._user,
                     team=self._team,
-                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+                    model_to_use=SESSION_SUMMARIES_MODEL,
                     trigger_session_id=trigger_session_id,
                 )
                 completed += 1

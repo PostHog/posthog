@@ -12,7 +12,7 @@ from posthog.temporal.session_replay.session_summary.summarize_session_group imp
 from posthog.temporal.session_replay.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
 from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
 
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL, SESSION_SUMMARIES_SYNC_MODEL
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL, SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.tests.conftest import *
@@ -34,7 +34,7 @@ def mock_single_session_summary_inputs() -> Callable:
             user_id=user_id,
             team_id=team_id,
             redis_key_base=redis_key_base,
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
         )
 
     return _create_inputs
@@ -67,7 +67,7 @@ def mock_single_session_summary_llm_inputs(
             session_start_time_str="2025-03-31T18:40:32.302000Z",
             session_duration=5323,
             distinct_id="test_distinct_id",
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
         )
 
     return _create_inputs
@@ -90,7 +90,7 @@ def mock_session_group_summary_inputs() -> Callable:
             redis_key_base=redis_key_base,
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
             summary_title="Test summary",
         )
 
@@ -112,7 +112,7 @@ def mock_session_group_summary_of_summaries_inputs() -> Callable:
             user_id=user_id,
             team_id=team_id,
             redis_key_base=redis_key_base,
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
             summary_title="Test summary",
         )
 
@@ -216,7 +216,7 @@ def mock_extra_summary_context() -> ExtraSummaryContext:
 def mock_session_summary_run_meta() -> SessionSummaryRunMeta:
     """Create a mock SessionSummaryRunMeta for testing."""
     return SessionSummaryRunMeta(
-        model_used=SESSION_SUMMARIES_SYNC_MODEL,
+        model_used=SESSION_SUMMARIES_MODEL,
         visual_confirmation=True,
     )
 

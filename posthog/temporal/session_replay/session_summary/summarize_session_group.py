@@ -62,7 +62,7 @@ from ee.hogai.session_summaries.constants import (
     FAILED_SESSION_SUMMARIES_MIN_RATIO,
     MIN_SESSION_DURATION_FOR_SUMMARY_MS,
     SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS,
-    SESSION_SUMMARIES_SYNC_MODEL,
+    SESSION_SUMMARIES_MODEL,
 )
 from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events
 from ee.hogai.session_summaries.session.summarize_session import (
@@ -826,7 +826,7 @@ async def execute_summarize_session_group(
     min_timestamp: datetime,
     max_timestamp: datetime,
     summary_title: str | None,
-    model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
+    model_to_use: str = SESSION_SUMMARIES_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
