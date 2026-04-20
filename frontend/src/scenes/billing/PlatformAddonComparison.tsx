@@ -16,6 +16,7 @@ import {
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { humanFriendlyCurrency } from 'lib/utils'
 
@@ -171,7 +172,7 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                         </div>
                     )}
                 </div>
-                <div className="flex flex-col items-end gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 self-center">
                     {currentPlan?.flat_rate && (
                         <div className="flex items-baseline gap-x-1">
                             <span className="font-bold text-3xl leading-none">
@@ -180,15 +181,19 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                             {currentPlan.unit && <span className="text-secondary">/ {currentPlan.unit}</span>}
                         </div>
                     )}
-                    <LemonButton
-                        type="primary"
-                        onClick={() => {
-                            setSurveyResponse('$survey_response_1', addon.type)
-                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
-                        }}
-                    >
-                        Remove add-on
-                    </LemonButton>
+                    <More
+                        overlay={
+                            <LemonButton
+                                fullWidth
+                                onClick={() => {
+                                    setSurveyResponse('$survey_response_1', addon.type)
+                                    reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                                }}
+                            >
+                                Remove add-on
+                            </LemonButton>
+                        }
+                    />
                 </div>
             </div>
             {surveyID === UNSUBSCRIBE_SURVEY_ID && <UnsubscribeSurveyModal product={addon} />}
