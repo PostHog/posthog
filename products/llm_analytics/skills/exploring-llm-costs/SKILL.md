@@ -331,19 +331,36 @@ posthog:insight-create
   "query": {
     "kind": "TrendsQuery",
     "dateRange": {"date_from": "-30d"},
-    "series": [{
-      "kind": "EventsNode",
-      "event": "$ai_generation",
-      "math": "sum",
-      "math_property": "$ai_total_cost_usd"
-    }],
-    "trendsFilter": {"aggregationAxisPrefix": "$", "decimalPlaces": 2}
+    "series": [
+      {
+        "kind": "EventsNode",
+        "event": "$ai_generation",
+        "math": "sum",
+        "math_property": "$ai_total_cost_usd"
+      },
+      {
+        "kind": "EventsNode",
+        "event": "$ai_embedding",
+        "math": "sum",
+        "math_property": "$ai_total_cost_usd"
+      }
+    ],
+    "trendsFilter": {
+      "formula": "A + B",
+      "aggregationAxisPrefix": "$",
+      "decimalPlaces": 2
+    }
   }
 }
 ```
 
-For "cost per user", add a second series with `math: "dau"` and a formula
-`A / B` in `trendsFilter`. For breakdowns, add `breakdownFilter` with
+Both series are required — omitting `$ai_embedding` silently drops embedding
+spend. If the project demonstrably does not use embeddings (`count()` of
+`$ai_embedding` is zero over the relevant window), you can drop series B and
+the formula for a simpler insight.
+
+For "cost per user", add a third series with `math: "dau"` and change the
+formula to `(A + B) / C`. For breakdowns, add `breakdownFilter` with
 `breakdown: "$ai_model"` or any other dimension.
 
 ### Add to a dashboard
