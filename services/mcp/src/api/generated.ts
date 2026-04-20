@@ -14864,10 +14864,10 @@ export namespace Schemas {
      * * `llm_judge` - LLM as a judge
     * `hog` - Hog
      */
-    export type EvaluationTypeEnum = typeof EvaluationTypeEnum[keyof typeof EvaluationTypeEnum];
+    export type EvaluationEvaluationTypeEnum = typeof EvaluationEvaluationTypeEnum[keyof typeof EvaluationEvaluationTypeEnum];
 
 
-    export const EvaluationTypeEnum = {
+    export const EvaluationEvaluationTypeEnum = {
       LlmJudge: 'llm_judge',
       Hog: 'hog',
     } as const;
@@ -14921,7 +14921,7 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status: EvaluationStatusEnum;
       readonly status_reason: StatusReasonEnum | NullEnum | null;
-      evaluation_type: EvaluationTypeEnum;
+      evaluation_type: EvaluationEvaluationTypeEnum;
       evaluation_config?: unknown;
       output_type: OutputTypeEnum;
       output_config?: unknown;
@@ -14931,6 +14931,58 @@ export namespace Schemas {
       readonly updated_at: string;
       readonly created_by: UserBasic;
       deleted?: boolean;
+    }
+
+    /**
+     * * `llm_judge` - llm_judge
+    * `hog` - hog
+     */
+    export type EvaluationDescriptionRequestEvaluationTypeEnum = typeof EvaluationDescriptionRequestEvaluationTypeEnum[keyof typeof EvaluationDescriptionRequestEvaluationTypeEnum];
+
+
+    export const EvaluationDescriptionRequestEvaluationTypeEnum = {
+      LlmJudge: 'llm_judge',
+      Hog: 'hog',
+    } as const;
+
+    /**
+     * Request serializer for evaluation description generation.
+
+    Accepts the current (possibly unsaved) evaluation configuration so the
+    feature works both for new evaluations and edits-in-progress.
+     */
+    export interface EvaluationDescriptionRequest {
+      /** The evaluation type ('llm_judge' or 'hog')
+
+    * `llm_judge` - llm_judge
+    * `hog` - hog */
+      evaluation_type: EvaluationDescriptionRequestEvaluationTypeEnum;
+      /**
+       * Current evaluation name (optional)
+       * @maxLength 400
+       */
+      name?: string;
+      /**
+       * Current LLM judge prompt (required when evaluation_type is 'llm_judge')
+       * @maxLength 20000
+       */
+      prompt?: string;
+      /**
+       * Current Hog source code (required when evaluation_type is 'hog')
+       * @maxLength 20000
+       */
+      source?: string;
+      /** Whether the evaluation allows 'Not applicable' results */
+      allows_na?: boolean;
+      /**
+       * The current description, if any, to use as a hint
+       * @maxLength 500
+       */
+      existing_description?: string;
+    }
+
+    export interface EvaluationDescriptionResponse {
+      description: string;
     }
 
     export interface EvaluationPattern {
@@ -24886,7 +24938,7 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status?: EvaluationStatusEnum;
       readonly status_reason?: StatusReasonEnum | NullEnum | null;
-      evaluation_type?: EvaluationTypeEnum;
+      evaluation_type?: EvaluationEvaluationTypeEnum;
       evaluation_config?: unknown;
       output_type?: OutputTypeEnum;
       output_config?: unknown;
@@ -34859,6 +34911,12 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type LlmAnalyticsEvaluationDescriptionCreate400 = {[key: string]: unknown};
+
+    export type LlmAnalyticsEvaluationDescriptionCreate403 = {[key: string]: unknown};
+
+    export type LlmAnalyticsEvaluationDescriptionCreate500 = {[key: string]: unknown};
 
     export type LlmAnalyticsEvaluationReportsListParams = {
     /**

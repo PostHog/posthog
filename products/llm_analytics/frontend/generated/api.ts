@@ -18,6 +18,8 @@ import type {
     DatasetItemsListParams,
     DatasetsListParams,
     EvaluationApi,
+    EvaluationDescriptionRequestApi,
+    EvaluationDescriptionResponseApi,
     EvaluationReportApi,
     EvaluationSummaryRequestApi,
     EvaluationSummaryResponseApi,
@@ -388,6 +390,31 @@ export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
     return apiMutator<void>(getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * 
+Generate an AI-powered description for an LLM evaluation based on its current configuration.
+
+Works for both LLM judge evaluations (prompt-based) and Hog code evaluations (code-based).
+Can be used before the evaluation is saved — no evaluation ID is required.
+        
+ */
+export const getLlmAnalyticsEvaluationDescriptionCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_description/`
+}
+
+export const llmAnalyticsEvaluationDescriptionCreate = async (
+    projectId: string,
+    evaluationDescriptionRequestApi: EvaluationDescriptionRequestApi,
+    options?: RequestInit
+): Promise<EvaluationDescriptionResponseApi> => {
+    return apiMutator<EvaluationDescriptionResponseApi>(getLlmAnalyticsEvaluationDescriptionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationDescriptionRequestApi),
     })
 }
 

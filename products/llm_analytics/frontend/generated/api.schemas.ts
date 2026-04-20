@@ -41,9 +41,10 @@ export const NullEnumApi = {} as const
  * * `llm_judge` - LLM as a judge
  * `hog` - Hog
  */
-export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
+export type EvaluationEvaluationTypeEnumApi =
+    (typeof EvaluationEvaluationTypeEnumApi)[keyof typeof EvaluationEvaluationTypeEnumApi]
 
-export const EvaluationTypeEnumApi = {
+export const EvaluationEvaluationTypeEnumApi = {
     LlmJudge: 'llm_judge',
     Hog: 'hog',
 } as const
@@ -150,7 +151,7 @@ export interface EvaluationApi {
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
     readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
-    evaluation_type: EvaluationTypeEnumApi
+    evaluation_type: EvaluationEvaluationTypeEnumApi
     evaluation_config?: unknown
     output_type: OutputTypeEnumApi
     output_config?: unknown
@@ -345,6 +346,58 @@ export interface ClusteringRunRequestApi {
      * @nullable
      */
     clustering_job_id?: string | null
+}
+
+/**
+ * * `llm_judge` - llm_judge
+ * `hog` - hog
+ */
+export type EvaluationDescriptionRequestEvaluationTypeEnumApi =
+    (typeof EvaluationDescriptionRequestEvaluationTypeEnumApi)[keyof typeof EvaluationDescriptionRequestEvaluationTypeEnumApi]
+
+export const EvaluationDescriptionRequestEvaluationTypeEnumApi = {
+    LlmJudge: 'llm_judge',
+    Hog: 'hog',
+} as const
+
+/**
+ * Request serializer for evaluation description generation.
+
+Accepts the current (possibly unsaved) evaluation configuration so the
+feature works both for new evaluations and edits-in-progress.
+ */
+export interface EvaluationDescriptionRequestApi {
+    /** The evaluation type ('llm_judge' or 'hog')
+
+* `llm_judge` - llm_judge
+* `hog` - hog */
+    evaluation_type: EvaluationDescriptionRequestEvaluationTypeEnumApi
+    /**
+     * Current evaluation name (optional)
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Current LLM judge prompt (required when evaluation_type is 'llm_judge')
+     * @maxLength 20000
+     */
+    prompt?: string
+    /**
+     * Current Hog source code (required when evaluation_type is 'hog')
+     * @maxLength 20000
+     */
+    source?: string
+    /** Whether the evaluation allows 'Not applicable' results */
+    allows_na?: boolean
+    /**
+     * The current description, if any, to use as a hint
+     * @maxLength 500
+     */
+    existing_description?: string
+}
+
+export interface EvaluationDescriptionResponseApi {
+    description: string
 }
 
 /**
@@ -1475,6 +1528,12 @@ export type LlmAnalyticsClusteringJobsListParams = {
      */
     offset?: number
 }
+
+export type LlmAnalyticsEvaluationDescriptionCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationDescriptionCreate403 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationDescriptionCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationReportsListParams = {
     /**

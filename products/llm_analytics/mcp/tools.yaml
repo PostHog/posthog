@@ -315,3 +315,6 @@ tools:
     llm-analytics-evaluation-reports-runs-list:
         operation: llm_analytics_evaluation_reports_runs_list
         enabled: false
+    llm-analytics-evaluation-description-create:
+        operation: llm_analytics_evaluation_description_create
+        enabled: false
