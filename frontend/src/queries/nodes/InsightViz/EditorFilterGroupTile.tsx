@@ -29,12 +29,7 @@ export function EditorFilterGroupTile({
     return (
         <div className="border rounded bg-surface-primary min-w-0">
             {isExpandable ? (
-                <div
-                    className={clsx(
-                        'flex items-center gap-2 px-1 py-1 rounded-b-none',
-                        isRowExpanded && 'border-b'
-                    )}
-                >
+                <div className={clsx('flex items-center gap-2 px-1 py-1 rounded-b-none', isRowExpanded && 'border-b')}>
                     <LemonButton
                         fullWidth
                         onClick={() => {
