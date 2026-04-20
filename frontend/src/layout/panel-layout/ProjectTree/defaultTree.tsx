@@ -334,6 +334,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPlaylist />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
     },
+    ci_monitoring: {
+        icon: <IconBug />,
+    },
     visual_review: {
         icon: <IconApp />,
     },
@@ -409,23 +412,6 @@ export function iconForType(type?: FileSystemIconType, colorOverride?: FileSyste
                 {iconTypes[type as keyof typeof iconTypes].icon}
             </ProductIconWrapper>
         )
-    }
-
-    // Handle group type indices (group_0, group_1, etc.)
-    if (type.startsWith('group_')) {
-        const index = parseInt(type.split('_')[1], 10)
-        if (!isNaN(index)) {
-            return (
-                <ProductIconWrapper type="group" colorOverride={colorOverride}>
-                    <span className="relative flex items-center">
-                        <IconPeople />
-                        <div className="absolute -bottom-0.5 -right-1 z-10 flex h-[1.5em] w-[1.5em] items-center justify-center rounded-full bg-surface-tertiary text-[0.45em] font-[700] leading-none">
-                            {index}
-                        </div>
-                    </span>
-                </ProductIconWrapper>
-            )
-        }
     }
 
     // Handle hog_function types
