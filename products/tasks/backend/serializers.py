@@ -677,6 +677,17 @@ class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
         allow_blank=False,
         help_text="Optional signal report identifier when this run was started from Inbox.",
     )
+    github_user_token = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        write_only=True,
+        help_text=(
+            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
+            "this field remains supported for callers that still manage their own tokens."
+        ),
+    )
 
 
 TaskRunCreateRequestSchemaSerializer = PolymorphicProxySerializer(

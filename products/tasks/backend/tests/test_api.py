@@ -37,6 +37,7 @@ from products.tasks.backend.stream.redis_stream import (
     get_task_run_stream_key,
     publish_task_run_stream_event,
 )
+from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 
 def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserSocialIdentity:
@@ -492,6 +493,52 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["pr_base_branch"] == "main"
         mock_workflow.assert_called_once()
 
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_caches_github_user_token_backcompat(self, mock_workflow):
+        """Backward-compat: callers that ship ``github_user_token`` have it cached per-run."""
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+        github_user_token = "ghu_test_token"
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "branch": "main",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+                "github_user_token": github_user_token,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert get_cached_github_user_token(str(task_run.id)) == github_user_token
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_token_even_without_linked_identity(self, mock_workflow):
+        """A caller-supplied token satisfies the preflight on its own (no identity required)."""
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+                "github_user_token": "ghu_manual_token",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_workflow.assert_called_once()
+
     @parameterized.expand(
         [
             ("low",),
@@ -781,6 +828,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "mode": "interactive",
                 "resume_from_run_id": str(previous_run.id),
                 "pending_user_message": "Please continue",
+                "github_user_token": "ghu_resume_token",
             },
             format="json",
         )
@@ -796,6 +844,8 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["provider"] == "openai"
         assert task_run.state["model"] == "gpt-5.3-codex"
         assert task_run.state["reasoning_effort"] == "medium"
+        # Token passed on a BOT resume must not be cached — only USER mode runs use it.
+        assert get_cached_github_user_token(str(task_run.id)) is None
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_resume_rejects_inherited_invalid_reasoning_effort(self, mock_workflow):

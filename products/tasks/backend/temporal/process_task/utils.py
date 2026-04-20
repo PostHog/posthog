@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.core.cache import cache
 
 from pydantic import BaseModel
 
@@ -298,6 +299,25 @@ def get_user_github_identity(user: User | None) -> UserGitHubIdentity | None:
     return UserGitHubIdentity(identity)
 
 
+# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
+# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
+# The server-side identity flow should be preferred going forward.
+GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
+
+
+def _github_user_token_cache_key(run_id: str) -> str:
+    return f"task-run-github-user-token:{run_id}"
+
+
+def cache_github_user_token(run_id: str, github_user_token: str) -> None:
+    cache.set(_github_user_token_cache_key(run_id), github_user_token, timeout=GITHUB_USER_TOKEN_CACHE_TTL_SECONDS)
+
+
+def get_cached_github_user_token(run_id: str) -> str | None:
+    token = cache.get(_github_user_token_cache_key(run_id))
+    return token if isinstance(token, str) and token else None
+
+
 def get_sandbox_github_token(
     github_integration_id: int | None,
     *,
@@ -307,13 +327,19 @@ def get_sandbox_github_token(
 ) -> str | None:
     """Resolve the GitHub token used inside a task sandbox.
 
-    - ``USER`` authorship reads the stored user-to-server token off the task
-      creator's ``UserSocialIdentity``, refreshing on demand.
-    - ``BOT`` authorship falls back to the team's ``Integration`` installation
-      token (existing behavior).
+    Resolution order for ``USER`` authorship:
+
+    1. Caller-supplied token cached at run-create time (backward compat for the
+       PostHog Code CLI — wins when present so self-managed tokens still work).
+    2. Server-side ``UserSocialIdentity`` for the task creator, refreshing on demand.
+
+    ``BOT`` authorship falls through to the team's ``Integration`` installation token.
     """
     run_state = parse_run_state(state)
     if run_state.pr_authorship_mode == PrAuthorshipMode.USER:
+        cached = get_cached_github_user_token(run_id)
+        if cached:
+            return cached
         github_identity = get_user_github_identity(created_by)
         if github_identity is None:
             raise ReauthorizationRequired(

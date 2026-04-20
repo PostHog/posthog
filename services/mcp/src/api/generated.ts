@@ -7674,6 +7674,8 @@ export namespace Schemas {
     * `high` - high
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      github_user_token?: string;
       /** Initial permission mode for Claude runtimes.
 
     * `default` - default
@@ -7968,6 +7970,8 @@ export namespace Schemas {
     * `high` - high
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
 
     * `auto` - auto
@@ -32287,6 +32291,8 @@ export namespace Schemas {
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      github_user_token?: string;
     }
 
     export type TaskRunCreateRequestSchema = ClaudeTaskRunCreateSchema | CodexTaskRunCreateSchema | TaskRunResumeRequestSchema;
