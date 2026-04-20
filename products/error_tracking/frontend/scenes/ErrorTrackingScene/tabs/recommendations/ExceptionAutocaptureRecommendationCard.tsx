@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
@@ -21,13 +21,14 @@ export function ExceptionAutocaptureRecommendationCard({
     dismissed?: boolean
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
+    const { addProductIntent } = useActions(teamLogic)
+    const { updateCurrentTeam } = useAsyncActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
-    const { scheduleRefreshOnUpdate } = useActions(recommendationsTabLogic)
+    const { refreshRecommendation } = useActions(recommendationsTabLogic)
 
     const enabled = recommendation.meta.enabled
 
-    const handleEnable = (): void => {
+    const handleEnable = async (): Promise<void> => {
         if (!currentTeam) {
             return
         }
@@ -36,9 +37,9 @@ export function ExceptionAutocaptureRecommendationCard({
             product_type: ProductKey.ERROR_TRACKING,
             intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
         })
-        scheduleRefreshOnUpdate(recommendation.id)
-        updateCurrentTeam({ autocapture_exceptions_opt_in: true })
+        await updateCurrentTeam({ autocapture_exceptions_opt_in: true })
         reportAutocaptureExceptionsToggled(true)
+        refreshRecommendation(recommendation.id)
     }
 
     return (

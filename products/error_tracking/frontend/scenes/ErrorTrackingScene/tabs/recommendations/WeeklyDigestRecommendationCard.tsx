@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
@@ -20,12 +20,12 @@ export function WeeklyDigestRecommendationCard({
 }): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { updateUser } = useActions(userLogic)
-    const { scheduleRefreshOnUpdate } = useActions(recommendationsTabLogic)
+    const { updateUser } = useAsyncActions(userLogic)
+    const { refreshRecommendation } = useActions(recommendationsTabLogic)
 
     const enabled = recommendation.meta.enabled
 
-    const handleEnable = (): void => {
+    const handleEnable = async (): Promise<void> => {
         if (!user?.notification_settings || !currentTeamId) {
             return
         }
@@ -38,8 +38,7 @@ export function WeeklyDigestRecommendationCard({
         // and `error_tracking_weekly_digest` can get reset to `false`.
         // We deliberately don't touch `all_weekly_digest_disabled` — that's a global preference
         // the user set elsewhere and isn't ours to override.
-        scheduleRefreshOnUpdate(recommendation.id)
-        updateUser({
+        await updateUser({
             notification_settings: {
                 ...user.notification_settings,
                 error_tracking_weekly_digest: true,
@@ -49,6 +48,7 @@ export function WeeklyDigestRecommendationCard({
                 },
             },
         })
+        refreshRecommendation(recommendation.id)
     }
 
     return (
