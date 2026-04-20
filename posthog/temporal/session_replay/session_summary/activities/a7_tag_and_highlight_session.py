@@ -69,13 +69,13 @@ def _produce_to_kafka(
       polluted block_urls and broke the length-match check in listBlocks)
     - sum() fields use 0, any() fields use empty string
     """
-    phantom_ts = format_clickhouse_timestamp(session_start_time + timedelta(microseconds=1))
+    tag_row_ts = format_clickhouse_timestamp(session_start_time + timedelta(microseconds=1))
     data = {
         "session_id": inputs.session_id,
         "team_id": inputs.team_id,
         "distinct_id": "",
-        "first_timestamp": phantom_ts,
-        "last_timestamp": phantom_ts,
+        "first_timestamp": tag_row_ts,
+        "last_timestamp": tag_row_ts,
         "block_url": None,
         "first_url": None,
         "urls": [],
