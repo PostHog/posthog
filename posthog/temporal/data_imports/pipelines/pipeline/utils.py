@@ -6,10 +6,10 @@ import uuid
 import decimal
 import hashlib
 import datetime
-from collections.abc import Awaitable, Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, Literal, Optional, ParamSpec, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 import numpy as np
 import orjson
@@ -32,7 +32,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFo
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models import ExternalDataSchema
 
-DLT_TO_PA_TYPE_MAP = {
+DLT_TO_PA_TYPE_MAP: dict[
+    Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"], pa.DataType
+] = {
     "text": pa.string(),
     "bigint": pa.int64(),
     "bool": pa.bool_(),
@@ -51,15 +53,6 @@ DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 type SupportedDltDataType = Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"]
 type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], int]
-
-_P = ParamSpec("_P")
-_T = TypeVar("_T")
-
-
-class AsyncCachedCallable(Protocol[_P, _T]):
-    async def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _T: ...
-    def cache_remove(self, *args: _P.args, **kwargs: _P.kwargs) -> None: ...
-    def cache_clear(self) -> None: ...
 
 
 class BillingLimitsWillBeReachedException(Exception):
@@ -83,7 +76,8 @@ def normalize_column_name(column_name: str) -> str:
 
 
 def pyarrow_schema_from_arrow_exportable(schema: ArrowSchemaExportable) -> pa.Schema:
-    return pa.schema(schema)
+    # PyArrow's stubs don't model Arrow C Data Interface inputs here.
+    return pa.schema(cast(Any, schema))
 
 
 def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | datetime.datetime:
@@ -92,7 +86,7 @@ def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | 
             return None
 
         if isinstance(date_str, pa.StringScalar):
-            scalar = date_str.as_py()
+            scalar = cast(str | None, date_str.as_py())
 
             if scalar is None:
                 return None
@@ -218,7 +212,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         if pa.types.is_timestamp(incoming_field.type) and (
             incoming_field.type.unit == "ns" or incoming_field.type.tz is not None
         ):
-            microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False)
+            microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False).combine_chunks()
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, microsecond_timestamps
             )
@@ -303,7 +297,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
                 incoming_table = incoming_table.set_column(
                     incoming_table.schema.get_field_index(delta_field.name),
                     delta_field.name,
-                    incoming_column.cast(delta_field.type),
+                    incoming_column.cast(delta_field.type).combine_chunks(),
                 )
 
             incoming_column = incoming_table.column(delta_field.name)
@@ -691,10 +685,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
 
     for col in column_names:
-        values = [
-            None if isinstance(row.get(col, None), float) and np.isnan(row.get(col, None)) else row.get(col, None)
-            for row in table_data
-        ]
+        values: list[object | None] = []
+        for row in table_data:
+            value = row.get(col, None)
+            if isinstance(value, float) and np.isnan(value):
+                values.append(None)
+            else:
+                values.append(value)
 
         try:
             # We want to use pyarrow arrays where possible to optimise on memory usage
@@ -937,13 +934,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
 # from `conditional-cache`, but changed to be made async
 def conditional_lru_cache_async(
-    maxsize: int = 128, typed: bool = False, condition: Callable[[_T], bool] = lambda x: True
-) -> Callable[[Callable[_P, Awaitable[_T]]], AsyncCachedCallable[_P, _T]]:
+    maxsize: int = 128, typed: bool = False, condition: Callable[[Any], bool] = lambda x: True
+):
     cache = CircularDict(maxlen=maxsize)
 
-    def decorator(func: Callable[_P, Awaitable[_T]]) -> AsyncCachedCallable[_P, _T]:
+    def decorator(func):
         @wraps(func)
-        async def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _T:
+        async def wrapper(*args, **kwargs):
             key = _make_key(args, kwargs, typed)
 
             if key in cache:
@@ -956,14 +953,13 @@ def conditional_lru_cache_async(
 
             return result
 
-        def cache_remove(*args: _P.args, **kwargs: _P.kwargs) -> None:
+        def cache_remove(*args, **kwargs):
             key = _make_key(args, kwargs, typed)
             cache.pop(key, None)
 
-        cached_wrapper = cast(AsyncCachedCallable[_P, _T], wrapper)
-        cached_wrapper.cache_remove = cache_remove
-        cached_wrapper.cache_clear = cache.clear
+        cast(Any, wrapper).cache_remove = cache_remove
+        cast(Any, wrapper).cache_clear = lambda: cache.clear()
 
-        return cached_wrapper
+        return wrapper
 
     return decorator
