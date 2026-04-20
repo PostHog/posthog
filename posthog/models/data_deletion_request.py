@@ -19,6 +19,7 @@ def jsonhas_expr(prop: str, param_prefix: str) -> str:
 class RequestType(models.TextChoices):
     PROPERTY_REMOVAL = "property_removal"
     EVENT_REMOVAL = "event_removal"
+    PERSON_REMOVAL = "person_removal"
 
 
 class RequestStatus(models.TextChoices):
@@ -26,8 +27,14 @@ class RequestStatus(models.TextChoices):
     PENDING = "pending"
     APPROVED = "approved"
     IN_PROGRESS = "in_progress"
+    QUEUED = "queued"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class ExecutionMode(models.TextChoices):
+    IMMEDIATE = "immediate"
+    DEFERRED = "deferred"
 
 
 class DataDeletionRequest(UUIDModel):
@@ -41,16 +48,21 @@ class DataDeletionRequest(UUIDModel):
     )
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
+
     events = ArrayField(
-        models.CharField(max_length=400),
+        models.CharField(max_length=1024),
         help_text="Event names to match.",
     )
     properties = ArrayField(
-        models.CharField(max_length=400),
+        models.CharField(max_length=1024),
         blank=True,
         default=list,
         help_text="Property names to remove. Required for property_removal requests.",
     )
+    person_drop_profiles = models.BooleanField(null=True, blank=True, help_text="Drop person profiles.")
+    person_drop_events = models.BooleanField(null=True, blank=True, help_text="Drop event records related to persons.")
+    person_drop_recordings = models.BooleanField(null=True, blank=True, help_text="Drop person recordings.")
+
     status = models.CharField(max_length=40, choices=RequestStatus.choices, default=RequestStatus.DRAFT)
 
     # Stats (populated by ClickHouse query)
@@ -70,6 +82,7 @@ class DataDeletionRequest(UUIDModel):
         null=True,
         related_name="data_deletion_requests_created",
     )
+    created_by_staff = models.BooleanField(null=True, blank=True, help_text="Was this created by instance operator.")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     criteria_updated_by = models.ForeignKey(
@@ -102,6 +115,15 @@ class DataDeletionRequest(UUIDModel):
         related_name="data_deletion_requests_approved",
     )
     approved_at = models.DateTimeField(null=True, blank=True)
+    execution_mode = models.CharField(
+        max_length=20,
+        choices=ExecutionMode.choices,
+        default=ExecutionMode.IMMEDIATE,
+        help_text="Picked by ClickHouse Team at approval time. "
+        "Immediate: run a dedicated delete mutation now. "
+        "Deferred: queue event UUIDs into adhoc_events_deletion so the "
+        "scheduled deletes_job drains them. Only honored for event_removal.",
+    )
 
     class Meta:
         ordering = ["-created_at"]
