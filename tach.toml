@@ -525,3 +525,11 @@ depends_on = [
     "posthog",
 ]
 layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.webhooks.*",
+]
+from = [
+    "products.ci_monitoring",
+]

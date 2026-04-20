@@ -47,6 +47,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
+from products.ci_monitoring.backend.presentation.webhooks import github_workflow_run_webhook
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
@@ -332,6 +333,7 @@ urlpatterns = [
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
     # GitHub webhooks for task lifecycle events
     opt_slash_path("webhooks/github/pr", github_pr_webhook),
+    opt_slash_path("webhooks/github/ci", github_workflow_run_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
