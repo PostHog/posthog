@@ -9,6 +9,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// CapabilityGroupKey is the reserved key under ProcConfig.Groups that carries
+// the capability dimension inferred from ProcConfig.Capability
+const CapabilityGroupKey = "capability"
+
 // Mirrors a single entry under mprocs.yaml's "procs" key
 type ProcConfig struct {
 	Shell        string            `yaml:"shell"`
@@ -21,6 +25,7 @@ type ProcConfig struct {
 	AskSkip      bool              `yaml:"ask_skip"`
 	Env          map[string]string `yaml:"env"`
 	ReadyPattern string            `yaml:"ready_pattern"`
+	Groups       map[string]string `yaml:"groups"` // user-defined grouping dimensions, using map here so new dimensions need no code changes
 }
 
 // Reports whether the process should start automatically
@@ -33,6 +38,7 @@ func (p ProcConfig) ShouldAutostart() bool {
 type Config struct {
 	Shell            string                `yaml:"shell"`
 	Procs            map[string]ProcConfig `yaml:"procs"`
+	GroupOrder       map[string][]string   `yaml:"group_order"` // display order per dimension
 	HideKeymapWindow bool                  `yaml:"hide_keymap_window"`
 	MouseScrollSpeed int                   `yaml:"mouse_scroll_speed"`
 	ProcListWidth    int                   `yaml:"proc_list_width"`
@@ -76,7 +82,30 @@ func Load(path string) (*Config, error) {
 	if cfg.MouseScrollSpeed == 0 {
 		cfg.MouseScrollSpeed = 3
 	}
+	inferGroupFromCapability(&cfg)
 	return &cfg, nil
+}
+
+// inferGroupFromCapability copies each proc's "capability:" field into
+// "groups:" map, so the TUI's grouping dimension cycle ("g" key) picks
+// it up alongside user-declared dimensions.
+// An explicit Groups[CapabilityGroupKey] in YAML takes precedence.
+func inferGroupFromCapability(cfg *Config) {
+	for name, pc := range cfg.Procs {
+		if pc.Capability == "" {
+			// Procs without a capability fall under "Ungrouped"
+			continue
+		}
+		if _, ok := pc.Groups[CapabilityGroupKey]; ok {
+			// Any explicit entry is respected, setting to "" leads to "Ungrouped"
+			continue
+		}
+		if pc.Groups == nil {
+			pc.Groups = make(map[string]string)
+		}
+		pc.Groups[CapabilityGroupKey] = pc.Capability
+		cfg.Procs[name] = pc
+	}
 }
 
 // Intent is a minimal representation of an intent from intent-map.yaml.

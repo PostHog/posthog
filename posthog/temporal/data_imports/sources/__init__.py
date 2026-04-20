@@ -26,6 +26,7 @@ from .chargebee.source import ChargebeeSource
 from .chartmogul.source import ChartMogulSource
 from .circleci.source import CircleCISource
 from .clerk.source import ClerkSource
+from .clickhouse.source import ClickHouseSource
 from .clickup.source import ClickUpSource
 from .close.source import CloseSource
 from .cockroachdb.source import CockroachDBSource
@@ -170,6 +171,7 @@ __all__ = [
     "ChartMogulSource",
     "CircleCISource",
     "ClerkSource",
+    "ClickHouseSource",
     "ClickUpSource",
     "CloseSource",
     "CockroachDBSource",

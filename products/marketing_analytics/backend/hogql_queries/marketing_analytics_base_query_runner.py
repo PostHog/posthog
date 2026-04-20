@@ -1,9 +1,11 @@
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import cached_property
 from typing import Generic, Optional, TypeVar
 
 import structlog
+import posthoganalytics
 
 from posthog.schema import (
     ConversionGoalFilter1,
@@ -19,6 +21,7 @@ from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 
+from posthog.event_usage import groups
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -47,6 +50,42 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         super().__init__(*args, **kwargs)
         self.config = MarketingAnalyticsConfig()
         self._conversion_goal_warnings: list[str] = []
+
+    def calculate(self) -> ResponseType:
+        start = time.perf_counter()
+        try:
+            response = self._calculate()
+            self._capture_query_event("marketing analytics query performed", start)
+            return response
+        except Exception as e:
+            self._capture_query_event("marketing analytics query failed", start, error=e)
+            raise
+
+    def _capture_query_event(self, event: str, start: float, error: Optional[BaseException] = None) -> None:
+        try:
+            duration_ms = (time.perf_counter() - start) * 1000
+            props: dict = {
+                "query_kind": getattr(self.query, "kind", None),
+                "duration_ms": round(duration_ms, 2),
+                "drill_down_level": getattr(self.config, "drill_down_level", None),
+                "attribution_mode": getattr(self.query, "attributionMode", None),
+                "conversion_goals_count": len(getattr(self.query, "conversionGoals", None) or []),
+                "has_compare": getattr(self.query, "compareFilter", None) is not None,
+                "team_id": self.team.pk,
+            }
+            if error is None:
+                props["timings"] = [{"k": t.k, "t": t.t} for t in self.timings.to_list()]
+            else:
+                props["error_name"] = type(error).__name__
+                props["error_message"] = str(error)[:500]
+            posthoganalytics.capture(
+                distinct_id=str(self.team.uuid),
+                event=event,
+                properties=props,
+                groups=groups(self.team.organization, self.team),
+            )
+        except Exception:
+            logger.exception("Failed to capture marketing analytics telemetry event", event_name=event)
 
     @cached_property
     def query_date_range(self):

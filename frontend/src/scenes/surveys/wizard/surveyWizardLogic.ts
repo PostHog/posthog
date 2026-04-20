@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -368,7 +368,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
         },
     })),
 
-    urlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props, values }) => ({
         [urls.surveyWizard(props.id)]: (_, searchParams) => {
             const templateParam = searchParams.template
             if (templateParam && props.id === 'new') {
@@ -377,6 +377,11 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                     actions.resetSurvey()
                     actions.selectTemplate(matchedTemplate)
                 }
+            } else if (props.id === 'new' && values.currentStep === 'success') {
+                // Reset wizard when navigating back after a successful launch,
+                // since the scene-level logic mount keeps state alive across navigations
+                actions.resetWizard()
+                actions.resetSurvey()
             }
         },
     })),
@@ -402,12 +407,12 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
         } else if (!shouldPreserveLocalChanges) {
             actions.loadSurvey()
         }
+    }),
 
-        return () => {
-            actions.resetWizard()
-            if (props.id === 'new') {
-                actions.resetSurvey()
-            }
+    beforeUnmount(({ actions, props }) => {
+        actions.resetWizard()
+        if (props.id === 'new') {
+            actions.resetSurvey()
         }
     }),
 ])

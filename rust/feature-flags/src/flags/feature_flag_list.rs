@@ -68,6 +68,8 @@ impl FeatureFlagList {
 
         let evaluation_metadata = wrapper.evaluation_metadata;
         if evaluation_metadata.dependency_stages.is_empty() && !wrapper.flags.is_empty() {
+            // Every valid cache entry and PG fallback must populate dependency_stages.
+            // Empty stages with non-empty flags means something went wrong upstream.
             tracing::error!(
                 "evaluation_metadata.dependency_stages is empty but {} flags present for team {}",
                 wrapper.flags.len(),

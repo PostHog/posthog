@@ -41,7 +41,6 @@ rdkafka = { workspace = true }
 posthog-rs = { workspace = true }
 base64 = { workspace = true }
 regex = { workspace = true }
-once_cell = { workspace = true }
 futures.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tower.workspace = true

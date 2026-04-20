@@ -450,8 +450,14 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     )
                 )
 
-                # limit to the last 24h by default
-                after = self.query.after or "-24h"
+                # Default to 1h when no date bounds are provided — unbounded windows on
+                # raw_sessions can OOM for high-volume teams. Only apply the default
+                # when neither bound is set to avoid creating an empty range when a
+                # caller provides only `before`.
+                after = self.query.after
+                if not after and not self.query.before:
+                    after = "-1h"
+                after = after or "all"
                 if after != "all":
                     parsed_date = relative_date_parse(after, self.team.timezone_info)
                     where_exprs.append(
