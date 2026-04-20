@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconTestTube } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
@@ -34,6 +34,18 @@ function LogsAlertingSectionInner(): JSX.Element {
 
     return (
         <>
+            <LemonBanner
+                type="info"
+                dismissKey="logs-alerts-beta-banner"
+                className="mb-3"
+                action={{ children: 'Send feedback', id: 'logs-alerts-feedback-button' }}
+            >
+                Logs alerting is in beta — alerts are checked every 5 minutes. Read the{' '}
+                <Link to="https://posthog.com/docs/logs/alerts" target="_blank">
+                    docs
+                </Link>{' '}
+                or share feedback with what you'd like to see.
+            </LemonBanner>
             <LogsAlertList />
             <LemonModal
                 isOpen={isModalOpen}
