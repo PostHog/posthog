@@ -1075,6 +1075,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             if not table_or_view:
                 raise ValueError(f"Table {series.table_name} not found")
+            if table_or_view.columns is None:
+                return False
 
             breakdown_key = (
                 self.query.breakdownFilter.breakdown[0]
@@ -1082,10 +1084,11 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 else self.query.breakdownFilter.breakdown
             )
 
-            if breakdown_key not in dict(table_or_view.columns):
+            columns = dict(table_or_view.columns)
+            if breakdown_key not in columns:
                 return False
 
-            field_type = dict(table_or_view.columns)[breakdown_key]["clickhouse"]
+            field_type = columns[breakdown_key]["clickhouse"]
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]

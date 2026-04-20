@@ -51,6 +51,27 @@ export interface PagedSearchOrderFilters {
     order_by: string
 }
 
+// Runs an async worker across `items` with at most `limit` promises in flight.
+// Intended for lazy loaders that otherwise fan out enough parallel requests to
+// starve the browser's per-origin connection pool.
+export async function runWithConcurrency<T>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<void>
+): Promise<void> {
+    if (items.length === 0) {
+        return
+    }
+    let cursor = 0
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (cursor < items.length) {
+            const index = cursor++
+            await worker(items[index])
+        }
+    })
+    await Promise.all(runners)
+}
+
 export interface SanitizeTraceUrlSearchParamsOptions {
     removeSearch?: boolean
 }

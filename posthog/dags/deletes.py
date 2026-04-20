@@ -602,6 +602,7 @@ def delete_events(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (cluster.map_one_host_per_shard(delete_mutation_runner).result().items())
+        if host.shard_num is not None
     }
 
     return (load_and_verify_deletes_dictionary, shard_mutations)
@@ -751,7 +752,7 @@ def cleanup_delete_assets(
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
     if not config.cleanup:
-        config.log.info("Skipping cleanup as cleanup is disabled")
+        dagster.get_dagster_logger().info("Skipping cleanup as cleanup is disabled")
         return True
 
     # Must drop dict first
