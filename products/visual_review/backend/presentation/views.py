@@ -158,13 +158,19 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         return Response(QuarantinedIdentifierEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(responses={204: None})
-    @action(detail=True, methods=["delete"], url_path=r"quarantine/(?P<run_type>[^/]+)/(?P<identifier>.+)")
-    def unquarantine(self, request: Request, pk: str, run_type: str, identifier: str, **kwargs) -> Response:
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name="identifier", type=str, required=True),
+        ],
+        responses={204: None},
+    )
+    @action(detail=True, methods=["delete"], url_path=r"quarantine/(?P<run_type>[^/]+)")
+    def unquarantine(self, request: Request, pk: str, run_type: str, **kwargs) -> Response:
         """Remove an identifier from quarantine."""
-        api.unquarantine_identifier(
-            repo_id=UUID(pk), identifier=identifier.rstrip("/"), run_type=run_type, team_id=self.team_id
-        )
+        identifier = request.query_params.get("identifier", "")
+        if not identifier:
+            return Response({"detail": "identifier query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+        api.unquarantine_identifier(repo_id=UUID(pk), identifier=identifier, run_type=run_type, team_id=self.team_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

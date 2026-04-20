@@ -31,6 +31,7 @@ import type {
     RunApi,
     SnapshotApi,
     VisualReviewReposListParams,
+    VisualReviewReposQuarantineDestroyParams,
     VisualReviewReposQuarantineListParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
@@ -128,7 +129,7 @@ export const visualReviewReposPartialUpdate = async (
 }
 
 /**
- * List quarantined identifiers for a repo.
+ * List quarantined identifiers. Without filter: active only. With identifier: full history.
  */
 export const getVisualReviewReposQuarantineListUrl = (
     projectId: string,
@@ -194,19 +195,31 @@ export const getVisualReviewReposQuarantineDestroyUrl = (
     projectId: string,
     id: string,
     runType: string,
-    identifier: string
+    params: VisualReviewReposQuarantineDestroyParams
 ) => {
-    return `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/${identifier}/`
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/`
 }
 
 export const visualReviewReposQuarantineDestroy = async (
     projectId: string,
     id: string,
     runType: string,
-    identifier: string,
+    params: VisualReviewReposQuarantineDestroyParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getVisualReviewReposQuarantineDestroyUrl(projectId, id, runType, identifier), {
+    return apiMutator<void>(getVisualReviewReposQuarantineDestroyUrl(projectId, id, runType, params), {
         ...options,
         method: 'DELETE',
     })

@@ -293,6 +293,10 @@ export type VisualReviewReposListParams = {
 
 export type VisualReviewReposQuarantineListParams = {
     /**
+     * Filter by identifier (returns full history)
+     */
+    identifier?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -300,6 +304,10 @@ export type VisualReviewReposQuarantineListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type VisualReviewReposQuarantineDestroyParams = {
+    identifier: string
 }
 
 export type VisualReviewRunsListParams = {
