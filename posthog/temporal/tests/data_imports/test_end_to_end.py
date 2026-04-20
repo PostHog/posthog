@@ -133,7 +133,14 @@ class _KafkaMessageCapture:
             except Exception:
                 pass
 
-    def mock_idempotency_check(self, team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> bool:
+    def mock_idempotency_check(
+        self,
+        team_id: int,
+        schema_id: str,
+        run_uuid: str,
+        batch_index: int,
+        delta_table_helper: Any = None,
+    ) -> bool:
         key = (run_uuid, batch_index)
         if key in self._processed_batches:
             return True
@@ -1737,6 +1744,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
         assert second_call_kwargs == {
@@ -1745,6 +1753,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
     else:
         mock_v3_post_load.assert_called_once()
@@ -1760,6 +1769,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
         assert second_call_kwargs == {
@@ -1768,6 +1778,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
 
@@ -1832,6 +1843,7 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
+        "commit_properties": mock.ANY,
     }
 
 
@@ -1910,6 +1922,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
         assert second_call_kwargs == {
@@ -1918,6 +1931,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
     else:
         mock_v3_post_load.assert_called_once()
@@ -1933,6 +1947,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
         assert second_call_kwargs == {
@@ -1941,6 +1956,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
 
@@ -2473,6 +2489,7 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
         "target_alias": "target",
         "predicate": f"source.id = target.id AND source.{PARTITION_KEY} = target.{PARTITION_KEY} AND target.{PARTITION_KEY} = '0'",
         "streamed_exec": True,
+        "commit_properties": mock.ANY,
     }
 
 
@@ -3210,6 +3227,116 @@ async def test_resumable_source_shutdown(team, stripe_customer, mock_stripe_clie
         )
 
         mock_raise_if_is_worker_shutdown.assert_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_customer, mock_stripe_client):
+    """V3 only: every delta commit on the writer side is tagged with (run_uuid, batch_index)
+    in userMetadata, and `is_batch_already_processed` can fall back to delta history when
+    the Redis idempotency flag is missing.
+
+    This exercises the writer-side idempotency gap: if the writer crashes between
+    `write_to_deltalake` committing and `mark_batch_as_processed` running, Kafka redelivery
+    would otherwise re-write the same batch and produce duplicate rows. The delta-history
+    fallback closes that gap.
+    """
+    if _current_pipeline_mode != "v3":
+        pytest.skip("only applies to pipeline_v3")
+
+    from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import is_batch_already_processed
+
+    _, inputs = await _run(
+        team=team,
+        schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        table_name="stripe_customer",
+        source_type="Stripe",
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
+        mock_data_response=stripe_customer["data"],
+    )
+
+    job: ExternalDataJob | None = await sync_to_async(
+        lambda: (
+            ExternalDataJob.objects.filter(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+            .order_by("-created_at")
+            .first()
+        )
+    )()
+    assert job is not None
+
+    # The v3 writer runs under these overridden settings (see `_replay_v3_consumer`),
+    # so reading the delta table back must use the same storage config.
+    with override_settings(
+        BUCKET_URL=f"s3://{BUCKET_NAME}",
+        BUCKET_PATH=BUCKET_NAME,
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        DATA_WAREHOUSE_REDIS_HOST="localhost",
+        DATA_WAREHOUSE_REDIS_PORT="6379",
+        DATAWAREHOUSE_BUCKET=BUCKET_NAME,
+    ):
+        delta_table_helper = DeltaTableHelper(
+            resource_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+            job=job,
+            logger=mock.MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()),
+        )
+
+        # 1. Every commit written by the v3 writer should carry userMetadata with (run_uuid, batch_index).
+        delta_table = await delta_table_helper.get_delta_table()
+        assert delta_table is not None
+
+        # delta-rs 1.x inlines `CommitProperties.custom_metadata` entries directly
+        # into the commit dict alongside `operation`/`timestamp`/etc., so we match
+        # by presence of our metadata keys rather than by `operation`. Operation can
+        # be WRITE (full_refresh/append) or MERGE (incremental/cdc), depending on the
+        # sync type — the keys are the only stable signal.
+        history = await sync_to_async(delta_table.history)(limit=50)
+        tagged_commits = [c for c in history if "run_uuid" in c and "batch_index" in c]
+        assert len(tagged_commits) > 0, "expected at least one commit tagged with run_uuid + batch_index"
+
+        observed_run_uuids: set[str] = set()
+        observed_batch_indices: set[str] = set()
+        for commit in tagged_commits:
+            observed_run_uuids.add(commit["run_uuid"])
+            observed_batch_indices.add(commit["batch_index"])
+
+        # All commits should belong to the same run.
+        assert len(observed_run_uuids) == 1
+        run_uuid = next(iter(observed_run_uuids))
+
+        # 2. Delta-history fallback returns True for a known committed batch.
+        known_batch_index = int(next(iter(observed_batch_indices)))
+        found = await sync_to_async(is_batch_already_processed)(
+            team_id=team.pk,
+            schema_id=str(inputs.external_data_schema_id),
+            run_uuid=run_uuid,
+            batch_index=known_batch_index,
+            delta_table_helper=delta_table_helper,
+        )
+        assert found is True, "delta-history fallback should detect a committed batch"
+
+        # 3. And False for a run_uuid that was never written — a different sync's batch.
+        not_found = await sync_to_async(is_batch_already_processed)(
+            team_id=team.pk,
+            schema_id=str(inputs.external_data_schema_id),
+            run_uuid="never-existed-run-uuid",
+            batch_index=0,
+            delta_table_helper=delta_table_helper,
+        )
+        assert not_found is False
+
+    # 4. Final no-duplicates assertion: every customer row appears exactly once.
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT count() AS total, count(DISTINCT id) AS distinct_ids FROM stripe_customer", team
+    )
+    assert res.results is not None and len(res.results) == 1
+    total, distinct_ids = res.results[0]
+    assert total == distinct_ids, f"duplicate rows in destination table: total={total} distinct_ids={distinct_ids}"
 
 
 @pytest.mark.django_db(transaction=True)

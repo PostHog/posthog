@@ -1,3 +1,4 @@
+import re
 import json
 import uuid as uuid_mod
 from datetime import timedelta
@@ -45,6 +46,10 @@ from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGE
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
+
+# Delay durations are strings like "30m", "2h", "1.5d". Must match the regex in the Node.js executor
+# (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
+DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
 
 
 class BlastRadiusRequestSerializer(serializers.Serializer):
@@ -175,6 +180,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                         else:
                             serializer.is_valid(raise_exception=True)
                             condition["filters"] = serializer.validated_data
+
+        if data.get("type") == "delay":
+            delay_duration = data.get("config", {}).get("delay_duration")
+            if not isinstance(delay_duration, str) or not DELAY_DURATION_REGEX.match(delay_duration):
+                if not is_draft:
+                    raise serializers.ValidationError(
+                        {
+                            "config": (
+                                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
+                                "(e.g. '30m', '2h', '1d'). Seconds and ISO-8601 formats are not supported."
+                            )
+                        }
+                    )
 
         return data
 
