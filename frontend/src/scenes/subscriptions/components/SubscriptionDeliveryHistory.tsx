@@ -1,3 +1,5 @@
+import { memo } from 'react'
+
 import { IconSend } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSelect, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
@@ -68,6 +70,25 @@ function deliveryTriggerLabel(triggerType: string): string {
 
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
+
+const ExpandedSummaryRow = memo(function ExpandedSummaryRow({ summary }: { summary: string }): JSX.Element {
+    return (
+        <div className="px-4 py-3 text-sm whitespace-pre-wrap">
+            <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
+            {summary}
+        </div>
+    )
+})
+
+/**
+ * Defined at module scope so the reference is stable across parent re-renders —
+ * passing a fresh object literal to `expandable` would invalidate LemonTable
+ * memoisation on every render of the parent.
+ */
+const DELIVERY_TABLE_EXPANDABLE = {
+    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(row.change_summary),
+    expandedRowRender: (row: SubscriptionDeliveryApi) => <ExpandedSummaryRow summary={row.change_summary ?? ''} />,
+}
 
 function buildDeliveryColumns(): LemonTableColumns<SubscriptionDeliveryApi> {
     return [
@@ -281,17 +302,7 @@ export function SubscriptionDeliveryHistory({
                         nouns={['delivery', 'deliveries']}
                         emptyState={tableEmptyState}
                         data-attr="subscription-deliveries-table"
-                        expandable={{
-                            rowExpandable: (row) => Boolean(row.change_summary),
-                            expandedRowRender: (row) => (
-                                <div className="px-4 py-3 text-sm whitespace-pre-wrap">
-                                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">
-                                        AI summary
-                                    </div>
-                                    {row.change_summary}
-                                </div>
-                            ),
-                        }}
+                        expandable={DELIVERY_TABLE_EXPANDABLE}
                         pagination={{
                             controlled: true,
                             pageSize: 50,
