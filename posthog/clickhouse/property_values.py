@@ -74,7 +74,7 @@ AS SELECT
     _timestamp as last_seen
 FROM {database}.{kafka_table}
 WHERE length(property_key) > 0
-  AND length(property_key) <= 400
+  AND length(property_key) <= 400  -- matches Django PropertyDefinition.name max_length
   AND length(property_value) > 0
   AND length(property_value) < 256
 """.format(
