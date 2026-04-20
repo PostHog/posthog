@@ -10,7 +10,7 @@ export default defineConfig({
         retry: 1, // Retry failed tests once to handle flaky integration tests
         setupFiles: ['tests/setup.ts'],
         include: ['tests/**/*.integration.test.ts'],
-        exclude: ['node_modules/**', 'dist/**'],
+        exclude: ['node_modules/**', 'dist/**', 'tests/hono/**'],
         // Run test files sequentially to reduce parallel API load
         fileParallelism: false,
         // Limit concurrent tests within a file

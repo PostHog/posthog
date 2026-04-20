@@ -198,6 +198,9 @@ jobs:
                     exit 1
                   fi
 
+            - name: Run Hono unit tests
+              run: cd services/mcp && pnpm run test:hono
+
             - name: Create snapshot patch
               id: create-snapshot-patch
               if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}

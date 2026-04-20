@@ -1823,7 +1823,7 @@ importers:
         version: 18.3.7(@types/react@18.3.27)
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))
+        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
       jest-image-snapshot:
         specifier: ^6.4.0
         version: 6.4.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)))
@@ -3416,6 +3416,9 @@ importers:
 
   services/mcp:
     dependencies:
+      '@hono/node-server':
+        specifier: ^1.19.14
+        version: 1.19.14(hono@4.12.14)
       '@modelcontextprotocol/ext-apps':
         specifier: ^1.5.0
         version: 1.6.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.3.6)
@@ -3434,9 +3437,18 @@ importers:
       ai:
         specifier: ^6.0.0
         version: 6.0.77(zod@4.3.6)
+      esbuild:
+        specifier: ^0.25.10
+        version: 0.25.10
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
+      hono:
+        specifier: ^4.12.14
+        version: 4.12.14
+      ioredis:
+        specifier: ^4.28.5
+        version: 4.28.5
       mcpcat:
         specifier: 0.1.15
         version: 0.1.15(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))
@@ -3482,7 +3494,7 @@ importers:
         version: 18.3.7(@types/react@18.3.27)
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))
+        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
       ajv:
         specifier: ^8.17.1
         version: 8.17.1
@@ -5554,12 +5566,6 @@ packages:
     cpu: [ppc64]
     os: [aix]
 
-  '@esbuild/aix-ppc64@0.27.2':
-    resolution: {integrity: sha512-GZMB+a0mOMZs4MpDbj8RJp4cw+w1WV5NYD6xzgvzUJ5Ek2jerwfO2eADyI6ExDSUED+1X8aMbegahsJi+8mgpw==}
-    engines: {node: '>=18'}
-    cpu: [ppc64]
-    os: [aix]
-
   '@esbuild/aix-ppc64@0.27.3':
     resolution: {integrity: sha512-9fJMTNFTWZMh5qwrBItuziu834eOCUcEqymSH7pY+zoMVEZg3gcPuBNxH1EvfVYe9h0x/Ptw8KBzv7qxb7l8dg==}
     engines: {node: '>=18'}
@@ -5586,12 +5592,6 @@ packages:
 
   '@esbuild/android-arm64@0.27.0':
     resolution: {integrity: sha512-CC3vt4+1xZrs97/PKDkl0yN7w8edvU2vZvAFGD16n9F0Cvniy5qvzRXjfO1l94efczkkQE6g1x0i73Qf5uthOQ==}
-    engines: {node: '>=18'}
-    cpu: [arm64]
-    os: [android]
-
-  '@esbuild/android-arm64@0.27.2':
-    resolution: {integrity: sha512-pvz8ZZ7ot/RBphf8fv60ljmaoydPU12VuXHImtAs0XhLLw+EXBi2BLe3OYSBslR4rryHvweW5gmkKFwTiFy6KA==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [android]
@@ -5626,12 +5626,6 @@ packages:
     cpu: [arm]
     os: [android]
 
-  '@esbuild/android-arm@0.27.2':
-    resolution: {integrity: sha512-DVNI8jlPa7Ujbr1yjU2PfUSRtAUZPG9I1RwW4F4xFB1Imiu2on0ADiI/c3td+KmDtVKNbi+nffGDQMfcIMkwIA==}
-    engines: {node: '>=18'}
-    cpu: [arm]
-    os: [android]
-
   '@esbuild/android-arm@0.27.3':
     resolution: {integrity: sha512-i5D1hPY7GIQmXlXhs2w8AWHhenb00+GxjxRncS2ZM7YNVGNfaMxgzSGuO8o8SJzRc/oZwU2bcScvVERk03QhzA==}
     engines: {node: '>=18'}
@@ -5658,12 +5652,6 @@ packages:
 
   '@esbuild/android-x64@0.27.0':
     resolution: {integrity: sha512-wurMkF1nmQajBO1+0CJmcN17U4BP6GqNSROP8t0X/Jiw2ltYGLHpEksp9MpoBqkrFR3kv2/te6Sha26k3+yZ9Q==}
-    engines: {node: '>=18'}
-    cpu: [x64]
-    os: [android]
-
-  '@esbuild/android-x64@0.27.2':
-    resolution: {integrity: sha512-z8Ank4Byh4TJJOh4wpz8g2vDy75zFL0TlZlkUkEwYXuPSgX8yzep596n6mT7905kA9uHZsf/o2OJZubl2l3M7A==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [android]
@@ -5698,12 +5686,6 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
-  '@esbuild/darwin-arm64@0.27.2':
-    resolution: {integrity: sha512-davCD2Zc80nzDVRwXTcQP/28fiJbcOwvdolL0sOiOsbwBa72kegmVU0Wrh1MYrbuCL98Omp5dVhQFWRKR2ZAlg==}
-    engines: {node: '>=18'}
-    cpu: [arm64]
-    os: [darwin]
-
   '@esbuild/darwin-arm64@0.27.3':
     resolution: {integrity: sha512-Re491k7ByTVRy0t3EKWajdLIr0gz2kKKfzafkth4Q8A5n1xTHrkqZgLLjFEHVD+AXdUGgQMq+Godfq45mGpCKg==}
     engines: {node: '>=18'}
@@ -5730,12 +5712,6 @@ packages:
 
   '@esbuild/darwin-x64@0.27.0':
     resolution: {integrity: sha512-8mG6arH3yB/4ZXiEnXof5MK72dE6zM9cDvUcPtxhUZsDjESl9JipZYW60C3JGreKCEP+p8P/72r69m4AZGJd5g==}
-    engines: {node: '>=18'}
-    cpu: [x64]
-    os: [darwin]
-
-  '@esbuild/darwin-x64@0.27.2':
-    resolution: {integrity: sha512-ZxtijOmlQCBWGwbVmwOF/UCzuGIbUkqB1faQRf5akQmxRJ1ujusWsb3CVfk/9iZKr2L5SMU5wPBi1UWbvL+VQA==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [darwin]
@@ -5770,12 +5746,6 @@ packages:
     cpu: [arm64]
     os: [freebsd]
 
-  '@esbuild/freebsd-arm64@0.27.2':
-    resolution: {integrity: sha512-lS/9CN+rgqQ9czogxlMcBMGd+l8Q3Nj1MFQwBZJyoEKI50XGxwuzznYdwcav6lpOGv5BqaZXqvBSiB/kJ5op+g==}
-    engines: {node: '>=18'}
-    cpu: [arm64]
-    os: [freebsd]
-
   '@esbuild/freebsd-arm64@0.27.3':
     resolution: {integrity: sha512-ipTYM2fjt3kQAYOvo6vcxJx3nBYAzPjgTCk7QEgZG8AUO3ydUhvelmhrbOheMnGOlaSFUoHXB6un+A7q4ygY9w==}
     engines: {node: '>=18'}
@@ -5802,12 +5772,6 @@ packages:
 
   '@esbuild/freebsd-x64@0.27.0':
     resolution: {integrity: sha512-zCMeMXI4HS/tXvJz8vWGexpZj2YVtRAihHLk1imZj4efx1BQzN76YFeKqlDr3bUWI26wHwLWPd3rwh6pe4EV7g==}
-    engines: {node: '>=18'}
-    cpu: [x64]
-    os: [freebsd]
-
-  '@esbuild/freebsd-x64@0.27.2':
-    resolution: {integrity: sha512-tAfqtNYb4YgPnJlEFu4c212HYjQWSO/w/h/lQaBK7RbwGIkBOuNKQI9tqWzx7Wtp7bTPaGC6MJvWI608P3wXYA==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [freebsd]
@@ -5842,12 +5806,6 @@ packages:
     cpu: [arm64]
     os: [linux]
 
-  '@esbuild/linux-arm64@0.27.2':
-    resolution: {integrity: sha512-hYxN8pr66NsCCiRFkHUAsxylNOcAQaxSSkHMMjcpx0si13t1LHFphxJZUiGwojB1a/Hd5OiPIqDdXONia6bhTw==}
-    engines: {node: '>=18'}
-    cpu: [arm64]
-    os: [linux]
-
   '@esbuild/linux-arm64@0.27.3':
     resolution: {integrity: sha512-sZOuFz/xWnZ4KH3YfFrKCf1WyPZHakVzTiqji3WDc0BCl2kBwiJLCXpzLzUBLgmp4veFZdvN5ChW4Eq/8Fc2Fg==}
     engines: {node: '>=18'}
@@ -5874,12 +5832,6 @@ packages:
 
   '@esbuild/linux-arm@0.27.0':
     resolution: {integrity: sha512-t76XLQDpxgmq2cNXKTVEB7O7YMb42atj2Re2Haf45HkaUpjM2J0UuJZDuaGbPbamzZ7bawyGFUkodL+zcE+jvQ==}
-    engines: {node: '>=18'}
-    cpu: [arm]
-    os: [linux]
-
-  '@esbuild/linux-arm@0.27.2':
-    resolution: {integrity: sha512-vWfq4GaIMP9AIe4yj1ZUW18RDhx6EPQKjwe7n8BbIecFtCQG4CfHGaHuh7fdfq+y3LIA2vGS/o9ZBGVxIDi9hw==}
     engines: {node: '>=18'}
     cpu: [arm]
     os: [linux]
@@ -5914,12 +5866,6 @@ packages:
     cpu: [ia32]
     os: [linux]
 
-  '@esbuild/linux-ia32@0.27.2':
-    resolution: {integrity: sha512-MJt5BRRSScPDwG2hLelYhAAKh9imjHK5+NE/tvnRLbIqUWa+0E9N4WNMjmp/kXXPHZGqPLxggwVhz7QP8CTR8w==}
-    engines: {node: '>=18'}
-    cpu: [ia32]
-    os: [linux]
-
   '@esbuild/linux-ia32@0.27.3':
     resolution: {integrity: sha512-yGlQYjdxtLdh0a3jHjuwOrxQjOZYD/C9PfdbgJJF3TIZWnm/tMd/RcNiLngiu4iwcBAOezdnSLAwQDPqTmtTYg==}
     engines: {node: '>=18'}
@@ -5946,12 +5892,6 @@ packages:
 
   '@esbuild/linux-loong64@0.27.0':
     resolution: {integrity: sha512-QbEREjdJeIreIAbdG2hLU1yXm1uu+LTdzoq1KCo4G4pFOLlvIspBm36QrQOar9LFduavoWX2msNFAAAY9j4BDg==}
-    engines: {node: '>=18'}
-    cpu: [loong64]
-    os: [linux]
-
-  '@esbuild/linux-loong64@0.27.2':
-    resolution: {integrity: sha512-lugyF1atnAT463aO6KPshVCJK5NgRnU4yb3FUumyVz+cGvZbontBgzeGFO1nF+dPueHD367a2ZXe1NtUkAjOtg==}
     engines: {node: '>=18'}
     cpu: [loong64]
     os: [linux]
@@ -5986,12 +5926,6 @@ packages:
     cpu: [mips64el]
     os: [linux]
 
-  '@esbuild/linux-mips64el@0.27.2':
-    resolution: {integrity: sha512-nlP2I6ArEBewvJ2gjrrkESEZkB5mIoaTswuqNFRv/WYd+ATtUpe9Y09RnJvgvdag7he0OWgEZWhviS1OTOKixw==}
-    engines: {node: '>=18'}
-    cpu: [mips64el]
-    os: [linux]
-
   '@esbuild/linux-mips64el@0.27.3':
     resolution: {integrity: sha512-APsymYA6sGcZ4pD6k+UxbDjOFSvPWyZhjaiPyl/f79xKxwTnrn5QUnXR5prvetuaSMsb4jgeHewIDCIWljrSxw==}
     engines: {node: '>=18'}
@@ -6018,12 +5952,6 @@ packages:
 
   '@esbuild/linux-ppc64@0.27.0':
     resolution: {integrity: sha512-z9N10FBD0DCS2dmSABDBb5TLAyF1/ydVb+N4pi88T45efQ/w4ohr/F/QYCkxDPnkhkp6AIpIcQKQ8F0ANoA2JA==}
-    engines: {node: '>=18'}
-    cpu: [ppc64]
-    os: [linux]
-
-  '@esbuild/linux-ppc64@0.27.2':
-    resolution: {integrity: sha512-C92gnpey7tUQONqg1n6dKVbx3vphKtTHJaNG2Ok9lGwbZil6DrfyecMsp9CrmXGQJmZ7iiVXvvZH6Ml5hL6XdQ==}
     engines: {node: '>=18'}
     cpu: [ppc64]
     os: [linux]
@@ -6058,12 +5986,6 @@ packages:
     cpu: [riscv64]
     os: [linux]
 
-  '@esbuild/linux-riscv64@0.27.2':
-    resolution: {integrity: sha512-B5BOmojNtUyN8AXlK0QJyvjEZkWwy/FKvakkTDCziX95AowLZKR6aCDhG7LeF7uMCXEJqwa8Bejz5LTPYm8AvA==}
-    engines: {node: '>=18'}
-    cpu: [riscv64]
-    os: [linux]
-
   '@esbuild/linux-riscv64@0.27.3':
     resolution: {integrity: sha512-3Emwh0r5wmfm3ssTWRQSyVhbOHvqegUDRd0WhmXKX2mkHJe1SFCMJhagUleMq+Uci34wLSipf8Lagt4LlpRFWQ==}
     engines: {node: '>=18'}
@@ -6090,12 +6012,6 @@ packages:
 
   '@esbuild/linux-s390x@0.27.0':
     resolution: {integrity: sha512-hPlRWR4eIDDEci953RI1BLZitgi5uqcsjKMxwYfmi4LcwyWo2IcRP+lThVnKjNtk90pLS8nKdroXYOqW+QQH+w==}
-    engines: {node: '>=18'}
-    cpu: [s390x]
-    os: [linux]
-
-  '@esbuild/linux-s390x@0.27.2':
-    resolution: {integrity: sha512-p4bm9+wsPwup5Z8f4EpfN63qNagQ47Ua2znaqGH6bqLlmJ4bx97Y9JdqxgGZ6Y8xVTixUnEkoKSHcpRlDnNr5w==}
     engines: {node: '>=18'}
     cpu: [s390x]
     os: [linux]
@@ -6130,12 +6046,6 @@ packages:
     cpu: [x64]
     os: [linux]
 
-  '@esbuild/linux-x64@0.27.2':
-    resolution: {integrity: sha512-uwp2Tip5aPmH+NRUwTcfLb+W32WXjpFejTIOWZFw/v7/KnpCDKG66u4DLcurQpiYTiYwQ9B7KOeMJvLCu/OvbA==}
-    engines: {node: '>=18'}
-    cpu: [x64]
-    os: [linux]
-
   '@esbuild/linux-x64@0.27.3':
     resolution: {integrity: sha512-Czi8yzXUWIQYAtL/2y6vogER8pvcsOsk5cpwL4Gk5nJqH5UZiVByIY8Eorm5R13gq+DQKYg0+JyQoytLQas4dA==}
     engines: {node: '>=18'}
@@ -6150,12 +6060,6 @@ packages:
 
   '@esbuild/netbsd-arm64@0.27.0':
     resolution: {integrity: sha512-6m0sfQfxfQfy1qRuecMkJlf1cIzTOgyaeXaiVaaki8/v+WB+U4hc6ik15ZW6TAllRlg/WuQXxWj1jx6C+dfy3w==}
-    engines: {node: '>=18'}
-    cpu: [arm64]
-    os: [netbsd]
-
-  '@esbuild/netbsd-arm64@0.27.2':
-    resolution: {integrity: sha512-Kj6DiBlwXrPsCRDeRvGAUb/LNrBASrfqAIok+xB0LxK8CHqxZ037viF13ugfsIpePH93mX7xfJp97cyDuTZ3cw==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [netbsd]
@@ -6190,12 +6094,6 @@ packages:
     cpu: [x64]
     os: [netbsd]
 
-  '@esbuild/netbsd-x64@0.27.2':
-    resolution: {integrity: sha512-HwGDZ0VLVBY3Y+Nw0JexZy9o/nUAWq9MlV7cahpaXKW6TOzfVno3y3/M8Ga8u8Yr7GldLOov27xiCnqRZf0tCA==}
-    engines: {node: '>=18'}
-    cpu: [x64]
-    os: [netbsd]
-
   '@esbuild/netbsd-x64@0.27.3':
     resolution: {integrity: sha512-P14lFKJl/DdaE00LItAukUdZO5iqNH7+PjoBm+fLQjtxfcfFE20Xf5CrLsmZdq5LFFZzb5JMZ9grUwvtVYzjiA==}
     engines: {node: '>=18'}
@@ -6210,12 +6108,6 @@ packages:
 
   '@esbuild/openbsd-arm64@0.27.0':
     resolution: {integrity: sha512-fWgqR8uNbCQ/GGv0yhzttj6sU/9Z5/Sv/VGU3F5OuXK6J6SlriONKrQ7tNlwBrJZXRYk5jUhuWvF7GYzGguBZQ==}
-    engines: {node: '>=18'}
-    cpu: [arm64]
-    os: [openbsd]
-
-  '@esbuild/openbsd-arm64@0.27.2':
-    resolution: {integrity: sha512-DNIHH2BPQ5551A7oSHD0CKbwIA/Ox7+78/AWkbS5QoRzaqlev2uFayfSxq68EkonB+IKjiuxBFoV8ESJy8bOHA==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [openbsd]
@@ -6250,12 +6142,6 @@ packages:
     cpu: [x64]
     os: [openbsd]
 
-  '@esbuild/openbsd-x64@0.27.2':
-    resolution: {integrity: sha512-/it7w9Nb7+0KFIzjalNJVR5bOzA9Vay+yIPLVHfIQYG/j+j9VTH84aNB8ExGKPU4AzfaEvN9/V4HV+F+vo8OEg==}
-    engines: {node: '>=18'}
-    cpu: [x64]
-    os: [openbsd]
-
   '@esbuild/openbsd-x64@0.27.3':
     resolution: {integrity: sha512-DnW2sRrBzA+YnE70LKqnM3P+z8vehfJWHXECbwBmH/CU51z6FiqTQTHFenPlHmo3a8UgpLyH3PT+87OViOh1AQ==}
     engines: {node: '>=18'}
@@ -6270,12 +6156,6 @@ packages:
 
   '@esbuild/openharmony-arm64@0.27.0':
     resolution: {integrity: sha512-nyvsBccxNAsNYz2jVFYwEGuRRomqZ149A39SHWk4hV0jWxKM0hjBPm3AmdxcbHiFLbBSwG6SbpIcUbXjgyECfA==}
-    engines: {node: '>=18'}
-    cpu: [arm64]
-    os: [openharmony]
-
-  '@esbuild/openharmony-arm64@0.27.2':
-    resolution: {integrity: sha512-LRBbCmiU51IXfeXk59csuX/aSaToeG7w48nMwA6049Y4J4+VbWALAuXcs+qcD04rHDuSCSRKdmY63sruDS5qag==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [openharmony]
@@ -6310,12 +6190,6 @@ packages:
     cpu: [x64]
     os: [sunos]
 
-  '@esbuild/sunos-x64@0.27.2':
-    resolution: {integrity: sha512-kMtx1yqJHTmqaqHPAzKCAkDaKsffmXkPHThSfRwZGyuqyIeBvf08KSsYXl+abf5HDAPMJIPnbBfXvP2ZC2TfHg==}
-    engines: {node: '>=18'}
-    cpu: [x64]
-    os: [sunos]
-
   '@esbuild/sunos-x64@0.27.3':
     resolution: {integrity: sha512-PanZ+nEz+eWoBJ8/f8HKxTTD172SKwdXebZ0ndd953gt1HRBbhMsaNqjTyYLGLPdoWHy4zLU7bDVJztF5f3BHA==}
     engines: {node: '>=18'}
@@ -6342,12 +6216,6 @@ packages:
 
   '@esbuild/win32-arm64@0.27.0':
     resolution: {integrity: sha512-W1eyGNi6d+8kOmZIwi/EDjrL9nxQIQ0MiGqe/AWc6+IaHloxHSGoeRgDRKHFISThLmsewZ5nHFvGFWdBYlgKPg==}
-    engines: {node: '>=18'}
-    cpu: [arm64]
-    os: [win32]
-
-  '@esbuild/win32-arm64@0.27.2':
-    resolution: {integrity: sha512-Yaf78O/B3Kkh+nKABUF++bvJv5Ijoy9AN1ww904rOXZFLWVc5OLOfL56W+C8F9xn5JQZa3UX6m+IktJnIb1Jjg==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [win32]
@@ -6382,12 +6250,6 @@ packages:
     cpu: [ia32]
     os: [win32]
 
-  '@esbuild/win32-ia32@0.27.2':
-    resolution: {integrity: sha512-Iuws0kxo4yusk7sw70Xa2E2imZU5HoixzxfGCdxwBdhiDgt9vX9VUCBhqcwY7/uh//78A1hMkkROMJq9l27oLQ==}
-    engines: {node: '>=18'}
-    cpu: [ia32]
-    os: [win32]
-
   '@esbuild/win32-ia32@0.27.3':
     resolution: {integrity: sha512-QLKSFeXNS8+tHW7tZpMtjlNb7HKau0QDpwm49u0vUp9y1WOF+PEzkU84y9GqYaAVW8aH8f3GcBck26jh54cX4Q==}
     engines: {node: '>=18'}
@@ -6414,12 +6276,6 @@ packages:
 
   '@esbuild/win32-x64@0.27.0':
     resolution: {integrity: sha512-aIitBcjQeyOhMTImhLZmtxfdOcuNRpwlPNmlFKPcHQYPhEssw75Cl1TSXJXpMkzaua9FUetx/4OQKq7eJul5Cg==}
-    engines: {node: '>=18'}
-    cpu: [x64]
-    os: [win32]
-
-  '@esbuild/win32-x64@0.27.2':
-    resolution: {integrity: sha512-sRdU18mcKf7F+YgheI/zGf5alZatMUTKj/jNS6l744f9u3WFu4v7twcUI9vu4mknF4Y9aDlblIie0IM+5xxaqQ==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
@@ -15220,11 +15076,6 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  esbuild@0.27.2:
-    resolution: {integrity: sha512-HyNQImnsOC7X9PMNaCIeAm4ISCQXs5a5YasTXVliKv4uuBo1dKrG0A+uQS8M5eXjVMnLg3WgXaKvprHlFJQffw==}
-    engines: {node: '>=18'}
-    hasBin: true
-
   esbuild@0.27.3:
     resolution: {integrity: sha512-8VwMnyGCONIs6cWue2IdpHxHnAjzxnw2Zr7MkVxB2vjmQ2ivqGFb4LEG3SMnv0Gb2F/G/2yA8zUaiL1gywDCCg==}
     engines: {node: '>=18'}
@@ -16264,8 +16115,8 @@ packages:
     resolution: {integrity: sha512-eSmmWE5bZTK2Nou4g0AI3zZ9rswp7GRKoKXS1BLUkvPviOqs4YTN1djQIqrXy9k5gEtdLPy86JjRwsNM9tnDcA==}
     engines: {node: '>=0.10.0'}
 
-  hono@4.11.8:
-    resolution: {integrity: sha512-eVkB/CYCCei7K2WElZW9yYQFWssG0DhaDhVvr7wy5jJ22K+ck8fWW0EsLpB0sITUTvPnc97+rrbQqIr5iqiy9Q==}
+  hono@4.12.14:
+    resolution: {integrity: sha512-am5zfg3yu6sqn5yjKBNqhnTX7Cv+m00ox+7jbaKkrLMRJ4rAdldd1xPd/JzbBWspqaQv6RSTrgFN95EsfhC+7w==}
     engines: {node: '>=16.9.0'}
 
   hosted-git-info@2.8.9:
@@ -22780,8 +22631,16 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
+<<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
   unlayer-types@1.405.0:
     resolution: {integrity: sha512-KbrpkUDRnjCkF1HO7Ap1oiIl7xvqgUf5Du9erC5TiJODwPk3c6XO/wypycSSqu0V+05v1CfmvwmD9icDqXSkNg==}
+||||||| Common ancestor
+  unlayer-types@1.400.0:
+    resolution: {integrity: sha512-3x/DFE0UYvwNZ/S+8OZYjPKjEHscSFOwnnRNZNTRkLTRCugOkSS9owg1+7uinBdhwB+xYbAKIfxU9vS2dLLyFg==}
+=======
+  unlayer-types@1.404.0:
+    resolution: {integrity: sha512-L8cL9SYyOacGAasz0F23sTUA3/SuSUu0ZQEHI99JEe9HWiC/B1o5fuAfYewf6ZjjnVYkM2ztYTdXH+960lV+nQ==}
+>>>>>>> Current commit: feat(mcp): add Hono MCP server for k8s deployment
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -28275,9 +28134,6 @@ snapshots:
   '@esbuild/aix-ppc64@0.27.0':
     optional: true
 
-  '@esbuild/aix-ppc64@0.27.2':
-    optional: true
-
   '@esbuild/aix-ppc64@0.27.3':
     optional: true
 
@@ -28291,9 +28147,6 @@ snapshots:
     optional: true
 
   '@esbuild/android-arm64@0.27.0':
-    optional: true
-
-  '@esbuild/android-arm64@0.27.2':
     optional: true
 
   '@esbuild/android-arm64@0.27.3':
@@ -28311,9 +28164,6 @@ snapshots:
   '@esbuild/android-arm@0.27.0':
     optional: true
 
-  '@esbuild/android-arm@0.27.2':
-    optional: true
-
   '@esbuild/android-arm@0.27.3':
     optional: true
 
@@ -28327,9 +28177,6 @@ snapshots:
     optional: true
 
   '@esbuild/android-x64@0.27.0':
-    optional: true
-
-  '@esbuild/android-x64@0.27.2':
     optional: true
 
   '@esbuild/android-x64@0.27.3':
@@ -28347,9 +28194,6 @@ snapshots:
   '@esbuild/darwin-arm64@0.27.0':
     optional: true
 
-  '@esbuild/darwin-arm64@0.27.2':
-    optional: true
-
   '@esbuild/darwin-arm64@0.27.3':
     optional: true
 
@@ -28363,9 +28207,6 @@ snapshots:
     optional: true
 
   '@esbuild/darwin-x64@0.27.0':
-    optional: true
-
-  '@esbuild/darwin-x64@0.27.2':
     optional: true
 
   '@esbuild/darwin-x64@0.27.3':
@@ -28383,9 +28224,6 @@ snapshots:
   '@esbuild/freebsd-arm64@0.27.0':
     optional: true
 
-  '@esbuild/freebsd-arm64@0.27.2':
-    optional: true
-
   '@esbuild/freebsd-arm64@0.27.3':
     optional: true
 
@@ -28399,9 +28237,6 @@ snapshots:
     optional: true
 
   '@esbuild/freebsd-x64@0.27.0':
-    optional: true
-
-  '@esbuild/freebsd-x64@0.27.2':
     optional: true
 
   '@esbuild/freebsd-x64@0.27.3':
@@ -28419,9 +28254,6 @@ snapshots:
   '@esbuild/linux-arm64@0.27.0':
     optional: true
 
-  '@esbuild/linux-arm64@0.27.2':
-    optional: true
-
   '@esbuild/linux-arm64@0.27.3':
     optional: true
 
@@ -28435,9 +28267,6 @@ snapshots:
     optional: true
 
   '@esbuild/linux-arm@0.27.0':
-    optional: true
-
-  '@esbuild/linux-arm@0.27.2':
     optional: true
 
   '@esbuild/linux-arm@0.27.3':
@@ -28455,9 +28284,6 @@ snapshots:
   '@esbuild/linux-ia32@0.27.0':
     optional: true
 
-  '@esbuild/linux-ia32@0.27.2':
-    optional: true
-
   '@esbuild/linux-ia32@0.27.3':
     optional: true
 
@@ -28471,9 +28297,6 @@ snapshots:
     optional: true
 
   '@esbuild/linux-loong64@0.27.0':
-    optional: true
-
-  '@esbuild/linux-loong64@0.27.2':
     optional: true
 
   '@esbuild/linux-loong64@0.27.3':
@@ -28491,9 +28314,6 @@ snapshots:
   '@esbuild/linux-mips64el@0.27.0':
     optional: true
 
-  '@esbuild/linux-mips64el@0.27.2':
-    optional: true
-
   '@esbuild/linux-mips64el@0.27.3':
     optional: true
 
@@ -28507,9 +28327,6 @@ snapshots:
     optional: true
 
   '@esbuild/linux-ppc64@0.27.0':
-    optional: true
-
-  '@esbuild/linux-ppc64@0.27.2':
     optional: true
 
   '@esbuild/linux-ppc64@0.27.3':
@@ -28527,9 +28344,6 @@ snapshots:
   '@esbuild/linux-riscv64@0.27.0':
     optional: true
 
-  '@esbuild/linux-riscv64@0.27.2':
-    optional: true
-
   '@esbuild/linux-riscv64@0.27.3':
     optional: true
 
@@ -28543,9 +28357,6 @@ snapshots:
     optional: true
 
   '@esbuild/linux-s390x@0.27.0':
-    optional: true
-
-  '@esbuild/linux-s390x@0.27.2':
     optional: true
 
   '@esbuild/linux-s390x@0.27.3':
@@ -28563,9 +28374,6 @@ snapshots:
   '@esbuild/linux-x64@0.27.0':
     optional: true
 
-  '@esbuild/linux-x64@0.27.2':
-    optional: true
-
   '@esbuild/linux-x64@0.27.3':
     optional: true
 
@@ -28573,9 +28381,6 @@ snapshots:
     optional: true
 
   '@esbuild/netbsd-arm64@0.27.0':
-    optional: true
-
-  '@esbuild/netbsd-arm64@0.27.2':
     optional: true
 
   '@esbuild/netbsd-arm64@0.27.3':
@@ -28593,9 +28398,6 @@ snapshots:
   '@esbuild/netbsd-x64@0.27.0':
     optional: true
 
-  '@esbuild/netbsd-x64@0.27.2':
-    optional: true
-
   '@esbuild/netbsd-x64@0.27.3':
     optional: true
 
@@ -28603,9 +28405,6 @@ snapshots:
     optional: true
 
   '@esbuild/openbsd-arm64@0.27.0':
-    optional: true
-
-  '@esbuild/openbsd-arm64@0.27.2':
     optional: true
 
   '@esbuild/openbsd-arm64@0.27.3':
@@ -28623,9 +28422,6 @@ snapshots:
   '@esbuild/openbsd-x64@0.27.0':
     optional: true
 
-  '@esbuild/openbsd-x64@0.27.2':
-    optional: true
-
   '@esbuild/openbsd-x64@0.27.3':
     optional: true
 
@@ -28633,9 +28429,6 @@ snapshots:
     optional: true
 
   '@esbuild/openharmony-arm64@0.27.0':
-    optional: true
-
-  '@esbuild/openharmony-arm64@0.27.2':
     optional: true
 
   '@esbuild/openharmony-arm64@0.27.3':
@@ -28653,9 +28446,6 @@ snapshots:
   '@esbuild/sunos-x64@0.27.0':
     optional: true
 
-  '@esbuild/sunos-x64@0.27.2':
-    optional: true
-
   '@esbuild/sunos-x64@0.27.3':
     optional: true
 
@@ -28669,9 +28459,6 @@ snapshots:
     optional: true
 
   '@esbuild/win32-arm64@0.27.0':
-    optional: true
-
-  '@esbuild/win32-arm64@0.27.2':
     optional: true
 
   '@esbuild/win32-arm64@0.27.3':
@@ -28689,9 +28476,6 @@ snapshots:
   '@esbuild/win32-ia32@0.27.0':
     optional: true
 
-  '@esbuild/win32-ia32@0.27.2':
-    optional: true
-
   '@esbuild/win32-ia32@0.27.3':
     optional: true
 
@@ -28705,9 +28489,6 @@ snapshots:
     optional: true
 
   '@esbuild/win32-x64@0.27.0':
-    optional: true
-
-  '@esbuild/win32-x64@0.27.2':
     optional: true
 
   '@esbuild/win32-x64@0.27.3':
@@ -28873,9 +28654,15 @@ snapshots:
     dependencies:
       '@hapi/hoek': 9.3.0
 
+<<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
   '@hono/node-server@1.19.14(hono@4.11.8)':
+||||||| Common ancestor
+  '@hono/node-server@1.19.9(hono@4.11.8)':
+=======
+  '@hono/node-server@1.19.14(hono@4.12.14)':
+>>>>>>> Current commit: feat(mcp): add Hono MCP server for k8s deployment
     dependencies:
-      hono: 4.11.8
+      hono: 4.12.14
 
   '@humanwhocodes/config-array@0.11.14':
     dependencies:
@@ -29930,9 +29717,19 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)':
     dependencies:
+<<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
       '@hono/node-server': 1.19.14(hono@4.11.8)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
+||||||| Common ancestor
+      '@hono/node-server': 1.19.9(hono@4.11.8)
+      ajv: 8.17.1
+      ajv-formats: 3.0.1(ajv@8.17.1)
+=======
+      '@hono/node-server': 1.19.14(hono@4.12.14)
+      ajv: 8.17.1
+      ajv-formats: 3.0.1(ajv@8.17.1)
+>>>>>>> Current commit: feat(mcp): add Hono MCP server for k8s deployment
       content-type: 1.0.5
       cors: 2.8.5
       cross-spawn: 7.0.6
@@ -29940,7 +29737,7 @@ snapshots:
       eventsource-parser: 3.0.6
       express: 5.2.1
       express-rate-limit: 8.2.1(express@5.2.1)
-      hono: 4.11.8
+      hono: 4.12.14
       jose: 6.1.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.0
@@ -36592,7 +36389,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitejs/plugin-react@4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))':
+  '@vitejs/plugin-react@4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.0)
@@ -39827,35 +39624,6 @@ snapshots:
       '@esbuild/win32-ia32': 0.27.0
       '@esbuild/win32-x64': 0.27.0
 
-  esbuild@0.27.2:
-    optionalDependencies:
-      '@esbuild/aix-ppc64': 0.27.2
-      '@esbuild/android-arm': 0.27.2
-      '@esbuild/android-arm64': 0.27.2
-      '@esbuild/android-x64': 0.27.2
-      '@esbuild/darwin-arm64': 0.27.2
-      '@esbuild/darwin-x64': 0.27.2
-      '@esbuild/freebsd-arm64': 0.27.2
-      '@esbuild/freebsd-x64': 0.27.2
-      '@esbuild/linux-arm': 0.27.2
-      '@esbuild/linux-arm64': 0.27.2
-      '@esbuild/linux-ia32': 0.27.2
-      '@esbuild/linux-loong64': 0.27.2
-      '@esbuild/linux-mips64el': 0.27.2
-      '@esbuild/linux-ppc64': 0.27.2
-      '@esbuild/linux-riscv64': 0.27.2
-      '@esbuild/linux-s390x': 0.27.2
-      '@esbuild/linux-x64': 0.27.2
-      '@esbuild/netbsd-arm64': 0.27.2
-      '@esbuild/netbsd-x64': 0.27.2
-      '@esbuild/openbsd-arm64': 0.27.2
-      '@esbuild/openbsd-x64': 0.27.2
-      '@esbuild/openharmony-arm64': 0.27.2
-      '@esbuild/sunos-x64': 0.27.2
-      '@esbuild/win32-arm64': 0.27.2
-      '@esbuild/win32-ia32': 0.27.2
-      '@esbuild/win32-x64': 0.27.2
-
   esbuild@0.27.3:
     optionalDependencies:
       '@esbuild/aix-ppc64': 0.27.3
@@ -41170,7 +40938,7 @@ snapshots:
     dependencies:
       parse-passwd: 1.0.0
 
-  hono@4.11.8: {}
+  hono@4.12.14: {}
 
   hosted-git-info@2.8.9: {}
 
@@ -41494,7 +41262,7 @@ snapshots:
   ioredis@4.28.5:
     dependencies:
       cluster-key-slot: 1.1.2
-      debug: 4.3.4
+      debug: 4.4.3
       denque: 1.5.1
       lodash.defaults: 4.2.0
       lodash.flatten: 4.4.0
@@ -47247,7 +47015,13 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
+<<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
       unlayer-types: 1.405.0
+||||||| Common ancestor
+      unlayer-types: 1.400.0
+=======
+      unlayer-types: 1.404.0
+>>>>>>> Current commit: feat(mcp): add Hono MCP server for k8s deployment
 
   react-error-overlay@6.0.9: {}
 
@@ -49703,7 +49477,13 @@ snapshots:
 
   universalify@2.0.0: {}
 
+<<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
   unlayer-types@1.405.0: {}
+||||||| Common ancestor
+  unlayer-types@1.400.0: {}
+=======
+  unlayer-types@1.404.0: {}
+>>>>>>> Current commit: feat(mcp): add Hono MCP server for k8s deployment
 
   unpipe@1.0.0: {}
 
@@ -50028,7 +49808,7 @@ snapshots:
 
   vite@7.3.1(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.8.2):
     dependencies:
-      esbuild: 0.27.2
+      esbuild: 0.27.3
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
       postcss: 8.5.6
