@@ -196,6 +196,17 @@ see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/ma
   rather than listing generic instructions.
 - Uses progressive disclosure – details like the full event schema live in `references/`
   so the entry point stays focused.
+- Ships with **pre-written Python scripts** in `scripts/`
+  ([`print_summary.py`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/scripts/print_summary.py),
+  [`print_timeline.py`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/scripts/print_timeline.py),
+  [`extract_span.py`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/scripts/extract_span.py),
+  [`extract_conversation.py`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/scripts/extract_conversation.py),
+  [`search_traces.py`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/scripts/search_traces.py),
+  [`show_structure.py`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/scripts/show_structure.py))
+  that cover the common workflows.
+  The agent runs these instead of re-deriving the shape of the trace JSON,
+  slicing nested payloads by hand, or burning tokens on exploratory parsing –
+  which streamlines its trajectory and keeps the context window clean.
 
 The agent knows _which_ tools to use, _in what order_, and what a successful result looks like –
 which is exactly what separates a skill from a generic prompt.
