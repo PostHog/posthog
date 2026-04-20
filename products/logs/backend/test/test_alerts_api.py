@@ -12,7 +12,7 @@ from posthog.models.team.team import Team
 
 from products.logs.backend.alert_check_query import BucketedCount
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -73,6 +73,73 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.get(f"{self.base_url}{created['id']}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["id"] == created["id"]
+
+    def test_last_error_message_null_when_no_errored_check(self):
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertEvent.objects.create(
+            alert=alert, threshold_breached=False, state_before="not_firing", state_after="not_firing"
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] is None
+
+    def test_last_error_message_returns_most_recent_errored_check(self):
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Earlier timeout",
+        )
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Latest ClickHouse timeout",
+        )
+        LogsAlertEvent.objects.create(
+            alert=alert, threshold_breached=False, state_before="errored", state_after="not_firing"
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] == "Latest ClickHouse timeout"
+
+    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
+    def test_last_error_message_excludes_non_check_kinds(self, _name, non_check_kind):
+        # A control-plane row that happens to carry an error_message (e.g. a failed reset
+        # audit row in a hypothetical future shape) must not bleed into the user-facing
+        # last_error_message field — only worker CHECK rows should source it.
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Real CH timeout",
+        )
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=non_check_kind,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+            error_message="This should not surface",
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] == "Real CH timeout"
 
     def test_update(self):
         created = self._create_via_api()
@@ -534,11 +601,11 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
-        assert len(ids) == 2  # firing + resolved
+        assert len(ids) == 3  # firing + resolved + broken
 
         hog_functions = HogFunction.objects.filter(id__in=ids).order_by("name")
         event_ids = sorted([(hf.filters or {})["events"][0]["id"] for hf in hog_functions])
-        assert event_ids == ["$logs_alert_firing", "$logs_alert_resolved"]
+        assert event_ids == ["$logs_alert_auto_disabled", "$logs_alert_firing", "$logs_alert_resolved"]
         for hf in hog_functions:
             assert hf.template_id == "template-slack"
             inputs = hf.inputs or {}
@@ -569,7 +636,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
-        assert len(ids) == 2
+        assert len(ids) == 3
 
         hog_functions = HogFunction.objects.filter(id__in=ids)
         for hf in hog_functions:
@@ -577,7 +644,7 @@ class TestLogsAlertAPI(APIBaseTest):
             inputs = hf.inputs or {}
             assert inputs["url"]["value"] == "https://example.com/hook"
             body = inputs["body"]["value"]
-            assert body["event"] in ("firing", "resolved")
+            assert body["event"] in ("firing", "resolved", "broken")
 
     @parameterized.expand(
         [
@@ -647,6 +714,196 @@ class TestLogsAlertAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    # --- Reset ---
+
+    def _reset_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/reset/"
+
+    @patch("products.logs.backend.alerts_api.report_user_action")
+    def test_reset_broken_alert(self, mock_report):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+            next_check_at=datetime.now(UTC) + timedelta(minutes=10),
+        )
+
+        response = self.client.post(self._reset_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["state"] == "not_firing"
+        assert data["consecutive_failures"] == 0
+        assert data["next_check_at"] is None
+        reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert reset"]
+        assert len(reset_calls) == 1
+
+    @parameterized.expand(
+        [
+            ("not_firing", LogsAlertConfiguration.State.NOT_FIRING),
+            ("firing", LogsAlertConfiguration.State.FIRING),
+            ("errored", LogsAlertConfiguration.State.ERRORED),
+            ("snoozed", LogsAlertConfiguration.State.SNOOZED),
+            ("pending_resolve", LogsAlertConfiguration.State.PENDING_RESOLVE),
+        ]
+    )
+    def test_reset_rejects_non_broken_alert(self, _name: str, state: str) -> None:
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state=state)
+
+        response = self.client.post(self._reset_url(created["id"]))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Only broken alerts can be reset." in str(response.json())
+
+    def test_reset_other_teams_alert_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team,
+            name="Other team alert",
+            threshold_count=10,
+            filters={"severityLevels": ["error"]},
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+
+        response = self.client.post(self._reset_url(str(other_alert.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_reset_writes_activity_log(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+        ActivityLog.objects.filter(item_id=str(created["id"])).delete()
+
+        response = self.client.post(self._reset_url(created["id"]))
+        assert response.status_code == status.HTTP_200_OK
+
+        entries = list(ActivityLog.objects.filter(item_id=str(created["id"])))
+        assert len(entries) >= 1, [e.activity for e in ActivityLog.objects.all()]
+        changed_fields = {c["field"] for entry in entries for c in (entry.detail or {}).get("changes", [])}
+        assert "state" in changed_fields
+        assert "consecutive_failures" in changed_fields
+
+    # --- Control-plane event rows ---
+
+    def _assert_single_event_row(
+        self,
+        alert_id: str,
+        *,
+        kind: str,
+        state_before: str,
+        state_after: str,
+    ) -> None:
+        events = list(LogsAlertEvent.objects.filter(alert_id=alert_id).order_by("created_at"))
+        assert len(events) == 1, [(e.kind, e.state_before, e.state_after) for e in events]
+        event = events[0]
+        assert event.kind == kind
+        assert event.state_before == state_before
+        assert event.state_after == state_after
+        assert event.error_message is None
+        assert event.result_count is None
+
+    def test_reset_writes_reset_event_row(self):
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
+            state=LogsAlertConfiguration.State.BROKEN,
+            consecutive_failures=5,
+        )
+
+        response = self.client.post(self._reset_url(created["id"]))
+        assert response.status_code == status.HTTP_200_OK
+
+        self._assert_single_event_row(
+            created["id"],
+            kind=LogsAlertEvent.Kind.RESET,
+            state_before=LogsAlertConfiguration.State.BROKEN.value,
+            state_after=LogsAlertConfiguration.State.NOT_FIRING.value,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "enable",
+                {"enabled": False, "state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"enabled": True},
+                LogsAlertEvent.Kind.ENABLE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "disable",
+                {"enabled": True, "state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"enabled": False},
+                LogsAlertEvent.Kind.DISABLE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "snooze",
+                {"state": LogsAlertConfiguration.State.NOT_FIRING},
+                {"snooze_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()},
+                LogsAlertEvent.Kind.SNOOZE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.SNOOZED.value,
+            ),
+            (
+                "unsnooze",
+                # snooze_until goes through .update() (ORM) here, not the API; hence the raw datetime.
+                {
+                    "state": LogsAlertConfiguration.State.SNOOZED,
+                    "snooze_until": datetime.now(UTC) + timedelta(hours=1),
+                },
+                {"snooze_until": None},
+                LogsAlertEvent.Kind.UNSNOOZE,
+                LogsAlertConfiguration.State.SNOOZED.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+            (
+                "threshold_change",
+                {"state": LogsAlertConfiguration.State.NOT_FIRING, "threshold_count": 10},
+                {"threshold_count": 50},
+                LogsAlertEvent.Kind.THRESHOLD_CHANGE,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+                LogsAlertConfiguration.State.NOT_FIRING.value,
+            ),
+        ]
+    )
+    def test_update_writes_control_plane_event_row(
+        self,
+        _name: str,
+        initial_db_state: dict,
+        patch_payload: dict,
+        expected_kind: str,
+        expected_state_before: str,
+        expected_state_after: str,
+    ) -> None:
+        created = self._create_via_api()
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(**initial_db_state)
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", patch_payload, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self._assert_single_event_row(
+            created["id"],
+            kind=expected_kind,
+            state_before=expected_state_before,
+            state_after=expected_state_after,
+        )
+
+    def test_update_without_control_plane_change_does_not_write_event_row(self):
+        created = self._create_via_api()
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", {"name": "Renamed"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+
+        assert not LogsAlertEvent.objects.filter(alert_id=created["id"]).exists()
 
     # --- Simulate ---
 

@@ -278,6 +278,8 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
                 "csv_import_result": None,
                 "webhook_enabled": False,
                 "has_webhook_secret": False,
+                "track_enabled": False,
+                "has_track_credentials": False,
             },
         )
 
@@ -571,3 +573,122 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         assert config.csv_import_result is not None
         self.assertEqual(config.csv_import_result["status"], "failed")
         self.assertIn("No categories found", config.csv_import_result["error"])
+
+    def test_save_track_config_creates_integration(self):
+        response = self.client.post(
+            self._url("save_track_config"),
+            {"site_id": "site_abc", "api_key": "key_123", "region": "us", "track_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["track_enabled"])
+        self.assertTrue(response.json()["has_track_credentials"])
+
+        integration = Integration.objects.get(team=self.team, kind="customerio-track")
+        self.assertEqual(integration.sensitive_config["site_id"], "site_abc")
+        self.assertEqual(integration.sensitive_config["api_key"], "key_123")
+        self.assertEqual(integration.config["region"], "us")
+        self.assertNotIn("track_enabled", integration.config)
+
+        config = OptOutSyncConfig.objects.get(team=self.team)
+        self.assertEqual(config.track_integration, integration)
+        self.assertTrue(config.track_enabled)
+
+    def test_save_track_config_rejects_new_creds_when_integration_exists(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="customerio-track",
+            sensitive_config={"site_id": "site_abc", "api_key": "key_123"},
+            config={"region": "us"},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            self._url("save_track_config"),
+            {"site_id": "site_xyz", "api_key": "key_999", "track_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+
+    def test_save_track_config_requires_credentials_to_enable(self):
+        response = self.client.post(
+            self._url("save_track_config"),
+            {"track_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_save_track_config_toggles_with_stored_credentials(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="customerio-track",
+            sensitive_config={"site_id": "site_abc", "api_key": "key_123"},
+            config={"region": "us"},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            self._url("save_track_config"),
+            {"track_enabled": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        config = OptOutSyncConfig.objects.get(team=self.team)
+        self.assertFalse(config.track_enabled)
+        self.assertEqual(config.track_integration, integration)
+        integration.refresh_from_db()
+        self.assertEqual(integration.config, {"region": "us"})
+
+    def test_remove_track_config(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="customerio-track",
+            sensitive_config={"site_id": "s", "api_key": "k"},
+            config={"region": "us"},
+            created_by=self.user,
+        )
+        OptOutSyncConfig.objects.create(
+            team=self.team,
+            track_integration=integration,
+            track_enabled=True,
+        )
+
+        response = self.client.delete(self._url("remove_track_config"))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Integration.objects.filter(team=self.team, kind="customerio-track").exists())
+
+        config = OptOutSyncConfig.objects.get(team=self.team)
+        self.assertIsNone(config.track_integration)
+        self.assertFalse(config.track_enabled)
+
+    def test_remove_track_config_succeeds_without_config(self):
+        response = self.client.delete(self._url("remove_track_config"))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_optout_sync_config_includes_track_fields(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="customerio-track",
+            sensitive_config={"site_id": "s", "api_key": "k"},
+            config={"region": "us"},
+            created_by=self.user,
+        )
+        OptOutSyncConfig.objects.create(
+            team=self.team,
+            track_integration=integration,
+            track_enabled=True,
+        )
+
+        response = self.client.get(self._url("optout_sync_config"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["track_enabled"])
+        self.assertTrue(data["has_track_credentials"])
+
+    def test_optout_sync_config_track_fields_default_false(self):
+        response = self.client.get(self._url("optout_sync_config"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["track_enabled"])
+        self.assertFalse(data["has_track_credentials"])

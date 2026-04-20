@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
@@ -10,6 +10,15 @@ from django.db import models
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
+
+if TYPE_CHECKING:
+    from products.logs.backend.alert_state_machine import AlertSnapshot
+
+# Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
+# cap on retained OK event rows — the N-of-M evaluator never reads more than this many
+# non-errored rows per alert, so older OK rows are pruned. Mirrored in the serializer's
+# max_value so the two can't drift.
+MAX_EVALUATION_PERIODS = 10
 
 
 class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -102,22 +111,36 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
 
-    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
-        """Returns field names modified (for use with update_fields)."""
-        updated: list[str] = []
-        if reset_state:
-            self.state = self.State.NOT_FIRING
-            self.consecutive_failures = 0
-            updated.append("state")
-            updated.append("consecutive_failures")
+    def clear_next_check(self) -> list[str]:
+        """Nulls `next_check_at` so the scheduler picks this alert up on the next tick.
+        Returns modified fields for `save(update_fields=...)`.
+        """
         self.next_check_at = None
-        updated.append("next_check_at")
-        return updated
+        return ["next_check_at"]
+
+    def to_snapshot(self) -> AlertSnapshot:
+        """Capture the fields the state machine reads for a transition decision."""
+        from products.logs.backend.alert_state_machine import AlertSnapshot, AlertState
+
+        return AlertSnapshot(
+            state=AlertState(self.state),
+            evaluation_periods=self.evaluation_periods,
+            datapoints_to_alarm=self.datapoints_to_alarm,
+            cooldown_minutes=self.cooldown_minutes,
+            last_notified_at=self.last_notified_at,
+            snooze_until=self.snooze_until,
+            consecutive_failures=self.consecutive_failures,
+            recent_events_breached=self.get_recent_breaches(),
+        )
 
     def get_recent_breaches(self) -> tuple[bool, ...]:
-        """Last M non-errored checks' threshold_breached values, newest first."""
+        """Last M non-errored check events' threshold_breached values, newest first."""
         return tuple(
-            LogsAlertCheck.objects.filter(alert=self, error_message__isnull=True)
+            LogsAlertEvent.objects.filter(
+                alert=self,
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=True,
+            )
             .order_by("-created_at")
             .values_list("threshold_breached", flat=True)[: self.evaluation_periods]
         )
@@ -129,17 +152,14 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
                 f"datapoints_to_alarm cannot exceed evaluation_periods ({self.datapoints_to_alarm} > {self.evaluation_periods})"
             )
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        if not self.enabled:
-            self.state = self.State.NOT_FIRING
-            if "update_fields" in kwargs and "state" not in kwargs["update_fields"]:
-                kwargs["update_fields"] = [*kwargs["update_fields"], "state"]
-
-        super().save(*args, **kwargs)
-
 
 class LogsAlertCheck(UUIDModel):
-    RETENTION_DAYS = 14
+    """Defunct — kept in sync with the physical table `logs_logsalertcheck`.
+
+    All production reads and writes go through `LogsAlertEvent` (the new table). This
+    shell class exists solely to match Django's model state with the legacy table
+    created by `0001_initial.py`. PR 4 will drop the table and remove this class.
+    """
 
     alert = models.ForeignKey(
         LogsAlertConfiguration,
@@ -157,11 +177,54 @@ class LogsAlertCheck(UUIDModel):
     class Meta:
         db_table = "logs_logsalertcheck"
 
+
+class LogsAlertEvent(UUIDModel):
+    # Events (errored, breached, state-transition rows) retained this long for forensics.
+    # OK rows are capped by count (MAX_EVALUATION_PERIODS per alert) rather than by time.
+    EVENT_RETENTION_DAYS = 90
+
+    class Kind(models.TextChoices):
+        # Worker-produced row from evaluating the ClickHouse check query. Only CHECK rows
+        # feed the N-of-M evaluator and are eligible for the inline prune. Control-plane
+        # kinds are reserved for user-initiated state transitions; writers are added in a
+        # follow-up PR (see spike 4.7). Every read path must filter by kind=CHECK to keep
+        # control-plane rows out of evaluator and prune windows.
+        CHECK = "check", "Check"
+        RESET = "reset", "Reset"
+        ENABLE = "enable", "Enable"
+        DISABLE = "disable", "Disable"
+        SNOOZE = "snooze", "Snooze"
+        UNSNOOZE = "unsnooze", "Unsnooze"
+        THRESHOLD_CHANGE = "threshold_change", "Threshold change"
+
+    alert = models.ForeignKey(
+        LogsAlertConfiguration,
+        on_delete=models.CASCADE,
+        related_name="events",
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.CHECK)
+    created_at = models.DateTimeField(auto_now_add=True)
+    result_count = models.PositiveIntegerField(null=True, blank=True)
+    threshold_breached = models.BooleanField()
+    state_before = models.CharField(max_length=20)
+    state_after = models.CharField(max_length=20)
+    error_message = models.TextField(null=True, blank=True)
+    query_duration_ms = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "logs_logsalertevent"
+
     def __str__(self) -> str:
-        return f"LogsAlertCheck for {self.alert.name} at {self.created_at}"
+        return f"LogsAlertEvent for {self.alert.name} at {self.created_at}"
 
     @classmethod
-    def clean_up_old_checks(cls) -> int:
-        oldest_allowed = datetime.now(UTC) - timedelta(days=cls.RETENTION_DAYS)
-        count, _ = cls.objects.filter(created_at__lt=oldest_allowed).delete()
+    def clean_up_old_events(cls) -> int:
+        """Delete every event row older than EVENT_RETENTION_DAYS.
+
+        In steady state this only touches errored rows and state-transition rows: the
+        Temporal activity caps non-event rows to MAX_EVALUATION_PERIODS per alert
+        inline. Rows from silent or disabled alerts also age out through this path.
+        """
+        oldest = datetime.now(UTC) - timedelta(days=cls.EVENT_RETENTION_DAYS)
+        count, _ = cls.objects.filter(created_at__lt=oldest).delete()
         return count

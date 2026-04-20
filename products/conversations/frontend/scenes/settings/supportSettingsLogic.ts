@@ -50,7 +50,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setNotificationRecipients: (users: UserBasicType[]) => ({ users }),
         // Slack channel settings (SupportHog)
         connectSlack: (nextPath: string) => ({ nextPath }),
-        setSlackChannel: (channelId: string | null, channelName: string | null) => ({ channelId, channelName }),
+        setSlackChannels: (channelIds: string[]) => ({ channelIds }),
         loadSlackChannelsWithToken: true,
         setSlackTicketEmojiValue: (value: string | null) => ({ value }),
         saveSlackTicketEmoji: true,
@@ -253,13 +253,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_enabled,
         ],
-        slackChannelId: [
+        slackChannelIds: [
             (s) => [s.currentTeam],
-            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_channel_id ?? null,
-        ],
-        slackChannelName: [
-            (s) => [s.currentTeam],
-            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_channel_name ?? null,
+            (currentTeam): string[] => {
+                const cs = currentTeam?.conversations_settings
+                if (Array.isArray(cs?.slack_channel_ids)) {
+                    return cs.slack_channel_ids
+                }
+                return cs?.slack_channel_id ? [cs.slack_channel_id] : []
+            },
         ],
         slackTicketEmoji: [
             (s) => [s.currentTeam],
@@ -379,13 +381,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
-        setSlackChannel: ({ channelId, channelName }) => {
+        setSlackChannels: ({ channelIds }) => {
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    slack_enabled: true,
-                    slack_channel_id: channelId,
-                    slack_channel_name: channelName,
+                    slack_channel_ids: channelIds,
+                    // Transitional: keep legacy key for old frontend bundles
+                    slack_channel_id: channelIds[0] ?? null,
+                    slack_channel_name: null,
                 },
             })
         },

@@ -32,8 +32,14 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
-    "posthog_code": UserCostLimit(
+    "wizard": UserCostLimit(
         burst_limit_usd=100.0,
+        burst_window_seconds=2592000,  # 30 days
+        sustained_limit_usd=100.0,
+        sustained_window_seconds=2592000,  # 30 days
+    ),
+    "posthog_code": UserCostLimit(
+        burst_limit_usd=200.0,
         burst_window_seconds=86400,
         sustained_limit_usd=1000.0,
         sustained_window_seconds=2592000,
@@ -149,9 +155,8 @@ class Settings(BaseSettings):
 
     default_fallback_cost_usd: float = 0.01
 
-    posthog_api_url: str = ""
+    posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 300  # 5 minutes
-    plan_aware_throttling_enabled: bool = False
     free_plan_trial_period_days: int = 30
 
     @field_validator("product_cost_limits", mode="before")

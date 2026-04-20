@@ -8,6 +8,7 @@ import {
     LemonCollapse,
     LemonInput,
     LemonModal,
+    LemonSegmentedButton,
     LemonTag,
     Link,
     Spinner,
@@ -426,6 +427,125 @@ function Step3Content(): JSX.Element {
     )
 }
 
+function Step4Content(): JSX.Element {
+    const {
+        syncConfig,
+        trackSiteId,
+        trackApiKey,
+        trackRegion,
+        isSavingTrack,
+        trackError,
+        isRemovingTrackConfig,
+        trackEnabled,
+        hasTrackCredentials,
+    } = useValues(customerIOImportLogic)
+    const { setTrackSiteId, setTrackApiKey, setTrackRegion, saveTrackConfig, toggleTrackSync, removeTrackConfig } =
+        useActions(customerIOImportLogic)
+
+    return (
+        <div className="space-y-4">
+            <p className="text-sm text-muted">
+                When users change their preferences on the PostHog-managed page, automatically sync those changes back
+                to Customer.io. Only categories imported from Customer.io are synced.
+            </p>
+
+            {trackError && (
+                <LemonBanner type="error" className="text-sm">
+                    {trackError}
+                </LemonBanner>
+            )}
+
+            {trackEnabled && <LemonBanner type="success">Outbound sync is active.</LemonBanner>}
+
+            {hasTrackCredentials ? (
+                <>
+                    <div className="space-y-2">
+                        <label className="LemonLabel">Track API credentials</label>
+                        <LemonInput
+                            value="••••••••••••••••"
+                            disabledReason="Can't be changed"
+                            suffix={
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    status="danger"
+                                    tooltip="Remove track integration"
+                                    onClick={removeTrackConfig}
+                                    loading={isRemovingTrackConfig}
+                                    icon={<IconTrash className="text-danger" />}
+                                />
+                            }
+                        />
+                    </div>
+                    <div className="flex justify-end">
+                        {syncConfig?.track_enabled ? (
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                onClick={() => toggleTrackSync(false)}
+                                loading={isSavingTrack}
+                            >
+                                Disable sync
+                            </LemonButton>
+                        ) : (
+                            <LemonButton type="primary" onClick={() => toggleTrackSync(true)} loading={isSavingTrack}>
+                                Enable sync
+                            </LemonButton>
+                        )}
+                    </div>
+                </>
+            ) : (
+                <div className="space-y-3">
+                    <div className="space-y-2">
+                        <label className="LemonLabel">Region</label>
+                        <LemonSegmentedButton
+                            value={trackRegion}
+                            onChange={setTrackRegion}
+                            options={[
+                                { value: 'US', label: 'US', tooltip: 'track.customer.io' },
+                                { value: 'EU', label: 'EU', tooltip: 'track-eu.customer.io' },
+                            ]}
+                            size="small"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="LemonLabel">Site ID</label>
+                        <LemonInput
+                            value={trackSiteId}
+                            onChange={setTrackSiteId}
+                            placeholder="Your Customer.io site ID"
+                            autoComplete="off"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="LemonLabel">Track API key</label>
+                        <LemonInput
+                            value={trackApiKey}
+                            onChange={setTrackApiKey}
+                            placeholder="Your Customer.io Track API key"
+                            type="password"
+                            autoComplete="off"
+                        />
+                    </div>
+                    <p className="text-xs text-muted-alt">
+                        Find these in Customer.io under Settings → API and webhook credentials → Track API Keys.
+                    </p>
+                    <div className="flex justify-end">
+                        <LemonButton
+                            type="primary"
+                            onClick={saveTrackConfig}
+                            loading={isSavingTrack}
+                            disabledReason={!trackSiteId || !trackApiKey ? 'Enter site ID and API key' : undefined}
+                        >
+                            Enable sync
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function CustomerIOImportModal(): JSX.Element {
     const { isImportModalOpen, stepCompletion, syncConfigLoading } = useValues(customerIOImportLogic)
     const { closeImportModal } = useActions(customerIOImportLogic)
@@ -457,7 +577,9 @@ export function CustomerIOImportModal(): JSX.Element {
                         </span>
                     </LemonBanner>
                     <LemonCollapse
-                        defaultActiveKey={(['step1', 'step2', 'step3'] as const).find((s) => !stepCompletion[s])}
+                        defaultActiveKey={(['step1', 'step2', 'step3', 'step4'] as const).find(
+                            (s) => !stepCompletion[s]
+                        )}
                         panels={[
                             {
                                 key: 'step1',
@@ -488,6 +610,16 @@ export function CustomerIOImportModal(): JSX.Element {
                                     </div>
                                 ),
                                 content: <Step3Content />,
+                            },
+                            {
+                                key: 'step4',
+                                header: (
+                                    <div className="flex items-center justify-between w-full">
+                                        <span>4. Outbound sync to Customer.io</span>
+                                        <StepBadge status={stepCompletion.step4} />
+                                    </div>
+                                ),
+                                content: <Step4Content />,
                             },
                         ]}
                     />
