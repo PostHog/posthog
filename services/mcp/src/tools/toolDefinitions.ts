@@ -3,7 +3,6 @@ import z from 'zod'
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
 import toolDefinitionsV2Json from '../../schema/tool-definitions-v2.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
-import { isBootstrapTool, toolsetIdForFeature } from './toolsets/taxonomy'
 
 export const ToolDefinitionSchema = z.object({
     description: z.string(),
@@ -85,16 +84,6 @@ export interface ToolFilterOptions {
      * Used to gate tools that declare `feature_flag` in their YAML config.
      */
     featureFlags?: Record<string, boolean> | undefined
-    /**
-     * When true, only return bootstrap tools + tools whose toolset is in `enabledToolsets`.
-     * See docs/published/handbook/engineering/ai/mcp-progressive-disclosure.md for the RFC.
-     */
-    progressive?: boolean | undefined
-    /**
-     * Toolset ids to surface in progressive mode — merged with session-enabled toolsets
-     * from the DurableObjectCache.
-     */
-    enabledToolsets?: string[] | undefined
 }
 
 /**
@@ -117,8 +106,7 @@ function normalizeFeatureName(name: string): string {
 }
 
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, tools, version, readOnly, aiConsentGiven, featureFlags, progressive, enabledToolsets } =
-        options || {}
+    const { features, tools, version, readOnly, aiConsentGiven, featureFlags } = options || {}
     const toolDefinitions = getToolDefinitions(version)
 
     let entries = Object.entries(toolDefinitions)
@@ -180,25 +168,6 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
                 return true
             }
             return (definition.feature_flag_behavior ?? 'enable') === 'disable'
-        })
-    }
-
-    // Progressive-disclosure filter: only applied when the caller explicitly provides
-    // `enabledToolsets` (an array — can be empty for "bootstrap only"). When the caller sets
-    // `progressive: true` but leaves `enabledToolsets` undefined, the full catalog is returned
-    // (registration happens upfront so the toolsets meta-tool can `.enable()` tools dynamically
-    // without a session re-init).
-    if (progressive && enabledToolsets !== undefined) {
-        const enabled = new Set(enabledToolsets)
-        entries = entries.filter(([toolName, definition]) => {
-            if (isBootstrapTool(toolName)) {
-                return true
-            }
-            const toolsetId = toolsetIdForFeature(definition.feature)
-            if (!toolsetId) {
-                return false
-            }
-            return enabled.has(toolsetId)
         })
     }
 

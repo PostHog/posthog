@@ -102,10 +102,9 @@ export const getToolsFromContext = async (
         ...(aiConsentGiven !== undefined ? { aiConsentGiven } : {}),
     }
     const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
-    // The toolsets meta-tool only exists in progressive mode — skip it in default mode so
-    // the default tool surface is unchanged.
-    const baseExcludes = options?.excludeTools ?? []
-    const excludeTools = options?.progressive ? baseExcludes : [...baseExcludes, 'toolsets']
+    // The `toolsets` meta-tool is always excluded from this path — callers that want it
+    // (mcp.ts progressive mode) register it explicitly from TOOL_MAP themselves.
+    const excludeTools = [...(options?.excludeTools ?? []), 'toolsets']
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
@@ -125,19 +124,26 @@ export const getToolsFromContext = async (
     const effectiveVersion = options?.version ?? 1
     const filteredBases = toolBases.filter((tb) => tb.mcpVersion === undefined || tb.mcpVersion === effectiveVersion)
 
-    const tools: Tool<ZodObjectAny>[] = filteredBases.map((toolBase) => {
-        const definition = getToolDefinition(toolBase.name, options?.version)
-        return {
-            ...toolBase,
-            title: definition.title,
-            description: definition.description,
-            scopes: definition.required_scopes ?? [],
-            annotations: definition.annotations,
-        }
-    })
+    const tools: Tool<ZodObjectAny>[] = filteredBases.map((toolBase) => buildTool(toolBase, options?.version))
 
     const apiKey = await context.stateManager.getApiKey()
     const scopes = apiKey?.scopes ?? []
 
     return tools.filter((tool) => hasScopes(scopes, tool.scopes))
+}
+
+/**
+ * Shape a ToolBase (factory output) into a fully-decorated Tool by merging in
+ * title/description/scopes/annotations from the tool-definitions catalog. Exposed so the
+ * progressive-disclosure meta-tool in mcp.ts can be assembled the same way.
+ */
+export function buildTool(toolBase: ToolBase<ZodObjectAny>, version?: number): Tool<ZodObjectAny> {
+    const definition = getToolDefinition(toolBase.name, version)
+    return {
+        ...toolBase,
+        title: definition.title,
+        description: definition.description,
+        scopes: definition.required_scopes ?? [],
+        annotations: definition.annotations,
+    }
 }

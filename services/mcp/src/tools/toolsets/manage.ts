@@ -3,33 +3,38 @@ import type { z } from 'zod'
 import { ToolsetsInputSchema } from '@/schema/tool-inputs'
 import { getToolDefinitions } from '@/tools/toolDefinitions'
 import {
-    TOOLSETS,
-    type ToolsetId,
+    COMPOSITE_TOOLSETS,
+    expandToolsetToFeatures,
+    getAllToolsets,
     getToolsetById,
     isValidToolsetId,
-    toolsetIdForFeature,
 } from '@/tools/toolsets/taxonomy'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = ToolsetsInputSchema
 type Params = z.infer<typeof schema>
 
+/**
+ * DO cache key for the set of enabled toolset IDs (base or composite). Stored as-is;
+ * expansion to features happens at filter/registration time via resolveEnabledFeatures.
+ */
 export const ENABLED_TOOLSETS_KEY = 'enabledToolsets' as const
 
-async function readEnabled(context: Context): Promise<ToolsetId[]> {
-    const raw = (await context.cache.get(ENABLED_TOOLSETS_KEY as any)) as ToolsetId[] | undefined
+async function readEnabled(context: Context): Promise<string[]> {
+    const raw = (await context.cache.get(ENABLED_TOOLSETS_KEY as any)) as string[] | undefined
     return raw ?? []
 }
 
-async function writeEnabled(context: Context, ids: ToolsetId[]): Promise<void> {
+async function writeEnabled(context: Context, ids: string[]): Promise<void> {
     const dedup = Array.from(new Set(ids))
     await context.cache.set(ENABLED_TOOLSETS_KEY as any, dedup as any)
 }
 
-function toolsInToolset(toolsetId: ToolsetId, version?: number): { name: string; description: string }[] {
+function toolsForFeatures(features: string[], version?: number): { name: string; description: string }[] {
     const defs = getToolDefinitions(version)
+    const featureSet = new Set(features)
     return Object.entries(defs)
-        .filter(([_, meta]) => toolsetIdForFeature(meta.feature) === toolsetId)
+        .filter(([_, meta]) => featureSet.has(meta.feature))
         .map(([name, meta]) => ({ name, description: meta.summary }))
 }
 
@@ -38,15 +43,28 @@ export const toolsetsHandler = async (context: Context, params: Params): Promise
 
     if (action === 'list') {
         const enabled = await readEnabled(context)
+        const all = getAllToolsets()
+        // Group base vs composite in the response so the model sees the two layers clearly.
+        const base = all.filter((ts) => ts.isBase)
+        const composites = all.filter((ts) => !ts.isBase)
         return {
-            toolsets: TOOLSETS.map((ts) => ({
+            composites: composites.map((ts) => ({
+                id: ts.id,
+                title: ts.title,
+                description: ts.description,
+                bundles: ts.features,
+                enabled: enabled.includes(ts.id),
+            })),
+            base: base.map((ts) => ({
                 id: ts.id,
                 title: ts.title,
                 description: ts.description,
                 enabled: enabled.includes(ts.id),
             })),
             enabled,
-            usage: "Call toolsets(action='enable', name='<id>') to activate a toolset.",
+            usage:
+                "Call toolsets(action='enable', name='<id>') to activate a toolset. Composites bundle " +
+                'multiple base toolsets; base toolsets map 1:1 to a PostHog product area.',
         }
     }
 
@@ -67,11 +85,14 @@ export const toolsetsHandler = async (context: Context, params: Params): Promise
         if (!toolset) {
             return { error: `Unknown toolset '${name}'.` }
         }
+        const features = expandToolsetToFeatures(name)
         return {
             id: toolset.id,
             title: toolset.title,
             description: toolset.description,
-            tools: toolsInToolset(name),
+            composite: !toolset.isBase,
+            bundles: toolset.isBase ? undefined : features,
+            tools: toolsForFeatures(features),
         }
     }
 
@@ -81,10 +102,12 @@ export const toolsetsHandler = async (context: Context, params: Params): Promise
             enabled.push(name)
             await writeEnabled(context, enabled)
         }
-        const toolNames = toolsInToolset(name).map((t) => t.name)
+        const features = expandToolsetToFeatures(name)
+        const toolNames = toolsForFeatures(features).map((t) => t.name)
         return {
             enabled: name,
             enabledNow: enabled,
+            expandedFeatures: features,
             newlyAvailableTools: toolNames,
             note: `Tools in this toolset are now callable. If your MCP client supports tools/list_changed, they will appear automatically. If not, ask the user to reconnect with ?progressive=true&toolsets=${enabled.join(',')}`,
         }
@@ -102,6 +125,9 @@ export const toolsetsHandler = async (context: Context, params: Params): Promise
 
     return { error: `Unknown action '${action}'.` }
 }
+
+// Re-export for callers that need the composites table
+export { COMPOSITE_TOOLSETS }
 
 const tool = (): ToolBase<typeof schema> => ({
     name: 'toolsets',

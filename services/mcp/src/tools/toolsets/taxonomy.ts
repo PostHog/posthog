@@ -1,159 +1,144 @@
 /**
- * Progressive disclosure taxonomy: groups the MCP's ~200+ tools into a small set of
- * product-shaped toolsets. In progressive mode (`?progressive=true`), only the bootstrap
- * tools are surfaced initially; the rest activate when a model calls
- * `toolsets(action='enable', name='<id>')`.
+ * Progressive disclosure taxonomy.
  *
- * Product-shaped rather than workflow-shaped so the groups align with how the underlying
- * features ship — a new `notebooks` agentic feature can split out of `content` without
- * breaking skills that declared `required_toolsets: ['analytics']`.
+ * **Base toolsets** are auto-derived from the `feature` field on every tool definition
+ * (which comes from `products/<name>/mcp/tools.yaml` via codegen). No hand-edits needed
+ * when a new product ships MCP tools — adding a new `feature` value in a YAML automatically
+ * creates a new base toolset with the product's category as its title.
+ *
+ * **Composite toolsets** are a small, hand-curated editorial layer that bundles related
+ * base toolsets into convenience groupings (e.g., `analytics` = insights + events + cohorts
+ * + actions + persons + product_analytics). Enabling a composite is equivalent to enabling
+ * every base toolset it contains. Composites are optional — the model can always enable
+ * base toolsets directly.
+ *
+ * **Excluded features** are either bootstrap (`docs`, `search`), internal (`debug`,
+ * `skills`, `meta`), or otherwise never surfaced as a standalone toolset.
  */
 
-export type ToolsetId =
-    | 'analytics'
-    | 'content'
-    | 'flags'
-    | 'experiments'
-    | 'surveys'
-    | 'error_tracking'
-    | 'llm_analytics'
-    | 'workspace'
-    | 'data_warehouse'
-    | 'replay'
-    | 'hog_functions'
-    | 'logs'
-    | 'workflows'
-    | 'reverse_proxy'
+import { getToolDefinitions } from '@/tools/toolDefinitions'
+
+/** Tools always available in progressive mode regardless of enabled toolsets. */
+export const BOOTSTRAP_TOOL_NAMES = ['query-run', 'docs-search', 'entity-search', 'toolsets'] as const
+
+/**
+ * Features that should NOT appear as base toolsets. Either their tools are bootstrap
+ * (docs, search), or they're internal/meta and not user-addressable.
+ */
+const EXCLUDED_FEATURES = new Set(['docs', 'search', 'debug', 'skills', 'meta'])
+
+/**
+ * Optional composite toolsets. Each bundles multiple base features into one enable/disable
+ * action for convenience. This is the only hand-curated part of the taxonomy — decisions
+ * about what belongs together are editorial, not mechanical.
+ *
+ * Keep the set small (≤10) and focused on workflows a single prompt might touch. When in
+ * doubt, leave it out and let the model enable base toolsets directly.
+ */
+export const COMPOSITE_TOOLSETS: Record<string, { title: string; description: string; features: string[] }> = {
+    analytics: {
+        title: 'Analytics (bundle)',
+        description:
+            'Insights, events, cohorts, actions, persons, and product analytics — everything needed for trends, funnels, retention, and event/property discovery.',
+        features: ['insights', 'events', 'cohorts', 'actions', 'persons', 'product_analytics'],
+    },
+    content: {
+        title: 'Dashboards, notebooks, annotations (bundle)',
+        description:
+            'Dashboards, notebooks, and annotations — for building and annotating the artifacts that get shared.',
+        features: ['dashboards', 'notebooks', 'annotations'],
+    },
+    admin: {
+        title: 'Admin / workspace (bundle)',
+        description:
+            'Orgs, projects, platform admin, integrations, alerts — the primitives needed to manage a PostHog instance. Enable this first if the model cannot tell which project/org to operate on.',
+        features: ['workspace', 'core', 'platform_features', 'integrations', 'alerts'],
+    },
+}
 
 export type ToolsetDefinition = {
-    id: ToolsetId
+    id: string
     title: string
     description: string
-    /** Tool-definition `feature` values that belong to this toolset. */
+    /** Feature IDs this toolset covers (1 element for base, multiple for composites). */
     features: string[]
+    /** True when derived directly from a tool `feature` value; false for composites. */
+    isBase: boolean
 }
 
 /**
- * Tools always available in progressive mode regardless of which toolsets are enabled.
- * Kept small (goal: ≤5 from the RFC) so idle token cost stays near the 5K target.
+ * Build the full toolset list for a given MCP version. Base toolsets come from the tool
+ * catalog's distinct `feature` values; composites come from COMPOSITE_TOOLSETS above.
  */
-export const BOOTSTRAP_TOOL_NAMES = ['query-run', 'docs-search', 'entity-search', 'toolsets'] as const
+export function getAllToolsets(version?: number): ToolsetDefinition[] {
+    const defs = getToolDefinitions(version)
+    const base: Record<string, { category: string; toolCount: number }> = {}
 
-export const TOOLSETS: ToolsetDefinition[] = [
-    {
-        id: 'analytics',
-        title: 'Analytics',
-        description:
-            'Events, insights, cohorts, actions, persons, and product analytics. Enable for trends, funnels, retention, HogQL, insight CRUD, and event/property discovery.',
-        features: ['insights', 'events', 'product_analytics', 'cohorts', 'actions', 'persons'],
-    },
-    {
-        id: 'content',
-        title: 'Dashboards, notebooks, annotations',
-        description:
-            'Dashboards, notebooks, and annotations. Enable for dashboard CRUD, notebook reads/writes, and annotating charts.',
-        features: ['dashboards', 'notebooks', 'annotations'],
-    },
-    {
-        id: 'flags',
-        title: 'Feature flags',
-        description:
-            'Feature flag CRUD + early access features. Enable for flag definitions, rollout changes, and release gating.',
-        features: ['flags', 'early_access_features'],
-    },
-    {
-        id: 'experiments',
-        title: 'Experiments',
-        description: 'A/B experiments and results. Enable for experiment CRUD and result reads.',
-        features: ['experiments'],
-    },
-    {
-        id: 'surveys',
-        title: 'Surveys',
-        description: 'Survey CRUD and stats. Enable for survey management and response analytics.',
-        features: ['surveys'],
-    },
-    {
-        id: 'error_tracking',
-        title: 'Error tracking',
-        description: 'Exceptions and error issues. Enable for exception triage and error investigation.',
-        features: ['error_tracking'],
-    },
-    {
-        id: 'llm_analytics',
-        title: 'LLM analytics',
-        description:
-            'LLM traces, prompts, evaluations, conversations, and cost. Enable when the user asks about LLM spend, prompt versioning, or tracing.',
-        features: ['llm_analytics', 'prompts', 'conversations'],
-    },
-    {
-        id: 'workspace',
-        title: 'Workspace',
-        description:
-            'Orgs, projects, platform admin, integrations, alerts, roles. Enable first if the model cannot tell which project to query or needs admin primitives.',
-        features: ['workspace', 'core', 'platform_features', 'integrations', 'alerts'],
-    },
-    {
-        id: 'data_warehouse',
-        title: 'Data warehouse + endpoints',
-        description:
-            'Warehouse views, endpoints, SQL, and data schema. Enable for warehouse queries, query endpoints, and exploring the schema.',
-        features: ['data_warehouse', 'endpoints', 'data_schema', 'sql'],
-    },
-    {
-        id: 'replay',
-        title: 'Session replay',
-        description: 'Recordings and playlists. Enable for session recording reads and playlist management.',
-        features: ['replay'],
-    },
-    {
-        id: 'hog_functions',
-        title: 'Destinations / Hog functions',
-        description: 'CDP destinations, sources, transformations, and Hog function templates.',
-        features: ['hog_functions', 'hog_function_templates'],
-    },
-    {
-        id: 'logs',
-        title: 'Logs',
-        description: 'Log queries and log attribute discovery.',
-        features: ['logs'],
-    },
-    {
-        id: 'workflows',
-        title: 'Workflows',
-        description: 'Workflow CRUD. Enable when the user asks about automation workflows.',
-        features: ['workflows'],
-    },
-    {
-        id: 'reverse_proxy',
-        title: 'Managed reverse proxy',
-        description: 'PostHog managed reverse proxy CRUD.',
-        features: ['reverse_proxy'],
-    },
-]
-
-const FEATURE_TO_TOOLSET: Record<string, ToolsetId> = (() => {
-    const out: Record<string, ToolsetId> = {}
-    for (const ts of TOOLSETS) {
-        for (const feature of ts.features) {
-            out[feature] = ts.id
+    for (const meta of Object.values(defs)) {
+        const feature = meta.feature
+        if (!feature || EXCLUDED_FEATURES.has(feature)) {
+            continue
         }
+        if (!base[feature]) {
+            base[feature] = { category: meta.category, toolCount: 0 }
+        }
+        base[feature].toolCount++
     }
-    return out
-})()
 
-export function toolsetIdForFeature(feature: string): ToolsetId | undefined {
-    return FEATURE_TO_TOOLSET[feature]
+    const baseToolsets: ToolsetDefinition[] = Object.entries(base)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([id, { category, toolCount }]) => ({
+            id,
+            title: category,
+            description: `${category} tools (${toolCount}).`,
+            features: [id],
+            isBase: true,
+        }))
+
+    const compositeToolsets: ToolsetDefinition[] = Object.entries(COMPOSITE_TOOLSETS).map(
+        ([id, { title, description, features }]) => ({
+            id,
+            title,
+            description,
+            features,
+            isBase: false,
+        })
+    )
+
+    return [...baseToolsets, ...compositeToolsets]
 }
 
-export function getToolsetById(id: string): ToolsetDefinition | undefined {
-    return TOOLSETS.find((ts) => ts.id === id)
+export function getToolsetById(id: string, version?: number): ToolsetDefinition | undefined {
+    return getAllToolsets(version).find((ts) => ts.id === id)
+}
+
+export function isValidToolsetId(id: string, version?: number): boolean {
+    return getAllToolsets(version).some((ts) => ts.id === id)
 }
 
 export function isBootstrapTool(name: string): boolean {
     return (BOOTSTRAP_TOOL_NAMES as readonly string[]).includes(name)
 }
 
-export function isValidToolsetId(id: string): id is ToolsetId {
-    return TOOLSETS.some((ts) => ts.id === id)
+/**
+ * Expand a toolset id to the concrete set of feature IDs it unlocks. For base toolsets
+ * this is [id]; for composites it's the feature list.
+ */
+export function expandToolsetToFeatures(id: string, version?: number): string[] {
+    const ts = getToolsetById(id, version)
+    return ts ? ts.features : []
+}
+
+/**
+ * Given a set of enabled toolset ids (mixed base/composite), return the flat set of
+ * feature ids that should be surfaced. Unknown ids are silently ignored.
+ */
+export function resolveEnabledFeatures(enabledToolsets: readonly string[], version?: number): Set<string> {
+    const out = new Set<string>()
+    for (const id of enabledToolsets) {
+        for (const feature of expandToolsetToFeatures(id, version)) {
+            out.add(feature)
+        }
+    }
+    return out
 }

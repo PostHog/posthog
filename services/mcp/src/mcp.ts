@@ -36,7 +36,7 @@ import { registerUiAppResources } from '@/resources/ui-apps'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import { ENABLED_TOOLSETS_KEY } from '@/tools/toolsets/manage'
-import { toolsetIdForFeature } from '@/tools/toolsets/taxonomy'
+import { expandToolsetToFeatures, isBootstrapTool, resolveEnabledFeatures } from '@/tools/toolsets/taxonomy'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -484,24 +484,34 @@ export class MCP extends McpAgent<Env> {
     }
 
     /**
-     * Flip `_toolRegistrations` enabled state for every tool whose feature maps to `toolsetId`.
+     * Flip `_toolRegistrations` enabled state for every tool whose feature is covered by
+     * `toolsetId` (either a base toolset = 1 feature, or a composite = many features).
      * The SDK auto-fires `notifications/tools/list_changed` on each `.enable()`/`.disable()`,
      * so compatible MCP clients re-request `tools/list` and see the updated catalog.
      */
     applyToolsetToRegistrations(
         toolsetId: string | undefined,
         action: 'enable' | 'disable',
-        toolDefs: Record<string, { feature: string }>
+        toolDefs: Record<string, { feature: string }>,
+        version?: number
     ): void {
         if (!toolsetId) {
             return
         }
+        const features = new Set(expandToolsetToFeatures(toolsetId, version))
+        if (features.size === 0) {
+            return
+        }
         for (const [name, registered] of this._toolRegistrations.entries()) {
+            // Bootstrap tools are always visible regardless of toolset state. Never flip them.
+            if (isBootstrapTool(name)) {
+                continue
+            }
             const def = toolDefs[name]
             if (!def) {
                 continue
             }
-            if (toolsetIdForFeature(def.feature) !== toolsetId) {
+            if (!features.has(def.feature)) {
                 continue
             }
             if (action === 'enable') {
@@ -634,10 +644,6 @@ export class MCP extends McpAgent<Env> {
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
-            // Fetch catalog unfiltered by progressive state; we handle enable/disable on
-            // the registered tool refs below so tools/list_changed just works.
-            progressive: progressive ? true : undefined,
-            enabledToolsets: undefined,
         })
 
         // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
@@ -647,25 +653,47 @@ export class MCP extends McpAgent<Env> {
             this._api.config.oauthClientName = oauthClientName
         }
 
-        const { isBootstrapTool } = await import('@/tools/toolsets/taxonomy')
         const { getToolDefinitions } = await import('@/tools/toolDefinitions')
         const toolDefs = getToolDefinitions(version)
 
-        // Resolve initial enabled toolsets: merge session cache with ?toolsets=<ids>
+        // Resolve the set of FEATURES that should be active at init time: merge session
+        // cache with any ?toolsets=<ids> query-param pre-enables, then expand composites.
         const sessionEnabled = ((await this.cache.get(ENABLED_TOOLSETS_KEY as any)) ?? []) as string[]
-        const enabledToolsets = new Set<string>([...sessionEnabled, ...(initialToolsets ?? [])])
+        const initialEnabledToolsets = Array.from(new Set([...sessionEnabled, ...(initialToolsets ?? [])]))
+        const initialEnabledFeatures = resolveEnabledFeatures(initialEnabledToolsets, version)
 
         for (const tool of allTools) {
             const typedTool = tool as Tool<z.ZodObject>
-            let registered: { enable: () => void; disable: () => void }
-            if (progressive && typedTool.name === 'toolsets') {
-                // Wrap the toolsets meta-tool so enable/disable calls flip individual tool
-                // registrations. The SDK's `.enable()` / `.disable()` auto-fires
-                // notifications/tools/list_changed, so compatible clients auto-refresh.
-                registered = this.registerTool(typedTool, async (params: any) => {
-                    const result = (await typedTool.handler(context, params)) as Record<string, unknown>
+            const registered = this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+
+            // In progressive mode, disable everything that isn't bootstrap and whose feature
+            // isn't already active (via session cache or ?toolsets= pre-enable). Keep the
+            // registration so `toolsets(action='enable')` can `.enable()` it later without
+            // needing a full re-init.
+            if (progressive) {
+                if (isBootstrapTool(typedTool.name)) {
+                    continue
+                }
+                const def = toolDefs[typedTool.name]
+                const feature = def?.feature
+                if (!feature || !initialEnabledFeatures.has(feature)) {
+                    registered.disable()
+                }
+            }
+        }
+
+        // Register the `toolsets` meta-tool explicitly in progressive mode. It isn't returned
+        // by getToolsFromContext (always excluded there so the default tool surface is
+        // unchanged), so we construct it from TOOL_MAP + toolDefs here.
+        if (progressive) {
+            const { TOOL_MAP, buildTool } = await import('@/tools')
+            const toolsetsFactory = TOOL_MAP.toolsets
+            if (toolsetsFactory) {
+                const toolsetsTool = buildTool(toolsetsFactory(), version) as Tool<z.ZodObject>
+                this.registerTool(toolsetsTool, async (params: any) => {
+                    const result = (await toolsetsTool.handler(context, params)) as Record<string, unknown>
                     if (params?.action === 'enable' || params?.action === 'disable') {
-                        this.applyToolsetToRegistrations(params.name, params.action, toolDefs)
+                        this.applyToolsetToRegistrations(params.name, params.action, toolDefs, version)
                         await this.resolveClientInfo()
                         if (!clientSupportsListChanged(this._mcpClientName)) {
                             const enabled = ((await context.cache.get(ENABLED_TOOLSETS_KEY as any)) ?? []) as string[]
@@ -678,22 +706,6 @@ export class MCP extends McpAgent<Env> {
                     }
                     return result
                 })
-            } else {
-                registered = this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
-            }
-
-            // In progressive mode, disable everything that isn't bootstrap or in an
-            // already-enabled toolset. Keep the registration so the toolsets meta-tool
-            // can `.enable()` it later without needing a full re-init.
-            if (progressive) {
-                if (isBootstrapTool(typedTool.name)) {
-                    continue
-                }
-                const def = toolDefs[typedTool.name]
-                const toolsetId = def ? toolsetIdForFeature(def.feature) : undefined
-                if (!toolsetId || !enabledToolsets.has(toolsetId)) {
-                    registered.disable()
-                }
             }
         }
 
