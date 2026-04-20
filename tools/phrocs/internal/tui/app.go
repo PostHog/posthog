@@ -671,7 +671,7 @@ func (m *Model) cycleGroup() {
 }
 
 // refetchServices gets the latest process list and keeps the cursor stable.
-// When showAll is active, standby processes from the registry are appended.
+// When showAllRegProcs is active, standby processes from the registry are appended.
 func (m *Model) refetchServices() {
 	// Capture the active name before re-fetching so sortServices
 	// can restore the cursor to the same process.
@@ -682,19 +682,19 @@ func (m *Model) refetchServices() {
 
 	// Re-fetch the process slice so status icons refresh on next render
 	real := m.mgr.Procs()
-	if m.showAll && len(m.standbyProcs) > 0 {
+	if m.showAllRegProcs && len(m.standbyRegProcs) > 0 {
 		// Filter out standbys that were promoted to real (user started them)
 		realNames := make(map[string]bool, len(real))
 		for _, p := range real {
 			realNames[p.Name] = true
 		}
 		var standbys []*process.Process
-		for _, p := range m.standbyProcs {
+		for _, p := range m.standbyRegProcs {
 			if !realNames[p.Name] {
 				standbys = append(standbys, p)
 			}
 		}
-		m.standbyProcs = standbys
+		m.standbyRegProcs = standbys
 		m.services = append(real, standbys...)
 	} else {
 		m.services = real

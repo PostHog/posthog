@@ -12,7 +12,7 @@ import (
 
 // readyShowAllModel creates a model with a small set of "active" processes and
 // a registry config that has additional processes. The registry is injected
-// directly via standbyProcs rather than requiring bin/mprocs.yaml on disk.
+// directly via standbyRegProcs rather than requiring bin/mprocs.yaml on disk.
 func readyShowAllModel(t *testing.T) Model {
 	t.Helper()
 	f := false
@@ -35,7 +35,7 @@ func readyShowAllModel(t *testing.T) Model {
 	model := next.(Model)
 
 	// Inject standby processes as if loaded from registry
-	model.standbyProcs = []*process.Process{
+	model.standbyRegProcs = []*process.Process{
 		process.NewStandbyProcess("capture", config.ProcConfig{
 			Shell:      "start-rust-service capture",
 			Capability: "event_ingestion",
@@ -64,7 +64,7 @@ func TestShowAll_toggleAddsStandby(t *testing.T) {
 	}
 
 	// Toggle on
-	m.showAll = true
+	m.showAllRegProcs = true
 	m.refetchServices()
 	m.sortServices()
 
@@ -88,10 +88,10 @@ func TestShowAll_toggleOffRemovesStandby(t *testing.T) {
 	m := readyShowAllModel(t)
 
 	// Toggle on then off
-	m.showAll = true
+	m.showAllRegProcs = true
 	m.refetchServices()
 	m.sortServices()
-	m.showAll = false
+	m.showAllRegProcs = false
 	m.refetchServices()
 	m.sortServices()
 
@@ -146,7 +146,7 @@ func TestShowAll_restoreConfigPreservesRuntimeSettings(t *testing.T) {
 
 func TestShowAll_standbySortOrder(t *testing.T) {
 	m := readyShowAllModel(t)
-	m.showAll = true
+	m.showAllRegProcs = true
 	m.refetchServices()
 	m.sortMode = SortStatus
 	m.sortServices()
@@ -172,7 +172,7 @@ func TestShowAll_standbySortOrder(t *testing.T) {
 
 func TestShowAll_standbyAppearsInGroups(t *testing.T) {
 	m := readyShowAllModel(t)
-	m.showAll = true
+	m.showAllRegProcs = true
 	m.refetchServices()
 	m.sortServices()
 
@@ -211,7 +211,7 @@ func TestShowAll_standbyAppearsInGroups(t *testing.T) {
 
 func TestShowAll_navigationIncludesStandby(t *testing.T) {
 	m := readyShowAllModel(t)
-	m.showAll = true
+	m.showAllRegProcs = true
 	m.refetchServices()
 	m.sortServices()
 
@@ -244,7 +244,7 @@ func TestShowAll_cursorPreservedOnToggle(t *testing.T) {
 		}
 	}
 
-	m.showAll = true
+	m.showAllRegProcs = true
 	m.refetchServices()
 	m.sortServices()
 
@@ -256,7 +256,7 @@ func TestShowAll_cursorPreservedOnToggle(t *testing.T) {
 		t.Errorf("cursor should stay on frontend after toggle on, got %q", name)
 	}
 
-	m.showAll = false
+	m.showAllRegProcs = false
 	m.refetchServices()
 	m.sortServices()
 
@@ -288,7 +288,7 @@ func TestShowAll_keyEnablementByProcState(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := readyShowAllModel(t)
-			m.showAll = true
+			m.showAllRegProcs = true
 			m.refetchServices()
 			m.sortServices()
 
@@ -317,7 +317,7 @@ func TestShowAll_keyEnablementByProcState(t *testing.T) {
 
 func TestShowAll_promoteStandbyToReal(t *testing.T) {
 	m := readyShowAllModel(t)
-	m.showAll = true
+	m.showAllRegProcs = true
 	m.refetchServices()
 	m.sortServices()
 
@@ -344,10 +344,10 @@ func TestShowAll_promoteStandbyToReal(t *testing.T) {
 		t.Error("promoted proc should not be standby")
 	}
 
-	// capture should no longer be in standbyProcs
-	for _, p := range m.standbyProcs {
+	// capture should no longer be in standbyRegProcs
+	for _, p := range m.standbyRegProcs {
 		if p.Name == "capture" {
-			t.Error("capture should be removed from standbyProcs after promotion")
+			t.Error("capture should be removed from standbyRegProcs after promotion")
 		}
 	}
 
@@ -368,7 +368,7 @@ func TestShowAll_promoteStandbyToReal(t *testing.T) {
 
 func TestShowAll_promotedProcessSurvivesToggleOff(t *testing.T) {
 	m := readyShowAllModel(t)
-	m.showAll = true
+	m.showAllRegProcs = true
 	m.refetchServices()
 	m.sortServices()
 
@@ -382,7 +382,7 @@ func TestShowAll_promotedProcessSurvivesToggleOff(t *testing.T) {
 	m.promoteStandby()
 
 	// Toggle off — promoted process should remain (it's real now)
-	m.showAll = false
+	m.showAllRegProcs = false
 	m.refetchServices()
 	m.sortServices()
 

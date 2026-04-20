@@ -515,7 +515,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 
 	case key.Matches(msg, m.keys.ShowAll):
 		m.toggleShowAll()
-		m.dbg("show all: %v (%d standby)", m.showAll, len(m.standbyProcs))
+		m.dbg("show all: %v (%d standby)", m.showAllRegProcs, len(m.standbyRegProcs))
 
 	case key.Matches(msg, m.keys.InfoMode):
 		m.infoMode = true

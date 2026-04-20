@@ -13,8 +13,8 @@ import (
 // When enabled, processes from bin/mprocs.yaml that are not in the current
 // config appear as standby entries in the sidebar.
 func (m *Model) toggleShowAll() {
-	m.showAll = !m.showAll
-	if m.showAll {
+	m.showAllRegProcs = !m.showAllRegProcs
+	if m.showAllRegProcs {
 		m.loadStandbyProcs()
 	} else {
 		m.restoreConfigFromDisk()
@@ -29,7 +29,7 @@ func (m *Model) toggleShowAll() {
 // mouse speed, etc.) are left untouched to preserve any runtime changes.
 // Promoted processes are unaffected — they live in the manager, not the config.
 func (m *Model) restoreConfigFromDisk() {
-	m.standbyProcs = nil
+	m.standbyRegProcs = nil
 	if m.configPath == "" {
 		return
 	}
@@ -64,15 +64,15 @@ func (m *Model) loadStandbyProcs() {
 		existing[p.Name] = true
 	}
 
-	m.standbyProcs = nil
+	m.standbyRegProcs = nil
 	for _, name := range registry.OrderedNames() {
 		if existing[name] {
 			continue
 		}
 		pcfg := registry.Procs[name]
-		m.standbyProcs = append(m.standbyProcs, process.NewStandbyProcess(name, pcfg))
+		m.standbyRegProcs = append(m.standbyRegProcs, process.NewStandbyProcess(name, pcfg))
 	}
-	m.dbg("show all: loaded %d standby processes", len(m.standbyProcs))
+	m.dbg("show all: loaded %d standby processes", len(m.standbyRegProcs))
 }
 
 // enrichConfigFromRegistry adds missing procs and group_order entries from the
