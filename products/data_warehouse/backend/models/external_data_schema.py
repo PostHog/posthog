@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import models
 
 import numpy
+import structlog
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
 
@@ -24,6 +25,8 @@ from products.data_warehouse.backend.data_load.service import (
 )
 from products.data_warehouse.backend.s3 import get_s3_client
 from products.data_warehouse.backend.types import IncrementalFieldType
+
+logger = structlog.get_logger(__name__)
 
 type IncrementalFieldValue = str | int | float | None
 
@@ -487,6 +490,13 @@ def sync_old_schemas_with_new_schemas(
                 s.soft_delete()
                 deleted_schemas.append(schema)
             else:
+                logger.warning(
+                    "Disabling schema because table no longer exists in source",
+                    schema_id=str(s.id),
+                    schema_name=s.name,
+                    source_id=str(s.source_id),
+                    team_id=s.team_id,
+                )
                 s.should_sync = False
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
