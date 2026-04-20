@@ -40,8 +40,8 @@ export default meta
 
 export const Default: Story = {
     args: {
-        icon: <IconCalculate />,
-        children: 'Click me',
+        icon: <IconPlus />,
+        children: 'Create new',
     },
 }
 
