@@ -105,20 +105,7 @@ export default defineConfig(({ mode }) => {
             cors: true,
             // JS_URL overrides for sandbox environments where Vite is exposed on a different port.
             origin: process.env.JS_URL || 'http://localhost:8234',
-            hmr: (() => {
-                if (process.env.VITE_HMR === 'false') {
-                    return false
-                }
-                if (!process.env.JS_URL) {
-                    return undefined
-                }
-                const url = new URL(process.env.JS_URL)
-                return {
-                    protocol: url.protocol === 'https:' ? 'wss' : 'ws',
-                    host: url.hostname,
-                    clientPort: url.port ? parseInt(url.port) : url.protocol === 'https:' ? 443 : 80,
-                }
-            })(),
+            hmr: process.env.JS_URL ? { clientPort: parseInt(process.env.JS_URL.split(':').pop()!) } : undefined,
             proxy: {
                 '/static': {
                     target: 'http://localhost:8000',
