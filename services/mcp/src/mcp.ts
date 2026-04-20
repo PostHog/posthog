@@ -5,7 +5,7 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient, type GroupType } from '@/api/client'
-import { AnalyticsEvent, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
+import { AnalyticsEvent, evaluateFeatureFlags, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
     CUSTOM_API_BASE_URL,
@@ -398,9 +398,10 @@ export class MCP extends McpAgent<Env> {
     async init(): Promise<void> {
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
-        // Pre-seed cache, fetch group types, and evaluate feature flag in parallel
+        // Pre-seed cache, fetch group types, and evaluate feature flags in parallel
         const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
         const flagPromise = this.resolveVersionFlag()
+        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
@@ -408,9 +409,10 @@ export class MCP extends McpAgent<Env> {
             await this.cache.set('projectId', projectId)
         }
 
-        // Resolve group types and feature flag (started above in parallel with cache seeding)
+        // Resolve group types and feature flags (started above in parallel with cache seeding)
         const groupTypes = await groupTypesPromise
         const flagVersion = await flagPromise
+        const toolFeatureFlags = await toolFlagsPromise
         const version = flagVersion ?? clientVersion ?? 1
         const instructions = version === 2 ? buildInstructions(groupTypes) : INSTRUCTIONS_TEMPLATE_V1
 
@@ -440,6 +442,7 @@ export class MCP extends McpAgent<Env> {
             version,
             excludeTools,
             readOnly,
+            featureFlags: toolFeatureFlags,
         })
 
         // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
@@ -490,6 +493,20 @@ export class MCP extends McpAgent<Env> {
         try {
             const distinctId = await this.getDistinctId()
             return (await isFeatureFlagEnabled('mcp-version-2', distinctId)) ? 2 : undefined
+        } catch {
+            return undefined
+        }
+    }
+
+    private async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
+        try {
+            const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
+            const flagKeys = getRequiredFeatureFlags(version)
+            if (flagKeys.length === 0) {
+                return undefined
+            }
+            const distinctId = await this.getDistinctId()
+            return await evaluateFeatureFlags(flagKeys, distinctId)
         } catch {
             return undefined
         }

@@ -1754,7 +1754,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             ctx = HogQLContext(enable_select_queries=True, limit_top_select=False)
             query = query.copy()
-            query["query"] = _PlaceholderPreservingPrinter(context=ctx, dialect="hogql").visit(parsed)
+            query["query"] = _PlaceholderPreservingPrinter(context=ctx).visit(parsed)
             return query, pagination
 
         raise ValidationError({"limit": f"Limit/offset parameters are only supported for HogQLQuery, not {query_kind}"})
