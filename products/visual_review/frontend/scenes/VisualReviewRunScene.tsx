@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -262,6 +263,33 @@ export function VisualReviewRunScene(): JSX.Element {
                             ))}
                         </div>
                     )}
+
+                    {/* Pagination — below thumbnails, right-aligned */}
+                    {navSnapshots.length > 1 && (
+                        <div className="flex items-center justify-end gap-2 px-3 pb-2">
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconChevronLeft />}
+                                onClick={goToPrevious}
+                                disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
+                            >
+                                Previous
+                            </LemonButton>
+                            {currentIndex >= 0 && (
+                                <span className="text-xs text-muted">
+                                    {currentIndex + 1} of {navSnapshots.length}
+                                </span>
+                            )}
+                            <LemonButton
+                                size="xsmall"
+                                sideIcon={<IconChevronRight />}
+                                onClick={goToNext}
+                                disabledReason={!hasNext ? 'No next snapshot' : undefined}
+                            >
+                                Next
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
 
                 {/* Body: diff viewer */}
@@ -275,12 +303,6 @@ export function VisualReviewRunScene(): JSX.Element {
                             toleratedHashesLoading={toleratedHashesLoading}
                             onApprove={handleApproveSnapshot}
                             onMarkTolerated={() => markAsTolerated(selectedSnapshot)}
-                            onPrevious={goToPrevious}
-                            onNext={goToNext}
-                            hasPrevious={hasPrevious}
-                            hasNext={hasNext}
-                            currentIndex={currentIndex >= 0 ? currentIndex : undefined}
-                            totalCount={navSnapshots.length}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
                             repoFullName={repoFullName}

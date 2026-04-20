@@ -1,4 +1,4 @@
-import { IconChevronLeft, IconChevronRight, IconGithub } from '@posthog/icons'
+import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
@@ -17,12 +17,6 @@ interface SnapshotDiffViewerProps {
     onMarkTolerated?: () => void
     onQuarantine?: () => void
     onUnquarantine?: () => void
-    onPrevious?: () => void
-    onNext?: () => void
-    hasPrevious?: boolean
-    hasNext?: boolean
-    currentIndex?: number
-    totalCount?: number
     commitSha?: string
     prNumber?: number | null
     repoFullName?: string | null
@@ -39,12 +33,6 @@ export function SnapshotDiffViewer({
     onMarkTolerated,
     onQuarantine,
     onUnquarantine,
-    onPrevious,
-    onNext,
-    hasPrevious = false,
-    hasNext = false,
-    currentIndex,
-    totalCount,
     commitSha,
     prNumber,
     repoFullName,
@@ -68,77 +56,10 @@ export function SnapshotDiffViewer({
     const variant = parts.slice(1).join(' · ')
 
     return (
-        <div className="flex gap-4">
-            {/* Main content area */}
-            <div className="flex-1 min-w-0 overflow-hidden">
-                {/* Navigation and actions */}
-                <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            size="small"
-                            icon={<IconChevronLeft />}
-                            onClick={onPrevious}
-                            disabled={!hasPrevious}
-                        >
-                            Previous
-                        </LemonButton>
-                        {currentIndex !== undefined && totalCount !== undefined && (
-                            <span className="text-sm text-muted px-2">
-                                {currentIndex + 1} of {totalCount}
-                            </span>
-                        )}
-                        <LemonButton size="small" sideIcon={<IconChevronRight />} onClick={onNext} disabled={!hasNext}>
-                            Next
-                        </LemonButton>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <SnapshotStatusIndicator
-                            result={snapshot.result || 'unchanged'}
-                            reviewState={snapshot.review_state}
-                            classificationReason={snapshot.classification_reason}
-                        />
-
-                        {needsAction && (
-                            <>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    disabledReason="Leaving a snapshot unreviewed already blocks the PR. To fix it, update your code and rerun CI."
-                                >
-                                    Reject
-                                </LemonButton>
-                                {snapshot.result === 'changed' && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Tolerate this difference?',
-                                                description:
-                                                    'Marks this as rendering noise — future runs with the same hash pass automatically. ' +
-                                                    'If this is a bug, fix it instead.',
-                                                primaryButton: {
-                                                    children: 'Tolerate',
-                                                    onClick: onMarkTolerated,
-                                                },
-                                                secondaryButton: { children: 'Cancel' },
-                                            })
-                                        }}
-                                    >
-                                        Tolerate
-                                    </LemonButton>
-                                )}
-                                <LemonButton type="primary" size="small" onClick={onApprove}>
-                                    Accept change
-                                </LemonButton>
-                            </>
-                        )}
-                    </div>
-                </div>
-
-                {/* Snapshot title */}
-                <div className="flex items-baseline gap-2 mb-4">
+        <div>
+            {/* Title + status + actions — full width above content+sidebar */}
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-baseline gap-2">
                     <h3 className="text-lg font-semibold capitalize">{pageName}</h3>
                     {variant && (
                         <span className="text-sm text-muted">
@@ -148,206 +69,257 @@ export function SnapshotDiffViewer({
                     )}
                 </div>
 
-                {isQuarantined && (
-                    <div className="flex items-center justify-between bg-warning-highlight border border-warning rounded px-3 py-2 mb-4 text-sm">
-                        <span className="text-muted-alt">
-                            Quarantined — this snapshot is known-flaky and does not block PRs
-                        </span>
-                        {onUnquarantine && (
-                            <LemonButton size="xsmall" type="secondary" onClick={onUnquarantine}>
-                                Unquarantine
-                            </LemonButton>
-                        )}
-                    </div>
-                )}
+                <div className="flex items-center gap-2">
+                    <SnapshotStatusIndicator
+                        result={snapshot.result || 'unchanged'}
+                        reviewState={snapshot.review_state}
+                        classificationReason={snapshot.classification_reason}
+                    />
 
-                <VisualImageDiffViewer
-                    key={snapshot.id}
-                    baselineUrl={baselineUrl || null}
-                    currentUrl={currentUrl || null}
-                    diffUrl={snapshot.diff_artifact?.download_url || null}
-                    diffPercentage={snapshot.diff_percentage ?? null}
-                    result={(snapshot.result || 'unchanged') as VisualDiffResult}
-                    imageWidth={width ?? undefined}
-                    className="min-h-[200px]"
-                />
+                    {needsAction && (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                disabledReason="Leaving a snapshot unreviewed already blocks the PR. To fix it, update your code and rerun CI."
+                            >
+                                Reject
+                            </LemonButton>
+                            {snapshot.result === 'changed' && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Tolerate this difference?',
+                                            description:
+                                                'Marks this as rendering noise — future runs with the same hash pass automatically. ' +
+                                                'If this is a bug, fix it instead.',
+                                            primaryButton: {
+                                                children: 'Tolerate',
+                                                onClick: onMarkTolerated,
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    }}
+                                >
+                                    Tolerate
+                                </LemonButton>
+                            )}
+                            <LemonButton type="primary" size="small" onClick={onApprove}>
+                                Accept change
+                            </LemonButton>
+                        </>
+                    )}
+                </div>
             </div>
 
-            {/* Right sidebar */}
-            <div className="w-52 shrink-0 border-l pl-4 space-y-4">
-                {/* === Run section === */}
-                {(runType || commitSha || prNumber) && (
+            {/* Content + sidebar */}
+            <div className="flex gap-4">
+                <div className="flex-1 min-w-0 overflow-hidden">
+                    {isQuarantined && (
+                        <div className="flex items-center justify-between bg-warning-highlight border border-warning rounded px-3 py-2 mb-4 text-sm">
+                            <span className="text-muted-alt">
+                                Quarantined — this snapshot is known-flaky and does not block PRs
+                            </span>
+                            {onUnquarantine && (
+                                <LemonButton size="xsmall" type="secondary" onClick={onUnquarantine}>
+                                    Unquarantine
+                                </LemonButton>
+                            )}
+                        </div>
+                    )}
+
+                    <VisualImageDiffViewer
+                        key={snapshot.id}
+                        baselineUrl={baselineUrl || null}
+                        currentUrl={currentUrl || null}
+                        diffUrl={snapshot.diff_artifact?.download_url || null}
+                        diffPercentage={snapshot.diff_percentage ?? null}
+                        result={(snapshot.result || 'unchanged') as VisualDiffResult}
+                        imageWidth={width ?? undefined}
+                        className="min-h-[200px]"
+                    />
+                </div>
+
+                {/* Right sidebar */}
+                <div className="w-52 shrink-0 border-l pl-4 space-y-4">
+                    {/* === Run section === */}
+                    {(runType || commitSha || prNumber) && (
+                        <div>
+                            <h4 className="text-xs font-semibold text-muted mb-2">Run</h4>
+                            <div className="space-y-2">
+                                {runType && (
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-muted">Type</span>
+                                        <LemonTag type="muted" size="small" className="uppercase">
+                                            {runType}
+                                        </LemonTag>
+                                    </div>
+                                )}
+                                {commitSha && (
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-muted">Commit</span>
+                                        {repoFullName ? (
+                                            <Link
+                                                to={`https://github.com/${repoFullName}/commit/${commitSha}`}
+                                                target="_blank"
+                                                className="flex items-center gap-1 font-mono hover:text-primary"
+                                            >
+                                                {commitSha.substring(0, 7)}
+                                                <IconGithub className="text-xs" />
+                                            </Link>
+                                        ) : (
+                                            <span className="font-mono">{commitSha.substring(0, 7)}</span>
+                                        )}
+                                    </div>
+                                )}
+                                {prNumber && (
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-muted">PR</span>
+                                        {repoFullName ? (
+                                            <Link
+                                                to={`https://github.com/${repoFullName}/pull/${prNumber}`}
+                                                target="_blank"
+                                                className="flex items-center gap-1 hover:text-primary"
+                                            >
+                                                #{prNumber}
+                                                <IconGithub className="text-xs" />
+                                            </Link>
+                                        ) : (
+                                            <span>#{prNumber}</span>
+                                        )}
+                                    </div>
+                                )}
+                                {isApproved && snapshot.reviewed_at && (
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-muted">Approved</span>
+                                        <span className="text-success">
+                                            {new Date(snapshot.reviewed_at).toLocaleDateString()}
+                                        </span>
+                                    </div>
+                                )}
+                                {isTolerated && snapshot.reviewed_at && (
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-muted">Tolerated</span>
+                                        <span>{new Date(snapshot.reviewed_at).toLocaleDateString()}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* === Identifier section === */}
                     <div>
-                        <h4 className="text-xs font-semibold text-muted mb-2">Run</h4>
+                        <h4 className="text-xs font-semibold text-muted mb-2">Identifier</h4>
                         <div className="space-y-2">
-                            {runType && (
+                            {width && height && (
                                 <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted">Type</span>
-                                    <LemonTag type="muted" size="small" className="uppercase">
-                                        {runType}
-                                    </LemonTag>
-                                </div>
-                            )}
-                            {commitSha && (
-                                <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted">Commit</span>
-                                    {repoFullName ? (
-                                        <Link
-                                            to={`https://github.com/${repoFullName}/commit/${commitSha}`}
-                                            target="_blank"
-                                            className="flex items-center gap-1 font-mono hover:text-primary"
-                                        >
-                                            {commitSha.substring(0, 7)}
-                                            <IconGithub className="text-xs" />
-                                        </Link>
-                                    ) : (
-                                        <span className="font-mono">{commitSha.substring(0, 7)}</span>
-                                    )}
-                                </div>
-                            )}
-                            {prNumber && (
-                                <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted">PR</span>
-                                    {repoFullName ? (
-                                        <Link
-                                            to={`https://github.com/${repoFullName}/pull/${prNumber}`}
-                                            target="_blank"
-                                            className="flex items-center gap-1 hover:text-primary"
-                                        >
-                                            #{prNumber}
-                                            <IconGithub className="text-xs" />
-                                        </Link>
-                                    ) : (
-                                        <span>#{prNumber}</span>
-                                    )}
-                                </div>
-                            )}
-                            {isApproved && snapshot.reviewed_at && (
-                                <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted">Approved</span>
-                                    <span className="text-success">
-                                        {new Date(snapshot.reviewed_at).toLocaleDateString()}
+                                    <span className="text-muted">Resolution</span>
+                                    <span className="font-mono">
+                                        {width}×{height}
                                     </span>
                                 </div>
                             )}
-                            {isTolerated && snapshot.reviewed_at && (
+                            {snapshot.diff_percentage != null && snapshot.diff_percentage > 0 && (
                                 <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted">Tolerated</span>
-                                    <span>{new Date(snapshot.reviewed_at).toLocaleDateString()}</span>
+                                    <span className="text-muted">Diff</span>
+                                    <span className="font-mono">{Number(snapshot.diff_percentage.toFixed(2))}%</span>
+                                </div>
+                            )}
+                            {snapshot.baseline_artifact?.content_hash && (
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="text-muted">Baseline</span>
+                                    <span className="font-mono">
+                                        {snapshot.baseline_artifact.content_hash.slice(0, 10)}…
+                                    </span>
+                                </div>
+                            )}
+                            {snapshot.current_artifact?.content_hash && (
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="text-muted">Current</span>
+                                    <span className="font-mono">
+                                        {snapshot.current_artifact.content_hash.slice(0, 10)}…
+                                    </span>
                                 </div>
                             )}
                         </div>
                     </div>
-                )}
 
-                {/* === Identifier section === */}
-                <div>
-                    <h4 className="text-xs font-semibold text-muted mb-2">Identifier</h4>
-                    <div className="space-y-2">
-                        {width && height && (
-                            <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted">Resolution</span>
-                                <span className="font-mono">
-                                    {width}×{height}
-                                </span>
-                            </div>
-                        )}
-                        {snapshot.diff_percentage != null && snapshot.diff_percentage > 0 && (
-                            <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted">Diff</span>
-                                <span className="font-mono">{Number(snapshot.diff_percentage.toFixed(2))}%</span>
-                            </div>
-                        )}
-                        {snapshot.baseline_artifact?.content_hash && (
-                            <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted">Baseline</span>
-                                <span className="font-mono">
-                                    {snapshot.baseline_artifact.content_hash.slice(0, 10)}…
-                                </span>
-                            </div>
-                        )}
-                        {snapshot.current_artifact?.content_hash && (
-                            <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted">Current</span>
-                                <span className="font-mono">
-                                    {snapshot.current_artifact.content_hash.slice(0, 10)}…
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* History */}
-                <div>
-                    <h4 className="text-xs font-semibold text-muted mb-2">History</h4>
-                    {snapshotHistoryLoading ? (
-                        <div className="space-y-2">
-                            <LemonSkeleton className="h-4 w-full" />
-                            <LemonSkeleton className="h-4 w-3/4" />
-                        </div>
-                    ) : snapshotHistory && snapshotHistory.length > 0 ? (
-                        <div className="space-y-1.5">
-                            {snapshotHistory.map((entry) => (
-                                <div key={entry.run_id} className="flex items-center justify-between text-xs">
-                                    <span className="font-mono text-muted">{entry.commit_sha.slice(0, 7)}</span>
-                                    <SnapshotStatusIndicator result={entry.result} reviewState="" size="medium" />
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="text-xs text-muted">No history yet</p>
-                    )}
-                </div>
-
-                {/* Tolerated hashes */}
-                <div>
-                    <h4 className="text-xs font-semibold text-muted mb-2">Tolerated hashes</h4>
-                    {toleratedHashesLoading ? (
-                        <div className="space-y-2">
-                            <LemonSkeleton className="h-4 w-full" />
-                            <LemonSkeleton className="h-4 w-3/4" />
-                        </div>
-                    ) : toleratedHashes && toleratedHashes.length > 0 ? (
-                        <div className="space-y-1.5">
-                            {toleratedHashes.map((entry) => (
-                                <div key={entry.id} className="flex items-center justify-between text-xs">
-                                    <span className="font-mono text-muted">{entry.alternate_hash.slice(0, 10)}…</span>
-                                    <LemonTag type="muted" size="small">
-                                        {entry.reason === 'human' ? 'manual' : 'auto'}
-                                    </LemonTag>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="text-xs text-muted">None</p>
-                    )}
-                </div>
-
-                {/* Quarantine */}
-                {hasChanges && !isQuarantined && onQuarantine && (
+                    {/* History */}
                     <div>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            fullWidth
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Quarantine this snapshot?',
-                                    description:
-                                        'Marks this identifier as known-flaky for all future runs. ' +
-                                        'Diffs are still captured for metrics but won\u2019t block PRs.',
-                                    primaryButton: {
-                                        children: 'Quarantine',
-                                        onClick: onQuarantine,
-                                    },
-                                    secondaryButton: { children: 'Cancel' },
-                                })
-                            }}
-                        >
-                            Quarantine this identifier
-                        </LemonButton>
+                        <h4 className="text-xs font-semibold text-muted mb-2">History</h4>
+                        {snapshotHistoryLoading ? (
+                            <div className="space-y-2">
+                                <LemonSkeleton className="h-4 w-full" />
+                                <LemonSkeleton className="h-4 w-3/4" />
+                            </div>
+                        ) : snapshotHistory && snapshotHistory.length > 0 ? (
+                            <div className="space-y-1.5">
+                                {snapshotHistory.map((entry) => (
+                                    <div key={entry.run_id} className="flex items-center justify-between text-xs">
+                                        <span className="font-mono text-muted">{entry.commit_sha.slice(0, 7)}</span>
+                                        <SnapshotStatusIndicator result={entry.result} reviewState="" size="medium" />
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-xs text-muted">No history yet</p>
+                        )}
                     </div>
-                )}
+
+                    {/* Tolerated hashes */}
+                    <div>
+                        <h4 className="text-xs font-semibold text-muted mb-2">Tolerated hashes</h4>
+                        {toleratedHashesLoading ? (
+                            <div className="space-y-2">
+                                <LemonSkeleton className="h-4 w-full" />
+                                <LemonSkeleton className="h-4 w-3/4" />
+                            </div>
+                        ) : toleratedHashes && toleratedHashes.length > 0 ? (
+                            <div className="space-y-1.5">
+                                {toleratedHashes.map((entry) => (
+                                    <div key={entry.id} className="flex items-center justify-between text-xs">
+                                        <span className="font-mono text-muted">
+                                            {entry.alternate_hash.slice(0, 10)}…
+                                        </span>
+                                        <LemonTag type="muted" size="small">
+                                            {entry.reason === 'human' ? 'manual' : 'auto'}
+                                        </LemonTag>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-xs text-muted">None</p>
+                        )}
+                    </div>
+
+                    {/* Quarantine */}
+                    {hasChanges && !isQuarantined && onQuarantine && (
+                        <div>
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                fullWidth
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: 'Quarantine this snapshot?',
+                                        description:
+                                            'Marks this identifier as known-flaky for all future runs. ' +
+                                            'Diffs are still captured for metrics but won\u2019t block PRs.',
+                                        primaryButton: {
+                                            children: 'Quarantine',
+                                            onClick: onQuarantine,
+                                        },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                }}
+                            >
+                                Quarantine this identifier
+                            </LemonButton>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     )
