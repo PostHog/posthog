@@ -244,7 +244,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("There was an unexpected error running this query: ValueError: Some other error", str(context.exception))
+        self.assertIn(
+            "There was an unexpected error running this query: ValueError: Some other error", str(context.exception)
+        )
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
