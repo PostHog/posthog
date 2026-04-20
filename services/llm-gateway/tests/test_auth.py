@@ -234,6 +234,10 @@ class TestPersonalApiKeyAuthenticator:
                 {"id": "k3", "user_id": 100, "scopes": [], "current_team_id": 200},
                 id="empty_scopes",
             ),
+            pytest.param(
+                {"id": "k4", "user_id": 101, "scopes": ["*"], "current_team_id": 201},
+                id="wildcard_scope_rejected",
+            ),
         ],
     )
     async def test_invalid_keys_return_none(
@@ -341,6 +345,8 @@ class TestOAuthAccessTokenAuthenticator:
             pytest.param("", id="empty_scope"),
             pytest.param("read:only", id="wrong_scope"),
             pytest.param("task:read", id="read_not_write"),
+            pytest.param("*", id="wildcard_scope_rejected"),
+            pytest.param("* task:read", id="wildcard_with_other_scope_rejected"),
         ],
     )
     async def test_missing_task_write_scope_returns_none(

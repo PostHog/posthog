@@ -16,4 +16,4 @@ class AuthenticatedUser:
 def has_required_scope(scopes: list[str], required: str = "llm_gateway:read") -> bool:
     if not scopes:
         return False
-    return "*" in scopes or required in scopes
+    return required in scopes
