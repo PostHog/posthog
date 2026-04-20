@@ -260,6 +260,10 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
     )(pk=inputs.subscription_id)
 
     if not subscription.summary_enabled:
+        await LOGGER.ainfo(
+            "snapshot_subscription_insights.skipped_summary_disabled",
+            subscription_id=inputs.subscription_id,
+        )
         return SnapshotInsightsResult()
 
     if not subscription.team.organization.is_ai_data_processing_approved:
@@ -297,6 +301,11 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
         snapshot_role="current",
     )
     if not current_states:
+        await LOGGER.awarning(
+            "snapshot_subscription_insights.no_current_states",
+            subscription_id=inputs.subscription_id,
+            insight_count=len(content_snapshot.get("insights", [])),
+        )
         return SnapshotInsightsResult()
 
     temporalio.activity.heartbeat("loading previous delivery")
