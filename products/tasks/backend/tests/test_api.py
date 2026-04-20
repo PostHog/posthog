@@ -22,6 +22,7 @@ from posthog.models import Integration, Organization, OrganizationMembership, Pe
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.models import (
     CodeInvite,
@@ -444,6 +445,41 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(remaining_staged_artifacts, [])
         self.assertEqual(missing_artifact_ids, ["artifact-123"])
         mock_workflow.assert_called_once()
+
+    @patch("posthog.storage.object_storage.copy")
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_preserves_staged_artifacts_when_copy_fails(self, mock_workflow, mock_copy):
+        mock_copy.side_effect = ObjectStorageError("copy failed")
+        task = self.create_task()
+        staged_artifact = build_task_artifact_entry(
+            artifact_id="artifact-123",
+            name="spec.pdf",
+            artifact_type="user_attachment",
+            source="user_attachment",
+            size=4096,
+            content_type="application/pdf",
+            storage_path=f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/artifact-123/spec.pdf",
+        )
+        cache_task_staged_artifact(task, staged_artifact)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "pending_user_message": "Read the file first",
+                "pending_user_artifact_ids": ["artifact-123"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        self.assertEqual(TaskRun.objects.filter(task=task).count(), 1)
+        task_run = TaskRun.objects.get(task=task)
+        self.assertEqual(task_run.artifacts, [])
+        remaining_staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, ["artifact-123"])
+        self.assertEqual(remaining_staged_artifacts, [staged_artifact])
+        self.assertEqual(missing_artifact_ids, [])
+        mock_workflow.assert_not_called()
 
     @parameterized.expand(
         [
