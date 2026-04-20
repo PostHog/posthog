@@ -52,8 +52,6 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
         return (obj.computed_at + rec.refresh_interval).isoformat()
 
     def get_completion_progress(self, obj: ErrorTrackingRecommendation) -> float:
-        # Derived dynamically from the stored `meta` so we don't need a column +
-        # backfill every time a recommendation's completion definition changes.
         rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
         if not rec:
             return 0.0
@@ -61,11 +59,6 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
 
 
 def _compute_if_stale(team_id: int, team: Team, user: User) -> None:
-    """Create or refresh recommendations for the given team (and user, for user-scoped recs).
-
-    User-scoped recs are computed lazily for the requesting user only — we don't
-    pre-compute for every org member. Each user's first visit creates their row.
-    """
     now = timezone.now()
     for rec in RECOMMENDATIONS:
         row_user = user if rec.user_scoped else None
