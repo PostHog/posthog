@@ -44,6 +44,7 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
 
     actions({
         setTracesQuery: (query: DataTableNode) => ({ query }),
+        setShowInputOutputColumns: (show: boolean) => ({ show }),
     }),
 
     reducers({
@@ -51,6 +52,13 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
             null as DataTableNode | null,
             {
                 setTracesQuery: (_, { query }) => query,
+            },
+        ],
+        showInputOutputColumns: [
+            true as boolean,
+            { persist: true },
+            {
+                setShowInputOutputColumns: (_, { show }) => show,
             },
         ],
     }),
@@ -72,6 +80,7 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
                 s.groupsTaxonomicTypes,
                 s.featureFlags,
                 s.user,
+                s.showInputOutputColumns,
             ],
             (
                 dateFilter: { dateFrom: string | null; dateTo: string | null },
@@ -82,7 +91,8 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
                 group: { groupKey: string; groupTypeIndex: number } | undefined,
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[],
                 featureFlags: { [flag: string]: boolean | string | undefined },
-                user: { is_impersonated?: boolean } | null
+                user: { is_impersonated?: boolean } | null,
+                showInputOutputColumns: boolean
             ): DataTableNode => {
                 // For impersonated users (support agents), default to showing support traces
                 // For regular users, always filter out support traces
@@ -107,7 +117,7 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
                     columns: [
                         'id',
                         'traceName',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+                        ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT] && showInputOutputColumns
                             ? ['inputState', 'outputState']
                             : []),
                         'person',
