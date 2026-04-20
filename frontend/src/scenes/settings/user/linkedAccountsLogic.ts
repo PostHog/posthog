@@ -33,6 +33,33 @@ interface GithubStartResponse {
     authorize_url: string
 }
 
+/** Key for stashing the ``connect_from`` URL param across the GitHub OAuth roundtrip.
+ *
+ * The link flow leaves posthog.com for github.com and comes back, which drops the query
+ * string that brought the user here. sessionStorage survives the roundtrip because it's
+ * scoped to the tab, not the navigation. */
+const CONNECT_FROM_STORAGE_KEY = 'linked_accounts_connect_from'
+
+function readConnectFromStorage(): string | null {
+    try {
+        return sessionStorage.getItem(CONNECT_FROM_STORAGE_KEY)
+    } catch {
+        return null
+    }
+}
+
+function writeConnectFromStorage(value: string | null): void {
+    try {
+        if (value) {
+            sessionStorage.setItem(CONNECT_FROM_STORAGE_KEY, value)
+        } else {
+            sessionStorage.removeItem(CONNECT_FROM_STORAGE_KEY)
+        }
+    } catch {
+        // No-op: private-browsing or storage-disabled sessions just lose the CTA hint.
+    }
+}
+
 export const linkedAccountsLogic = kea<linkedAccountsLogicType>([
     path(['scenes', 'settings', 'user', 'linkedAccountsLogic']),
 
@@ -103,9 +130,33 @@ export const linkedAccountsLogic = kea<linkedAccountsLogicType>([
         afterMount: () => {
             actions.loadLinkedAccounts()
             const params = new URLSearchParams(window.location.search)
+
+            // Stash ``connect_from`` so the post-roundtrip success toast can surface a
+            // "Return to PostHog Code" CTA. Stored before any early returns so we also
+            // capture it when the user arrives here from the app but hasn't clicked yet.
+            const connectFrom = params.get('connect_from')
+            if (connectFrom) {
+                writeConnectFromStorage(connectFrom)
+            }
+
             if (params.has('github_link_success')) {
-                lemonToast.success('GitHub account linked.')
+                const origin = readConnectFromStorage()
+                writeConnectFromStorage(null)
+                if (origin === 'posthog_code') {
+                    lemonToast.success('GitHub account linked. You can return to PostHog Code.', {
+                        autoClose: false,
+                        button: {
+                            label: 'Return to PostHog Code',
+                            action: () => {
+                                window.location.href = 'posthog-code://github-linked'
+                            },
+                        },
+                    })
+                } else {
+                    lemonToast.success('GitHub account linked.')
+                }
             } else if (params.has('github_link_error')) {
+                writeConnectFromStorage(null)
                 const reason = params.get('github_link_error')
                 const message =
                     reason === 'already_linked'

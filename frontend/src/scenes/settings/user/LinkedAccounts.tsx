@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState, useEffect } from 'react'
 
 import { IconCheck, IconLock } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -11,7 +12,6 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { SSOProvider } from '~/types'
 
 import { LinkedAccount, linkedAccountsLogic } from './linkedAccountsLogic'
-import { useState, useEffect } from 'react'
 
 function StatusTag({ account }: { account: LinkedAccount }): JSX.Element | null {
     if (account.connected && !account.can_disconnect) {
