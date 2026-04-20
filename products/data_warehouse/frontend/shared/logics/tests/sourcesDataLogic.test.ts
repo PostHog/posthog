@@ -7,7 +7,24 @@ import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, E
 
 import { sourcesDataLogic } from '../sourcesDataLogic'
 
-jest.mock('lib/api')
+// Stub the default `api` export but keep the real ApiError class so both the
+// test fixtures and the loader reference the same constructor — the loader's
+// `error instanceof ApiError` guard would otherwise never match an auto-mocked
+// ApiError instance.
+jest.mock('lib/api', () => {
+    const actual = jest.requireActual('lib/api')
+    return {
+        __esModule: true,
+        ...actual,
+        default: {
+            externalDataSources: {
+                list: jest.fn(),
+                update: jest.fn(),
+                updateRevenueAnalyticsConfig: jest.fn(),
+            },
+        },
+    }
+})
 
 const emptyResponse: PaginatedResponse<ExternalDataSource> = {
     results: [],
