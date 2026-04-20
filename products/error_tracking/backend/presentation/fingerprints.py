@@ -11,7 +11,6 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.error_tracking.backend.facade.api import get_fingerprint, list_fingerprints
-from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 
 
 class ErrorTrackingFingerprintSerializer(serializers.Serializer):
@@ -26,7 +25,6 @@ class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     scope_object = "error_tracking"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions: list[str] = []
-    queryset = ErrorTrackingIssueFingerprintV2.objects.all()
     serializer_class = ErrorTrackingFingerprintSerializer
 
     def list(self, request, *args, **kwargs):
