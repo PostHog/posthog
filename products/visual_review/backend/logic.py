@@ -1535,7 +1535,7 @@ def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[
 def list_quarantined_identifiers(
     repo_id: UUID, team_id: int, identifier: str | None = None
 ) -> list[QuarantinedIdentifier]:
-    qs = QuarantinedIdentifier.objects.filter(repo_id=repo_id, team_id=team_id)
+    qs = QuarantinedIdentifier.objects.using(WRITER_DB).filter(repo_id=repo_id, team_id=team_id)
     if identifier:
         qs = qs.filter(identifier=identifier)
     else:
@@ -1553,7 +1553,7 @@ def quarantine_identifier(
     team_id: int,
     expires_at: datetime | None = None,
 ) -> QuarantinedIdentifier:
-    return QuarantinedIdentifier.objects.create(
+    return QuarantinedIdentifier.objects.using(WRITER_DB).create(
         repo_id=repo_id,
         identifier=identifier,
         run_type=run_type,
@@ -1565,7 +1565,7 @@ def quarantine_identifier(
 
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
-    QuarantinedIdentifier.objects.filter(
+    QuarantinedIdentifier.objects.using(WRITER_DB).filter(
         repo_id=repo_id,
         identifier=identifier,
         run_type=run_type,
