@@ -531,3 +531,72 @@ def data_deletion_request_property_removal():
     request = delete_original_events(request)
     request = cleanup_temp_tables(request)
     mark_deletion_complete(request)
+
+
+# ---------------------------------------------------------------------------
+# Pickup sensor: scans for APPROVED requests and launches jobs (max 1 at a time)
+# ---------------------------------------------------------------------------
+
+_DELETION_JOB_NAMES = [
+    data_deletion_request_event_removal.name,
+    data_deletion_request_property_removal.name,
+]
+
+
+@dagster.sensor(
+    jobs=[data_deletion_request_event_removal, data_deletion_request_property_removal],
+    minimum_interval_seconds=600,
+    default_status=dagster.DefaultSensorStatus.STOPPED,
+)
+def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext):
+    """Poll for APPROVED DataDeletionRequests and launch jobs (max 1 active at a time).
+
+    Operator enables this sensor manually from the Dagster UI when ready to
+    process approved requests.
+    """
+    active_statuses = [
+        dagster.DagsterRunStatus.QUEUED,
+        dagster.DagsterRunStatus.NOT_STARTED,
+        dagster.DagsterRunStatus.STARTING,
+        dagster.DagsterRunStatus.STARTED,
+    ]
+    active_count = 0
+    for job_name in _DELETION_JOB_NAMES:
+        active_count += len(
+            context.instance.get_run_records(
+                dagster.RunsFilter(job_name=job_name, statuses=active_statuses),
+            )
+        )
+    if active_count > 0:
+        return dagster.SkipReason(f"A deletion job is already running ({active_count} active). Waiting.")
+
+    next_request = DataDeletionRequest.objects.filter(status=RequestStatus.APPROVED).order_by("approved_at").first()
+    if next_request is None:
+        return dagster.SkipReason("No approved deletion requests to process.")
+
+    if next_request.request_type == RequestType.EVENT_REMOVAL:
+        job = data_deletion_request_event_removal
+        load_op = "load_deletion_request"
+    elif next_request.request_type == RequestType.PROPERTY_REMOVAL:
+        job = data_deletion_request_property_removal
+        load_op = "load_property_removal_request"
+    else:
+        return dagster.SkipReason(f"Unknown request_type for request {next_request.pk}: {next_request.request_type}")
+
+    context.log.info(
+        f"Launching {job.name} for request {next_request.pk} "
+        f"(team_id={next_request.team_id}, type={next_request.request_type})"
+    )
+
+    return dagster.RunRequest(
+        run_key=str(next_request.pk),
+        job_name=job.name,
+        run_config={
+            "ops": {
+                load_op: {
+                    "config": {"request_id": str(next_request.pk)},
+                },
+            },
+        },
+        tags={"team_id": str(next_request.team_id), "deletion_request_id": str(next_request.pk)},
+    )

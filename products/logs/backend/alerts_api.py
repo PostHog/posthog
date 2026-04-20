@@ -44,7 +44,7 @@ from products.logs.backend.alert_state_machine import (
     apply_user_reset,
     evaluate_alert_check,
 )
-from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 ALLOWED_WINDOW_MINUTES = {1, 5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
@@ -85,7 +85,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     last_error_message = serializers.SerializerMethodField(
         help_text=(
             "Error message from the most recent errored check, or null if the alert's "
-            "most recent check was successful. Sourced from LogsAlertCheck without "
+            "most recent check was successful. Sourced from LogsAlertEvent without "
             "denormalization so retention-aware cleanup rules stay the only source of truth."
         ),
     )
@@ -100,7 +100,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # Subquery annotation yields either the error_message string or None.
             return cast(str | None, annotated)
         return (
-            LogsAlertCheck.objects.filter(alert=obj, error_message__isnull=False)
+            LogsAlertEvent.objects.filter(alert=obj, error_message__isnull=False)
             .order_by("-created_at")
             .values_list("error_message", flat=True)
             .first()
@@ -464,7 +464,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Correlated subquery so list/retrieve can surface `last_error_message` in a
         # single round-trip instead of one extra query per alert.
         latest_error = (
-            LogsAlertCheck.objects.filter(alert=OuterRef("pk"), error_message__isnull=False)
+            LogsAlertEvent.objects.filter(alert=OuterRef("pk"), error_message__isnull=False)
             .order_by("-created_at")
             .values("error_message")[:1]
         )
@@ -656,7 +656,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             last_notified_at=None,
             snooze_until=None,
             consecutive_failures=0,
-            recent_checks_breached=(),
+            recent_events_breached=(),
         )
 
         result_buckets = []
@@ -676,7 +676,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 resolve_count += 1
 
             # Build the recent window including this check (same as what the state machine saw)
-            recent = (breached, *snapshot.recent_checks_breached)[:evaluation_periods]
+            recent = (breached, *snapshot.recent_events_breached)[:evaluation_periods]
 
             # Detect cooldown suppression: state changed but notification was suppressed
             cooldown_suppressed = (
@@ -720,7 +720,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 last_notified_at=bucket.timestamp if outcome.update_last_notified_at else snapshot.last_notified_at,
                 snooze_until=None,
                 consecutive_failures=outcome.consecutive_failures,
-                recent_checks_breached=recent,
+                recent_events_breached=recent,
             )
 
         response_data = {

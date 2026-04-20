@@ -59,7 +59,7 @@ class AlertSnapshot:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     consecutive_failures: int
-    recent_checks_breached: tuple[bool, ...]
+    recent_events_breached: tuple[bool, ...]
 
 
 @dataclass(frozen=True)
@@ -132,7 +132,7 @@ def evaluate_alert_check(
 
     consecutive_failures = 0
 
-    window = [check.threshold_breached, *snapshot.recent_checks_breached]
+    window = [check.threshold_breached, *snapshot.recent_events_breached]
     m = snapshot.evaluation_periods
     window = window[:m]
 

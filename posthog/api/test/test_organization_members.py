@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import ANY, call, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
@@ -423,3 +424,29 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response_data), 1)
         self.assertEqual(response_data[0]["user"]["email"], "specific@posthog.com")
         self.assertEqual(response_data[0]["user"]["uuid"], str(user1.uuid))
+
+    @parameterized.expand(
+        [
+            # No order param -> default -joined_at (newest first)
+            ("default", None, "alice@posthog.com"),
+            # Whitelisted orderings applied as-is
+            ("joined_at_desc", "-joined_at", "alice@posthog.com"),
+            ("joined_at_asc", "joined_at", "user1@posthog.com"),
+            # Previously allowed but unindexed -> falls back to default
+            ("disallowed_first_name", "user__first_name", "alice@posthog.com"),
+            # Attempt at exfiltration via ordering -> falls back to default
+            ("disallowed_password", "user__password", "alice@posthog.com"),
+        ]
+    )
+    def test_list_organization_members_order_param(self, _name, order, expected_first_email):
+        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
+
+        url = "/api/organizations/@current/members/"
+        if order is not None:
+            url += f"?order={order}"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()["results"]
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]["user"]["email"], expected_first_email)

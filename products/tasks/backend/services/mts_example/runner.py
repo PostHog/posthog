@@ -8,6 +8,7 @@ from products.signals.backend.report_generation.research import (
     ActionabilityChoice,
     PriorityAssessment,
     ReportPresentationOutput,
+    ReportResearchOutput,
     SignalFinding,
 )
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -25,14 +26,6 @@ logger = logging.getLogger(__name__)
 
 MAX_CURSED_ITEMS = 10
 
-# Shape mirrors what Signals consumes: findings + actionability + (priority | None) + presentation.
-CursedResearchResult = tuple[
-    list[SignalFinding],
-    ActionabilityAssessment,
-    PriorityAssessment | None,
-    ReportPresentationOutput,
-]
-
 
 async def run_cursed_identifier_research(
     context: CustomPromptSandboxContext,
@@ -40,7 +33,7 @@ async def run_cursed_identifier_research(
     branch: str = "master",
     verbose: bool = False,
     output_fn: OutputFn = None,
-) -> CursedResearchResult:
+) -> ReportResearchOutput:
     """Demo multi-turn session whose output shape matches the Signals pipeline.
 
     Turn flow: discovery → N research (one per discovered item) → actionability
@@ -119,4 +112,10 @@ async def run_cursed_identifier_research(
 
     await session.end()
     logger.info("mts_example: completed with %d finding(s)", len(findings))
-    return findings, actionability, priority, presentation
+    return ReportResearchOutput(
+        title=presentation.title,
+        summary=presentation.summary,
+        findings=findings,
+        actionability=actionability,
+        priority=priority,
+    )

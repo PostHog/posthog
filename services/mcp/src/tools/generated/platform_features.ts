@@ -299,6 +299,7 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                order: params.order,
             },
         })
         return result

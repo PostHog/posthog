@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.errors import QueryErrorCategory
 
 from products.logs.backend.alert_check_query import AlertCheckCountResult
-from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import CheckAlertsOutput, _check_alerts_sync, _evaluate_single_alert
 
 
@@ -160,7 +160,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.produce_internal_event")
-    def test_creates_audit_row(self, mock_produce, mock_query_cls):
+    def test_creates_event_row(self, mock_produce, mock_query_cls):
         mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=250)
         alert = self._make_alert()
         stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
@@ -168,7 +168,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         _evaluate_single_alert(alert, now, stats)
 
-        check = LogsAlertCheck.objects.get(alert=alert)
+        check = LogsAlertEvent.objects.get(alert=alert)
         assert check.result_count == 50
         assert check.threshold_breached is True
         assert check.state_before == "not_firing"
@@ -199,11 +199,11 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         # Seed MAX_EVALUATION_PERIODS non-event rows (the allowed headroom).
         for _ in range(MAX_EVALUATION_PERIODS):
-            LogsAlertCheck.objects.create(
+            LogsAlertEvent.objects.create(
                 alert=alert, threshold_breached=False, state_before="not_firing", state_after="not_firing"
             )
         # Seed an event row the activity should never touch.
-        errored = LogsAlertCheck.objects.create(
+        errored = LogsAlertEvent.objects.create(
             alert=alert,
             threshold_breached=False,
             state_before="not_firing",
@@ -214,12 +214,12 @@ class TestEvaluateSingleAlert(APIBaseTest):
         _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
 
         # Cap is MAX_EVALUATION_PERIODS + the new check that was just inserted.
-        non_event_count = LogsAlertCheck.objects.filter(
+        non_event_count = LogsAlertEvent.objects.filter(
             alert=alert, error_message__isnull=True, state_before=F("state_after")
         ).count()
         assert non_event_count == MAX_EVALUATION_PERIODS
         # The errored row survives the cap — events are retention-managed, not count-managed.
-        assert LogsAlertCheck.objects.filter(pk=errored.pk).exists()
+        assert LogsAlertEvent.objects.filter(pk=errored.pk).exists()
 
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
@@ -228,7 +228,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         "products.logs.backend.alert_error_classifier.classify_query_error",
         return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
     )
-    def test_clickhouse_failure_creates_error_audit_row(self, _mock_classify, mock_produce, mock_query_cls):
+    def test_clickhouse_failure_creates_error_event_row(self, _mock_classify, mock_produce, mock_query_cls):
         # Force the classifier to treat this as a performance error so the assertion
         # doesn't depend on whether the raw message hits one of the shared classifier's
         # recognized shapes.
@@ -241,7 +241,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
 
         _evaluate_single_alert(alert, now, stats)
 
-        check = LogsAlertCheck.objects.get(alert=alert)
+        check = LogsAlertEvent.objects.get(alert=alert)
         assert check.result_count is None
         assert check.threshold_breached is False
         assert check.error_message == "Query is too expensive. Try narrower filters or a shorter window."
@@ -324,7 +324,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.produce_internal_event")
     def test_resolution_emits_resolved_event(self, mock_produce, mock_query_cls):
         alert = self._make_alert(state=LogsAlertConfiguration.State.FIRING)
-        # First check breached to create an audit row for get_recent_breaches
+        # First check breached to create an event row for get_recent_breaches
         mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=50, query_duration_ms=100)
         _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC), _make_stats())
         alert.refresh_from_db()
@@ -437,8 +437,8 @@ class TestEvaluateSingleAlert(APIBaseTest):
             cooldown_minutes=60,
             last_notified_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
         )
-        # Create an audit row so get_recent_breaches has data
-        LogsAlertCheck.objects.create(
+        # Create an event row so get_recent_breaches has data
+        LogsAlertEvent.objects.create(
             alert=alert,
             result_count=50,
             threshold_breached=True,
