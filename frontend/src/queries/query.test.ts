@@ -3,7 +3,13 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
+import {
+    ASYNC_QUERY_WORKER_LOST_ERROR_CODE,
+    performQuery,
+    pollForResults,
+    queryExportContext,
+    waitForPageVisible,
+} from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -241,6 +247,23 @@ describe('query', () => {
 
             await expect(pollForResults('test-query-id')).rejects.toMatchObject({
                 detail: 'Simple error message',
+            })
+        })
+
+        it('assigns a stable code for async worker lost errors', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    query_status: {
+                        error_message:
+                            'The worker processing this query stopped before returning results. Please retry the query.',
+                    },
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: 'The worker processing this query stopped before returning results. Please retry the query.',
+                code: ASYNC_QUERY_WORKER_LOST_ERROR_CODE,
+                queryId: 'test-query-id',
             })
         })
 

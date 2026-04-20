@@ -33,7 +33,13 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '~/queries/query'
+import {
+    ASYNC_QUERY_TASK_FAILED_ERROR_CODE,
+    ASYNC_QUERY_TASK_REVOKED_ERROR_CODE,
+    ASYNC_QUERY_WORKER_LOST_ERROR_CODE,
+    QUERY_TIMEOUT_ERROR_MESSAGE,
+    performQuery,
+} from '~/queries/query'
 import {
     AnyEntityNode,
     Breakdown,
@@ -258,6 +264,13 @@ function classifyError(
     }
     if (isOutOfMemoryError(errorCode, errorMessage)) {
         return 'out_of_memory'
+    }
+    if (
+        errorCode === ASYNC_QUERY_WORKER_LOST_ERROR_CODE ||
+        errorCode === ASYNC_QUERY_TASK_FAILED_ERROR_CODE ||
+        errorCode === ASYNC_QUERY_TASK_REVOKED_ERROR_CODE
+    ) {
+        return 'server_error'
     }
     if (statusCode !== null && statusCode >= 500) {
         return 'server_error'

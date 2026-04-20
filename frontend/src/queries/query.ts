@@ -62,6 +62,22 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
+export const ASYNC_QUERY_WORKER_LOST_ERROR_CODE = 'async_query_worker_lost'
+export const ASYNC_QUERY_TASK_FAILED_ERROR_CODE = 'async_query_task_failed'
+export const ASYNC_QUERY_TASK_REVOKED_ERROR_CODE = 'async_query_task_revoked'
+
+function getAsyncQueryErrorCode(errorMessage: string): string | null {
+    if (errorMessage.includes('worker processing this query stopped')) {
+        return ASYNC_QUERY_WORKER_LOST_ERROR_CODE
+    }
+    if (errorMessage.includes('async query task failed')) {
+        return ASYNC_QUERY_TASK_FAILED_ERROR_CODE
+    }
+    if (errorMessage.includes('async query task was canceled')) {
+        return ASYNC_QUERY_TASK_REVOKED_ERROR_CODE
+    }
+    return null
+}
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -89,7 +105,7 @@ export function parseErrorMessage(errorMessage: string | undefined): { message: 
     }
 
     // Fallback: return original string unchanged
-    return { message: errorMessage, code: null }
+    return { message: errorMessage, code: getAsyncQueryErrorCode(errorMessage) }
 }
 
 //get export context for a given query
