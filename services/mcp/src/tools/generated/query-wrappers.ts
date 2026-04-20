@@ -716,12 +716,7 @@ const RetentionType = z.enum(['retention_recurring', 'retention_first_time', 're
 
 const AssistantRetentionEventsNode = z.object({
     custom_name: z.string().describe('Custom name for the event if it is needed to be renamed.').optional(),
-    id: z
-        .string()
-        .describe(
-            'Event name from the plan — the same string as `name`. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan.'
-        ),
-    name: z.string().describe('Event name from the plan — must be identical to `id`.'),
+    name: z.string().describe('Event name from the plan.'),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for the event.').optional(),
     type: z.literal('events').default('events'),
 })
