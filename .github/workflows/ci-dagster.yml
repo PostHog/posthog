@@ -66,7 +66,7 @@ jobs:
                         - 'posthog/settings/**'
                         - 'posthog/ducklake/**'
                         - 'posthog/kafka_client/**'
-                        - 'posthog/schema/**'
+                        - 'posthog/schema.py'
                         - 'posthog/test/**'
                         # Single-file posthog modules imported by DAGs
                         - 'posthog/cloud_utils.py'
