@@ -348,6 +348,155 @@ export interface ClusteringRunRequestApi {
 }
 
 /**
+ * * `scheduled` - Scheduled
+ * `every_n` - Every N
+ */
+export type EvaluationReportFrequencyEnumApi =
+    (typeof EvaluationReportFrequencyEnumApi)[keyof typeof EvaluationReportFrequencyEnumApi]
+
+export const EvaluationReportFrequencyEnumApi = {
+    Scheduled: 'scheduled',
+    EveryN: 'every_n',
+} as const
+
+export interface EvaluationReportApi {
+    readonly id: string
+    evaluation: string
+    frequency?: EvaluationReportFrequencyEnumApi
+    rrule?: string
+    /** @nullable */
+    starts_at?: string | null
+    /** @maxLength 64 */
+    timezone_name?: string
+    /** @nullable */
+    readonly next_delivery_date: string | null
+    delivery_targets?: unknown
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    max_sample_size?: number
+    enabled?: boolean
+    deleted?: boolean
+    /** @nullable */
+    readonly last_delivered_at: string | null
+    report_prompt_guidance?: string
+    /**
+     * Number of new eval results that triggers a report
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    trigger_threshold?: number | null
+    /**
+     * Minimum minutes between count-triggered reports
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /**
+     * Maximum count-triggered report runs per calendar day (UTC)
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    daily_run_cap?: number
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedEvaluationReportListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EvaluationReportApi[]
+}
+
+export interface PatchedEvaluationReportApi {
+    readonly id?: string
+    evaluation?: string
+    frequency?: EvaluationReportFrequencyEnumApi
+    rrule?: string
+    /** @nullable */
+    starts_at?: string | null
+    /** @maxLength 64 */
+    timezone_name?: string
+    /** @nullable */
+    readonly next_delivery_date?: string | null
+    delivery_targets?: unknown
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    max_sample_size?: number
+    enabled?: boolean
+    deleted?: boolean
+    /** @nullable */
+    readonly last_delivered_at?: string | null
+    report_prompt_guidance?: string
+    /**
+     * Number of new eval results that triggers a report
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    trigger_threshold?: number | null
+    /**
+     * Minimum minutes between count-triggered reports
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /**
+     * Maximum count-triggered report runs per calendar day (UTC)
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    daily_run_cap?: number
+    /** @nullable */
+    readonly created_by?: number | null
+    readonly created_at?: string
+}
+
+/**
+ * * `pending` - Pending
+ * `delivered` - Delivered
+ * `partial_failure` - Partial Failure
+ * `failed` - Failed
+ */
+export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof DeliveryStatusEnumApi]
+
+export const DeliveryStatusEnumApi = {
+    Pending: 'pending',
+    Delivered: 'delivered',
+    PartialFailure: 'partial_failure',
+    Failed: 'failed',
+} as const
+
+export interface EvaluationReportRunApi {
+    readonly id: string
+    readonly report: string
+    readonly content: unknown
+    readonly metadata: unknown
+    readonly period_start: string
+    readonly period_end: string
+    readonly delivery_status: DeliveryStatusEnumApi
+    readonly delivery_errors: unknown
+    readonly created_at: string
+}
+
+export interface PaginatedEvaluationReportRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EvaluationReportRunApi[]
+}
+
+/**
  * * `all` - all
  * `pass` - pass
  * `fail` - fail
@@ -1057,6 +1206,17 @@ export interface PatchedTraceReviewUpdateApi {
     queue_id?: string | null
 }
 
+export interface LLMPromptOutlineEntryApi {
+    /**
+     * Markdown heading level (1-6).
+     * @minimum 1
+     * @maximum 6
+     */
+    level: number
+    /** Heading text with markdown link syntax preserved. */
+    text: string
+}
+
 export interface LLMPromptListApi {
     readonly id: string
     /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -1072,6 +1232,7 @@ export interface LLMPromptListApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
+    readonly outline: readonly LLMPromptOutlineEntryApi[]
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
 }
@@ -1103,12 +1264,18 @@ export interface LLMPromptApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
+    readonly outline: readonly LLMPromptOutlineEntryApi[]
 }
 
 export interface LLMPromptPublicApi {
     id: string
     name: string
-    prompt: unknown
+    /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
+    prompt?: unknown
+    /** First 160 characters of the prompt. Only present when 'content=preview'. */
+    prompt_preview?: string
+    /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
+    outline: LLMPromptOutlineEntryApi[]
     version: number
     created_at: string
     updated_at: string
@@ -1157,6 +1324,260 @@ export interface LLMPromptVersionSummaryApi {
 export interface LLMPromptResolveResponseApi {
     prompt: LLMPromptApi
     versions: LLMPromptVersionSummaryApi[]
+    has_more: boolean
+}
+
+export interface LLMSkillOutlineEntryApi {
+    /**
+     * Markdown heading level (1-6).
+     * @minimum 1
+     * @maximum 6
+     */
+    level: number
+    /** Heading text. */
+    text: string
+}
+
+/**
+ * Arbitrary key-value metadata.
+ */
+export type LLMSkillListApiMetadata = { [key: string]: unknown }
+
+/**
+ * List serializer that omits body and file manifest — progressive disclosure (Level 1).
+ */
+export interface LLMSkillListApi {
+    readonly id: string
+    /**
+     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * What this skill does and when to use it. Max 4096 characters.
+     * @maxLength 4096
+     */
+    description: string
+    /**
+     * License name or reference to a bundled license file.
+     * @maxLength 255
+     */
+    license?: string
+    /**
+     * Environment requirements (intended product, system packages, network access, etc.).
+     * @maxLength 500
+     */
+    compatibility?: string
+    /** List of pre-approved tools the skill may use. */
+    allowed_tools?: string[]
+    /** Arbitrary key-value metadata. */
+    metadata?: LLMSkillListApiMetadata
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+export interface PaginatedLLMSkillListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMSkillListApi[]
+}
+
+/**
+ * Arbitrary key-value metadata.
+ */
+export type LLMSkillCreateApiMetadata = { [key: string]: unknown }
+
+export interface LLMSkillFileInputApi {
+    /**
+     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+     * @maxLength 500
+     */
+    path: string
+    /** Text content of the file. */
+    content: string
+    /**
+     * MIME type of the file content.
+     * @maxLength 100
+     */
+    content_type?: string
+}
+
+/**
+ * Create serializer — accepts bundled files as write-only input on POST.
+ */
+export interface LLMSkillCreateApi {
+    readonly id: string
+    /**
+     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * What this skill does and when to use it. Max 4096 characters.
+     * @maxLength 4096
+     */
+    description: string
+    /** The SKILL.md instruction content (markdown). */
+    body: string
+    /**
+     * License name or reference to a bundled license file.
+     * @maxLength 255
+     */
+    license?: string
+    /**
+     * Environment requirements (intended product, system packages, network access, etc.).
+     * @maxLength 500
+     */
+    compatibility?: string
+    /** List of pre-approved tools the skill may use. */
+    allowed_tools?: string[]
+    /** Arbitrary key-value metadata. */
+    metadata?: LLMSkillCreateApiMetadata
+    /** Bundled files to include with the initial version (scripts, references, assets). */
+    files?: LLMSkillFileInputApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+/**
+ * Arbitrary key-value metadata.
+ */
+export type LLMSkillApiMetadata = { [key: string]: unknown }
+
+export interface LLMSkillFileManifestApi {
+    /** @maxLength 500 */
+    path: string
+    /** @maxLength 100 */
+    content_type?: string
+}
+
+export interface LLMSkillApi {
+    readonly id: string
+    /**
+     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * What this skill does and when to use it. Max 4096 characters.
+     * @maxLength 4096
+     */
+    description: string
+    /** The SKILL.md instruction content (markdown). */
+    body: string
+    /**
+     * License name or reference to a bundled license file.
+     * @maxLength 255
+     */
+    license?: string
+    /**
+     * Environment requirements (intended product, system packages, network access, etc.).
+     * @maxLength 500
+     */
+    compatibility?: string
+    /** List of pre-approved tools the skill may use. */
+    allowed_tools?: string[]
+    /** Arbitrary key-value metadata. */
+    metadata?: LLMSkillApiMetadata
+    /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+    readonly files: readonly LLMSkillFileManifestApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+/**
+ * Arbitrary key-value metadata.
+ */
+export type PatchedLLMSkillPublishApiMetadata = { [key: string]: unknown }
+
+export interface PatchedLLMSkillPublishApi {
+    /** Full skill body (SKILL.md instruction content) to publish as a new version. */
+    body?: string
+    /**
+     * Updated description for the new version.
+     * @maxLength 4096
+     */
+    description?: string
+    /**
+     * License name or reference.
+     * @maxLength 255
+     */
+    license?: string
+    /**
+     * Environment requirements.
+     * @maxLength 500
+     */
+    compatibility?: string
+    /** List of pre-approved tools the skill may use. */
+    allowed_tools?: string[]
+    /** Arbitrary key-value metadata. */
+    metadata?: PatchedLLMSkillPublishApiMetadata
+    /** Bundled files to include with this version. Replaces all files from the previous version. */
+    files?: LLMSkillFileInputApi[]
+    /**
+     * Latest version you are editing from. Used for optimistic concurrency checks.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+export interface LLMSkillDuplicateApi {
+    /**
+     * Name for the duplicated skill. Must be unique.
+     * @maxLength 64
+     */
+    new_name: string
+}
+
+export interface LLMSkillFileApi {
+    /** @maxLength 500 */
+    path: string
+    content: string
+    /** @maxLength 100 */
+    content_type?: string
+}
+
+export interface LLMSkillVersionSummaryApi {
+    readonly id: string
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly is_latest: boolean
+}
+
+export interface LLMSkillResolveResponseApi {
+    skill: LLMSkillApi
+    versions: LLMSkillVersionSummaryApi[]
     has_more: boolean
 }
 
@@ -1299,6 +1720,28 @@ export type EvaluationsListParams = {
 }
 
 export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LlmAnalyticsEvaluationReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LlmAnalyticsEvaluationReportsRunsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -1463,7 +1906,7 @@ export type LlmAnalyticsTraceReviewsListParams = {
 
 export type LlmPromptsListParams = {
     /**
- * Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.
+ * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
 
 * `full` - full
 * `preview` - preview
@@ -1471,6 +1914,10 @@ export type LlmPromptsListParams = {
  * @minLength 1
  */
     content?: LlmPromptsListContent
+    /**
+     * Filter prompts by the ID of the user who created them.
+     */
+    created_by_id?: number
     /**
      * Number of results to return per page.
      */
@@ -1495,11 +1942,29 @@ export const LlmPromptsListContent = {
 
 export type LlmPromptsNameRetrieveParams = {
     /**
+ * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+
+* `full` - full
+* `preview` - preview
+* `none` - none
+ * @minLength 1
+ */
+    content?: LlmPromptsNameRetrieveContent
+    /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
     version?: number
 }
+
+export type LlmPromptsNameRetrieveContent =
+    (typeof LlmPromptsNameRetrieveContent)[keyof typeof LlmPromptsNameRetrieveContent]
+
+export const LlmPromptsNameRetrieveContent = {
+    Full: 'full',
+    Preview: 'preview',
+    None: 'none',
+} as const
 
 export type LlmPromptsResolveNameRetrieveParams = {
     /**
@@ -1525,6 +1990,65 @@ export type LlmPromptsResolveNameRetrieveParams = {
     version?: number
     /**
      * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
+    version_id?: string
+}
+
+export type LlmSkillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Optional substring filter applied to skill names and descriptions.
+     */
+    search?: string
+}
+
+export type LlmSkillsNameRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+}
+
+export type LlmSkillsNameFilesRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+}
+
+export type LlmSkillsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+    /**
+     * Exact skill version UUID to resolve.
      */
     version_id?: string
 }

@@ -83,6 +83,8 @@ class CustomerIOWebhookView(APIView):
 
     def _handle_global_unsubscribe(self, team_id: int, email: str) -> None:
         recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=email)
+        if recipient.preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT.value:
+            return
         recipient.preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
         recipient.save(update_fields=["preferences", "updated_at"])
 

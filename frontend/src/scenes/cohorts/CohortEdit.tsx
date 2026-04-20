@@ -98,8 +98,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         staticCohortMode,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)

@@ -569,6 +569,51 @@
             "readOnlyHint": false
         }
     },
+    "subscriptions-test-delivery-create": {
+        "description": "Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription is already in flight.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Send test delivery",
+        "title": "Send test delivery",
+        "required_scopes": ["subscription:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "subscriptions-deliveries-list": {
+        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List subscription deliveries",
+        "title": "List subscription deliveries",
+        "required_scopes": ["subscription:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "subscriptions-deliveries-retrieve": {
+        "description": "Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value, timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state. recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get subscription delivery",
+        "title": "Get subscription delivery",
+        "required_scopes": ["subscription:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "dashboards-get-all": {
         "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
@@ -1034,6 +1079,51 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-assignment-rules-create": {
+        "description": "Create an error tracking assignment rule for the current project. Provide `filters` to match incoming errors and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking assignment rule",
+        "title": "Create error tracking assignment rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-grouping-rules-list": {
+        "description": "List error tracking grouping rules for the current project. Returns rules in evaluation order with their filters, optional assignee, description, and linked issue when available.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking grouping rules",
+        "title": "List error tracking grouping rules",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-grouping-rules-create": {
+        "description": "Create an error tracking grouping rule for the current project. Provide required `filters`, and optionally set `assignee` and `description` for the issues this rule creates.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking grouping rule",
+        "title": "Create error tracking grouping rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with id, status, name, first seen timestamp, and assignee info.",
         "category": "Error tracking",
@@ -1107,6 +1197,21 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "error-tracking-suppression-rules-list": {
+        "description": "List error tracking suppression rules for the current project. Returns rules in evaluation order with their filters, sampling rate, and disabled state. Supports pagination with `limit` and `offset`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking suppression rules",
+        "title": "List error tracking suppression rules",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "query-error-tracking-issues": {
@@ -2130,6 +2235,36 @@
             "readOnlyHint": true
         }
     },
+    "organizations-list": {
+        "description": "List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID with organization-get for details or switch-organization to change context.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List organizations.",
+        "title": "List organizations.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-get": {
+        "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get organization details.",
+        "title": "Get organization details.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "insights-list": {
         "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
         "category": "Product analytics",
@@ -2206,7 +2341,7 @@
         }
     },
     "prompt-list": {
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content.",
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
         "category": "Prompts",
         "feature": "prompts",
         "summary": "List prompts",
@@ -2221,7 +2356,7 @@
         }
     },
     "prompt-get": {
-        "description": "Get a specific LLM prompt by name, including its full content. Uses the cached endpoint for fast retrieval.",
+        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
         "category": "Prompts",
         "feature": "prompts",
         "summary": "Get prompt",
@@ -2452,6 +2587,96 @@
         "summary": "List session recordings",
         "title": "List session recordings",
         "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-list": {
+        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use skill-get to fetch full content).",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "List skills",
+        "title": "List skills",
+        "required_scopes": ["llm_skill:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-get": {
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io).",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill",
+        "title": "Get skill",
+        "required_scopes": ["llm_skill:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-create": {
+        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Create skill",
+        "title": "Create skill",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-update": {
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided is carried forward from the current latest version. Requires base_version for optimistic concurrency. If files are provided, they replace all files from the previous version; if omitted, files are carried forward.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Update skill",
+        "title": "Update skill",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-duplicate": {
+        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Duplicate skill",
+        "title": "Duplicate skill",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-get": {
+        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill file",
+        "title": "Get skill file",
+        "required_scopes": ["llm_skill:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -2707,6 +2932,21 @@
         "summary": "Get LLM trace",
         "title": "Get LLM trace",
         "required_scopes": ["query:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-trends-actors": {
+        "description": "List the persons behind a specific data point in a trends insight. Use this to answer \"who were the users that did X on day Y?\" or \"which users are in this breakdown bucket?\".\n\nPair this with `query-trends`: first run the trends query to identify the data point of interest, then call this tool with the same trends query as `source` plus selectors that narrow to one cell.\n\nSelectors:\n\n- `day`: the bucket date (ISO) or integer offset from the range start. Omit to get actors across the entire range.\n- `series`: 0-based index of the series to drill into when the trends query has multiple series.\n- `breakdown`: always an array, one value per `breakdownFilter.breakdowns` dimension, in the same order. Single dimension: `breakdown: [\"Opera\"]`. Multiple dimensions: `breakdown: [\"Opera\", \"en-US\"]`.\n- `compare`: `current` (default) or `previous` when the source has `compareFilter` enabled.\n\nResponse:\n\nEach returned row contains `distinct_id`, `name`, `email`, and `count` (number of matching events for that actor). Results are limited to the top 100 actors ordered by event count; pagination will be added later.\n\nGuidance:\n\n- Keep the `source` trends query minimal — only include the filters/breakdowns needed to identify the cell.\n- If the user wants \"all users who did X\", omit `day`/`series`/`breakdown` to broaden the drill-down.\n- For large result sets, tighten the trends query (filters, date range) rather than expecting more rows.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List persons behind a trends data point",
+        "title": "List persons behind a trends data point",
+        "required_scopes": ["query:read", "person:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import type { PaginationManual } from '@posthog/lemon-ui'
 
 import type { SubscriptionApi } from '~/generated/core/api.schemas'
-import { FrequencyEnumApi, TargetTypeEnumApi } from '~/generated/core/api.schemas'
+import { SubscriptionFrequencyEnumApi, TargetTypeEnumApi } from '~/generated/core/api.schemas'
 
 import { SubscriptionsTable } from './SubscriptionsTable'
 
@@ -31,7 +31,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         target_type: TargetTypeEnumApi.Email,
         target_value:
             'matt.p@posthog.com,matt.p2@posthog.com,matt.p3@posthog.com,matt.p4@posthog.com,matt.p5@posthog.com',
-        frequency: FrequencyEnumApi.Weekly,
+        frequency: SubscriptionFrequencyEnumApi.Weekly,
         interval: 1,
         start_date: '2022-01-01T00:00:00Z',
         created_at: '2023-04-27T10:04:37.977401Z',
@@ -50,7 +50,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         dashboard_export_insights: [101, 102],
         target_type: TargetTypeEnumApi.Slack,
         target_value: 'C12345|#alerts-analytics-platform',
-        frequency: FrequencyEnumApi.Daily,
+        frequency: SubscriptionFrequencyEnumApi.Daily,
         interval: 1,
         start_date: '2022-01-01T00:00:00Z',
         created_at: '2023-04-27T10:04:37.977401Z',
@@ -70,7 +70,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         dashboard_export_insights: [],
         target_type: TargetTypeEnumApi.Email,
         target_value: 'matt.p@posthog.com',
-        frequency: FrequencyEnumApi.Monthly,
+        frequency: SubscriptionFrequencyEnumApi.Monthly,
         interval: 1,
         start_date: '2022-01-01T00:00:00Z',
         created_at: '2023-04-27T10:04:37.977401Z',
@@ -89,7 +89,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         dashboard_export_insights: [],
         target_type: TargetTypeEnumApi.Webhook,
         target_value: 'https://hooks.example.com/services/posthog/subscriptions/abc123def456',
-        frequency: FrequencyEnumApi.Weekly,
+        frequency: SubscriptionFrequencyEnumApi.Weekly,
         interval: 1,
         start_date: '2022-01-01T00:00:00Z',
         created_at: '2023-04-27T10:04:37.977401Z',
@@ -127,7 +127,7 @@ function buildMockSubscriptions(total: number): SubscriptionApi[] {
             dashboard_export_insights: [],
             target_type: isSlack ? TargetTypeEnumApi.Slack : TargetTypeEnumApi.Email,
             target_value: isSlack ? `C${n}|#channel-${n}` : `analyst${n}@posthog.com`,
-            frequency: FrequencyEnumApi.Weekly,
+            frequency: SubscriptionFrequencyEnumApi.Weekly,
             interval: 1,
             start_date: '2022-01-01T00:00:00Z',
             created_at: '2023-04-27T10:04:37.977401Z',

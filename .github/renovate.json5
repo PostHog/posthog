@@ -1,30 +1,25 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+
+  "extends": [
+    "config:best-practices",
+    // Gate every update behind a checkbox on the dashboard -- no auto-PRs
+    ":dependencyDashboardApproval",
+    ":separateMultipleMajorReleases"
+  ],
 
   "enabledManagers": ["pep621", "npm", "github-actions", "gomod", "cargo"],
 
-  // Disable ALL PRs -- we only want the dashboard
-  "packageRules": [
-    {
-      "matchPackageNames": ["*"],
-      "enabled": false
-    }
-  ],
-
-  // Dashboard config -- the whole point
   "dependencyDashboardTitle": "Renovate: Dependency Status",
   "dependencyDashboardLabels": ["dependencies"],
+  "dependencyDashboardOSVVulnerabilitySummary": ["all"],
+  "dependencyDashboardReportAbandonment": true,
 
-  // Disable vulnerability alerts -- we only want the dashboard
-  "osvVulnerabilityAlerts": false,
+  // Surface CVEs on the dashboard
+  "osvVulnerabilityAlerts": true,
 
-  // Disable GitHub-sourced vulnerability fix PRs (these bypass packageRules)
-  "vulnerabilityAlerts": {
-    "enabled": false
-  },
+  // Vuln-fix PRs bypass the approval gate -- keep them off
+  "vulnerabilityAlerts": { "enabled": false },
 
-  "ignorePaths": [
-    "common/hogql_parser/**"
-  ]
+  "ignorePaths": ["common/hogql_parser/**"]
 }
