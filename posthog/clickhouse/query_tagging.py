@@ -7,7 +7,10 @@ import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
 # from posthog.schema import PersonsOnEventsMode
@@ -307,6 +310,43 @@ def tag_queries(**kwargs) -> None:
     updated_tags = current_tags.model_copy(deep=True)
     updated_tags.update(**kwargs)
     query_tags.set(updated_tags)
+
+
+def tag_team_queries(team: "int | Team", **extra_tags: Any) -> None:
+    """
+    Like tag_queries, but also tags the org-level fields that the HTTP dispatch hook
+    (TeamAndOrgViewSetMixin.team) sets for HTTP requests: org_id and ai_data_processing_approved.
+    Use this from Celery/Temporal/Dagster entry points so their log_comment rows carry the same
+    org metadata as HTTP requests.
+
+    Accepts either a team_id (int) — which triggers one select_related'd Team fetch — or a
+    Team instance, which skips the fetch. If a Team is passed without its organization
+    prefetched, accessing .organization will lazy-load it (one extra query).
+
+    Short-circuits if org_id is already tagged (e.g. the HTTP path got here first) to avoid
+    a redundant Postgres lookup.
+    """
+    team_id = team if isinstance(team, int) else team.pk
+
+    if get_query_tag_value("org_id") is not None:
+        tag_queries(team_id=team_id, **extra_tags)
+        return
+
+    if isinstance(team, int):
+        from posthog.models.team import Team as TeamModel
+
+        resolved = TeamModel.objects.select_related("organization").filter(id=team).first()
+        if resolved is None:
+            tag_queries(team_id=team_id, **extra_tags)
+            return
+        team = resolved
+
+    tag_queries(
+        team_id=team_id,
+        org_id=team.organization_id,
+        ai_data_processing_approved=team.organization.is_ai_data_processing_approved,
+        **extra_tags,
+    )
 
 
 def clear_tag(key):

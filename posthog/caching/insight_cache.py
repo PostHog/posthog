@@ -9,7 +9,7 @@ import structlog
 from prometheus_client import Counter, Gauge
 
 from posthog.api.services.query import process_query_dict
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import tag_queries, tag_team_queries
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -67,7 +67,7 @@ def update_cache(caching_state_id: UUID):
         "last_refresh_queued_at": caching_state.last_refresh_queued_at,
     }
 
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warming")
+    tag_team_queries(insight.team, insight_id=insight.pk, trigger="warming")
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
