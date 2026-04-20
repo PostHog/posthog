@@ -3159,20 +3159,26 @@ class TestExperimentService(APIBaseTest):
             )
         assert "at least 2 steps" in str(ctx.exception)
 
-    def test_update_experiment_rejects_single_step_funnel(self):
+    @parameterized.expand(
+        [
+            ("primary_single_step", "metrics", [{"kind": "EventsNode", "event": "$pageview"}]),
+            ("primary_empty", "metrics", []),
+            ("secondary_single_step", "metrics_secondary", [{"kind": "EventsNode", "event": "$pageview"}]),
+            ("secondary_empty", "metrics_secondary", []),
+        ]
+    )
+    def test_update_experiment_rejects_insufficient_funnel(self, _name, field, series):
         experiment = self._create_draft_experiment()
         service = self._service()
         with self.assertRaises(ValidationError):
             service.update_experiment(
                 experiment,
                 {
-                    "metrics": [
+                    field: [
                         {
                             "kind": "ExperimentMetric",
                             "metric_type": "funnel",
-                            "series": [
-                                {"kind": "EventsNode", "event": "$pageview"},
-                            ],
+                            "series": series,
                         }
                     ],
                 },
