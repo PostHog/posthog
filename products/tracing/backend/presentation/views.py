@@ -11,7 +11,6 @@ No business logic here - that belongs in logic.py via the facade.
 """
 
 import json
-import base64
 
 from pydantic import ValidationError
 from rest_framework import status, viewsets
@@ -31,6 +30,7 @@ from posthog.schema import (
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
 from ..logic import (
     TraceSpansQueryRunner,
@@ -90,27 +90,22 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             prefetchSpans=prefetch_spans,
         )
 
-        runner = TraceSpansQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        def make_runner(dr: DateRange) -> TraceSpansQueryRunner:
+            return TraceSpansQueryRunner(TraceSpansQuery(**{**spans_query.model_dump(), "dateRange": dr}), self.team)
 
-        results = response.results
-        has_more = len(results) > requested_limit
-
-        next_cursor = None
-        if has_more and results:
-            last_result = results[-1]
-            cursor_data = {
-                "timestamp": last_result["timestamp"].isoformat(),
-                "uuid": last_result["uuid"],
-            }
-            next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
+        results = list(
+            time_sliced_results(
+                runner=TraceSpansQueryRunner(spans_query, self.team),
+                order_by_earliest=order_by == "earliest",
+                make_runner=make_runner,
+            )
+        )
 
         return Response(
             {
                 "results": results,
-                "hasMore": has_more,
-                "nextCursor": next_cursor,
+                "hasMore": False,  # TODO: tricky with the traces query as we prefetch an unknown number of spans
+                "nextCursor": None,
             },
             status=status.HTTP_200_OK,
         )
@@ -156,6 +151,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             dateRange=date_range,
             traceId=trace_id,
             limit=1000,
+            prefetchSpans=2000,
             rootSpans=False,
         )
 

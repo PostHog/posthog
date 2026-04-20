@@ -116,6 +116,7 @@ impl LeaderBackend {
         let channel = Channel::from_shared(address.clone())
             .map_err(|e| Status::internal(format!("invalid leader address: {e}")))?
             .timeout(self.timeout)
+            .tcp_nodelay(true)
             .connect_lazy();
         let client = PersonHogLeaderClient::new(channel)
             .max_encoding_message_size(self.max_send_message_size)

@@ -156,6 +156,13 @@ export interface BatchExportRunApi {
      */
     records_completed?: number | null
     /**
+     * The number of records that failed downstream processing (e.g. hog function execution errors).
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    records_failed?: number | null
+    /**
      * The latest error that occurred during this run.
      * @nullable
      */

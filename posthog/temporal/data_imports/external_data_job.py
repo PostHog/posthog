@@ -165,15 +165,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-    job = await database_sync_to_async_pool(update_external_job_status)(
+    await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
         status=ExternalDataJob.Status(inputs.status),
         latest_error=inputs.latest_error,
         team_id=inputs.team_id,
     )
-
-    job.finished_at = dt.datetime.now(dt.UTC)
-    await database_sync_to_async_pool(job.save)()
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",
@@ -335,6 +332,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )  # type: ignore
 
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
+            skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
 
             if pipeline_result.get("should_trigger_cdp_producer", False):
                 await start_child_workflow(
@@ -352,6 +350,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         non_retryable_error_types=["NondeterminismError"],
                     ),
                 )
+
+            if skip_post_import_activities:
+                workflow.logger.info(
+                    "Skipping post-import activities for externally managed schema",
+                    schema_id=str(inputs.external_data_schema_id),
+                    source_id=str(inputs.external_data_source_id),
+                )
+                return
 
             # Emit signals for new records (if registered for this source type + schema), if FF enabled.
             # Fire-and-forget: runs on its own task queue so it doesn't block the import pipeline.

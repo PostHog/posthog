@@ -6,6 +6,7 @@ interface CreateXAxisTickCallbackArgs {
     interval?: IntervalType
     allDays: (string | number)[]
     timezone: string
+    numericTickPrefix?: string
 }
 
 type TickMode =
@@ -19,9 +20,10 @@ export function createXAxisTickCallback({
     interval,
     allDays,
     timezone,
+    numericTickPrefix,
 }: CreateXAxisTickCallbackArgs): (value: string | number, index: number) => string | null {
     if (allDays.length === 0 || typeof allDays[0] !== 'string') {
-        return (value) => String(value)
+        return (value) => (numericTickPrefix ? `${numericTickPrefix} ${String(value)}` : String(value))
     }
 
     const parsedDates = allDays.map((d) => parseDateForAxis(String(d), timezone))

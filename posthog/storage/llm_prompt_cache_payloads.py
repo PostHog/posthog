@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from posthog.models.llm_prompt import LLMPrompt
+from posthog.models.llm_prompt import LLMPrompt, normalize_prompt_to_string
 
 INTERNAL_FIRST_VERSION_ID_KEY = "_first_version_id"
 
@@ -23,7 +23,7 @@ def serialize_prompt(prompt: LLMPrompt, *, include_internal: bool = False) -> di
     serialized_prompt = {
         "id": str(prompt.id),
         "name": prompt.name,
-        "prompt": prompt.prompt,
+        "prompt": normalize_prompt_to_string(prompt.prompt),
         "version": prompt.version,
         "created_at": _serialize_timestamp(prompt.created_at),
         "updated_at": _serialize_timestamp(prompt.updated_at),
@@ -42,7 +42,7 @@ def serialize_prompt_version(prompt: LLMPrompt, *, include_internal: bool = Fals
     serialized_prompt = {
         "id": str(prompt.id),
         "name": prompt.name,
-        "prompt": prompt.prompt,
+        "prompt": normalize_prompt_to_string(prompt.prompt),
         "version": prompt.version,
         "created_at": _serialize_timestamp(prompt.created_at),
         "updated_at": _serialize_timestamp(prompt.updated_at),

@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { now } from 'lib/dayjs'
+import { dayjs, now } from 'lib/dayjs'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
@@ -381,6 +381,20 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('dashboard save after changing global dates runs tile refresh to repopulate insight results missing from PATCH', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
+                .toFinishAllListeners()
+        })
+
         it('saving after breakdown color change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -627,6 +641,75 @@ describe('dashboardLogic', () => {
                         textTiles: truth((textTiles) => textTiles.length === 1),
                         dashboardFailedToLoad: false,
                     })
+            })
+        })
+
+        describe('last refreshed display', () => {
+            it.each([
+                {
+                    scenario: 'all insight tiles share the same older last_refresh',
+                    staleIso: '2026-01-15T12:00:00.000Z',
+                    mode: 'all-stale' as const,
+                },
+                {
+                    scenario: 'tiles have mixed last_refresh so the banner follows the stalest',
+                    staleIso: '2026-01-15T10:00:00.000Z',
+                    mode: 'mixed' as const,
+                },
+            ])('effectiveLastRefresh stays at the stalest tile — $scenario', async ({ staleIso, mode }) => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const loaded = logic.values.dashboard!
+                if (mode === 'all-stale') {
+                    expect(loaded.tiles?.length).toBeGreaterThan(0)
+                    for (const tile of loaded.tiles) {
+                        const insight = tile.insight
+                        if (!insight) {
+                            continue
+                        }
+
+                        await expectLogic(logic, () => {
+                            dashboardsModel.actions.updateDashboardInsight(
+                                { ...insight, last_refresh: staleIso, query: insight.query ?? null },
+                                undefined,
+                                5
+                            )
+                        }).toFinishAllListeners()
+                    }
+                } else {
+                    const insightTiles = loaded.tiles.filter((t) => !!t.insight)
+                    expect(insightTiles.length).toBeGreaterThanOrEqual(2)
+                    const freshIso = now().toISOString()
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            {
+                                ...insightTiles[0].insight!,
+                                last_refresh: staleIso,
+                                query: insightTiles[0].insight!.query ?? null,
+                            },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            {
+                                ...insightTiles[1].insight!,
+                                last_refresh: freshIso,
+                                query: insightTiles[1].insight!.query ?? null,
+                            },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateDashboardLastRefresh(now())
+                }).toFinishAllListeners()
+
+                expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
+                expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
             })
         })
 
@@ -1013,6 +1096,19 @@ describe('dashboardLogic', () => {
                 ])
             }
         )
+
+        it('dashboard save after variable-only edits runs tile refresh to repopulate insight results missing from PATCH', async () => {
+            await mountDashboardWithVariable({
+                urlValue: 'url-override',
+                dashboardOverride: { value: 'persisted', isNull: false },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
+                .toFinishAllListeners()
+        })
     })
 
     describe('external updates', () => {
@@ -1052,6 +1148,41 @@ describe('dashboardLogic', () => {
             expect(query?.source?.dateRange?.date_from).toEqual('-1d')
             expect(query?.source?.interval).toEqual('hour')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
+        })
+
+        it('refreshing a shared insight on one dashboard does not change its date range on another dashboard', async () => {
+            const nineLogic = dashboardLogic({ id: 9 })
+            const tenLogic = dashboardLogic({ id: 10 })
+            nineLogic.mount()
+            tenLogic.mount()
+            await expectLogic(nineLogic).toFinishAllListeners()
+            await expectLogic(tenLogic).toFinishAllListeners()
+
+            const copiedInsight = insight800()
+            const insightQuery = copiedInsight.query as InsightVizNode<TrendsQuery> | undefined
+            const payload = {
+                ...copiedInsight,
+                query: {
+                    ...insightQuery,
+                    source: {
+                        ...insightQuery?.source,
+                        dateRange: { ...insightQuery?.source?.dateRange, date_from: '-1d' },
+                        interval: 'hour',
+                    },
+                } as InsightVizNode<TrendsQuery>,
+                last_refresh: '2012-04-01T00:00:00Z',
+            }
+
+            dashboardsModel.actions.updateDashboardInsight(payload, undefined, 10)
+
+            await expectLogic(nineLogic).toFinishAllListeners()
+            const nineQuery = nineLogic.values.insightTiles[0].insight?.query as InsightVizNode<TrendsQuery> | undefined
+            expect(nineQuery?.source?.dateRange?.date_from).toBeUndefined()
+            expect(nineQuery?.source?.interval).toEqual('day')
+
+            const tenQuery = tenLogic.values.insightTiles[0].insight?.query as InsightVizNode<TrendsQuery> | undefined
+            expect(tenQuery?.source?.dateRange?.date_from).toEqual('-1d')
+            expect(tenQuery?.source?.interval).toEqual('hour')
         })
 
         it('can respond to external insight rename', async () => {

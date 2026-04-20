@@ -1,9 +1,3 @@
-import { LOGS_ALERT_FIRING_EVENT_ID, LOGS_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
-import {
-    HOG_FUNCTION_SUB_TEMPLATES,
-    HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
-} from 'scenes/hog-functions/sub-templates/sub-templates'
-
 import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
 export const LOGS_ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
@@ -24,67 +18,67 @@ export type PendingLogsAlertNotification =
           webhookUrl: string
       }
 
-export const buildLogsAlertFilterConfig = (alertId: string): CyclotronJobFiltersType => ({
-    properties: [
-        {
-            key: 'alert_id',
-            value: alertId,
-            operator: PropertyOperator.Exact,
-            type: PropertyFilterType.Event,
-        },
-    ],
-    events: [
-        {
-            id: LOGS_ALERT_FIRING_EVENT_ID,
-            type: 'events',
-        },
-    ],
-})
-
-const LOGS_ALERT_SLACK_INPUTS =
-    HOG_FUNCTION_SUB_TEMPLATES[LOGS_ALERT_FIRING_SUB_TEMPLATE_ID].find((t) => t.template_id === 'template-slack')
-        ?.inputs ?? {}
-
-export function buildLogsAlertHogFunctionPayload(
-    alertId: string,
-    alertName: string | undefined,
-    notification: PendingLogsAlertNotification
-): Partial<HogFunctionType> {
-    const commonProps = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[LOGS_ALERT_FIRING_SUB_TEMPLATE_ID]
-    const base = {
-        type: commonProps.type,
-        enabled: true,
-        masking: null,
-        filters: buildLogsAlertFilterConfig(alertId),
-    }
-
-    if (notification.type === 'slack') {
-        return {
-            ...base,
-            name: `${alertName ?? 'Alert'}: Slack #${notification.slackChannelName ?? 'channel'}`,
-            template_id: 'template-slack',
-            inputs: {
-                ...LOGS_ALERT_SLACK_INPUTS,
-                slack_workspace: { value: notification.slackWorkspaceId },
-                channel: { value: notification.slackChannelId },
+// Filter used to list every HogFunction tied to a given alert, regardless of which
+// event kind it handles. Deliberately omits the `events` array: the backend
+// create endpoint fans out into one HogFunction per event kind, and JSONB `@>`
+// matching would require a HogFunction's `filters.events` to contain every event
+// we list — which no single HogFunction does post-fan-out. The `alert_id`
+// property alone uniquely identifies all HogFunctions belonging to the alert.
+export function buildLogsAlertFilterConfig(alertId: string): CyclotronJobFiltersType {
+    return {
+        properties: [
+            {
+                key: 'alert_id',
+                value: alertId,
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
             },
+        ],
+    }
+}
+
+export type LogsAlertDestinationGroup = {
+    key: string
+    type: LogsAlertNotificationType
+    label: string
+    hogFunctions: HogFunctionType[]
+    enabled: boolean
+}
+
+export function groupLogsAlertDestinations(
+    hogFunctions: HogFunctionType[],
+    resolveSlackLabel: (channelValue: string) => string | null
+): LogsAlertDestinationGroup[] {
+    const groups = new Map<string, LogsAlertDestinationGroup>()
+    for (const hf of hogFunctions) {
+        const slackChannelValue = hf.inputs?.channel?.value
+        const webhookUrl = hf.inputs?.url?.value
+        let key: string
+        let type: LogsAlertNotificationType
+        let label: string
+
+        if (typeof slackChannelValue === 'string') {
+            type = LOGS_ALERT_NOTIFICATION_TYPE_SLACK
+            key = `slack:${slackChannelValue}`
+            const channelName = resolveSlackLabel(slackChannelValue)
+            label = channelName ? `Slack #${channelName}` : 'Slack'
+        } else if (typeof webhookUrl === 'string') {
+            type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
+            key = `webhook:${webhookUrl}`
+            label = `Webhook ${webhookUrl}`
+        } else {
+            type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
+            key = `unknown:${hf.id}`
+            label = hf.name
+        }
+
+        const existing = groups.get(key)
+        if (existing) {
+            existing.hogFunctions.push(hf)
+            existing.enabled = existing.enabled && hf.enabled
+        } else {
+            groups.set(key, { key, type, label, hogFunctions: [hf], enabled: hf.enabled })
         }
     }
-
-    return {
-        ...base,
-        name: `${alertName ?? 'Alert'}: Webhook ${notification.webhookUrl}`,
-        template_id: 'template-webhook',
-        inputs: {
-            url: { value: notification.webhookUrl },
-            body: {
-                value: {
-                    alert_name: '{event.properties.alert_name}',
-                    threshold_count: '{event.properties.threshold_count}',
-                    window_minutes: '{event.properties.window_minutes}',
-                    logs_url: '{project.url}/logs?{event.properties.logs_url_params}',
-                },
-            },
-        },
-    }
+    return Array.from(groups.values())
 }

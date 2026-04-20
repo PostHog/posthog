@@ -30,7 +30,11 @@ from posthog.rate_limit import (
 )
 from posthog.tasks.email import send_conversation_restore_email
 
-from products.conversations.backend.api.serializers import validate_origin, validate_url_domain
+from products.conversations.backend.api.serializers import (
+    validate_origin,
+    validate_url_domain,
+    validate_url_matches_request_origin,
+)
 from products.conversations.backend.cache import invalidate_tickets_cache
 from products.conversations.backend.services.restore import RestoreService
 
@@ -94,7 +98,19 @@ class WidgetRestoreRequestView(APIView):
         email = serializer.validated_data["email"]
         request_url = serializer.validated_data["request_url"]
 
-        # Validate request_url domain against team's allowlist to prevent phishing
+        # Bind request_url to the caller's browser-attested Origin. Without this,
+        # an attacker embedding the widget on their own page could supply any
+        # request_url and have the live restore token emailed to a domain they control.
+        if not validate_url_matches_request_origin(request, request_url):
+            logger.warning(
+                "Restore request_url does not match request origin",
+                extra={"domain": urlparse(request_url).netloc},
+            )
+            return Response({"error": "URL must match request origin"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Validate request_url domain against team's allowlist. Fails closed when
+        # widget_domains is unset, since an unconfigured allowlist previously meant
+        # any URL (including attacker-controlled ones) would be accepted here.
         if not validate_url_domain(request_url, team):
             logger.warning(
                 "Restore request_url domain not in allowlist", extra={"domain": urlparse(request_url).netloc}

@@ -21,7 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 import {
     DataModelingJob,
     DataWarehouseSavedQuery,
-    DataWarehouseSyncInterval,
+    DataModelingSyncInterval,
     LineageNode,
     LogEntryLevel,
     OrNever,
@@ -74,35 +74,35 @@ const OPTIONS = [
         label: ' No resync',
     },
     {
-        value: '15min' as DataWarehouseSyncInterval,
+        value: '15min' as DataModelingSyncInterval,
         label: ' Resync every 15 mins',
     },
     {
-        value: '30min' as DataWarehouseSyncInterval,
+        value: '30min' as DataModelingSyncInterval,
         label: ' Resync every 30 mins',
     },
     {
-        value: '1hour' as DataWarehouseSyncInterval,
+        value: '1hour' as DataModelingSyncInterval,
         label: ' Resync every 1 hour',
     },
     {
-        value: '6hour' as DataWarehouseSyncInterval,
+        value: '6hour' as DataModelingSyncInterval,
         label: ' Resync every 6 hours',
     },
     {
-        value: '12hour' as DataWarehouseSyncInterval,
+        value: '12hour' as DataModelingSyncInterval,
         label: ' Resync every 12 hours',
     },
     {
-        value: '24hour' as DataWarehouseSyncInterval,
+        value: '24hour' as DataModelingSyncInterval,
         label: ' Resync Daily',
     },
     {
-        value: '7day' as DataWarehouseSyncInterval,
+        value: '7day' as DataModelingSyncInterval,
         label: ' Resync Weekly',
     },
     {
-        value: '30day' as DataWarehouseSyncInterval,
+        value: '30day' as DataModelingSyncInterval,
         label: ' Resync Monthly',
     },
 ]
@@ -139,6 +139,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
     const showDebugLogs = user?.is_staff || user?.is_impersonated
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
+    const isDagSchedulesOnly = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_BACKEND_V2]
 
     const { dataModelingJobs, dataModelingJobsLoading, hasMoreJobsToLoad, startingMaterialization } =
         useValues(infoLogic)
@@ -215,28 +216,30 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                               ? 'Running...'
                                               : 'Sync now'}
                                     </LemonButton>
-                                    <LemonSelect
-                                        className="h-9"
-                                        disabledReason={sync}
-                                        value={
-                                            targetView
-                                                ? dataWarehouseSavedQueryMapById[targetView.id]?.sync_frequency ||
-                                                  'never'
-                                                : 'never'
-                                        }
-                                        onChange={(newValue) => {
-                                            if (targetView && newValue) {
-                                                updateDataWarehouseSavedQuery({
-                                                    id: targetView.id,
-                                                    sync_frequency: newValue,
-                                                    types: [[]],
-                                                    lifecycle: 'update',
-                                                })
+                                    {!isDagSchedulesOnly && (
+                                        <LemonSelect
+                                            className="h-9"
+                                            disabledReason={sync}
+                                            value={
+                                                targetView
+                                                    ? dataWarehouseSavedQueryMapById[targetView.id]?.sync_frequency ||
+                                                      'never'
+                                                    : 'never'
                                             }
-                                        }}
-                                        loading={updatingDataWarehouseSavedQuery}
-                                        options={OPTIONS}
-                                    />
+                                            onChange={(newValue) => {
+                                                if (targetView && newValue) {
+                                                    updateDataWarehouseSavedQuery({
+                                                        id: targetView.id,
+                                                        sync_frequency: newValue,
+                                                        types: [[]],
+                                                        lifecycle: 'update',
+                                                    })
+                                                }
+                                            }}
+                                            loading={updatingDataWarehouseSavedQuery}
+                                            options={OPTIONS}
+                                        />
+                                    )}
                                     {targetView && (
                                         <LemonButton
                                             type="secondary"

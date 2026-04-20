@@ -100,11 +100,12 @@ describe('workflowLogic schedule reducers', () => {
             logic.actions.setSchedules([makeSchedule()])
 
             await expectLogic(logic, () => {
-                logic.actions.setScheduleTimezone('US/Eastern')
+                logic.actions.setScheduleTimezone('US/Eastern', 'UTC')
             }).toMatchValues({
                 pendingSchedule: {
                     rrule: expect.any(String),
-                    starts_at: STARTS_AT,
+                    // Wall clock stays 9:00 AM, UTC shifts from 09:00 to 13:00 (9:00 AM EDT = UTC-4)
+                    starts_at: '2026-04-10T13:00:00.000Z',
                     timezone: 'US/Eastern',
                 },
             })
@@ -210,15 +211,15 @@ describe('workflowLogic schedule reducers', () => {
 
             // Change frequency to daily
             logic.actions.setScheduleState({ ...DEFAULT_STATE, frequency: 'daily', interval: 1 })
-            // Change timezone
-            logic.actions.setScheduleTimezone('US/Eastern')
+            // Change timezone - wall clock stays 9:00 AM, UTC shifts
+            logic.actions.setScheduleTimezone('US/Eastern', 'UTC')
 
             const pending = logic.values.pendingSchedule
             expect(pending).not.toBe(false)
             expect((pending as any).rrule).toContain('FREQ=DAILY')
             expect((pending as any).rrule).not.toContain('BYDAY')
             expect((pending as any).timezone).toBe('US/Eastern')
-            expect((pending as any).starts_at).toBe(STARTS_AT)
+            expect((pending as any).starts_at).toBe('2026-04-10T13:00:00.000Z')
         })
 
         it('scenario 3: clear changes reverts end type and count', async () => {
@@ -233,11 +234,13 @@ describe('workflowLogic schedule reducers', () => {
             expect(logic.values.hasUnsavedChanges).toBe(true)
 
             // Clear changes
-            logic.actions.resetWorkflow(logic.values.workflow)
-
+            await expectLogic(logic, () => {
+                logic.actions.resetWorkflow(logic.values.workflow)
+            }).toMatchValues({
+                hasUnsavedChanges: false,
+                pendingSchedule: false,
+            })
             expect(logic.values.scheduleState.endType).toBe('never')
-            expect(logic.values.hasUnsavedChanges).toBe(false)
-            expect(logic.values.pendingSchedule).toBe(false)
         })
 
         it('scenario 4: toggle repeat off produces one-time rrule', async () => {
@@ -267,10 +270,40 @@ describe('workflowLogic schedule reducers', () => {
         })
     })
 
+    describe('timezone reinterpretation', () => {
+        it.each([
+            ['Europe/Helsinki', '2026-04-10T06:00:00.000Z'], // UTC+3
+            ['US/Eastern', '2026-04-10T13:00:00.000Z'], // EDT UTC-4
+            ['Asia/Kolkata', '2026-04-10T03:30:00.000Z'], // UTC+5:30
+            ['Pacific/Auckland', '2026-04-09T21:00:00.000Z'], // NZST UTC+12
+            ['UTC', '2026-04-10T09:00:00.000Z'], // No shift
+        ])('setScheduleStartsAtFromPicker reinterprets 9:00 AM as %s', (timezone, expected) => {
+            logic.actions.setScheduleTimezone(timezone)
+            logic.actions.setScheduleStartsAtFromPicker('2026-04-10T09:00:00.000Z')
+            expect(logic.values.scheduleStartsAt).toBe(expected)
+        })
+
+        it('setScheduleStartsAtFromPicker with null clears starts_at', () => {
+            logic.actions.setScheduleStartsAt(STARTS_AT)
+            logic.actions.setScheduleStartsAtFromPicker(null)
+            expect(logic.values.scheduleStartsAt).toBeNull()
+        })
+
+        it.each([
+            ['US/Eastern', '2026-04-10T13:00:00.000Z'], // EDT UTC-4
+            ['Asia/Kolkata', '2026-04-10T03:30:00.000Z'], // UTC+5:30
+            ['Pacific/Auckland', '2026-04-09T21:00:00.000Z'], // NZST UTC+12
+        ])('changing timezone to %s preserves wall-clock time', (newTimezone, expected) => {
+            logic.actions.setSchedules([makeSchedule()]) // 09:00 UTC
+            logic.actions.setScheduleTimezone(newTimezone, 'UTC')
+            expect(logic.values.scheduleStartsAt).toBe(expected)
+        })
+    })
+
     describe('resetWorkflow', () => {
         it('restores schedule state from saved repeating schedule', async () => {
             logic.actions.setSchedules([makeSchedule()])
-            logic.actions.setScheduleTimezone('US/Eastern')
+            logic.actions.setScheduleTimezone('US/Eastern', 'UTC')
             logic.actions.setScheduleRepeating(false)
 
             await expectLogic(logic, () => {

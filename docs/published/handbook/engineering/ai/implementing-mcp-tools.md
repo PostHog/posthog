@@ -234,6 +234,10 @@ Product teams own their definitions and control which operations are exposed as 
        enrich_url: '{id}' # appended to url_prefix for result URLs
        exclude_params: [field] # hide params from tool input
        include_params: [field] # whitelist params (excludes all others)
+       response: # filter response fields (applied per-item on list endpoints)
+         include: [id, key, name] # keep only these fields (dot-path wildcards supported)
+         exclude: [filters.groups.*.properties] # remove these fields
+         # include and exclude are mutually exclusive
        input_schema: ActionCreateSchema # use a hand-crafted schema from tool-inputs (optional)
        param_overrides: # override Orval-generated param descriptions or schemas
          name:

@@ -1,15 +1,15 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React from 'react'
 
-import { IconArrowRight, IconChevronRight } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { IconArrowRight } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
+import { OnboardingBreadcrumbs } from './OnboardingBreadcrumbs'
 import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
@@ -45,9 +45,9 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, onboardingStepKeys } = useValues(onboardingLogic)
+    const { hasNextStep } = useValues(onboardingLogic)
 
-    const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
+    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -65,46 +65,20 @@ export const OnboardingStep = ({
         advance()
     }
 
-    const onboardingLength = onboardingStepKeys.length
-
     return (
         <>
             <div className="pb-2">
                 <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
-                    <div
-                        className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
-                        data-attr="onboarding-breadcrumbs"
-                    >
-                        {onboardingStepKeys.map((stepName, idx) => {
-                            const highlightStep = [stepKey, breadcrumbHighlightName].includes(stepName)
-                            return (
-                                <React.Fragment key={`stepKey-${idx}`}>
-                                    <Link
-                                        className={`text-sm ${highlightStep && 'font-bold'} font-bold`}
-                                        data-text={stepKeyToTitle(stepName)}
-                                        key={stepName}
-                                        onClick={() => setStepKey(stepName)}
-                                    >
-                                        <span className={`text-sm ${!highlightStep && 'text-muted'}`}>
-                                            {stepKeyToTitle(stepName)}
-                                        </span>
-                                    </Link>
-                                    {onboardingLength > 1 && idx !== onboardingLength - 1 && (
-                                        <IconChevronRight className="text-xl" />
-                                    )}
-                                </React.Fragment>
-                            )
-                        })}
-                    </div>
-                    <div className="flex flex-row justify-between items-center gap-2 mt-3">
-                        <h1 className={`font-bold m-0 px-2 ${fullWidth && 'text-center'}`}>
+                    <OnboardingBreadcrumbs stepKey={stepKey} breadcrumbHighlightName={breadcrumbHighlightName} />
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center items-start gap-2 mt-3 px-4 sm:px-0">
+                        <h1 className={clsx('font-bold m-0 px-0 sm:px-2', fullWidth && 'text-center')}>
                             {title || stepKeyToTitle(stepKey)}
                         </h1>
-                        {actions && <div className="flex flex-row gap-2">{actions}</div>}
+                        {actions && <div className="flex flex-row flex-wrap sm:flex-nowrap gap-2">{actions}</div>}
                     </div>
                 </div>
             </div>
-            <div className={clsx('p-2', !fullWidth && 'max-w-screen-md mx-auto')}>
+            <div className={clsx('px-4 py-2 sm:p-2', !fullWidth && 'max-w-screen-md mx-auto')}>
                 {subtitle && (
                     <div className="max-w-screen-md mx-auto">
                         <p>{subtitle}</p>

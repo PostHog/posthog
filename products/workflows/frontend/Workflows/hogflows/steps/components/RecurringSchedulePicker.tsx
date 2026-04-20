@@ -1,10 +1,19 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonButton, LemonCalendarSelectInput, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCalendarSelectInput,
+    LemonInput,
+    LemonSearchableSelect,
+    LemonSelect,
+    LemonSwitch,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { timeZoneLabel } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { OccurrencesList } from './OccurrencesList'
@@ -14,6 +23,8 @@ import {
     FREQUENCY_OPTIONS,
     getNthWeekdayOfMonth,
     NTH_LABELS,
+    parseNaturalLanguage,
+    scheduleToText,
     WEEKDAY_FULL_LABELS,
     WEEKDAY_LABELS,
     WEEKDAY_PILL_LABELS,
@@ -217,7 +228,11 @@ function SchedulePreview({ state, summary, previewOccurrences, timezone }: Sched
                         {timezone ? ` in ${timezone}` : ''}
                     </div>
                     <div className="space-y-1.5">
-                        <OccurrencesList occurrences={previewOccurrences} isFinite={state.endType !== 'never'} />
+                        <OccurrencesList
+                            occurrences={previewOccurrences}
+                            isFinite={state.endType !== 'never'}
+                            timezone={timezone}
+                        />
                     </div>
                 </div>
             )}
@@ -225,9 +240,90 @@ function SchedulePreview({ state, summary, previewOccurrences, timezone }: Sched
     )
 }
 
+function TimezoneMenuPicker({ value, onChange }: { value: string; onChange: (timezone: string) => void }): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
+    const options = useMemo(
+        () =>
+            Object.entries(preflight?.available_timezones || {}).map(([tz, offset]) => ({
+                value: tz,
+                label: timeZoneLabel(tz, offset),
+            })),
+        [preflight?.available_timezones]
+    )
+
+    return (
+        <LemonSearchableSelect
+            value={value}
+            options={options}
+            onChange={(val) => val && onChange(val)}
+            searchPlaceholder="Search timezones..."
+            fullWidth
+        />
+    )
+}
+
+function NaturalLanguageScheduleInput({
+    state,
+    startsAt,
+    onStateChange,
+}: {
+    state: ScheduleState
+    startsAt: string | null
+    onStateChange: (state: ScheduleState) => void
+}): JSX.Element {
+    const currentText = scheduleToText(state, startsAt)
+    const [text, setText] = useState(currentText)
+    const [isFocused, setIsFocused] = useState(false)
+    const [hasError, setHasError] = useState(false)
+
+    const handleChange = useCallback(
+        (value: string) => {
+            setText(value)
+            if (!value.trim()) {
+                setHasError(false)
+                return
+            }
+            const parsed = parseNaturalLanguage(value)
+            if (parsed) {
+                setHasError(false)
+                onStateChange(parsed)
+            } else {
+                setHasError(true)
+            }
+        },
+        [onStateChange]
+    )
+
+    // Sync text from picker changes when not focused
+    const displayText = isFocused ? text : currentText
+
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonInput
+                value={displayText}
+                onChange={handleChange}
+                onFocus={() => {
+                    setIsFocused(true)
+                    setText(currentText)
+                    setHasError(false)
+                }}
+                onBlur={() => setIsFocused(false)}
+                placeholder='e.g. "every week on Monday and Wednesday"'
+                fullWidth
+                size="small"
+                status={hasError && isFocused ? 'danger' : undefined}
+            />
+            <span className="text-xs text-muted">
+                Type a schedule in plain English to update the picker below, or use the controls directly.
+            </span>
+        </div>
+    )
+}
+
 export function RecurringSchedulePicker(): JSX.Element {
     const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
-    const { setScheduleState, setScheduleStartsAt, setScheduleRepeating } = useActions(workflowLogic)
+    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
+        useActions(workflowLogic)
 
     const previewOccurrences = useMemo(() => {
         if (!isScheduleRepeating || !scheduleStartsAt) {
@@ -266,12 +362,18 @@ export function RecurringSchedulePicker(): JSX.Element {
                         buttonProps={{ fullWidth: true }}
                         format="MMMM D, YYYY h:mm A"
                         clearable
-                        value={scheduleStartsAt ? dayjs(scheduleStartsAt) : null}
+                        value={
+                            scheduleStartsAt
+                                ? dayjs(scheduleStartsAt).tz(scheduleTimezone).tz(dayjs.tz.guess(), true)
+                                : null
+                        }
                         onChange={(date) => {
-                            setScheduleStartsAt(date ? date.startOf('minute').toISOString() : null)
+                            setScheduleStartsAtFromPicker(date ? date.toISOString() : null)
                         }}
                         granularity="minute"
-                        selectionPeriod="upcoming"
+                        // Recurring schedules use the start date as an anchor for rrule computation,
+                        // so past dates are valid. One-time schedules must be in the future.
+                        selectionPeriod={isScheduleRepeating ? undefined : 'upcoming'}
                         showTimeToggle={false}
                     />
                 </div>
@@ -286,17 +388,35 @@ export function RecurringSchedulePicker(): JSX.Element {
                 )}
             </div>
             {scheduleStartsAt && (
-                <div className="text-xs text-muted -mt-1">
-                    Schedule timezone: {scheduleTimezone} (
-                    {dayjs(scheduleStartsAt).tz(scheduleTimezone).format('h:mm A')})
+                <div className="flex flex-col gap-1 -mt-1">
+                    <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                            <TimezoneMenuPicker
+                                value={scheduleTimezone}
+                                onChange={(newTimezone) => {
+                                    setScheduleTimezone(newTimezone, scheduleTimezone)
+                                }}
+                            />
+                        </div>
+                        <div className="w-22 shrink-0" />
+                    </div>
                     {scheduleTimezone !== dayjs.tz.guess() && (
-                        <>
-                            {' '}
+                        <span className="text-xs text-muted">
+                            Schedule: {dayjs(scheduleStartsAt).tz(scheduleTimezone).format('h:mm A')} {scheduleTimezone}{' '}
                             · Your time: {dayjs(scheduleStartsAt).format('h:mm A')} {dayjs.tz.guess()}
-                        </>
+                        </span>
                     )}
                 </div>
             )}
+
+            {scheduleStartsAt && isScheduleRepeating && (
+                <NaturalLanguageScheduleInput
+                    state={scheduleState}
+                    startsAt={scheduleStartsAt}
+                    onStateChange={(newState) => setScheduleState(newState, 'natural_language')}
+                />
+            )}
+
             {scheduleStartsAt && isScheduleRepeating && (
                 <>
                     <div className="flex items-center gap-2 flex-wrap">

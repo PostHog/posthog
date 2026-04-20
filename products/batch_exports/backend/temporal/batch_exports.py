@@ -486,6 +486,7 @@ class FinishBatchExportRunInputs:
             See the docstring in 'pause_batch_export_if_over_failure_threshold'.
         bytes_exported: Total number of bytes exported.
             This is the size of the actual data exported, which takes into account the file type and compression.
+        records_failed: Number of records that failed downstream processing.
     """
 
     id: str
@@ -495,9 +496,10 @@ class FinishBatchExportRunInputs:
     latest_error: str | None = None
     records_completed: int | None = None
     records_total_count: int | None = None
-    failure_threshold: int = 10
+    failure_threshold: int = 3
     failure_check_window: int = 50
     bytes_exported: int | None = None
+    records_failed: int | None = None
 
 
 @activity.defn
@@ -553,13 +555,6 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        external_logger.error(
-            "Batch export for range %s - %s failed with a non-recoverable error: %s",
-            batch_export_run.data_interval_start or "START",
-            batch_export_run.data_interval_end or "END",
-            batch_export_run.latest_error,
-        )
-
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
@@ -568,6 +563,13 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             logger.exception("Failure email notification could not be sent")
         else:
             external_logger.info("Failure notification email for run '%s' has been sent", inputs.id)
+
+        external_logger.error(
+            "Batch export for range %s - %s failed with a non-recoverable error: %s",
+            batch_export_run.data_interval_start or "START",
+            batch_export_run.data_interval_end or "END",
+            batch_export_run.latest_error,
+        )
 
         is_over_failure_threshold = await check_if_over_failure_threshold(
             inputs.batch_export_id,
@@ -761,7 +763,6 @@ async def pause_batch_export_over_failure_threshold(batch_export_id: str) -> boo
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
         settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
         settings.TEMPORAL_CLIENT_CERT,
         settings.TEMPORAL_CLIENT_KEY,
     )
@@ -788,7 +789,6 @@ async def cancel_running_backfills(batch_export_id: str) -> int:
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
         settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
         settings.TEMPORAL_CLIENT_CERT,
         settings.TEMPORAL_CLIENT_KEY,
     )

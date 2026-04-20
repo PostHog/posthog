@@ -1,8 +1,10 @@
 import dataclasses
+from datetime import timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+import temporalio.activity
 import temporalio.workflow
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -49,6 +51,35 @@ class TrackedBusinessFailureWorkflow:
         return "ok"
 
 
+@temporalio.activity.defn
+async def failing_activity() -> None:
+    raise ApplicationError("activity boom", type="ActivityBoom", non_retryable=True)
+
+
+@temporalio.workflow.defn(name="test-slo-activity-failure")
+class TrackedActivityFailureWorkflow:
+    @temporalio.workflow.run
+    async def run(self, inputs: TrackedWorkflowInput) -> str:
+        await temporalio.workflow.execute_activity(
+            failing_activity,
+            schedule_to_close_timeout=timedelta(seconds=10),
+        )
+        return "ok"
+
+
+@temporalio.workflow.defn(name="test-slo-override-error-trace")
+class TrackedOverrideErrorTraceWorkflow:
+    @temporalio.workflow.run
+    async def run(self, inputs: TrackedWorkflowInput) -> str:
+        try:
+            raise ApplicationError("boom", non_retryable=True)
+        except ApplicationError:
+            # Pre-populate error_trace — the interceptor's setdefault must not clobber it.
+            if inputs.slo:
+                inputs.slo.completion_properties["error_trace"] = "pre-populated by workflow"
+            raise
+
+
 @temporalio.workflow.defn(name="test-slo-untracked")
 class UntrackedWorkflow:
     @temporalio.workflow.run
@@ -75,7 +106,7 @@ pytestmark = [pytest.mark.asyncio]
 
 
 @pytest.mark.parametrize(
-    "workflow_cls,slo_config,raises,expected_outcome,extra_completed_checks",
+    "workflow_cls,slo_config,raises,expected_outcome,extra_completed_checks,expect_error_trace",
     [
         (
             TrackedWorkflow,
@@ -83,13 +114,23 @@ pytestmark = [pytest.mark.asyncio]
             False,
             SloOutcome.SUCCESS,
             {"extra_key": "extra_value"},
+            False,
         ),
         (
             TrackedFailureWorkflow,
             _make_slo_config(),
             True,
             SloOutcome.FAILURE,
-            {},
+            {"error_type": "ApplicationError", "error_message": "boom"},
+            True,
+        ),
+        (
+            TrackedActivityFailureWorkflow,
+            _make_slo_config(),
+            True,
+            SloOutcome.FAILURE,
+            {"error_type": "ActivityBoom", "error_message": "ActivityBoom: activity boom"},
+            True,
         ),
         (
             TrackedBusinessFailureWorkflow,
@@ -97,9 +138,10 @@ pytestmark = [pytest.mark.asyncio]
             False,
             SloOutcome.FAILURE,
             {"reason": "business logic"},
+            False,
         ),
     ],
-    ids=["success_with_completion_props", "exception_failure", "business_logic_failure"],
+    ids=["success_with_completion_props", "exception_failure", "activity_failure_unwrap", "business_logic_failure"],
 )
 @patch("posthog.slo.events.posthoganalytics")
 async def test_interceptor_emits_slo_events(
@@ -109,13 +151,14 @@ async def test_interceptor_emits_slo_events(
     raises: bool,
     expected_outcome: SloOutcome,
     extra_completed_checks: dict,
+    expect_error_trace: bool,
 ):
     async with await WorkflowEnvironment.start_local() as env:
         async with Worker(
             env.client,
             task_queue="test-slo",
             workflows=[workflow_cls],
-            activities=[],
+            activities=[failing_activity],
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -147,6 +190,43 @@ async def test_interceptor_emits_slo_events(
     assert completed_props["correlation_id"] == started_props["correlation_id"]
     for key, value in extra_completed_checks.items():
         assert completed_props[key] == value
+    if expect_error_trace:
+        # The interceptor populates error_trace from either the activity-side
+        # ApplicationError.details[0] or a fallback workflow-side traceback.
+        assert completed_props.get("error_trace") is not None
+    else:
+        # Successful workflows and in-workflow business-failure paths never raise,
+        # so the interceptor has nothing to unwrap — error_trace must not be set.
+        assert "error_trace" not in completed_props
+
+
+@patch("posthog.slo.events.posthoganalytics")
+async def test_interceptor_respects_workflow_error_trace_override(mock_analytics: MagicMock):
+    # Workflows can override error_trace by pre-populating completion_properties
+    # before re-raising — the interceptor uses setdefault, so workflow intent wins.
+    async with await WorkflowEnvironment.start_local() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-slo",
+            workflows=[TrackedOverrideErrorTraceWorkflow],
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(Exception):
+                await env.client.execute_workflow(
+                    TrackedOverrideErrorTraceWorkflow.run,
+                    TrackedWorkflowInput(value="test", slo=_make_slo_config()),
+                    id="test-error-trace-override",
+                    task_queue="test-slo",
+                )
+
+    completed_calls = _get_slo_calls(mock_analytics, "slo_operation_completed")
+    assert len(completed_calls) == 1
+    props = completed_calls[0].kwargs["properties"]
+    assert props["error_trace"] == "pre-populated by workflow"
+    # error_type / error_message are still filled in by the interceptor
+    assert props["error_type"] == "ApplicationError"
+    assert props["error_message"] == "boom"
 
 
 @pytest.mark.parametrize(
@@ -174,7 +254,7 @@ async def test_interceptor_skips_untracked_workflows(
             env.client,
             task_queue="test-slo",
             workflows=[workflow_cls],
-            activities=[],
+            activities=[failing_activity],
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):

@@ -202,6 +202,10 @@ export const REMOTE_CONFIGURATION_LIBRARIES: string[] = [
     SDKKey.GO,
     SDKKey.RUBY,
     SDKKey.DOTNET,
+    SDKKey.IOS,
+    SDKKey.ANDROID,
+    SDKKey.REACT_NATIVE,
+    SDKKey.FLUTTER,
 ]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [

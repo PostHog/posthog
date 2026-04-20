@@ -22,7 +22,7 @@ use crate::{
         ruby::RawRubyFrame,
     },
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
-    sanitize_string,
+    sanitize_source_line,
     symbol_store::Catalog,
 };
 
@@ -318,10 +318,11 @@ impl ContextLine {
         if line.len() > constrained.len() {
             constrained.push_str("...✂️");
         }
-
+        // Use sanitize_source_line, not sanitize_string: source code indentation
+        // (spaces, tabs) is meaningful and must not be collapsed.
         Self {
             number,
-            line: sanitize_string(constrained),
+            line: sanitize_source_line(constrained),
         }
     }
 
@@ -339,9 +340,11 @@ impl ContextLine {
             baseline.saturating_sub((-offset) as u32)
         };
 
+        // Use sanitize_source_line, not sanitize_string: source code indentation
+        // (spaces, tabs) is meaningful and must not be collapsed.
         Self {
             number,
-            line: sanitize_string(constrained),
+            line: sanitize_source_line(constrained),
         }
     }
 }

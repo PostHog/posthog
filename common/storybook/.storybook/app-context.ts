@@ -74,6 +74,7 @@ export const getStorybookAppContext = (): AppContext => ({
         action: 'manager',
         feature_flag: 'manager',
         dashboard: 'manager',
+        dashboard_template: 'manager',
         insight: 'manager',
         notebook: 'manager',
         session_recording: 'manager',
@@ -83,6 +84,7 @@ export const getStorybookAppContext = (): AppContext => ({
         external_data_source: 'manager',
         web_analytics: 'manager',
         activity_log: 'viewer',
+        customer_analytics: 'manager',
         llm_analytics: 'manager',
     },
 })

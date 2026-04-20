@@ -16,7 +16,7 @@ import {
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { DataWarehouseSyncInterval } from '~/types'
+import { DataModelingSyncInterval } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic, MaterializationPreview } from '../endpointSceneLogic'
@@ -38,7 +38,7 @@ const CACHE_AGE_OPTIONS: { value: CacheAgeOption; label: string }[] = [
 ]
 
 const SYNC_FREQUENCY_OPTIONS: {
-    value: DataWarehouseSyncInterval
+    value: DataModelingSyncInterval
     label: string
 }[] = [
     { value: '1hour', label: 'Every hour' },

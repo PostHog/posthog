@@ -32,7 +32,7 @@ export const PROFILE_NODE_HEIGHT = 80
 export const PROFILE_NODE_WIDTH = 180
 export const PROFILE_FIT_VIEW_OPTIONS = {
     padding: 0.1,
-    maxZoom: 2,
+    maxZoom: 1,
 }
 
 export const ELK_OPTIONS = {

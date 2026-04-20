@@ -9,7 +9,7 @@ from posthog.schema import InsightVizNode
 
 from posthog.hogql.ai import hit_openai
 
-from posthog.api.insight_suggestions import InsightMetadata, _summarize_query_for_naming
+from posthog.api.insight_metadata import InsightMetadata, summarize_query_for_naming
 from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
@@ -66,7 +66,7 @@ def build_dashboard_tiles_naming_summary(dashboard: Any) -> str:
             if insight.query:
                 try:
                     viz = InsightVizNode.model_validate(insight.query)
-                    block_lines.append(_summarize_query_for_naming(viz))
+                    block_lines.append(summarize_query_for_naming(viz))
                 except Exception:
                     qdict = insight.query if isinstance(insight.query, dict) else {}
                     kind = qdict.get("kind", "unknown")

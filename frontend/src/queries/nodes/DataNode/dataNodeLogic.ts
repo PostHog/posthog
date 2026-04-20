@@ -869,9 +869,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                                limit: Math.max(
-                                    100,
-                                    Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
+                                limit: Math.min(
+                                    effectivePaginationLimit,
+                                    Math.max(100, 2 * (typedResults?.length || 100))
                                 ),
                             } as
                                 | EventsQuery

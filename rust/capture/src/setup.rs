@@ -110,16 +110,14 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         .expect("failed to create redis client"),
     );
 
-    let (global_rate_limiter_token_distinctid, global_rate_limiter_token) =
-        if config.global_rate_limit_enabled {
-            let (td_limiter, token_limiter) =
-                GlobalRateLimiter::try_from_config(&config, redis_client.clone())
-                    .await
-                    .expect("failed to create global rate limiters");
-            (Some(Arc::new(td_limiter)), Some(Arc::new(token_limiter)))
-        } else {
-            (None, None)
-        };
+    let global_rate_limiter_token_distinctid = if config.global_rate_limit_enabled {
+        let limiter = GlobalRateLimiter::try_from_config(&config, redis_client.clone())
+            .await
+            .expect("failed to create global rate limiter");
+        Some(Arc::new(limiter))
+    } else {
+        None
+    };
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
@@ -211,7 +209,6 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         sink,
         redis_client,
         global_rate_limiter_token_distinctid,
-        global_rate_limiter_token,
         quota_limiter,
         token_dropper,
         event_restriction_service,

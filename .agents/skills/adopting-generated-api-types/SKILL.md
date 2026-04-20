@@ -205,7 +205,7 @@ Switching to generated functions does not change HTTP behavior — same cookies,
 
 1. **TypeScript check:** `pnpm --filter=@posthog/frontend typescript:check`
 2. **Grep for leftover manual types:** search for the old type name across the codebase
-3. **Run relevant tests:** `pnpm --filter=@posthog/frontend jest <test_file>`
+3. **Run relevant tests:** `hogli test <test_file>`
 
 ## Related
 

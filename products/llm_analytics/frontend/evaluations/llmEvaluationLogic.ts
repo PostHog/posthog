@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { signalSourcesLogic } from 'scenes/inbox/signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
@@ -17,7 +18,9 @@ import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
+import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { buildDeliveryTargets, evaluationReportLogic } from './evaluationReportLogic'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
@@ -94,6 +97,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Evaluation management actions
         saveEvaluation: true,
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
+        saveEvaluationFailure: (error: string) => ({ error }),
         loadEvaluation: true,
         loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => ({ evaluation }),
         resetEvaluation: true,
@@ -292,6 +296,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 saveEvaluation: () => true,
                 saveEvaluationSuccess: () => false,
+                saveEvaluationFailure: () => false,
             },
         ],
         signalEmissionOptimistic: [
@@ -382,6 +387,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     name: template?.name || '',
                     description: template?.description || '',
                     enabled: true,
+                    status: 'active' as const,
+                    status_reason: null,
                     output_type: 'boolean' as const,
                     output_config: {},
                     conditions: [
@@ -454,6 +461,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     name: '',
                     description: '',
                     enabled: true,
+                    status: 'active',
+                    status_reason: null,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
                         prompt: '',
@@ -509,6 +518,36 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (props.evaluationId === 'new') {
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
+                    // Create the pending report before navigating away. The 'new'-keyed
+                    // evaluationReportLogic unmounts when the component tears down, so
+                    // snapshot its draft now and fire the create directly.
+                    if (response?.id) {
+                        const draft = evaluationReportLogic({ evaluationId: 'new' }).values.configDraft
+                        const targets = buildDeliveryTargets(draft)
+                        if (draft.enabled && (targets.length > 0 || draft.reportPromptGuidance.trim().length > 0)) {
+                            const body: Record<string, unknown> = {
+                                evaluation: response.id,
+                                frequency: draft.frequency,
+                                delivery_targets: targets,
+                                report_prompt_guidance: draft.reportPromptGuidance,
+                                enabled: true,
+                            }
+                            if (draft.frequency === 'scheduled') {
+                                body.rrule = draft.rrule
+                                body.starts_at = draft.startsAt
+                                body.timezone_name = draft.timezoneName
+                            }
+                            if (draft.frequency === 'every_n') {
+                                body.trigger_threshold = draft.triggerThreshold
+                            }
+                            try {
+                                await api.create(`api/environments/${teamId}/llm_analytics/evaluation_reports/`, body)
+                            } catch (reportError) {
+                                // Don't block navigation if the (optional) pending report fails
+                                posthog.captureException(reportError, { tag: 'eval-report-pending-create' })
+                            }
+                        }
+                    }
                 } else {
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
@@ -518,7 +557,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
                 router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
-                console.error('Failed to save evaluation:', error)
+                const message = evaluationErrorMessage(error, 'Failed to save evaluation')
+                lemonToast.error(message)
+                actions.saveEvaluationFailure(message)
             }
         },
 

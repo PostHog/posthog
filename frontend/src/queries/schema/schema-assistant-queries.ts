@@ -23,6 +23,8 @@ import {
     MultipleBreakdownType,
     Node,
     NodeKind,
+    type RecordingOrder,
+    type RecordingOrderDirection,
     RetentionFilterLegacy,
     StickinessComputationMode,
     StickinessFilterLegacy,
@@ -227,6 +229,36 @@ export interface AssistantFlagPropertyFilter {
     value: boolean | string
 }
 
+export type AssistantRecordingPropertyFilter = AssistantBasePropertyFilter & {
+    type: PropertyFilterType.Recording
+    /**
+     * Recording metric to filter on.
+     * - `duration` — total recording duration in seconds.
+     * - `active_seconds` — seconds with user activity.
+     * - `inactive_seconds` — seconds without user activity.
+     * - `console_error_count` — number of console errors.
+     * - `console_log_count` — number of console log entries.
+     * - `console_warn_count` — number of console warnings.
+     * - `click_count` — number of clicks.
+     * - `keypress_count` — number of key presses.
+     * - `activity_score` — computed activity score (0-100).
+     * - `visited_page` — URL visited during the session.
+     * - `snapshot_source` — the recording source (e.g. "web", "mobile").
+     */
+    key:
+        | 'duration'
+        | 'active_seconds'
+        | 'inactive_seconds'
+        | 'console_error_count'
+        | 'console_log_count'
+        | 'console_warn_count'
+        | 'click_count'
+        | 'keypress_count'
+        | 'activity_score'
+        | 'visited_page'
+        | 'snapshot_source'
+}
+
 export type AssistantPropertyFilter =
     | AssistantGenericPropertyFilter
     | AssistantGroupPropertyFilter
@@ -234,6 +266,12 @@ export type AssistantPropertyFilter =
     | AssistantElementPropertyFilter
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
+
+/**
+ * Extended property filter union for recordings queries that also supports
+ * recording-specific metric filters (e.g. duration, click_count, activity_score).
+ */
+export type AssistantRecordingsQueryPropertyFilter = AssistantPropertyFilter | AssistantRecordingPropertyFilter
 
 export interface AssistantInsightsQueryBase {
     /**
@@ -527,6 +565,12 @@ export interface AssistantFunnelNodeShared {
      */
     math?: AssistantFunnelsMath
     properties?: AssistantPropertyFilter[]
+    /**
+     * If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen.
+     * Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).
+     * @default false
+     */
+    optionalInFunnel?: boolean
 }
 
 export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'>, AssistantFunnelNodeShared {
@@ -690,9 +734,13 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
 export interface AssistantRetentionEventsNode {
     type: 'events'
     /**
-     * Event name from the plan.
+     * The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.
      */
-    name: string
+    id: string
+    /**
+     * Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.
+     */
+    name?: string
     /**
      * Custom name for the event if it is needed to be renamed.
      */
@@ -706,13 +754,13 @@ export interface AssistantRetentionEventsNode {
 export interface AssistantRetentionActionsNode {
     type: 'actions'
     /**
-     * Action ID from the plan.
+     * The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.
      */
     id: number
     /**
-     * Action name from the plan.
+     * Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching.
      */
-    name: string
+    name?: string
     /**
      * Property filters for the action.
      */
@@ -1109,6 +1157,36 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 }
 
 /**
+ * Drills into an insight to list the persons behind a specific data point. Returned rows are
+ * trimmed to `distinct_id`, `name`, `email`, and an optional per-actor `count`.
+ *
+ * Currently supports trends as the source; other insight kinds will be added incrementally.
+ * Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific
+ * cell in the source insight. Omit them to get all actors for the query.
+ */
+export interface AssistantInsightActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source insight query whose data point we are drilling into. */
+    source: AssistantTrendsQuery
+
+    /** Bucket date for the data point. Accepts ISO date or integer offset. */
+    day?: string | integer
+
+    /** Series index (0-based) when the source has multiple series. */
+    series?: integer
+
+    /**
+     * Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order.
+     * Array length must equal the number of breakdown dimensions.
+     */
+    breakdown?: string[]
+
+    /** Whether to pull from the previous period when `compare` is enabled in the source. */
+    compare?: 'current' | 'previous'
+}
+
+/**
  * Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency,
  * token usage, costs, errors, and other metadata. Use for AI observability — debugging
  * slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.
@@ -1238,3 +1316,138 @@ export interface AssistantErrorTrackingQuery {
     limit?: integer
     offset?: integer
 }
+
+/**
+ * Simplified RecordingsQuery for MCP tool usage. Exposes the most useful
+ * filtering and pagination fields with LLM-friendly descriptions while
+ * hiding internal complexity (having_predicates, operand, actions, etc.).
+ */
+export interface AssistantRecordingsQuery {
+    kind: NodeKind.RecordingsQuery
+    /** Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d". */
+    date_from?: string | null
+    /** End of the date range. Supports relative dates or ISO 8601 format. Default: now. */
+    date_to?: string | null
+    /**
+     * Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.
+     *
+     * Supported types:
+     * - `person`: Filter by person properties (e.g. email, country).
+     * - `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).
+     * - `event`: Filter by properties of events in the session (e.g. $current_url, $browser).
+     * - `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).
+     */
+    properties?: AssistantRecordingsQueryPropertyFilter[]
+    /** Exclude internal and test users. Default: false. */
+    filter_test_accounts?: boolean
+    /** Sort field. Options: "start_time", "duration", "activity_score", "console_error_count", "click_count". Default: "start_time". */
+    order?: RecordingOrder
+    /** Sort direction: "ASC" or "DESC". Default: "DESC". */
+    order_direction?: RecordingOrderDirection
+    /** Maximum number of recordings to return. */
+    limit?: integer
+    /** Cursor for pagination from a previous response's next_cursor field. */
+    after?: string
+    /** Filter recordings to a specific person by their UUID. */
+    person_uuid?: string
+}
+
+export interface AssistantInsightVizNode {
+    kind: NodeKind.InsightVizNode
+    /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
+    source: Record<string, any>
+}
+
+/**
+ * Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.
+ *
+ * - `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.
+ * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
+ * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
+ * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
+ * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
+ * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
+ */
+export type AssistantDataVisualizationDisplayType =
+    | ChartDisplayType.ActionsTable
+    | ChartDisplayType.BoldNumber
+    | ChartDisplayType.ActionsLineGraph
+    | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsStackedBar
+    | ChartDisplayType.ActionsAreaGraph
+    | ChartDisplayType.TwoDimensionalHeatmap
+
+export interface AssistantDataVisualizationAxis {
+    /** Name of a column returned by the SQL query to map onto this axis. */
+    column: string
+}
+
+export interface AssistantDataVisualizationGoalLine {
+    /** Label rendered next to the goal line. */
+    label: string
+    /** Y-axis value at which the goal line is drawn. */
+    value: number
+}
+
+export interface AssistantDataVisualizationChartSettings {
+    /** Column used as the X axis. Typically a time bucket or categorical column. */
+    xAxis?: AssistantDataVisualizationAxis
+    /** One or more numeric columns plotted as Y series. */
+    yAxis?: AssistantDataVisualizationAxis[]
+    /**
+     * Column that splits a single Y series into multiple colored series — e.g. breaking down
+     * a line chart by `country`. Set to `null` or omit to disable.
+     */
+    seriesBreakdownColumn?: string | null
+    /** Horizontal goal lines drawn across the chart. */
+    goalLines?: AssistantDataVisualizationGoalLine[]
+    /** Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`. */
+    stackBars100?: boolean
+    /** Show the chart legend. */
+    showLegend?: boolean
+    /** Replace null aggregation results with zero. */
+    showNullsAsZero?: boolean
+}
+
+export interface AssistantDataVisualizationTableSettings {
+    /** Columns to display and their order. Omit to show every column returned by the query. */
+    columns?: AssistantDataVisualizationAxis[]
+    /** Column names to pin to the left of the table. */
+    pinnedColumns?: string[]
+    /** Show a total row at the bottom of the table. */
+    showTotalRow?: boolean
+    /** Transpose rows and columns. */
+    transpose?: boolean
+}
+
+/**
+ * SQL-backed visualization. Use this when the analysis requires custom SQL that cannot be
+ * expressed as a standard product-analytics insight — cross-source joins with the data
+ * warehouse, window functions, or bespoke aggregations.
+ *
+ * Prefer `AssistantInsightVizNode` for standard product analytics (trends, funnels, retention,
+ * paths, stickiness, lifecycle). Only reach for this node when SQL is strictly necessary.
+ */
+export interface AssistantDataVisualizationNode {
+    kind: NodeKind.DataVisualizationNode
+    /** HogQL query object that produces the rows to visualize. */
+    source: Record<string, any>
+    /**
+     * Visualization type. Defaults to `ActionsTable` when omitted.
+     *
+     * Guidance:
+     * - Single-value result (one numeric column, one row) → `BoldNumber`.
+     * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
+     * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
+     * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
+     * - Otherwise → `ActionsTable`.
+     */
+    display?: AssistantDataVisualizationDisplayType
+    /** Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`. */
+    chartSettings?: AssistantDataVisualizationChartSettings
+    /** Table configuration. Only applies when `display` is `ActionsTable` or omitted. */
+    tableSettings?: AssistantDataVisualizationTableSettings
+}
+
+export type InsightQuery = AssistantInsightVizNode | AssistantDataVisualizationNode

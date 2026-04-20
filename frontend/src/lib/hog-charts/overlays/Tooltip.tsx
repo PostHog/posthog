@@ -1,45 +1,62 @@
-import React, { useLayoutEffect, useRef, useState } from 'react'
+import { flip, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
+import React, { useLayoutEffect, useMemo } from 'react'
 
 import type { TooltipContext } from '../core/types'
 
-interface TooltipProps {
-    context: TooltipContext
-    component: React.ComponentType<TooltipContext>
+interface TooltipProps<Meta> {
+    context: TooltipContext<Meta>
+    renderTooltip: (ctx: TooltipContext<Meta>) => React.ReactNode
 }
 
-export function Tooltip({ context, component: Component }: TooltipProps): React.ReactElement {
-    const tooltipRef = useRef<HTMLDivElement>(null)
-    const [measuredWidth, setMeasuredWidth] = useState<number | null>(null)
-
-    useLayoutEffect(() => {
-        if (tooltipRef.current) {
-            setMeasuredWidth(tooltipRef.current.offsetWidth)
-        }
-    }, [context.dataIndex])
-
-    const tooltipWidth = measuredWidth ?? 200
-    const spaceRight = context.canvasBounds.width - context.position.x
-    const showOnLeft = spaceRight < tooltipWidth + 24
-
-    const left = showOnLeft ? context.position.x - tooltipWidth - 16 : context.position.x + 16
-    const top = Math.max(
-        context.canvasBounds.top > 0 ? 0 : 8,
-        Math.min(context.position.y - 16, context.canvasBounds.height - 100)
+export function Tooltip<Meta = unknown>({ context, renderTooltip }: TooltipProps<Meta>): React.ReactElement {
+    const virtualReference = useMemo<VirtualElement>(
+        () => ({
+            getBoundingClientRect() {
+                const x = context.canvasBounds.left + context.position.x
+                const y = context.canvasBounds.top + context.position.y
+                return {
+                    x,
+                    y,
+                    width: 0,
+                    height: 0,
+                    top: y,
+                    right: x,
+                    bottom: y,
+                    left: x,
+                }
+            },
+        }),
+        [context.position.x, context.position.y, context.canvasBounds]
     )
+
+    const { refs, floatingStyles } = useFloating({
+        placement: 'right',
+        strategy: 'fixed',
+        middleware: [offset(12), flip(), shift({ padding: 8 })],
+    })
+
+    // useLayoutEffect runs synchronously before paint, so floating-ui has the
+    // virtual reference ready by the first frame — no positioning flash.
+    useLayoutEffect(() => {
+        refs.setPositionReference(virtualReference)
+    }, [virtualReference, refs])
 
     return (
         <div
-            ref={tooltipRef}
+            ref={refs.setFloating}
+            // Marker so the interaction hook can distinguish scroll events that originate
+            // inside the tooltip (e.g. scrollable long content) from chart/page scrolls,
+            // which should dismiss a pinned tooltip.
+            data-hog-charts-tooltip=""
+            className={context.isPinned ? 'InsightTooltipWrapper--pinned' : undefined}
             style={{
-                position: 'absolute',
-                left: Math.max(0, left),
-                top,
-                pointerEvents: 'none',
+                ...floatingStyles,
+                pointerEvents: context.isPinned ? 'auto' : 'none',
+                width: 'max-content',
                 zIndex: 10,
-                visibility: measuredWidth === null ? 'hidden' : 'visible',
             }}
         >
-            <Component {...context} />
+            {renderTooltip(context)}
         </div>
     )
 }

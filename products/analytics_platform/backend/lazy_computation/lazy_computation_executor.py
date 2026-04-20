@@ -18,8 +18,9 @@ import structlog
 from clickhouse_driver.errors import ServerException
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
@@ -69,6 +70,24 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # Disabled in tests to avoid quorum behavior (tests usually run against a single-node or simplified
 # ClickHouse setup and we want them to remain fast and deterministic).
 PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
+
+
+def _get_insert_settings(team_id: int) -> dict:
+    """Build ClickHouse settings for preaggregation INSERT queries.
+
+    Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
+    uses for regular queries, then applies INSERT-specific overrides.
+    """
+    settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
+    settings.pop("readonly", None)  # INSERTs need write access
+    settings.update(
+        {
+            "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
+            "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
+        }
+    )
+    return settings
 
 
 @dataclass
@@ -237,6 +256,7 @@ class LazyComputationTable(StrEnum):
 
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
+    EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -244,6 +264,7 @@ class LazyComputationTable(StrEnum):
 # job expires. We add an extra day of buffer for these tables.
 _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+    LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
 }
 
 
@@ -571,11 +592,7 @@ def run_lazy_computation_insert(
         sync_execute(
             insert_sql,
             values,
-            settings={
-                "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-                "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
-                **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
-            },
+            settings=_get_insert_settings(team.id),
         )
 
 
@@ -877,6 +894,7 @@ def ensure_precomputed(
     ttl_seconds: int | dict[str, int] = DEFAULT_TTL_SECONDS,
     table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
+    sentinel_placeholders: set[str] | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -910,6 +928,10 @@ def ensure_precomputed(
         table: The target computation table (default "preaggregation_results")
         placeholders: Additional placeholder values to substitute into the query.
                       time_window_min and time_window_max are added automatically.
+        sentinel_placeholders: Placeholder names to replace with fixed sentinel values
+                      for hashing. Use this for placeholders whose values change between
+                      requests (e.g. datetime.now()) but shouldn't invalidate the cache.
+                      The real values are still used at INSERT time.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -942,11 +964,25 @@ def ensure_precomputed(
     base_placeholders = placeholders or {}
     _validate_no_reserved_placeholders(base_placeholders)
 
-    # Parse the query template with sentinel time placeholders for stable hashing
-    hash_placeholders = {
+    if sentinel_placeholders:
+        missing = sentinel_placeholders - set(base_placeholders)
+        if missing:
+            raise ValueError(
+                f"sentinel_placeholders {missing} must also be present in placeholders "
+                "so real values are available at INSERT time."
+            )
+
+    # Parse the query template with sentinel placeholders for stable hashing.
+    # time_window_min/max are always sentinelized (managed by the executor).
+    # Callers can opt additional placeholders into sentinelization via sentinel_placeholders.
+    caller_sentinels: dict[str, ast.Expr] = {
+        name: ast.Constant(value=f"__{name.upper()}__") for name in (sentinel_placeholders or set())
+    }
+    hash_placeholders: dict[str, ast.Expr] = {
         **base_placeholders,
         "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
         "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
+        **caller_sentinels,
     }
     parsed_for_hash = parse_select(insert_query, placeholders=hash_placeholders)
     assert isinstance(parsed_for_hash, ast.SelectQuery)
@@ -970,11 +1006,7 @@ def ensure_precomputed(
             sync_execute(
                 insert_sql,
                 values,
-                settings={
-                    "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-                    "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
-                    **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
-                },
+                settings=_get_insert_settings(t.id),
             )
 
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
@@ -1029,7 +1061,13 @@ def _build_manual_insert_sql(
     query.select.append(expires_at_expr)
 
     # Print to SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
+    context = HogQLContext(
+        team_id=team.id,
+        team=team,
+        enable_select_queries=True,
+        limit_top_select=False,
+        modifiers=create_default_modifiers_for_team(team),
+    )
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,

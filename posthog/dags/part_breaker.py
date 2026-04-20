@@ -982,18 +982,24 @@ def break_part(
                     f"({config.max_part_size_gib} GiB). INSERT SELECT may not have broken sufficiently."
                 )
 
-            # -- Step 9: DETACH new parts from staging target --
-            # Check for stale detached parts from a previous failed run before detaching.
-            # TRUNCATE removes active parts but leaves detached/ contents.
+            # -- Step 9: Capture part hashes for post-ATTACH verification.
+            staging_hashes = client.execute(
+                "SELECT hash_of_all_files, rows FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s AND active "
+                "AND partition_id = %(partition_id)s",
+                {"db": database, "table": staging_target, "partition_id": partition_id},
+            )
+            expected_hashes = {row[0] for row in staging_hashes}
+            expected_rows_by_hash = {row[0]: row[1] for row in staging_hashes}
+
+            # Fail if stale detached parts exist from a previous failed run.
             pre_detach_ls = _ssh_exec(ssh, f"ls -1 {staging_tgt_detached}").strip()
             if pre_detach_ls:
-                # Only flag parts matching our partition — ignore CH-internal entries
                 stale_parts = [p for p in pre_detach_ls.split("\n") if p and p.startswith(f"{partition_id}_")]
                 if stale_parts:
                     raise dagster.Failure(
                         description=f"Staging target {staging_target} has {len(stale_parts)} stale detached part(s) "
-                        f"for partition {partition_id} from a previous run. "
-                        f"Clean up manually before retrying: {staging_tgt_detached}"
+                        f"for partition {partition_id}. Clean up manually: {staging_tgt_detached}"
                     )
 
             context.log.info(f"Detaching parts from {staging_target}...")
@@ -1002,8 +1008,7 @@ def break_part(
                 settings={"max_partition_size_to_drop": "0"},
             )
 
-            # -- Step 10: Move detached parts to source table's detached dir --
-            # List the detached parts for this partition
+            # -- Step 10: Move detached parts to source table and ATTACH.
             ls_output = _ssh_exec(ssh, f"ls -1 {staging_tgt_detached}")
             detached_parts = [p for p in ls_output.strip().split("\n") if p and p.startswith(f"{partition_id}_")]
 
@@ -1011,65 +1016,47 @@ def break_part(
             for dp in detached_parts:
                 _ssh_exec(ssh, f"mv {staging_tgt_detached}{dp} {source_detached}{dp}")
 
-            # -- Step 11: ATTACH the new parts to source table --
-            # Use ATTACH PART (not ATTACH PARTITION) to only attach the parts we moved,
-            # avoiding accidentally reattaching unrelated pre-existing detached parts.
-            # Other replicas will automatically fetch these parts via replication.
             context.log.info(f"Attaching {len(detached_parts)} new parts to {source_table}...")
             for dp in detached_parts:
                 client.execute(f"ALTER TABLE {database}.{source_table} ATTACH PART '{dp}'")
 
-            # Dedup window: both old oversized part and new broken parts are active.
-            # ReplacingMergeTree handles this transparently on read.
+            # -- Step 11: Verify our parts exist by hash_of_all_files.
+            current_parts = client.execute(
+                "SELECT hash_of_all_files FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s "
+                "AND partition_id = %(partition_id)s "
+                "AND name != %(old_part)s",
+                {"db": database, "table": source_table, "partition_id": partition_id, "old_part": part.part_name},
+            )
+            current_hashes = {row[0] for row in current_parts}
+            missing_hashes = expected_hashes - current_hashes
+            if missing_hashes:
+                missing_rows = sum(expected_rows_by_hash[h] for h in missing_hashes)
+                raise dagster.Failure(
+                    description=f"{len(missing_hashes)} of {len(expected_hashes)} parts missing after ATTACH "
+                    f"({missing_rows:,} rows). Skipping DROP to avoid data loss."
+                )
+            context.log.info(
+                f"Safety check passed: all {len(expected_hashes)} part hashes verified ({target_count:,} rows)"
+            )
 
-            # Capture the current log index — all replicas must reach at least this
-            # point before we drop the old part, ensuring they have the new parts.
+            # -- Step 12: Wait for replication before dropping.
             log_index_rows = client.execute(
                 "SELECT log_max_index FROM system.replicas WHERE database = %(db)s AND table = %(table)s",
                 {"db": database, "table": source_table},
             )
             if not log_index_rows or log_index_rows[0][0] is None:
-                raise dagster.Failure(
-                    description=f"Could not get log_max_index for {source_table} — cannot safely proceed with DROP"
-                )
+                raise dagster.Failure(description=f"Could not get log_max_index for {source_table}")
             target_log_index = log_index_rows[0][0]
 
-            # -- Step 12: Wait for replication before dropping --
-            # Wait for all replicas to fetch the new parts before dropping the old one.
-            # Without this, if the initiating replica goes down after DROP, other replicas
-            # would have neither the old part (dropped via replication) nor the new parts
-            # (not yet fetched). For large parts (hundreds of GiB to TiB) the fetch can
-            # take 30+ minutes, so this wait is critical for data safety.
             context.log.info(
                 f"Waiting for all replicas to reach log index {target_log_index} before dropping old part..."
             )
             _wait_for_replication(client, source_table, target_log_index, part.shard_num)
             context.log.info("Replication complete — all replicas have the new parts")
 
-            # -- Step 13: DROP the original oversized part --
-            # Safety check: verify new parts exist on the source table before dropping.
-            # If ATTACHes failed silently or parts were merged away, dropping the old
-            # part would lose data.
-            new_attached = client.execute(
-                "SELECT count() FROM system.parts "
-                "WHERE database = %(db)s AND table = %(table)s AND active "
-                "AND partition_id = %(partition_id)s "
-                "AND name != %(old_part)s",
-                {"db": database, "table": source_table, "partition_id": partition_id, "old_part": part.part_name},
-            )
-            new_attached_count = new_attached[0][0] if new_attached else 0
-            if new_attached_count < len(detached_parts):
-                raise dagster.Failure(
-                    description=f"Expected at least {len(detached_parts)} new parts on {source_table} "
-                    f"partition {partition_id}, but only found {new_attached_count} (excluding original). "
-                    f"Skipping DROP to avoid data loss."
-                )
-
-            # Re-query the part by its min_block/max_block numbers which are stable
-            # across mutations (mutations only change the suffix, not the block range).
-            # Original part name format: {partition}_{min_block}_{max_block}_{level}
-            # Extract the block range from the original name for matching.
-            original_prefix = "_".join(part.part_name.split("_")[:3])  # e.g. "202108_1_1"
+            # -- Step 13: DROP the original part (re-query by prefix, mutations change suffix).
+            original_prefix = "_".join(part.part_name.split("_")[:3])
             current_parts = client.execute(
                 "SELECT name FROM system.parts "
                 "WHERE database = %(db)s AND table = %(table)s AND active "

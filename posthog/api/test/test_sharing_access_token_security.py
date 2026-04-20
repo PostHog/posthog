@@ -4,6 +4,7 @@ Security tests for sharing access tokens - ensuring they cannot be abused to acc
 
 import json
 from datetime import timedelta
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -64,7 +65,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             # Old token must be rejected
             response = self.client.get(
                 f"/api/environments/{self.team.id}/insights/{insight.id}/",
-                {"sharing_access_token": old_token},
+                cast(Any, {"sharing_access_token": old_token}),
             )
             assert response.status_code in [401, 403], (
                 f"Expired sharing token should be rejected. Got {response.status_code}"
@@ -73,7 +74,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             # New token must still work
             response = self.client.get(
                 f"/api/environments/{self.team.id}/insights/{insight.id}/",
-                {"sharing_access_token": new_token},
+                cast(Any, {"sharing_access_token": new_token}),
             )
             assert response.status_code == 200, f"New sharing token should still work. Got {response.status_code}"
 
@@ -113,7 +114,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             # Old JWT against expired config must be rejected
             response = self.client.get(
                 f"/api/environments/{self.team.id}/insights/{insight.id}/",
-                {"sharing_access_token": old_access_token},
+                cast(Any, {"sharing_access_token": old_access_token}),
                 HTTP_AUTHORIZATION=f"Bearer {jwt_token}",
             )
             assert response.status_code in [401, 403], (
@@ -123,7 +124,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             # New JWT against active config must still work
             response = self.client.get(
                 f"/api/environments/{self.team.id}/insights/{insight.id}/",
-                {"sharing_access_token": new_config.access_token},
+                cast(Any, {"sharing_access_token": new_config.access_token}),
                 HTTP_AUTHORIZATION=f"Bearer {new_jwt_token}",
             )
             assert response.status_code == 200, (

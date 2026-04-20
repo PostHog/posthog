@@ -8,6 +8,8 @@ use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
+use k8s_awareness::types::{ControllerKind, ControllerRef};
+use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
 use crate::store::PersonhogStore;
@@ -31,7 +33,12 @@ pub trait HandoffHandler: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct PodConfig {
     pub pod_name: String,
+    /// Pod-template-hash (Deployment) or controller-revision-hash (StatefulSet).
+    /// Populated via K8s awareness before registration. Empty when K8s awareness is disabled.
     pub generation: String,
+    /// The K8s controller (Deployment/StatefulSet) that owns this pod.
+    /// Populated via K8s awareness before registration. None when K8s awareness is disabled.
+    pub controller: Option<ControllerRef>,
     pub lease_ttl: i64,
     pub heartbeat_interval: Duration,
     /// How long to wait for partitions to drain before shutting down.
@@ -44,7 +51,8 @@ impl Default for PodConfig {
     fn default() -> Self {
         Self {
             pod_name: "writer-0".to_string(),
-            generation: "blue".to_string(),
+            generation: String::new(),
+            controller: None,
             lease_ttl: 30,
             heartbeat_interval: Duration::from_secs(10),
             drain_timeout: Duration::from_secs(30),
@@ -60,6 +68,8 @@ pub struct PodHandle {
     owned_partitions: Mutex<HashSet<u32>>,
     /// Signalled when a partition is released, waking `drain()` without polling.
     drain_notify: Notify,
+    /// Optional K8s awareness for departure classification during shutdown.
+    k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
 impl PodHandle {
@@ -67,6 +77,7 @@ impl PodHandle {
         store: Arc<PersonhogStore>,
         config: PodConfig,
         handler: Arc<dyn HandoffHandler>,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
         Self {
             store,
@@ -74,6 +85,7 @@ impl PodHandle {
             handler,
             owned_partitions: Mutex::new(HashSet::new()),
             drain_notify: Notify::new(),
+            k8s_awareness,
         }
     }
 
@@ -132,8 +144,19 @@ impl PodHandle {
             status: PodStatus::Ready,
             registered_at: now,
             last_heartbeat: now,
+            controller: self.config.controller.clone(),
         };
         self.store.register_pod(&pod, lease_id).await
+    }
+
+    /// Classify the departure reason using K8s awareness, if available.
+    async fn classify_departure(&self) -> DepartureReason {
+        let (Some(k8s), Some(controller)) = (&self.k8s_awareness, &self.config.controller) else {
+            return DepartureReason::Unknown;
+        };
+
+        k8s.classify_departure(controller, &self.config.generation)
+            .await
     }
 
     /// Graceful drain: set status to Draining, then keep processing handoff
@@ -142,13 +165,34 @@ impl PodHandle {
     /// The coordinator sees the Draining status, excludes this pod from
     /// active assignments, and creates handoffs for its partitions. This pod
     /// continues watching for handoff Complete events to release partitions.
+    ///
+    /// For StatefulSet rollouts, the same pod name comes back with a new
+    /// revision, so we skip the drain and exit immediately (ShutdownNow).
     async fn drain(&self, lease_id: i64) -> Result<()> {
+        let reason = self.classify_departure().await;
+
+        // StatefulSet rollout: same pod name returns, no need to drain
+        let is_statefulset_rollout = matches!(
+            (&self.config.controller, reason),
+            (Some(ref c), DepartureReason::Rollout) if c.kind == ControllerKind::StatefulSet
+        );
+
+        if is_statefulset_rollout {
+            tracing::info!(
+                pod = %self.config.pod_name,
+                reason = %reason,
+                "StatefulSet rollout detected, shutting down immediately"
+            );
+            return Ok(());
+        }
+
         self.store
             .update_pod_status(&self.config.pod_name, PodStatus::Draining, lease_id)
             .await?;
 
         tracing::info!(
             pod = %self.config.pod_name,
+            reason = %reason,
             "set status to Draining, waiting for partition handoffs"
         );
 

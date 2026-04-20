@@ -43,6 +43,12 @@ MB_100_IN_BYTES = 100 * 1000 * 1000
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
+# Limits concurrent ClickHouse queries per worker. Each worker pod runs a single
+# process with a single event loop — all async activities share it, so this
+# module-level semaphore gates every activity on the same worker.
+MAX_CONCURRENT_CLICKHOUSE_QUERIES = 10
+_clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIES)
+
 
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
@@ -261,7 +267,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_clickhouse_client(enable_analyzer=1) as client:
+    async with _clickhouse_query_semaphore, get_clickhouse_client(enable_analyzer=1) as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -323,7 +329,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     )
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    async with get_clickhouse_client(enable_analyzer=1) as client:
+    async with _clickhouse_query_semaphore, get_clickhouse_client(enable_analyzer=1) as client:
         async with client.apost_query(
             query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
         ) as ch_response:
@@ -370,7 +376,10 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
-    async with get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, enable_analyzer=1) as client:
+    async with (
+        _clickhouse_query_semaphore,
+        get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, enable_analyzer=1) as client,
+    ):
         batches = []
         batches_size = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
@@ -430,30 +439,30 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     table_uri = _build_model_table_uri(team.pk, saved_query.id.hex, saved_query.normalized_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
 
-    # delete existing table first to avoid schema conflicts
-    s3 = get_s3_client()
-    try:
-        # non-blocking delete returns control to the event loop so heartbeats continue
-        await asyncio.to_thread(s3.delete, table_uri, recursive=True)
-        await logger.adebug(f"Table recursively deleted: uri={table_uri}")
-    except FileNotFoundError:
-        await logger.adebug(f"Skipping deletion because table not found: uri={table_uri}")
-
-    hogql_query = typing.cast(dict, saved_query.query)["query"]
-    try:
-        rows_expected = await get_query_row_count(hogql_query, team, logger)
-        await logger.ainfo(f"Expected rows: {rows_expected}")
-        job.rows_expected = rows_expected
-        await database_sync_to_async(job.save)()
-    except Exception as e:
-        await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
-        job.rows_expected = None
-        await database_sync_to_async(job.save)()
-
-    row_count = 0
-    storage_options = _get_aws_storage_options()
-    delta_table: deltalake.DeltaTable | None = None
     async with Heartbeater():
+        # delete existing table first to avoid schema conflicts
+        s3 = get_s3_client()
+        try:
+            # non-blocking delete returns control to the event loop so heartbeats continue
+            await asyncio.to_thread(s3.delete, table_uri, recursive=True)
+            await logger.adebug(f"Table recursively deleted: uri={table_uri}")
+        except FileNotFoundError:
+            await logger.adebug(f"Skipping deletion because table not found: uri={table_uri}")
+
+        hogql_query = typing.cast(dict, saved_query.query)["query"]
+        try:
+            rows_expected = await get_query_row_count(hogql_query, team, logger)
+            await logger.ainfo(f"Expected rows: {rows_expected}")
+            job.rows_expected = rows_expected
+            await database_sync_to_async(job.save)()
+        except Exception as e:
+            await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
+            job.rows_expected = None
+            await database_sync_to_async(job.save)()
+
+        row_count = 0
+        storage_options = _get_aws_storage_options()
+        delta_table: deltalake.DeltaTable | None = None
         async for index, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
@@ -487,23 +496,28 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             await database_sync_to_async(job.save)()
             # explicitly delete batch to free memory after writing
             del batch, ch_types
-    await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
-    # row count validation warning
-    if job.rows_expected is not None:
-        if row_count != job.rows_expected:
-            await logger.awarning(
-                "Row count mismatch after materialization",
-                expected=job.rows_expected,
-                actual=row_count,
+        await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
+        # row count validation warning
+        if job.rows_expected is not None:
+            if row_count != job.rows_expected:
+                await logger.awarning(
+                    "Row count mismatch after materialization",
+                    expected=job.rows_expected,
+                    actual=row_count,
+                )
+        file_uris = []
+        if delta_table is not None:
+            await logger.ainfo("Compacting delta table")
+            await asyncio.to_thread(delta_table.optimize.compact)
+            await logger.ainfo("Vacuuming delta table")
+            await asyncio.to_thread(
+                delta_table.vacuum,
+                retention_hours=DELTA_TABLE_RETENTION_HOURS,
+                enforce_retention_duration=False,
+                dry_run=False,
             )
-    file_uris = []
-    if delta_table is not None:
-        await logger.ainfo("Compacting delta table")
-        delta_table.optimize.compact()
-        await logger.ainfo("Vacuuming delta table")
-        delta_table.vacuum(retention_hours=DELTA_TABLE_RETENTION_HOURS, enforce_retention_duration=False, dry_run=False)
-        file_uris = delta_table.file_uris()
-    await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")
+            file_uris = delta_table.file_uris()
+        await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")
     return MaterializeViewResult(
         node_id=node.id,
         node_name=node.name,

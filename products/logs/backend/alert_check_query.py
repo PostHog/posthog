@@ -122,7 +122,7 @@ class AlertCheckQuery:
         count = response.results[0][0] if response.results else 0
         return AlertCheckCountResult(count=count, query_duration_ms=duration_ms)
 
-    def execute_bucketed(self, interval_minutes: int) -> list[BucketedCount]:
+    def execute_bucketed(self, interval_minutes: int, *, limit: int = 10_000) -> list[BucketedCount]:
         """Return time-bucketed counts for preview charts."""
         self._tag()
 
@@ -142,12 +142,13 @@ class AlertCheckQuery:
             WHERE {where}
             GROUP BY bucket
             ORDER BY bucket ASC
-            LIMIT 10000
+            LIMIT {row_limit}
             """,
             placeholders={
                 "time_field": time_field,
                 "bucket_minutes": ast.Constant(value=interval_minutes),
                 "where": self.where_expr,
+                "row_limit": ast.Constant(value=limit),
             },
         )
 
