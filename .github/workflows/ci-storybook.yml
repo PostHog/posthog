@@ -8,13 +8,10 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # Cancel in-progress runs on PRs when new commits are pushed
-    # SHA verification ensures we don't commit stale snapshots if runs aren't cancelled in time
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
     contents: read
-    pull-requests: write
 
 jobs:
     # Job to decide if we should run storybook ci
@@ -27,7 +24,6 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             frontend: ${{ steps.filter.outputs.frontend || 'true' }}
-            mode: ${{ steps.detect.outputs.mode }}
         steps:
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
@@ -44,42 +40,6 @@ jobs:
                         - 'package.json'
                         - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
-
-            - name: Detect snapshot mode
-              id: detect
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
-                    echo "mode=check" >> $GITHUB_OUTPUT
-                    echo "Fork detected - running in CHECK mode (no commits allowed)"
-                  elif [ -n "${{ github.event.pull_request.number }}" ] && gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels --jq '.[].name' | grep -q '^update-snapshots$'; then
-                    echo "mode=update" >> $GITHUB_OUTPUT
-                    echo "::notice::🔄 Running in UPDATE mode - 'update-snapshots' label detected"
-                  else
-                    AUTHOR="${{ github.actor }}"
-                    echo "Workflow triggered by: $AUTHOR"
-
-                    # Trusted bots that are allowed to run in update mode
-                    # Add bot usernames here to allow snapshot auto-updates on their PRs
-                    TRUSTED_BOTS=("mendral-app[bot]" "cursor[bot]")
-
-                    IS_TRUSTED=false
-                    for bot in "${TRUSTED_BOTS[@]}"; do
-                      if [[ "$AUTHOR" == "$bot" ]]; then
-                        IS_TRUSTED=true
-                        break
-                      fi
-                    done
-
-                    if [[ "$IS_TRUSTED" == "true" ]]; then
-                      echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
-                    else
-                      echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "::notice::🔍 Running in CHECK mode - add 'update-snapshots' label to enable snapshot updates"
-                    fi
-                  fi
 
     build-storybook:
         name: Build Storybook (${{ matrix.runner }})
@@ -164,7 +124,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook]
-        if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        if: needs.changes.outputs.frontend == 'true' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
         steps:
@@ -189,7 +149,6 @@ jobs:
 
             - name: Create VR run
               id: create
-              continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -362,6 +321,12 @@ jobs:
                       exit 1
                   fi
 
+            # Wipe committed PNGs so each shard only has freshly captured screenshots.
+            # Prevents stale hashes from winning the race in VR's get_or_create.
+            - name: Clean snapshot directory
+              run: find frontend/__snapshots__ -name '*.png' -delete 2>/dev/null || true
+
+            # Capture-only: VR is the gate for visual changes, jest just captures screenshots
             - name: Run @storybook/test-runner
               id: test-runner
               shell: bash
@@ -369,48 +334,7 @@ jobs:
                   HOME: /root
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
-                  set +e
-                  MAX_VERIFY_ATTEMPTS=3
-                  EXIT_CODE=1
-
-                  for attempt in $(seq 1 $MAX_VERIFY_ATTEMPTS); do
-                    echo "Attempt $attempt/$MAX_VERIFY_ATTEMPTS: Running @storybook/test-runner (verify)"
-                    set -o pipefail
-                    pnpm --filter=@posthog/storybook test:visual:ci:verify --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt${attempt}.log
-                    EXIT_CODE=$?
-                    set +o pipefail
-
-                    if [ $EXIT_CODE -eq 0 ]; then
-                      if [ $attempt -gt 1 ]; then
-                        echo "Attempt $attempt passed - previous failure was flaky"
-                      fi
-                      break
-                    fi
-                    # Missing snapshots will never pass on retry — skip straight to update
-                    if grep -qi "was not written" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt${attempt}.log 2>/dev/null; then
-                      echo "Missing snapshot detected - skipping remaining verify attempts"
-                      break
-                    fi
-
-                    echo "Attempt $attempt failed (exit code $EXIT_CODE)"
-                  done
-
-                  # All verify attempts failed - try snapshot update if applicable
-                  if [ $EXIT_CODE -ne 0 ]; then
-                    LAST_LOG="/tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt${attempt}.log"
-                    if [ "${{ needs.changes.outputs.mode }}" == "update" ] && grep -Eqi "(snapshot.*(failed|was not written)|Expected image to)" "$LAST_LOG" 2>/dev/null; then
-                      echo "Snapshot failure confirmed - updating snapshots"
-                      set -o pipefail
-                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-update.log
-                      EXIT_CODE=$?
-                      set +o pipefail
-                    fi
-
-                    if [ $EXIT_CODE -ne 0 ]; then
-                      echo "Test runner failed after verify and update attempts"
-                      exit 1
-                    fi
-                  fi
+                  pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
 
             # Upload snapshots to Visual Review (runs in parallel across shards)
             - name: Install VR CLI
@@ -419,7 +343,6 @@ jobs:
 
             - name: Upload snapshots to Visual Review
               if: always() && needs.vr-setup.outputs.run_id != ''
-              continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
@@ -429,63 +352,12 @@ jobs:
                     --baseline frontend/snapshots.yml \
                     --token "$VR_TOKEN"
 
-            - name: Archive failure screenshots
-              if: failure()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: failure-screenshots-${{ matrix.browser }}-${{ matrix.shard }}
-                  path: frontend/__snapshots__/__failures__/
-
             - name: Upload test results
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
                   path: common/storybook/junit.xml
-                  if-no-files-found: ignore
-
-            - name: Configure global git diff log
-              run: git config --global --add safe.directory '*'
-
-            # Create git patch for aggregation (handles A/M/D including binary files)
-            # Only run in UPDATE mode - CHECK mode doesn't update snapshots
-            # Run even if tests failed, as long as snapshots may have been updated
-            - name: Create snapshot patch
-              id: create-patch
-              if: needs.changes.outputs.mode == 'update' && (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
-              run: |
-                  # Verify we're in a git repository before running git commands
-                  if ! git rev-parse --git-dir > /dev/null 2>&1; then
-                    echo "Not in a git repository, skipping patch creation"
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  # Check if there are any changes (modified or untracked) in the snapshot directory
-                  # Use git status --porcelain to detect both modifications and new untracked files
-                  if [ -z "$(git status --porcelain frontend/__snapshots__/)" ]; then
-                    echo "No snapshot changes"
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                  else
-                    echo "Snapshot changes detected:"
-                    git status --short frontend/__snapshots__/
-
-                    # Stage untracked files so git diff can include them in the patch
-                    git add -N frontend/__snapshots__/
-                    # Create binary-safe patch file
-                    mkdir -p /tmp/patches
-                    git diff --binary --full-index frontend/__snapshots__/ > /tmp/patches/shard-${{ matrix.browser }}-${{ matrix.shard }}.patch
-                    echo "Created patch file"
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Upload snapshot patch
-              if: steps.create-patch.outputs.has-changes == 'true' && (success() || failure())
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: snapshot-patch-${{ matrix.browser }}-${{ matrix.shard }}
-                  path: /tmp/patches/shard-${{ matrix.browser }}-${{ matrix.shard }}.patch
-                  retention-days: 1
                   if-no-files-found: ignore
 
     # Verify changed story files are stable by re-running them multiple times.
@@ -561,93 +433,9 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 5
 
-    # Post a helpful comment when snapshot tests fail in check mode (no label)
-    snapshot-failure-comment:
-        name: Post snapshot failure guidance
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        needs: [visual-regression, changes]
-        if: >-
-            always()
-            && needs.visual-regression.result == 'failure'
-            && needs.changes.outputs.mode == 'check'
-            && github.event_name == 'pull_request'
-            && github.event.pull_request.head.repo.full_name == github.repository
-        permissions:
-            pull-requests: write
-        steps:
-            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      const marker = '<!-- storybook-snapshot-hint -->';
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-                      const existing = comments.find(c => c.body.includes(marker));
-
-                      const body = `${marker}
-                      ### Storybook visual regression tests failed
-
-                      **If your changes intentionally update UI snapshots:** add the \`update-snapshots\` label, then re-run the workflow. Snapshots will be auto-committed.
-
-                      **If you didn't change any UI:** this is likely a flaky snapshot — wait for a fix to land on master.`.replace(/^                      /gm, '');
-
-                      if (existing) {
-                          await github.rest.issues.updateComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existing.id,
-                              body,
-                          });
-                      } else {
-                          await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: context.issue.number,
-                              body,
-                          });
-                      }
-
-    # Clean up the hint comment when tests pass
-    snapshot-success-cleanup:
-        name: Clean up snapshot hint
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        needs: [visual-regression, changes]
-        if: >-
-            always()
-            && needs.visual-regression.result == 'success'
-            && github.event_name == 'pull_request'
-            && github.event.pull_request.head.repo.full_name == github.repository
-        permissions:
-            pull-requests: write
-        steps:
-            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      const marker = '<!-- storybook-snapshot-hint -->';
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-                      const existing = comments.find(c => c.body.includes(marker));
-                      if (existing) {
-                          await github.rest.issues.deleteComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existing.id,
-                          });
-                      }
-
-    # Job to collate the status of the matrix jobs for requiring passing status
-    # Must depend on handle-snapshots to prevent auto-merge before commits complete
+    # Collate matrix + VR completion status for the required check
     visual_regression_tests:
-        needs: [visual-regression, handle-snapshots]
+        needs: [visual-regression, vr-setup, vr-complete]
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -655,126 +443,57 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
-                  # Check visual-regression matrix result
                   if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
                   fi
 
-                  # Check handle-snapshots result (OK if skipped, but fail if it failed)
-                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
-                    echo "Snapshot commit job failed."
+                  if [[ "${{ needs.vr-setup.result }}" == "failure" ]]; then
+                    echo "Visual Review setup failed — VR CLI or API error."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.vr-complete.result }}" != "success" ]]; then
+                    echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
                   fi
 
                   echo "All jobs passed or were skipped successfully."
 
-    handle-snapshots:
-        name: Handle snapshot changes
+    vr-complete:
+        name: Complete Visual Review run
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        needs: [visual-regression, changes, vr-setup]
-        if: always() && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-        permissions:
-            contents: write
-            pull-requests: write
+        needs: [visual-regression, vr-setup]
+        if: needs.vr-setup.outputs.run_id != '' && needs.visual-regression.result == 'success'
         steps:
-            # Use GitHub app token so Actions run after commiting updated snapshots
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
             - uses: actions/checkout@v6
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-                  token: ${{ steps.app-token.outputs.token || github.token }}
-                  fetch-depth: 1
+                  sparse-checkout: |
+                      .nvmrc
+                      products/visual_review/cli
+                      products/visual_review/frontend/generated/api.schemas.ts
+                      frontend/snapshots.yml
+                  sparse-checkout-cone-mode: false
 
-            - name: Download snapshot patches
-              id: download-patches
-              continue-on-error: true
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  pattern: snapshot-patch-*
-                  path: /tmp/snapshot-patches/
-                  merge-multiple: true
+                  node-version-file: .nvmrc
 
-            - name: Check for snapshot changes
-              id: check-snapshots
-              run: |
-                  # Check if patches were downloaded and have content
-                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/snapshot-patches/ ]; then
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                    echo "No snapshot patches found"
-                    exit 0
-                  fi
-
-                  # Check if any patch files have content (>0 bytes)
-                  PATCHES=$(find /tmp/snapshot-patches -name "*.patch" -type f -size +0c)
-                  if [ -z "$PATCHES" ]; then
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                    echo "Patch files empty - no snapshot changes"
-                  else
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
-                    echo "Snapshot changes detected in patches"
-                  fi
-
-            # Uses --index so changes are staged for the downstream commit action
-            - name: Apply snapshot patches
-              if: steps.check-snapshots.outputs.has-changes == 'true'
-              run: |
-                  for patch in $(find /tmp/snapshot-patches -name "*.patch" -type f -size +0c | sort); do
-                    echo "Applying $patch"
-                    git apply --index "$patch"
-                  done
-
-            # Visual Review: complete the run (shards already uploaded directly)
             - name: Install VR CLI
-              if: needs.vr-setup.outputs.run_id != ''
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
-              if: needs.vr-setup.outputs.run_id != ''
-              continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  VR_AUTO_APPROVE: ${{ needs.changes.outputs.mode == 'update' && '--auto-approve' || '' }}
               run: |
                   vr run complete \
                     --run-id "${{ needs.vr-setup.outputs.run_id }}" \
                     --baseline frontend/snapshots.yml \
-                    $VR_AUTO_APPROVE \
                     --token "$VR_TOKEN"
-
-            - name: Check baseline changes
-              id: check-baseline
-              run: |
-                  if git diff --quiet frontend/snapshots.yml; then
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                  else
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
-                    git add frontend/snapshots.yml
-                  fi
-
-            # UPDATE mode: commit PNGs + baseline together in a single commit
-            - name: Commit snapshot changes
-              if: (steps.check-snapshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
-              uses: ./.github/actions/commit-snapshots
-              with:
-                  workflow-type: storybook
-                  patch-path: /tmp/snapshot-patches/
-                  snapshot-path: frontend/__snapshots__/
-                  extra-files: frontend/snapshots.yml
-                  commit-message: 'test(storybook): update UI snapshots'
-                  pr-number: ${{ github.event.pull_request.number }}
-                  repository: ${{ github.repository }}
-                  commit-sha: ${{ github.event.pull_request.head.sha }}
-                  branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ steps.app-token.outputs.token || github.token }}
 
     calculate-running-time:
         name: Calculate running time

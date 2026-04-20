@@ -9,7 +9,7 @@ import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/Ingesti
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isNumeric, pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,6 +17,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
 export const TRIGGER_GROUPS_MIN_SDK_VERSION = '1.369.0'
+
+/** Convert the stored sample-rate string (decimal 0–1) to a display percentage (0–100). */
+function toDisplaySampleRate(rate: string | null | undefined): number {
+    return typeof rate === 'string' ? Math.floor(parseFloat(rate) * 100) : 100
+}
 
 function TriggerPanelHeader({
     title,
@@ -212,17 +217,41 @@ function Sampling(): JSX.Element {
                         />
                     </LemonLabel>
                     <IngestionControls.SamplingTrigger
-                        initialSampleRate={
-                            typeof currentTeam?.session_recording_sample_rate === 'string'
-                                ? Math.floor(parseFloat(currentTeam?.session_recording_sample_rate) * 100)
-                                : 100
-                        }
+                        initialSampleRate={toDisplaySampleRate(currentTeam?.session_recording_sample_rate)}
                         onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
                     />
                 </div>
                 <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
             </div>
         </PayGateMini>
+    )
+}
+
+function MobileSampling(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    const sampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-row items-center gap-2">
+                <LemonLabel className="text-base">
+                    Sample rate{' '}
+                    <Since
+                        android={{ version: '3.34.0' }}
+                        ios={{ version: '3.42.0' }}
+                        reactNative={{ version: '4.37.0' }}
+                    />
+                </LemonLabel>
+                <Tooltip title="Sample rate is shared across web and mobile. Change it on the Web tab.">
+                    <span className="text-muted font-semibold">{sampleRate}%</span>
+                </Tooltip>
+            </div>
+            <p className="text-muted-alt">
+                Sample rate is shared across all platforms.{' '}
+                <span className="font-semibold">Change this setting on the Web tab.</span>
+            </p>
+        </div>
     )
 }
 
@@ -275,8 +304,7 @@ function useHeaderStatuses(currentTeam: TeamType | TeamPublicType | null): {
     const urlCount = urlTriggerConfig?.length ?? 0
     const eventCount = eventTriggerConfig?.length ?? 0
     const flagKey = currentTeam?.session_recording_linked_flag?.key
-    const sampleRate = currentTeam?.session_recording_sample_rate
-    const numericSampleRate = sampleRate ? Math.floor(parseFloat(sampleRate) * 100) : 100
+    const numericSampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
     const minDurationMs = currentTeam?.session_recording_minimum_duration_milliseconds
     const blocklistCount = currentTeam?.session_recording_url_blocklist_config?.length ?? 0
 
@@ -443,6 +471,7 @@ export function ReplayTriggers(): JSX.Element {
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
                     <LinkedFlagSelector />
+                    <MobileSampling />
                 </div>
             ),
         },
@@ -498,8 +527,7 @@ const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: '
     const hasEventTriggers = (eventTriggerConfig?.length ?? 0) > 0
     const hasFeatureFlag = !!currentTeam.session_recording_linked_flag
     const sampleRate = currentTeam.session_recording_sample_rate
-    const numericSampleRate = sampleRate ? Math.floor(parseFloat(sampleRate) * 100) : null
-    const hasSampling = isNumeric(numericSampleRate) && numericSampleRate < 100
+    const hasSampling = toDisplaySampleRate(sampleRate) < 100
     const hasMinDuration = !!currentTeam.session_recording_minimum_duration_milliseconds
     const hasUrlBlocklist = (currentTeam.session_recording_url_blocklist_config?.length ?? 0) > 0
 
@@ -544,5 +572,12 @@ const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: '
         ]
     }
 
-    return [flagTrigger]
+    return [
+        flagTrigger,
+        {
+            type: TriggerType.SAMPLING,
+            enabled: hasSampling,
+            sampleRate: sampleRate ? parseFloat(sampleRate) : null,
+        },
+    ]
 }

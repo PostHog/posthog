@@ -7,8 +7,10 @@ Authenticated via team secret API token passed as a Bearer token in the Authoriz
 """
 
 import hashlib
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 from rest_framework import serializers, status
@@ -27,6 +29,7 @@ from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
+from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
 logger = structlog.get_logger(__name__)
 
@@ -78,9 +81,53 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[s.value for s in Status], required=False)
     priority = serializers.ChoiceField(choices=[p.value for p in Priority], required=False)
     sla_due_at = serializers.DateTimeField(required=False, allow_null=True)
+    # `sla_amount`/`sla_unit`/`sla_business_hours` are the raw workflow inputs;
+    # the backend computes `sla_due_at` from them so the calculation stays
+    # testable and timezone-aware. Clear still routes through `sla_due_at: null`.
+    sla_amount = serializers.FloatField(required=False, min_value=0.000001)
+    sla_unit = serializers.ChoiceField(choices=["minute", "hour", "day"], required=False, default="hour")
+    sla_business_hours = serializers.JSONField(required=False, allow_null=True)
     snoozed_until = serializers.DateTimeField(required=False, allow_null=True)
     assignee = serializers.JSONField(required=False, allow_null=True)
     tags = serializers.ListField(child=serializers.CharField(), required=False)
+
+    def validate_sla_business_hours(self, value):
+        if value is None:
+            return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("sla_business_hours must be an object")
+
+        days = value.get("days")
+        if not isinstance(days, list) or not days:
+            raise serializers.ValidationError("sla_business_hours.days must be a non-empty list")
+        unknown = [d for d in days if d not in WEEKDAYS]
+        if unknown:
+            raise serializers.ValidationError(f"Unknown weekday names: {unknown}")
+
+        time_cfg = value.get("time", "any")
+        if time_cfg != "any":
+            if not (isinstance(time_cfg, list) and len(time_cfg) == 2):
+                raise serializers.ValidationError("sla_business_hours.time must be 'any' or [start, end]")
+            if not isinstance(time_cfg[0], str) or not isinstance(time_cfg[1], str):
+                raise serializers.ValidationError("sla_business_hours.time entries must be HH:MM strings")
+            if time_cfg[0] >= time_cfg[1]:
+                raise serializers.ValidationError("sla_business_hours.time start must be strictly before end")
+
+        tz_name = value.get("timezone") or "UTC"
+        if not isinstance(tz_name, str):
+            raise serializers.ValidationError("sla_business_hours.timezone must be a string")
+        try:
+            ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            raise serializers.ValidationError(f"Invalid timezone: {tz_name}")
+        return value
+
+    def validate(self, attrs):
+        if "sla_due_at" in attrs and "sla_amount" in attrs:
+            raise serializers.ValidationError(
+                {"sla_amount": "Cannot set both sla_due_at and sla_amount in the same request"}
+            )
+        return attrs
 
 
 class ExternalTicketView(APIView):
@@ -217,6 +264,32 @@ class ExternalTicketView(APIView):
         if "sla_due_at" in serializer.validated_data:
             ticket.sla_due_at = serializer.validated_data["sla_due_at"]
             update_fields.append("sla_due_at")
+
+            if old_sla_due_at != ticket.sla_due_at:
+                changes.append(
+                    Change(
+                        type="Ticket",
+                        field="sla_due_at",
+                        before=old_sla_due_at.isoformat() if old_sla_due_at else None,
+                        after=ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+                        action="changed",
+                    )
+                )
+        elif "sla_amount" in serializer.validated_data:
+            try:
+                new_sla_due_at = compute_sla_deadline(
+                    now=timezone.now(),
+                    amount=serializer.validated_data["sla_amount"],
+                    unit=serializer.validated_data.get("sla_unit", "hour"),
+                    business_hours=serializer.validated_data.get("sla_business_hours"),
+                )
+            except (ValueError, RuntimeError) as e:
+                capture_exception(e, {"ticket_id": str(ticket.id)})
+                return Response({"error": "Invalid SLA configuration."}, status=status.HTTP_400_BAD_REQUEST)
+
+            ticket.sla_due_at = new_sla_due_at
+            if "sla_due_at" not in update_fields:
+                update_fields.append("sla_due_at")
 
             if old_sla_due_at != ticket.sla_due_at:
                 changes.append(

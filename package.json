@@ -88,6 +88,10 @@
         ],
         "!(**/.sqlx/**)*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
+        "frontend/src/lib/constants.tsx": [
+            "bin/hogli lint:feature-flags:fix",
+            "bin/hogli format:js"
+        ],
         "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
         "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
@@ -128,7 +132,7 @@
             "react": "18.3.1",
             "react-dom": "18.3.1",
             "sha.js": ">=2.4.12",
-            "typescript": "5.8.3",
+            "typescript": "5.9.3",
             "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3",
             "fast-xml-parser@^4": ">=4.5.4",
             "fast-xml-parser@^5": ">=5.3.5"

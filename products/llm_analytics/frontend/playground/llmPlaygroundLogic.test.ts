@@ -841,7 +841,9 @@ describe('llmPlaygroundLogic', () => {
 
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('"text"')
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('"Complex content"')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('["array","content"]')
+            // Pretty-printed JSON array
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('"array"')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('"content"')
         })
 
         it('should extract plain text from trace-style content arrays', () => {
@@ -856,6 +858,95 @@ describe('llmPlaygroundLogic', () => {
                 { role: 'user', content: 'hi' },
                 { role: 'assistant', content: 'PART 1/2: Let me check that.' },
             ])
+        })
+
+        it('should handle OpenAI-style messages with tool_calls and null content', () => {
+            const input = [
+                { role: 'user', content: 'What is the weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_123',
+                            function: { name: 'get_weather', arguments: '{"city": "Paris"}' },
+                        },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
+            expect(llmPlaygroundPromptsLogic.values.messages[0]).toEqual({
+                role: 'user',
+                content: 'What is the weather in Paris?',
+            })
+            expect(llmPlaygroundPromptsLogic.values.messages[1].role).toBe('assistant')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: get_weather]')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Paris')
+        })
+
+        it.each([
+            {
+                name: 'Anthropic mixed text + tool_use',
+                content: [
+                    { type: 'text', text: 'Let me search for that.' },
+                    { type: 'tool_use', id: 'tu_1', name: 'search', input: { query: 'cats' } },
+                ],
+                expectedSubstrings: ['Let me search for that.', '[Tool call: search]', 'cats'],
+            },
+            {
+                name: 'Anthropic tool_use only',
+                content: [{ type: 'tool_use', id: 'tu_1', name: 'do_thing', input: { param: 'value' } }],
+                expectedSubstrings: ['[Tool call: do_thing]'],
+            },
+            {
+                name: 'Anthropic tool_result',
+                content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'Result data here' }],
+                expectedSubstrings: ['[Tool result for tu_1]', 'Result data here'],
+            },
+            {
+                name: 'OpenAI Responses API function_call',
+                content: [{ type: 'function_call', name: 'my_func', call_id: 'fc_1', arguments: '{"x": 1}' }],
+                expectedSubstrings: ['[Function call: my_func]', '{"x": 1}'],
+            },
+            {
+                name: 'OpenAI Responses API function_call_output',
+                content: [{ type: 'function_call_output', call_id: 'fc_1', output: 'result: 42' }],
+                expectedSubstrings: ['[Function output for fc_1]', 'result: 42'],
+            },
+        ])('should format $name content blocks', ({ content, expectedSubstrings }) => {
+            const input = [{ role: 'assistant', content }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            const result = llmPlaygroundPromptsLogic.values.messages[0].content
+            expect(result).not.toBe('')
+            for (const substring of expectedSubstrings) {
+                expect(result).toContain(substring)
+            }
+        })
+
+        it('should map OpenAI tool role to user fallback', () => {
+            const input = [{ role: 'tool', tool_call_id: 'call_123', content: 'Weather in Paris: 22°C' }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Weather in Paris: 22°C')
+        })
+
+        it('should not produce "null" string for messages with null content', () => {
+            const input = [{ role: 'user', content: null, tool_calls: [] }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).not.toBe('null')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('')
         })
 
         it('should reset to default system prompt when none provided', () => {

@@ -340,6 +340,24 @@ export const logsAlertsDestinationsDeleteCreate = async (
 }
 
 /**
+ * Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.
+ */
+export const getLogsAlertsResetCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/reset/`
+}
+
+export const logsAlertsResetCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsAlertConfigurationApi> => {
+    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
  * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
  */
 export const getLogsAlertsSimulateCreateUrl = (projectId: string) => {
