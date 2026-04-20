@@ -19614,7 +19614,7 @@ export namespace Schemas {
        */
       compatibility?: string;
       /** List of pre-approved tools the skill may use. */
-      allowed_tools?: unknown;
+      allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: unknown;
       /** Bundled files to include with the initial version (scripts, references, assets). */
@@ -19672,7 +19672,7 @@ export namespace Schemas {
        */
       compatibility?: string;
       /** List of pre-approved tools the skill may use. */
-      allowed_tools?: unknown;
+      allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: unknown;
       /** Bundled files to include with the initial version (scripts, references, assets). */
