@@ -2,7 +2,11 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "allowed_tools": {
-            "description": "List of pre-approved tools the skill may use."
+            "description": "List of pre-approved tools the skill may use.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
         },
         "body": {
             "description": "The SKILL.md instruction content (markdown).",
