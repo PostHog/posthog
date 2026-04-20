@@ -245,7 +245,7 @@ class TestExternalDataSource(APIBaseTest):
         schema.refresh_from_db()
         assert sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval) == "7day"
         assert mock_sync_external_data_job_workflow.call_count == 1
-        assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": None}
+        assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": True}
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
 
     @patch(
