@@ -136,6 +136,11 @@ def _format_section(
         lines.append(f"Description: {description}")
     if analysis_hint:
         lines.append(f"Analysis focus: {analysis_hint}")
+    lines.append(
+        "Compare to previous period: enabled"
+        if state.get("comparison_enabled")
+        else "Compare to previous period: not configured"
+    )
     lines.append(state.get("results_summary", "No data"))
     return "\n".join(lines)
 

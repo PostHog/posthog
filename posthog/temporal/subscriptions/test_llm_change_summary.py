@@ -14,6 +14,7 @@ def _make_state(
     query_kind: str = "TrendsQuery",
     timestamp: str = "2025-04-14T10:00:00Z",
     description: str = "",
+    comparison_enabled: bool = False,
 ) -> dict:
     return {
         "insight_id": insight_id,
@@ -22,6 +23,7 @@ def _make_state(
         "query_kind": query_kind,
         "results_summary": summary,
         "timestamp": timestamp,
+        "comparison_enabled": comparison_enabled,
     }
 
 
@@ -120,6 +122,25 @@ class TestBuildPromptMessages:
 
         user_content = messages[-1]["content"]
         assert "Description:" not in user_content
+
+    def test_surfaces_comparison_enabled_state(self):
+        previous = [_make_state(1, "pv", "- pv: latest=100", comparison_enabled=True)]
+        current = [_make_state(1, "pv", "- pv: latest=120", timestamp="2025-04-15T10:00:00Z", comparison_enabled=True)]
+
+        messages = build_prompt_messages(previous, current)
+
+        user_content = messages[-1]["content"]
+        assert "Compare to previous period: enabled" in user_content
+        assert "Compare to previous period: not configured" not in user_content
+
+    def test_surfaces_comparison_not_configured_when_disabled(self):
+        previous = [_make_state(1, "pv", "- pv: latest=100")]
+        current = [_make_state(1, "pv", "- pv: latest=120", timestamp="2025-04-15T10:00:00Z")]
+
+        messages = build_prompt_messages(previous, current)
+
+        user_content = messages[-1]["content"]
+        assert "Compare to previous period: not configured" in user_content
 
 
 class TestBuildInitialPromptMessages:
