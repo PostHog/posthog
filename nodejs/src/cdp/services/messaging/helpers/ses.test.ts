@@ -46,6 +46,8 @@ describe('SesWebhookHandler', () => {
                 functionId: 'abc123',
                 invocationId: 'inv456',
                 actionId: 'act789',
+                parentRunId: undefined,
+                decodedTeamId: '1',
                 metricName: 'email_opened',
             },
         ])
@@ -91,6 +93,8 @@ describe('SesWebhookHandler', () => {
                 functionId: 'abc123',
                 invocationId: 'inv456',
                 actionId: 'act789',
+                parentRunId: undefined,
+                decodedTeamId: '1',
                 metricName: 'email_delivered',
             },
         ])
@@ -227,6 +231,48 @@ describe('SesWebhookHandler', () => {
         }
         const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
         expect(result.status).toBe(403)
+    })
+
+    it('extracts parentRunId from tracking code for batch-triggered workflows', async () => {
+        const batchMail = {
+            ...baseMail,
+            tags: {
+                ph_id: [
+                    generateEmailTrackingCode({
+                        functionId: 'abc123',
+                        id: 'inv456',
+                        teamId: 1,
+                        parentRunId: 'batch-run-xyz',
+                        state: {
+                            actionId: 'act789',
+                        },
+                    }),
+                ],
+            },
+        }
+        const body = [
+            {
+                eventType: 'Open',
+                mail: batchMail,
+                open: {
+                    ipAddress: '1.2.3.4',
+                    userAgent: 'UA',
+                    timestamp: '2025-10-03T12:01:00Z',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics).toEqual([
+            {
+                functionId: 'abc123',
+                invocationId: 'inv456',
+                actionId: 'act789',
+                parentRunId: 'batch-run-xyz',
+                decodedTeamId: '1',
+                metricName: 'email_opened',
+            },
+        ])
     })
 
     it('parses an SNS envelope Notification event', async () => {

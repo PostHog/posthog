@@ -35,7 +35,7 @@ const emailTrackingErrorsCounter = new Counter({
 })
 
 export const generateTrackingRedirectUrl = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId' | 'parentRunId'> & {
         state?: { actionId?: string }
     },
     targetUrl: string
@@ -75,12 +75,16 @@ export class EmailTrackingService {
         functionId,
         invocationId,
         actionId,
+        parentRunId,
+        decodedTeamId,
         metricName,
         source,
     }: {
         functionId?: string
         invocationId?: string
         actionId?: string
+        parentRunId?: string
+        decodedTeamId?: string
         metricName: MinimalAppMetric['metric_name']
         source: 'direct' | 'ses'
     }): Promise<void> {
@@ -101,7 +105,14 @@ export class EmailTrackingService {
         ])
 
         const teamId = hogFunction?.team_id ?? hogFlow?.team_id
-        const appSourceId = hogFunction?.id ?? hogFlow?.id
+        // For batch-triggered workflows, email_sent is stored under parentRunId (the batch run id),
+        // and the frontend metrics panel queries by parentRunId too. Use it here so opens/clicks/
+        // delivered metrics line up with email_sent instead of getting stranded under hogFlow.id.
+        // Only trust parentRunId when the decoded teamId from the tracking code matches the
+        // resolved team — prevents forged tracking codes from polluting another team's metrics.
+        const trustedParentRunId =
+            parentRunId && decodedTeamId && teamId && parseInt(decodedTeamId, 10) === teamId ? parentRunId : undefined
+        const appSourceId = trustedParentRunId ?? hogFunction?.id ?? hogFlow?.id
 
         if (!teamId || !appSourceId) {
             logger.error('[EmailTrackingService] trackMetric: Hog function or flow not found', {
@@ -152,6 +163,8 @@ export class EmailTrackingService {
                     functionId: metric.functionId,
                     invocationId: metric.invocationId,
                     actionId: metric.actionId,
+                    parentRunId: metric.parentRunId,
+                    decodedTeamId: metric.decodedTeamId,
                     metricName: metric.metricName,
                     source: 'ses',
                 })
