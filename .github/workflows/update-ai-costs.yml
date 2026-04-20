@@ -80,13 +80,21 @@ jobs:
                     echo "Closed stale PR #$existing_pr and deleted branch"
                   fi
 
-            - name: Ensure branch exists
+            - name: Reset branch to master
+              # Force-reset the branch to master's current SHA so each run is independent of
+              # any unmerged commits from prior runs. Without this, ghcommit-action fails with
+              # "Expected branch to point to X but it did not" whenever a previous auto-PR is
+              # still open, and every subsequent run stays broken until someone intervenes.
               if: steps.check-changes.outputs.changes == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  if ! gh api repos/${{ github.repository }}/git/ref/heads/chore/llma-update-ai-costs 2>/dev/null; then
-                    master_sha=$(gh api repos/${{ github.repository }}/git/ref/heads/master --jq '.object.sha')
+                  master_sha=$(gh api repos/${{ github.repository }}/git/ref/heads/master --jq '.object.sha')
+                  if gh api repos/${{ github.repository }}/git/ref/heads/chore/llma-update-ai-costs >/dev/null 2>&1; then
+                    gh api -X PATCH repos/${{ github.repository }}/git/refs/heads/chore/llma-update-ai-costs \
+                      -f sha="$master_sha" -F force=true
+                    echo "Force-reset branch to master at $master_sha (superseding any prior unmerged commits)"
+                  else
                     gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/llma-update-ai-costs -f sha="$master_sha"
                     echo "Created branch from master at $master_sha"
                   fi
