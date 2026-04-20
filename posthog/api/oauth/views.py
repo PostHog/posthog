@@ -159,8 +159,12 @@ class OAuthValidator(OAuth2Validator):
         if not hasattr(request, "client") or not request.client:
             return False
         # CIMD clients expose their canonical id via cimd_metadata_url (the model's
-        # client_id is an auto-generated UUID for those).
-        client_key = getattr(request.client, "cimd_metadata_url", None) or getattr(request.client, "client_id", None)
+        # client_id is an auto-generated UUID for those). Gate on is_cimd_client so
+        # a stray cimd_metadata_url on a non-CIMD app can't flip the behavior.
+        if getattr(request.client, "is_cimd_client", False):
+            client_key = getattr(request.client, "cimd_metadata_url", None)
+        else:
+            client_key = getattr(request.client, "client_id", None)
         return bool(client_key and client_key in CLIENT_IDS_WITHOUT_REFRESH_TOKEN)
 
     def _load_application(self, client_id, request):

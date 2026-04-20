@@ -486,6 +486,10 @@ class TestOAuthAPI(APIBaseTest):
         return app, grant
 
     def _exchange_code_for_token(self, app: OAuthApplication, grant: OAuthGrant):
+        # Uses the internal UUID client_id rather than cimd_metadata_url so we
+        # exercise the validator-level suppression in _should_skip_refresh_token
+        # without also invoking the CIMD fetch/validate path (which would require
+        # HTTP mocks). Both entry paths converge on the same in-memory client.
         return self.post(
             "/oauth/token/",
             {
