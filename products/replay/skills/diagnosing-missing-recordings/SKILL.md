@@ -105,7 +105,13 @@ SELECT
 FROM events
 WHERE event = '$pageview'
     AND timestamp > now() - INTERVAL 1 DAY
-ORDER BY timestamp DESC
+GROUP BY
+    $session_id,
+    recording_status,
+    start_reason,
+    script_not_loaded,
+    sample_rate
+ORDER BY max(timestamp) DESC
 LIMIT 10
 ```
 

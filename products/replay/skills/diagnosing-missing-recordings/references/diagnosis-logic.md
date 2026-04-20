@@ -24,8 +24,11 @@ $session_recording_start_reason == 'sampled_out'?
 $recording_status == 'buffering' AND buffer_length == 0 AND flushed_size == 0 (or null)?
   → BUFFERING_EMPTY: SDK initialized but produced no snapshots
 
-$recording_status == 'active' AND flushed_size > 0?
+$recording_status == 'sampled' OR ($recording_status == 'active' AND flushed_size > 0)?
   → CAPTURED: SDK was actively recording and flushed data (recording should exist, may be processing or deleted by retention)
+
+$recording_status == 'paused'?
+  → PAUSED: recording is temporarily paused for this session
 
 None of the above?
   → UNKNOWN: signals don't match a known pattern
@@ -80,6 +83,15 @@ Common causes:
 - Very short session (page closed before first snapshot)
 - Minimum duration threshold not met
 - Page navigated away before buffer was flushed
+
+### PAUSED
+
+Recording is temporarily paused for this session.
+This can happen when:
+
+- The SDK's `pause()` method was called programmatically
+- A consent mechanism paused recording pending user opt-in
+- The session exceeded a configured maximum duration
 
 ### UNKNOWN
 
