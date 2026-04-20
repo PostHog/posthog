@@ -26,7 +26,6 @@ export function WeeklyDigestRecommendationCard({
     return (
         <RecommendationCard
             recommendationId={recommendation.id}
-            recommendationType={recommendation.type}
             nextRefreshAt={recommendation.next_refresh_at}
             title="Weekly digest"
             description={

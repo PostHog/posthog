@@ -72,7 +72,6 @@ export function AlertsRecommendationCard({
         <>
             <ListRecommendationCard
                 recommendationId={recommendation.id}
-                recommendationType={recommendation.type}
                 nextRefreshAt={recommendation.next_refresh_at}
                 title="Alert coverage"
                 description={

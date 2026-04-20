@@ -5,11 +5,9 @@ import { IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { recommendationsTabLogic } from './recommendationsTabLogic'
-import type { ErrorTrackingRecommendationType } from './types'
 
 export interface RecommendationCardProps {
     recommendationId: string
-    recommendationType: ErrorTrackingRecommendationType
     nextRefreshAt?: string | null
     title: string
     description?: ReactNode
@@ -20,7 +18,6 @@ export interface RecommendationCardProps {
 
 export function RecommendationCard({
     recommendationId,
-    recommendationType,
     nextRefreshAt,
     title,
     description,
@@ -28,15 +25,11 @@ export function RecommendationCard({
     dismissed,
     children,
 }: RecommendationCardProps): JSX.Element {
-    const { dismissRecommendation, restoreRecommendation, refreshRecommendation, recordRecommendationInteraction } =
-        useActions(recommendationsTabLogic)
+    const { dismissRecommendation, restoreRecommendation, refreshRecommendation } = useActions(recommendationsTabLogic)
     const canRefresh = !nextRefreshAt || new Date(nextRefreshAt) <= new Date()
 
     return (
-        <div
-            className="border rounded-lg bg-surface-primary p-4"
-            onClick={() => recordRecommendationInteraction(recommendationType, 'click')}
-        >
+        <div className="border rounded-lg bg-surface-primary p-4">
             <div className="flex items-center justify-between mb-1">
                 <h3 className="font-semibold text-sm m-0">{title}</h3>
                 <div className="flex items-center gap-2">

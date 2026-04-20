@@ -23,7 +23,6 @@ export function ExceptionAutocaptureRecommendationCard({
     return (
         <RecommendationCard
             recommendationId={recommendation.id}
-            recommendationType={recommendation.type}
             nextRefreshAt={recommendation.next_refresh_at}
             title="Exception autocapture"
             description={

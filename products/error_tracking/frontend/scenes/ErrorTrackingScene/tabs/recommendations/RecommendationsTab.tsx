@@ -109,16 +109,11 @@ export function RecommendationsTab(): JSX.Element {
         )
     }
 
-    const hasAnyVisible =
-        pendingRecommendations.length > 0 || completedRecommendations.length > 0 || ignoredRecommendations.length > 0
-
     return (
         <div className="flex flex-col gap-4">
-            {pendingRecommendations.length > 0 && (
+            {pendingRecommendations.length > 0 ? (
                 <RecommendationGrid recommendations={pendingRecommendations} dismissed={false} />
-            )}
-
-            {pendingRecommendations.length === 0 && hasAnyVisible && (
+            ) : (
                 <div className="border rounded-lg bg-surface-primary p-4 text-secondary text-sm">
                     No pending recommendations — everything's looking good!
                 </div>

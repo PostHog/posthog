@@ -20,7 +20,6 @@ export function CrossSellRecommendationCard({
         return (
             <RecommendationCard
                 recommendationId={recommendation.id}
-                recommendationType={recommendation.type}
                 nextRefreshAt={recommendation.next_refresh_at}
                 title="Your debugging toolkit"
                 description="You're already using the PostHog products that pair best with error tracking."
@@ -61,7 +60,6 @@ export function CrossSellRecommendationCard({
     return (
         <ListRecommendationCard
             recommendationId={recommendation.id}
-            recommendationType={recommendation.type}
             nextRefreshAt={recommendation.next_refresh_at}
             title="Your debugging toolkit"
             description="Complete your setup to get the full picture."
