@@ -274,7 +274,7 @@ function MobileMinimumDuration(): JSX.Element {
                 </Tooltip>
             </div>
             <p className="text-muted-alt">
-                Minimum duration is shared across all platforms.{' '}
+                Minimum duration is shared across Web and iOS.{' '}
                 <span className="font-semibold">Change this setting on the Web tab.</span>
             </p>
         </div>
