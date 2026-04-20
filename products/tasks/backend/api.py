@@ -91,6 +91,7 @@ from .services.staged_artifacts import (
     build_task_staged_artifact_storage_path,
     cache_task_staged_artifact,
     consume_task_staged_artifacts,
+    get_safe_artifact_name,
     get_task_run_artifacts_by_id,
     tag_task_artifact,
 )
@@ -267,10 +268,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
 
-    @staticmethod
-    def _get_safe_artifact_name(name: str) -> str:
-        return os.path.basename(name).strip() or "artifact"
-
     @validated_request(
         request_serializer=TaskStagedArtifactsPrepareUploadRequestSerializer,
         responses={
@@ -298,7 +295,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prepared_artifacts: list[dict] = []
         for artifact in artifacts:
             artifact_id = uuid.uuid4().hex
-            safe_name = self._get_safe_artifact_name(artifact["name"])
+            safe_name = get_safe_artifact_name(artifact["name"])
             storage_path = build_task_staged_artifact_storage_path(task, artifact_id, safe_name)
             presigned_post = object_storage.get_presigned_post(
                 storage_path,
@@ -382,7 +379,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            safe_name = self._get_safe_artifact_name(artifact["name"])
+            safe_name = get_safe_artifact_name(artifact["name"])
             content_type = artifact.get("content_type") or s3_object.get("ContentType") or ""
             max_size_bytes = get_task_run_artifact_max_size_bytes(
                 safe_name,
@@ -405,9 +402,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 content_type=content_type,
                 storage_path=storage_path,
             )
-            cache_task_staged_artifact(task, finalized_artifact)
-            tag_task_artifact(storage_path, ttl_days=STAGED_ARTIFACT_TTL_DAYS, team_id=task.team_id)
             finalized_artifacts.append(finalized_artifact)
+
+        for finalized_artifact in finalized_artifacts:
+            cache_task_staged_artifact(task, finalized_artifact)
+            tag_task_artifact(
+                finalized_artifact["storage_path"],
+                ttl_days=STAGED_ARTIFACT_TTL_DAYS,
+                team_id=task.team_id,
+            )
 
         serializer = TaskStagedArtifactsFinalizeUploadResponseSerializer(
             {"artifacts": finalized_artifacts},
@@ -874,12 +877,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task = Task.objects.get(id=task_id, team=self.team)
         serializer.save(team=self.team, task=task)
 
-    @staticmethod
-    def _get_safe_artifact_name(name: str) -> str:
-        return os.path.basename(name).strip() or "artifact"
-
     def _build_artifact_storage_path(self, task_run: TaskRun, artifact_id: str, name: str) -> tuple[str, str]:
-        safe_name = self._get_safe_artifact_name(name)
+        safe_name = get_safe_artifact_name(name)
         prefix = task_run.get_artifact_s3_prefix()
         return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
 
@@ -1225,6 +1224,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         manifest = list(task_run.artifacts or [])
         artifact_prefix = f"{task_run.get_artifact_s3_prefix()}/"
         finalized_entries: list[dict] = []
+        new_storage_paths: list[str] = []
 
         for artifact in artifacts:
             artifact_id = artifact["id"]
@@ -1253,7 +1253,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            safe_name = self._get_safe_artifact_name(artifact["name"])
+            safe_name = get_safe_artifact_name(artifact["name"])
             content_type = artifact.get("content_type") or s3_object.get("ContentType") or ""
             content_length = s3_object.get("ContentLength")
             if not isinstance(content_length, int):
@@ -1275,8 +1275,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            self._tag_artifact_object(task_run, storage_path)
-
             entry = self._build_artifact_manifest_entry(
                 artifact_id=artifact_id,
                 name=safe_name,
@@ -1289,8 +1287,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             manifest.append(entry)
             finalized_entries.append(entry)
+            new_storage_paths.append(storage_path)
 
         self._save_artifact_manifest(task_run, manifest)
+
+        for storage_path in new_storage_paths:
+            self._tag_artifact_object(task_run, storage_path)
 
         serializer = TaskRunArtifactsFinalizeUploadResponseSerializer(
             {"artifacts": finalized_entries},
