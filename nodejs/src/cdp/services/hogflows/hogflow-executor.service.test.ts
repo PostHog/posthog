@@ -2146,8 +2146,6 @@ describe('Hogflow Executor', () => {
             expect(logMessages).not.toContainEqual(expect.stringContaining('Executing action'))
             // No fetch calls were made (the hog function template uses fetch)
             expect(mockFetch.mock.calls.length).toBe(fetchCallsAfterFirst)
-            // Dedup'd runs must emit filtered@exit so the "In progress" tile decrements
-            expect(result.metrics.some((m) => m.metric_name === 'filtered' && m.instance_id === 'exit')).toBe(true)
         })
 
         it('blocks all 4 ghost runs from the cross-routing incident pattern', async () => {

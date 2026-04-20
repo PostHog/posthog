@@ -491,7 +491,6 @@ export class HogFlowExecutorService {
                     'warn',
                     `Skipped: duplicate execution detected for event ${eventUuid}. Another invocation already executed this action.`
                 )
-                this.trackExitMetric(dedupResult, 'filtered')
                 return dedupResult
             }
         } catch (error) {
