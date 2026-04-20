@@ -8,7 +8,7 @@ import { EventType } from '~/types'
 import { AIDataLoading } from '../components/AIDataLoading'
 import { useAIData } from '../hooks/useAIData'
 import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
-import { normalizeMessage, normalizeMessages } from '../utils'
+import { costContextFromProperties, normalizeMessage, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
@@ -61,7 +61,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     outputTokens={eventProperties.$ai_output_tokens}
                     cacheReadTokens={eventProperties.$ai_cache_read_input_tokens}
                     cacheWriteTokens={eventProperties.$ai_cache_creation_input_tokens}
-                    totalCostUsd={eventProperties.$ai_total_cost_usd}
+                    costContext={costContextFromProperties(eventProperties)}
                     model={eventProperties.$ai_model}
                     latency={eventProperties.$ai_latency}
                     timeToFirstToken={eventProperties.$ai_time_to_first_token}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import dataclasses
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -8,6 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.types import ExternalDataSourceType
+
+
+class InternalSourceType(str, enum.Enum):
+    """Source types for internal PostHog products (not data warehouse imports)."""
+
+    CONVERSATIONS = "conversations"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -24,7 +31,7 @@ class SignalEmitterOutput:
 SignalEmitter = Callable[[int, dict[str, Any]], SignalEmitterOutput | None]
 
 # Type for record fetcher functions: (team, config, runtime_context) -> records
-# Each source defines its own fetcher (data warehouse sources use HogQL on warehouse tables).
+# Each source defines its own fetcher (data warehouse uses HogQL, conversations uses Django ORM, etc.)
 # Uses Any for Team to avoid forward-reference issues with Pydantic model resolution.
 RecordFetcher = Callable[[Any, "SignalSourceTableConfig", dict[str, Any]], list[dict[str, Any]]]
 
@@ -81,7 +88,7 @@ _SIGNAL_TABLE_CONFIGS: dict[tuple[str, str], SignalSourceTableConfig] = {}
 
 
 def register_signal_source(
-    source_type: ExternalDataSourceType,
+    source_type: ExternalDataSourceType | InternalSourceType,
     schema_name: str,
     config: SignalSourceTableConfig,
 ) -> None:
@@ -102,6 +109,7 @@ def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str,
 
 
 def _register_all_emitters() -> None:
+    from posthog.temporal.data_imports.signals.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
     from posthog.temporal.data_imports.signals.github_issues import GITHUB_ISSUES_CONFIG
     from posthog.temporal.data_imports.signals.linear_issues import LINEAR_ISSUES_CONFIG
     from posthog.temporal.data_imports.signals.zendesk_tickets import ZENDESK_TICKETS_CONFIG
@@ -111,6 +119,7 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
     register_signal_source(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.LINEAR, "issues", LINEAR_ISSUES_CONFIG)
+    register_signal_source(InternalSourceType.CONVERSATIONS, "tickets", CONVERSATIONS_TICKETS_CONFIG)
 
 
 _register_all_emitters()

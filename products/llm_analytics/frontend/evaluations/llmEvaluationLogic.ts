@@ -20,6 +20,7 @@ import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { buildDeliveryTargets, evaluationReportLogic } from './evaluationReportLogic'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
@@ -517,6 +518,36 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (props.evaluationId === 'new') {
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
+                    // Create the pending report before navigating away. The 'new'-keyed
+                    // evaluationReportLogic unmounts when the component tears down, so
+                    // snapshot its draft now and fire the create directly.
+                    if (response?.id) {
+                        const draft = evaluationReportLogic({ evaluationId: 'new' }).values.configDraft
+                        const targets = buildDeliveryTargets(draft)
+                        if (draft.enabled && (targets.length > 0 || draft.reportPromptGuidance.trim().length > 0)) {
+                            const body: Record<string, unknown> = {
+                                evaluation: response.id,
+                                frequency: draft.frequency,
+                                delivery_targets: targets,
+                                report_prompt_guidance: draft.reportPromptGuidance,
+                                enabled: true,
+                            }
+                            if (draft.frequency === 'scheduled') {
+                                body.rrule = draft.rrule
+                                body.starts_at = draft.startsAt
+                                body.timezone_name = draft.timezoneName
+                            }
+                            if (draft.frequency === 'every_n') {
+                                body.trigger_threshold = draft.triggerThreshold
+                            }
+                            try {
+                                await api.create(`api/environments/${teamId}/llm_analytics/evaluation_reports/`, body)
+                            } catch (reportError) {
+                                // Don't block navigation if the (optional) pending report fails
+                                posthog.captureException(reportError, { tag: 'eval-report-pending-create' })
+                            }
+                        }
+                    }
                 } else {
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,

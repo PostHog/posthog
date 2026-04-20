@@ -5,9 +5,11 @@ from typing import Any
 
 from django.db import close_old_connections
 
+import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.signals.registry import get_signal_source_identity
@@ -16,6 +18,37 @@ from products.data_warehouse.backend.data_load.service import delete_external_da
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.signals.backend.models import SignalSourceConfig
+
+WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
+
+
+def _is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    except Team.DoesNotExist:
+        return False
+
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                WAREHOUSE_PIPELINES_V3_FLAG,
+                str(team.uuid),
+                groups={
+                    "organization": str(team.organization_id),
+                    "project": str(team.id),
+                },
+                group_properties={
+                    "organization": {"id": str(team.organization_id), "source_type": source_type},
+                    "project": {"id": str(team.id), "source_type": source_type},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        capture_exception(e)
+        return False
+
 
 LOGGER = get_logger(__name__)
 
@@ -84,6 +117,14 @@ def create_external_data_job_model_activity(
             raise Exception("Source or schema no longer exists - deleted temporal schedule")
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
+        schema.status = ExternalDataSchema.Status.RUNNING
+        schema.save()
+
+        source: ExternalDataSource = schema.source
+
+        pipeline_version = ExternalDataJob.PipelineVersion.V2
+        if _is_pipeline_v3_enabled(inputs.team_id, source.source_type):
+            pipeline_version = ExternalDataJob.PipelineVersion.V3
 
         job = ExternalDataJob.objects.create(
             team_id=inputs.team_id,
@@ -93,14 +134,10 @@ def create_external_data_job_model_activity(
             rows_synced=0,
             workflow_id=activity.info().workflow_id,
             workflow_run_id=activity.info().workflow_run_id,
-            pipeline_version=ExternalDataJob.PipelineVersion.V2,
+            pipeline_version=pipeline_version,
             billable=inputs.billable,
             schema_snapshot=_build_schema_snapshot(schema),
         )
-        schema.status = ExternalDataSchema.Status.RUNNING
-        schema.save()
-
-        source: ExternalDataSource = schema.source
 
         logger.info(
             f"Created external data job for external data source {inputs.source_id}",
