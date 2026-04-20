@@ -10,6 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
+import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -45,8 +46,10 @@ from posthog.models.integration import (
     StripeIntegration,
     TwilioIntegration,
 )
+from posthog.models.user import User
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.utils import get_instance_region
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -344,6 +347,14 @@ class IntegrationViewSet(
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
         token = os.urandom(33).hex()
+
+        if kind == "slack-posthog-code" and not posthoganalytics.feature_enabled(
+            "posthog_code_slack_availability",
+            str(cast(User, request.user).distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+            person_properties={"region": get_instance_region() or "unknown"},
+        ):
+            raise ValidationError("PostHog Code Slack app not available for this organization")
 
         if kind in OauthIntegration.supported_kinds:
             try:

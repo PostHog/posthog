@@ -23,6 +23,7 @@ from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
 import structlog
+import posthoganalytics
 
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
@@ -168,6 +169,26 @@ def render_query(request: HttpRequest) -> HttpResponse:
     return render_template("render_query.html", request, context={"render_query_payload": payload})
 
 
+POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog_code_slack_availability"
+
+
+def _posthog_code_slack_available_for_user(request: HttpRequest) -> bool:
+    user = getattr(request, "user", None)
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    org = getattr(user, "current_organization", None)
+    region = get_instance_region() or "unknown"
+    groups = {"organization": str(org.id)} if org else {}
+    return bool(
+        posthoganalytics.feature_enabled(
+            POSTHOG_CODE_SLACK_AVAILABILITY_FLAG,
+            str(user.distinct_id),
+            groups=groups,
+            person_properties={"region": region},
+        )
+    )
+
+
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
@@ -198,7 +219,8 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "client_id": slack_client_id or None,
         },
         "posthog_code_slack_service": {
-            "available": bool(posthog_code_slack_client_id)
+            "available": _posthog_code_slack_available_for_user(request)
+            and bool(posthog_code_slack_client_id)
             and bool(posthog_code_slack_signing_secret)
             and bool(posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_SECRET")),
             "client_id": posthog_code_slack_client_id or None,

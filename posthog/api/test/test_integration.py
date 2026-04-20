@@ -1366,3 +1366,51 @@ class TestGitHubBranches:
         assert first == "develop"
         assert second == "develop"
         assert mock_get.call_count == 1
+
+
+class TestIntegrationAuthorizePostHogCodeSlackFlag:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db, settings):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+        settings.SLACK_POSTHOG_CODE_CLIENT_ID = "client_id"
+        settings.SLACK_POSTHOG_CODE_CLIENT_SECRET = "client_secret"
+
+    @patch("posthog.api.integration.posthoganalytics.feature_enabled", return_value=True)
+    def test_authorize_allowed_when_flag_on(self, mock_flag, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/authorize/?kind=slack-posthog-code",
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "slack.com/oauth/v2/authorize" in response["Location"]
+        mock_flag.assert_called_once()
+        assert mock_flag.call_args.args[0] == "posthog_code_slack_availability"
+        assert mock_flag.call_args.kwargs["groups"] == {"organization": str(self.team.organization_id)}
+
+    @patch("posthog.api.integration.posthoganalytics.feature_enabled", return_value=False)
+    def test_authorize_rejected_when_flag_off(self, mock_flag, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/authorize/?kind=slack-posthog-code",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not available" in str(response.json())
+
+    @patch("posthog.api.integration.posthoganalytics.feature_enabled", return_value=False)
+    def test_authorize_flag_does_not_gate_other_kinds(self, mock_flag, client: HttpClient, settings):
+        settings.HUBSPOT_APP_CLIENT_ID = "hubspot_id"
+        settings.HUBSPOT_APP_CLIENT_SECRET = "hubspot_secret"
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/authorize/?kind=hubspot",
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        mock_flag.assert_not_called()

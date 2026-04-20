@@ -327,3 +327,46 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["realm"] == "hosted-clickhouse"
             assert response.json()["cloud"] is False
+
+    @patch("posthog.views.posthoganalytics.feature_enabled", return_value=True)
+    def test_posthog_code_slack_service_available_when_flag_on(self, mock_flag):
+        with self.settings(
+            SLACK_POSTHOG_CODE_CLIENT_ID="client_id",
+            SLACK_POSTHOG_CODE_CLIENT_SECRET="client_secret",
+            SLACK_POSTHOG_CODE_SIGNING_SECRET="signing_secret",
+        ):
+            response = self.client.get("/_preflight/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["posthog_code_slack_service"] == {
+                "available": True,
+                "client_id": "client_id",
+            }
+            mock_flag.assert_called_once()
+            assert mock_flag.call_args.args[0] == "posthog_code_slack_availability"
+
+    @patch("posthog.views.posthoganalytics.feature_enabled", return_value=False)
+    def test_posthog_code_slack_service_hidden_when_flag_off(self, mock_flag):
+        with self.settings(
+            SLACK_POSTHOG_CODE_CLIENT_ID="client_id",
+            SLACK_POSTHOG_CODE_CLIENT_SECRET="client_secret",
+            SLACK_POSTHOG_CODE_SIGNING_SECRET="signing_secret",
+        ):
+            response = self.client.get("/_preflight/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["posthog_code_slack_service"] == {
+                "available": False,
+                "client_id": "client_id",
+            }
+
+    @patch("posthog.views.posthoganalytics.feature_enabled")
+    def test_posthog_code_slack_service_hidden_for_anonymous_preflight(self, mock_flag):
+        self.client.logout()
+        with self.settings(
+            SLACK_POSTHOG_CODE_CLIENT_ID="client_id",
+            SLACK_POSTHOG_CODE_CLIENT_SECRET="client_secret",
+            SLACK_POSTHOG_CODE_SIGNING_SECRET="signing_secret",
+        ):
+            response = self.client.get("/_preflight/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["posthog_code_slack_service"]["available"] is False
+            mock_flag.assert_not_called()
