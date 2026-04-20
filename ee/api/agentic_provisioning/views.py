@@ -68,6 +68,9 @@ DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
 
+ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_PREFIX = "agentic_provisioning_account_requests_partner_rate:"
+ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
+
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
 STRIPE_APP_NAME = "PostHog Stripe App"
@@ -276,6 +279,9 @@ def account_requests(request: Request) -> Response:
             {"type": "error", "error": {"code": "unauthorized", "message": "Authentication failed"}},
             status=401,
         )
+
+    if partner and (error := _enforce_partner_account_request_rate_limit(partner)):
+        return error
 
     # --- Parse request ---
     data = request.data
@@ -1596,6 +1602,41 @@ def _partner_label(partner: OAuthApplication | None) -> str:
     if partner.name:
         return partner.name
     return "Stripe"
+
+
+def _enforce_partner_account_request_rate_limit(partner: OAuthApplication) -> Response | None:
+    """Enforce the partner's per-hour account_requests limit if one is configured.
+
+    Uses a fixed-window counter keyed on partner id + hour-of-epoch. Self-serve
+    CIMD partners get a low default on first registration; admins can raise it.
+    """
+    limit = partner.provisioning_rate_limit_account_requests
+    if not limit or limit <= 0:
+        return None
+
+    window_index = int(time.time()) // ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS
+    key = f"{ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_PREFIX}{partner.id}:{window_index}"
+    try:
+        count = cache.incr(key)
+    except ValueError:
+        cache.set(key, 1, timeout=ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        count = 1
+
+    if count > limit:
+        _capture_provisioning_event(
+            "account_request", "rate_limited", partner_id=str(partner.id), limit=limit, count=count
+        )
+        return Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "rate_limited",
+                    "message": "Account request rate limit exceeded for this partner. Try again later.",
+                },
+            },
+            status=429,
+        )
+    return None
 
 
 def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
