@@ -175,7 +175,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         # Convert nested values to JSON strings for stable schema writes.
         if pa.types.is_struct(incoming_column.type) or pa.types.is_list(incoming_column.type):
             json_column = pa.array(
-                [_json_dumps(row) if row is not None else None for row in incoming_column.to_pylist()]
+                [_json_dumps(row.as_py()) if row.as_py() is not None else None for row in cast(Any, incoming_column)]
             )
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, json_column
@@ -184,7 +184,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         # Convert duration to numeric seconds.
         elif pa.types.is_duration(incoming_column.type):
             seconds_column = pa.array(
-                [row.total_seconds() if row is not None else None for row in incoming_column.to_pylist()]
+                [row.as_py().total_seconds() if row.as_py() is not None else None for row in cast(Any, incoming_column)]
             )
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, seconds_column
@@ -195,7 +195,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         if pa.types.is_timestamp(incoming_field.type) and (
             incoming_field.type.unit == "ns" or incoming_field.type.tz is not None
         ):
-            microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False).combine_chunks()
+            microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False)
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, microsecond_timestamps
             )
@@ -204,9 +204,8 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
         return incoming_table.cast(ensure_delta_compatible_arrow_schema(incoming_table.schema))
 
     # Second pass: align with existing Delta table schema.
-    delta_arrow_schema = pa.schema(delta_schema.to_arrow())
-    for delta_field_name in delta_arrow_schema.names:
-        delta_field = delta_arrow_schema.field(delta_field_name)
+    delta_arrow_schema = pa.schema(cast(Any, delta_schema))
+    for delta_field in cast(Any, delta_arrow_schema):
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
                 pa.array([None] * incoming_table.num_rows, type=delta_field.type)
@@ -281,7 +280,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
                 incoming_table = incoming_table.set_column(
                     incoming_table.schema.get_field_index(delta_field.name),
                     delta_field.name,
-                    incoming_column.cast(delta_field.type).combine_chunks(),
+                    incoming_column.cast(delta_field.type),
                 )
 
             incoming_column = incoming_table.column(delta_field.name)
@@ -670,7 +669,8 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
     for col in column_names:
         values = [
-            None if isinstance(value := row.get(col, None), float) and np.isnan(value) else value for row in table_data
+            None if isinstance(row.get(col, None), float) and np.isnan(row.get(col, None)) else row.get(col, None)
+            for row in table_data
         ]
 
         try:
@@ -707,8 +707,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 columnar_table_data[field_name] = float_array.cast(field.type, safe=False)
                 unique_types_in_column = {decimal.Decimal}
                 py_type = decimal.Decimal
-                if val is not None:
-                    val = decimal.Decimal(str(val))
+                val = decimal.Decimal(cast(Any, val))
 
             # cast string timestamps to datetime objects
             if pa.types.is_timestamp(field.type) and issubclass(py_type, str):

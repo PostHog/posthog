@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pyarrow as pa
 import deltalake as deltalake
 
@@ -52,7 +54,8 @@ class HogQLSchema:
 
         if hogql_type is StringDatabaseField:
             # Checking for JSON string columns with the first non-null value in the column
-            for value_str in column.to_pylist():
+            for value in cast(Any, column):
+                value_str = cast(str | None, value.as_py())
                 if isinstance(value_str, str):
                     if value_str.startswith("{") or value_str.startswith("["):
                         hogql_type = StringJSONDatabaseField
