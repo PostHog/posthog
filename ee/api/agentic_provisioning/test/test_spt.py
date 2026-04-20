@@ -46,6 +46,18 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["status"] == "complete"
 
+    def test_provisioning_pay_as_you_go_without_spt_returns_error(self):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "pay_as_you_go"},
+            token=token,
+        )
+        assert res.status_code == 400
+        body = res.json()
+        assert body["status"] == "error"
+        assert body["error"]["code"] == "requires_payment_credentials"
+
     @patch("ee.api.agentic_provisioning.views.requests.post")
     def test_provisioning_ignores_invalid_payment_credentials_type(self, mock_post):
         token = self._get_bearer_token()

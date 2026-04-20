@@ -486,6 +486,11 @@ export interface ActivityLogApi {
     was_impersonated?: boolean | null
     /** @nullable */
     is_system?: boolean | null
+    /**
+     * @maxLength 32
+     * @nullable
+     */
+    client?: string | null
     /** @maxLength 79 */
     activity: string
     /**
@@ -519,6 +524,8 @@ export type StaticFiltersApiScopesItem = { [key: string]: unknown }
 
 export type StaticFiltersApiActivitiesItem = { [key: string]: unknown }
 
+export type StaticFiltersApiClientsItem = { [key: string]: unknown }
+
 export interface StaticFiltersApi {
     /** Users who have logged activity. */
     users: StaticFiltersApiUsersItem[]
@@ -526,6 +533,8 @@ export interface StaticFiltersApi {
     scopes: StaticFiltersApiScopesItem[]
     /** Available activity types. */
     activities: StaticFiltersApiActivitiesItem[]
+    /** API clients that have generated activity (from x-posthog-client header). */
+    clients: StaticFiltersApiClientsItem[]
 }
 
 export interface AvailableFiltersResponseApi {
@@ -936,6 +945,7 @@ export const ActivityLogListScopesItem = {
 
 export type AdvancedActivityLogsListParams = {
     activities?: string[]
+    clients?: string[]
     detail_filters?: string
     end_date?: string
     hogql_filter?: string

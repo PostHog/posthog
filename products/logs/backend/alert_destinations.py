@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from products.logs.backend.models import LogsAlertConfiguration
 
-EventKind = Literal["firing", "resolved"]
+EventKind = Literal["firing", "resolved", "broken"]
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,23 @@ class EventKindSpec:
     event_id: str
     header: str
     body: str
+    button_url: str
+    button_label: str
+    webhook_body: dict[str, str]
+
+
+_FIRE_RESOLVE_WEBHOOK_BODY: dict[str, str] = {
+    "alert_id": "{event.properties.alert_id}",
+    "alert_name": "{event.properties.alert_name}",
+    "result_count": "{event.properties.result_count}",
+    "threshold_count": "{event.properties.threshold_count}",
+    "threshold_operator": "{event.properties.threshold_operator}",
+    "window_minutes": "{event.properties.window_minutes}",
+    "service_names": "{event.properties.service_names}",
+    "severity_levels": "{event.properties.severity_levels}",
+    "logs_url": "{project.url}/logs?{event.properties.logs_url_params}",
+    "triggered_at": "{event.properties.triggered_at}",
+}
 
 
 EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
@@ -26,6 +43,9 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             "{event.properties.window_minutes}m "
             "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})"
         ),
+        button_url="{project.url}/logs?{event.properties.logs_url_params}",
+        button_label="View logs",
+        webhook_body={"event": "firing", **_FIRE_RESOLVE_WEBHOOK_BODY},
     ),
     "resolved": EventKindSpec(
         event_id="$logs_alert_resolved",
@@ -35,6 +55,32 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             "{event.properties.window_minutes}m "
             "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})"
         ),
+        button_url="{project.url}/logs?{event.properties.logs_url_params}",
+        button_label="View logs",
+        webhook_body={"event": "resolved", **_FIRE_RESOLVE_WEBHOOK_BODY},
+    ),
+    "broken": EventKindSpec(
+        event_id="$logs_alert_auto_disabled",
+        header="Log alert '{event.properties.alert_name}' was auto-disabled",
+        body=(
+            "*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n"
+            "*Last error:* {event.properties.last_error_message}"
+        ),
+        # Deep-link to the alert modal (via the ?alertId= param handled in logsSceneLogic) —
+        # a broken alert's viewer URL would show zero logs because the alert is no longer checking.
+        button_url="{project.url}/logs?alertId={event.properties.alert_id}",
+        button_label="View alert",
+        webhook_body={
+            "event": "broken",
+            "alert_id": "{event.properties.alert_id}",
+            "alert_name": "{event.properties.alert_name}",
+            "consecutive_failures": "{event.properties.consecutive_failures}",
+            "last_error_message": "{event.properties.last_error_message}",
+            "service_names": "{event.properties.service_names}",
+            "severity_levels": "{event.properties.severity_levels}",
+            "alert_url": "{project.url}/logs?alertId={event.properties.alert_id}",
+            "triggered_at": "{event.properties.triggered_at}",
+        },
     ),
 }
 
@@ -73,29 +119,13 @@ def _slack_blocks(spec: EventKindSpec) -> list[dict]:
             "type": "actions",
             "elements": [
                 {
-                    "url": "{project.url}/logs?{event.properties.logs_url_params}",
-                    "text": {"text": "View logs", "type": "plain_text"},
+                    "url": spec.button_url,
+                    "text": {"text": spec.button_label, "type": "plain_text"},
                     "type": "button",
                 }
             ],
         },
     ]
-
-
-def _webhook_body(kind: EventKind) -> dict[str, str]:
-    return {
-        "event": kind,
-        "alert_id": "{event.properties.alert_id}",
-        "alert_name": "{event.properties.alert_name}",
-        "result_count": "{event.properties.result_count}",
-        "threshold_count": "{event.properties.threshold_count}",
-        "threshold_operator": "{event.properties.threshold_operator}",
-        "window_minutes": "{event.properties.window_minutes}",
-        "service_names": "{event.properties.service_names}",
-        "severity_levels": "{event.properties.severity_levels}",
-        "logs_url": "{project.url}/logs?{event.properties.logs_url_params}",
-        "triggered_at": "{event.properties.triggered_at}",
-    }
 
 
 def _filter_for(alert: LogsAlertConfiguration, kind: EventKind) -> dict[str, Any]:
@@ -142,6 +172,7 @@ def build_webhook_config(
     kind: EventKind,
     webhook_url: str,
 ) -> dict[str, Any]:
+    spec = EVENT_KIND_CONFIG[kind]
     return {
         "team": alert.team,
         "type": "internal_destination",
@@ -150,7 +181,7 @@ def build_webhook_config(
         "name": f"{alert.name}: {kind} → Webhook {webhook_url}",
         "template_id": "template-webhook",
         "inputs": {
-            "body": {"value": _webhook_body(kind)},
+            "body": {"value": spec.webhook_body},
             "url": {"value": webhook_url},
         },
     }

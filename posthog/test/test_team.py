@@ -184,7 +184,7 @@ class TestTeam(BaseTest):
                     group_properties={
                         "organization": {
                             "id": str(self.organization.id),
-                            "created_at": self.organization.created_at,
+                            "created_at": self.organization.created_at.isoformat(),
                         }
                     },
                     only_evaluate_locally=True,

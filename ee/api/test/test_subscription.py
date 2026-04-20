@@ -415,6 +415,55 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
 
+    def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self._create_subscription(summary_enabled=True)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "AI data processing must be approved" in response.json()["detail"]
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def test_can_create_subscription_with_summary_enabled_when_ai_consent_given(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        response = self._create_subscription(summary_enabled=True)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["summary_enabled"] is True
+
+    def test_cannot_patch_summary_enabled_true_without_ai_consent(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        create_response = self._create_subscription()
+        subscription_id = create_response.json()["id"]
+
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"summary_enabled": True},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "AI data processing must be approved" in response.json()["detail"]
+
+    def test_can_patch_unrelated_fields_when_summary_enabled_and_ai_consent_revoked(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        create_response = self._create_subscription(summary_enabled=True)
+        subscription_id = create_response.json()["id"]
+
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"title": "Updated title"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "Updated title"
+
     def test_deliver_subscription(self):
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()

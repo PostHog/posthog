@@ -417,6 +417,8 @@ export interface HogQLQueryModifiers {
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     optimizeJoinedFilters?: boolean
+    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
+    sessionIdPushdown?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean
@@ -1141,7 +1143,9 @@ export interface ChartSettings {
     showXAxisBorder?: boolean
     showYAxisBorder?: boolean
     showLegend?: boolean
+    showValuesOnSeries?: boolean
     showTotalRow?: boolean
+    showPieTotal?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
 }
@@ -1440,7 +1444,7 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
-    /** Box plot data when display type is BoxPlot */
+    /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
     boxplot_data?: BoxPlotDatum[]
 }
 
@@ -6069,6 +6073,7 @@ export enum ProductKey {
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
     SUBSCRIPTIONS = 'subscriptions',
+    STREAMLIT_APPS = 'streamlit_apps',
     SURVEYS = 'surveys',
     TASKS = 'tasks',
     TEAMS = 'teams',

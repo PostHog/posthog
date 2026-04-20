@@ -455,6 +455,11 @@ export interface HogQLQueryModifiersApi {
     propertyGroupsMode?: PropertyGroupsModeApi | null
     /** @nullable */
     s3TableUseInvalidColumns?: boolean | null
+    /**
+     * Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.
+     * @nullable
+     */
+    sessionIdPushdown?: boolean | null
     sessionTableVersion?: SessionTableVersionApi | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     /** @nullable */
@@ -999,10 +1004,7 @@ export interface QueryTimingApi {
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
-    /**
-     * Box plot data when display type is BoxPlot
-     * @nullable
-     */
+    /** @nullable */
     boxplot_data?: BoxPlotDatumApi[] | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -9265,7 +9267,11 @@ export interface ChartSettingsApi {
     /** @nullable */
     showNullsAsZero?: boolean | null
     /** @nullable */
+    showPieTotal?: boolean | null
+    /** @nullable */
     showTotalRow?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
     /** @nullable */
     showXAxisBorder?: boolean | null
     /** @nullable */

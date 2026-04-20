@@ -13,7 +13,7 @@ import {
     HogFunctionsRearrangePartialUpdateBody,
     HogFunctionsRetrieveParams,
 } from '@/generated/cdp_functions/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionsListSchema = HogFunctionsListQueryParams
@@ -41,7 +41,26 @@ const cdpFunctionsList = (): ToolBase<
                 updated_at: params.updated_at,
             },
         })
-        return await withPostHogUrl(context, result, '/pipeline')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'type',
+                    'name',
+                    'description',
+                    'enabled',
+                    'execution_order',
+                    'icon_url',
+                    'template.id',
+                    'status',
+                    'created_at',
+                    'updated_at',
+                    'created_by',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/pipeline')
     },
 })
 

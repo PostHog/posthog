@@ -147,7 +147,7 @@ jobs:
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
         steps:
@@ -168,6 +168,17 @@ jobs:
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+
+            # The workers-pool project in vitest.config.mts parses wrangler.jsonc
+            # up front and needs `assets.directory` (./public/) populated and
+            # `shared/guidelines.md` (imported by src/mcp.ts) on disk. Both are
+            # gitignored: public/ is produced by `pnpm build` (UI apps) and
+            # guidelines.md by the wrangler build command.
+            - name: Run wrangler pre-build steps
+              working-directory: services/mcp
+              run: |
+                  pnpm build
+                  pnpm exec tsx scripts/copy-instructions.ts
 
             - name: Run unit tests
               run: |

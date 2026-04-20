@@ -412,6 +412,11 @@ class AssistantHogQLQuery(BaseModel):
     )
 
 
+class Compare(StrEnum):
+    CURRENT = "current"
+    PREVIOUS = "previous"
+
+
 class AssistantInsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2564,11 +2569,6 @@ class InfinityValue(float, Enum):
     NUMBER__999999 = -999999
 
 
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
-
-
 class InsightFilterProperty(StrEnum):
     TRENDS_FILTER = "trendsFilter"
     FUNNELS_FILTER = "funnelsFilter"
@@ -3696,6 +3696,7 @@ class ProductKey(StrEnum):
     SESSION_REPLAY = "session_replay"
     SITE_APPS = "site_apps"
     SUBSCRIPTIONS = "subscriptions"
+    STREAMLIT_APPS = "streamlit_apps"
     SURVEYS = "surveys"
     TASKS = "tasks"
     TEAMS = "teams"
@@ -6905,6 +6906,14 @@ class HogQLQueryModifiers(BaseModel):
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
     s3TableUseInvalidColumns: bool | None = None
+    sessionIdPushdown: bool | None = Field(
+        default=None,
+        description=(
+            "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into"
+            " the raw_sessions subquery to limit aggregation to sessions that"
+            " participate in the outer events filter."
+        ),
+    )
     sessionTableVersion: SessionTableVersion | None = None
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
@@ -8488,9 +8497,7 @@ class TrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    boxplot_data: list[BoxPlotDatum] | None = Field(
-        default=None, description="Box plot data when display type is BoxPlot"
-    )
+    boxplot_data: list[BoxPlotDatum] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11642,9 +11649,7 @@ class CachedTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    boxplot_data: list[BoxPlotDatum] | None = Field(
-        default=None, description="Box plot data when display type is BoxPlot"
-    )
+    boxplot_data: list[BoxPlotDatum] | None = None
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -12077,7 +12082,9 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
     showNullsAsZero: bool | None = None
+    showPieTotal: bool | None = None
     showTotalRow: bool | None = None
+    showValuesOnSeries: bool | None = None
     showXAxisBorder: bool | None = None
     showXAxisTicks: bool | None = None
     showYAxisBorder: bool | None = None
@@ -16449,9 +16456,7 @@ class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    boxplot_data: list[BoxPlotDatum] | None = Field(
-        default=None, description="Box plot data when display type is BoxPlot"
-    )
+    boxplot_data: list[BoxPlotDatum] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -18172,6 +18177,37 @@ class AssistantBasePropertyFilter(
         | AssistantStringOrBooleanValuePropertyFilter
         | AssistantNumericValuePropertyFilter
         | AssistantArrayPropertyFilter
+    )
+
+
+class AssistantInsightActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[str] | None = Field(
+        default=None,
+        description=(
+            "Breakdown values, one per dimension in the source's"
+            " `breakdownFilter.breakdowns`, in the same order. Array length must equal"
+            " the number of breakdown dimensions."
+        ),
+    )
+    compare: Compare | None = Field(
+        default=None,
+        description=("Whether to pull from the previous period when `compare` is enabled in the source."),
+    )
+    day: str | int | None = Field(
+        default=None,
+        description=("Bucket date for the data point. Accepts ISO date or integer offset."),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    series: int | None = Field(
+        default=None,
+        description="Series index (0-based) when the source has multiple series.",
+    )
+    source: AssistantTrendsQuery = Field(
+        ...,
+        description="The source insight query whose data point we are drilling into.",
     )
 
 
