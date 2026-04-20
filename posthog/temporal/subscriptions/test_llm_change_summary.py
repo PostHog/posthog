@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import patch
 
 from posthog.temporal.subscriptions.llm_change_summary import (
@@ -123,24 +124,62 @@ class TestBuildPromptMessages:
         user_content = messages[-1]["content"]
         assert "Description:" not in user_content
 
-    def test_surfaces_comparison_enabled_state(self):
-        previous = [_make_state(1, "pv", "- pv: latest=100", comparison_enabled=True)]
-        current = [_make_state(1, "pv", "- pv: latest=120", timestamp="2025-04-15T10:00:00Z", comparison_enabled=True)]
+    @pytest.mark.parametrize(
+        "query_kind,comparison_enabled,expected,forbidden",
+        [
+            ("TrendsQuery", True, "Compare to previous period: enabled", "Compare to previous period: not configured"),
+            (
+                "TrendsQuery",
+                False,
+                "Compare to previous period: not configured",
+                "Compare to previous period: enabled",
+            ),
+            (
+                "LifecycleQuery",
+                False,
+                "Compare to previous period: not configured",
+                "Compare to previous period: enabled",
+            ),
+            (
+                "StickinessQuery",
+                True,
+                "Compare to previous period: enabled",
+                "Compare to previous period: not configured",
+            ),
+        ],
+    )
+    def test_surfaces_comparison_state_for_supported_kinds(self, query_kind, comparison_enabled, expected, forbidden):
+        previous = [
+            _make_state(1, "pv", "- pv: latest=100", query_kind=query_kind, comparison_enabled=comparison_enabled)
+        ]
+        current = [
+            _make_state(
+                1,
+                "pv",
+                "- pv: latest=120",
+                query_kind=query_kind,
+                timestamp="2025-04-15T10:00:00Z",
+                comparison_enabled=comparison_enabled,
+            )
+        ]
 
         messages = build_prompt_messages(previous, current)
 
         user_content = messages[-1]["content"]
-        assert "Compare to previous period: enabled" in user_content
-        assert "Compare to previous period: not configured" not in user_content
+        assert expected in user_content
+        assert forbidden not in user_content
 
-    def test_surfaces_comparison_not_configured_when_disabled(self):
-        previous = [_make_state(1, "pv", "- pv: latest=100")]
-        current = [_make_state(1, "pv", "- pv: latest=120", timestamp="2025-04-15T10:00:00Z")]
+    @pytest.mark.parametrize("query_kind", ["FunnelsQuery", "RetentionQuery", "PathsQuery"])
+    def test_omits_comparison_line_for_query_kinds_without_compare(self, query_kind):
+        # FunnelsQuery / RetentionQuery / PathsQuery have no compareFilter concept,
+        # so emitting "not configured" would imply a feature that doesn't exist.
+        previous = [_make_state(1, "thing", "- thing: 100", query_kind=query_kind)]
+        current = [_make_state(1, "thing", "- thing: 120", query_kind=query_kind, timestamp="2025-04-15T10:00:00Z")]
 
         messages = build_prompt_messages(previous, current)
 
         user_content = messages[-1]["content"]
-        assert "Compare to previous period: not configured" in user_content
+        assert "Compare to previous period" not in user_content
 
 
 class TestBuildInitialPromptMessages:
