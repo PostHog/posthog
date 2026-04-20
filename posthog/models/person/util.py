@@ -566,7 +566,7 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person
     )
 
 
-def _check_cohort_membership_via_personhog(team_id: int, person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
+def _check_cohort_membership_via_personhog(person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
     from posthog.personhog_client.client import get_personhog_client
 
     client = get_personhog_client()
@@ -589,23 +589,37 @@ def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int])
     if not cohort_ids:
         return {}
 
-    def orm_fn() -> dict[int, bool]:
-        # Local import to avoid circulars (cohort → person via CohortPeople FK).
-        from posthog.models.cohort.cohort import CohortPeople
+    # Local import to avoid circulars (cohort → person via CohortPeople FK).
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
 
+    # Scope cohort_ids to the team via Cohort on the default DB before querying
+    # either the personhog RPC or the persons-DB CohortPeople table. Neither
+    # downstream path enforces team ownership (posthog_cohortpeople has no
+    # team_id column; the RPC just filters by person_id + cohort_id), so the
+    # tenant boundary has to be applied here. Cohorts belonging to a different
+    # team are reported as ``False`` rather than looked up. Same pattern as
+    # `posthog.models.team.util.delete_bulky_postgres_data`.
+    scoped_cohort_ids = list(Cohort.objects.filter(id__in=cohort_ids, team_id=team_id).values_list("id", flat=True))
+    if not scoped_cohort_ids:
+        return dict.fromkeys(cohort_ids, False)
+
+    def orm_fn() -> dict[int, bool]:
         member_ids = set(
             CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(person_id=person_id, cohort_id__in=cohort_ids)
+            .filter(person_id=person_id, cohort_id__in=scoped_cohort_ids)
             .values_list("cohort_id", flat=True)
         )
-        return {cohort_id: cohort_id in member_ids for cohort_id in cohort_ids}
+        return {cohort_id: cohort_id in member_ids for cohort_id in scoped_cohort_ids}
 
-    return _personhog_routed(
+    scoped_result = _personhog_routed(
         "check_cohort_membership",
-        lambda: _check_cohort_membership_via_personhog(team_id, person_id, cohort_ids),
+        lambda: _check_cohort_membership_via_personhog(person_id, scoped_cohort_ids),
         orm_fn,
         team_id=team_id,
     )
+    # Expand back to the caller's original cohort_ids; cohorts that were scoped
+    # out (not owned by this team) register as non-member.
+    return {cohort_id: scoped_result.get(cohort_id, False) for cohort_id in cohort_ids}
 
 
 def is_person_in_cohort(team_id: int, person_id: int, cohort_id: int) -> bool:

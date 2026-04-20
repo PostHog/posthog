@@ -147,6 +147,26 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         mock_remove_ch.assert_not_called()
 
     @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
+    @patch("posthog.models.cohort.util.get_static_cohort_size", return_value=0)
+    def test_does_not_delete_when_cohort_belongs_to_other_team(self, mock_get_size, mock_remove_ch):
+        """Calling remove_user_by_uuid with a team_id that does not own the
+        cohort must not touch CohortPeople rows for that cohort."""
+        other_team = Team.objects.create(organization=self.organization)
+        person = self._seed_person(team=other_team, distinct_ids=["d1"])
+        # Cohort lives on other_team; caller claims to be self.team.
+        other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
+        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
+
+        result = other_team_cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
+
+        # Person isn't resolvable under self.team → removal is a no-op (returns False)
+        # and the CohortPeople row for the other team's cohort stays put.
+        assert result is False
+        assert CohortPeople.objects.filter(cohort=other_team_cohort, person=person).exists()
+        mock_remove_ch.assert_not_called()
+
+    @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
     @patch("posthog.models.cohort.util.get_static_cohort_size", return_value=5)
     def test_updates_cohort_count_after_removal(self, mock_get_size, mock_remove_ch):
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
@@ -246,6 +266,41 @@ class TestCheckCohortMembershipFallback(BaseTest):
 
         fake.assert_not_called("check_cohort_membership")
 
+    def test_orm_path_isolates_by_team(self):
+        """ORM fallback must not return membership for a cohort belonging to a
+        different team, even if the cohort_id is passed explicitly."""
+        from posthog.models.person.util import check_cohort_membership
+
+        other_team = Team.objects.create(organization=self.organization)
+        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
+        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
+
+        with fake_personhog_client(gate_enabled=False):
+            result = check_cohort_membership(self.team.id, person.id, [other_team_cohort.id])
+
+        assert result == {other_team_cohort.id: False}
+
+    def test_personhog_path_isolates_by_team(self):
+        """Personhog path must not forward cross-team cohort_ids to the RPC.
+        Tenant scoping happens in the public wrapper before dispatch."""
+        from posthog.models.person.util import check_cohort_membership
+
+        other_team = Team.objects.create(organization=self.organization)
+        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
+
+        with fake_personhog_client() as fake:
+            # Seed a fake "true" membership so we can detect a leak: if the
+            # scoping didn't happen, the RPC would see this and report True.
+            fake.add_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
+
+            result = check_cohort_membership(self.team.id, person.id, [other_team_cohort.id])
+
+        assert result == {other_team_cohort.id: False}
+        # The RPC should not have been called at all — no in-team cohort_ids remained.
+        fake.assert_not_called("check_cohort_membership")
+
 
 @parameterized_class(("personhog",), [(False,), (True,)])
 class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
@@ -304,3 +359,26 @@ class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
         assert q != Q(pk__isnull=True)
         # The Exists subquery path never calls the RPC
         self._assert_personhog_not_called("check_cohort_membership")
+
+    def test_isolates_cohort_by_team_id(self):
+        """A cohort owned by a different team (even within the same project)
+        must resolve to Q(pk__isnull=True), regardless of any CohortPeople
+        rows or fake memberships set up for it."""
+        from posthog.queries.base import property_to_Q
+
+        other_team = self.organization.teams.create(name="other", project=self.team.project)
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
+        # Plant a CohortPeople row and (in the personhog run) a fake membership
+        # so that a missing team scope would show up as a false positive.
+        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
+
+        q = property_to_Q(
+            self.team.project_id,
+            self._make_cohort_property(other_team_cohort.id),
+            person_id=person.id,
+            team_id=self.team.id,
+        )
+
+        assert q == Q(pk__isnull=True)
