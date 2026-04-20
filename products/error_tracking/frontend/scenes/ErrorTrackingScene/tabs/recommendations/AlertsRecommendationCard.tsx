@@ -72,6 +72,7 @@ export function AlertsRecommendationCard({
         <>
             <ListRecommendationCard
                 recommendationId={recommendation.id}
+                recommendationType={recommendation.type}
                 nextRefreshAt={recommendation.next_refresh_at}
                 title="Alert coverage"
                 description={
@@ -87,6 +88,7 @@ export function AlertsRecommendationCard({
             {openAlertTriggerKey && (
                 <AlertsRecommendationWizardModal
                     triggerKey={openAlertTriggerKey}
+                    recommendationId={recommendation.id}
                     onClose={() => {
                         setOpenAlertTriggerKey(null)
                         refreshRecommendation(recommendation.id)
@@ -99,9 +101,11 @@ export function AlertsRecommendationCard({
 
 function AlertsRecommendationWizardModal({
     triggerKey,
+    recommendationId,
     onClose,
 }: {
     triggerKey: HogFunctionSubTemplateIdType
+    recommendationId: string
     onClose: () => void
 }): JSX.Element {
     const wizardProps: AlertWizardLogicProps = {
@@ -111,7 +115,14 @@ function AlertsRecommendationWizardModal({
         destinations: ERROR_TRACKING_DESTINATIONS,
         disableUrlSync: true,
         presetTriggerKey: triggerKey,
-        onAlertCreated: onClose,
+        creationSource: 'wizard_modal',
+        onAlertCreated: () => {
+            posthog.capture('error_tracking_alert_created_from_recommendation', {
+                recommendation_id: recommendationId,
+                trigger_key: triggerKey,
+            })
+            onClose()
+        },
     }
 
     return (

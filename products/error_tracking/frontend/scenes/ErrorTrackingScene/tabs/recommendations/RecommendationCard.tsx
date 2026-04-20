@@ -1,13 +1,15 @@
 import { useActions } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useRef } from 'react'
 
 import { IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { recommendationsTabLogic } from './recommendationsTabLogic'
+import type { ErrorTrackingRecommendationType } from './types'
 
 export interface RecommendationCardProps {
     recommendationId: string
+    recommendationType: ErrorTrackingRecommendationType
     nextRefreshAt?: string | null
     title: string
     description?: ReactNode
@@ -18,6 +20,7 @@ export interface RecommendationCardProps {
 
 export function RecommendationCard({
     recommendationId,
+    recommendationType,
     nextRefreshAt,
     title,
     description,
@@ -25,11 +28,24 @@ export function RecommendationCard({
     dismissed,
     children,
 }: RecommendationCardProps): JSX.Element {
-    const { dismissRecommendation, restoreRecommendation, refreshRecommendation } = useActions(recommendationsTabLogic)
+    const { dismissRecommendation, restoreRecommendation, refreshRecommendation, recordRecommendationInteraction } =
+        useActions(recommendationsTabLogic)
     const canRefresh = !nextRefreshAt || new Date(nextRefreshAt) <= new Date()
+    // Fire the hover event at most once per mount so moving the mouse around within the
+    // card (or leaving and re-entering) doesn't spam analytics.
+    const hoverFiredRef = useRef(false)
 
     return (
-        <div className="border rounded-lg bg-surface-primary p-4">
+        <div
+            className="border rounded-lg bg-surface-primary p-4"
+            onMouseEnter={() => {
+                if (!hoverFiredRef.current) {
+                    hoverFiredRef.current = true
+                    recordRecommendationInteraction(recommendationType, 'hover')
+                }
+            }}
+            onClick={() => recordRecommendationInteraction(recommendationType, 'click')}
+        >
             <div className="flex items-center justify-between mb-1">
                 <h3 className="font-semibold text-sm m-0">{title}</h3>
                 <div className="flex items-center gap-2">

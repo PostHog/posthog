@@ -41,6 +41,8 @@ export interface WizardTrigger {
     description: string
 }
 
+export type AlertCreationSource = 'wizard' | 'wizard_modal'
+
 export interface AlertWizardLogicProps {
     logicKey: string
     subTemplateIds: HogFunctionSubTemplateIdType[]
@@ -49,6 +51,9 @@ export interface AlertWizardLogicProps {
     disableUrlSync?: boolean
     presetTriggerKey?: HogFunctionSubTemplateIdType
     onAlertCreated?: () => void
+    // Reported as `source` in `error_tracking_alert_created` — lets analytics distinguish
+    // a full-page wizard run from one launched inside a modal (e.g. the recommendation card).
+    creationSource?: AlertCreationSource
 }
 
 const PRIMARY_DESTINATION_LIMIT = 3
@@ -443,7 +448,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
 
                 await api.hogFunctions.create(configuration)
                 posthog.capture('error_tracking_alert_created', {
-                    source: 'wizard',
+                    source: logicProps.creationSource ?? 'wizard',
                     trigger_event: subTemplate.filters?.events?.[0]?.id ?? null,
                     subtemplate_id: triggerKey,
                     destination_key: destination.key,

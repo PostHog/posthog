@@ -1,5 +1,6 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
@@ -10,9 +11,12 @@ import type {
     AlertsRecommendation,
     CrossSellRecommendation,
     ErrorTrackingRecommendation,
+    ErrorTrackingRecommendationType,
     ExceptionAutocaptureRecommendation,
     WeeklyDigestRecommendation,
 } from './types'
+
+export type RecommendationInteractionType = 'hover' | 'click'
 
 export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'tabs', 'recommendations', 'logic']),
@@ -48,6 +52,10 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         toggleDismissedExpanded: true,
         toggleCompletedExpanded: true,
         setOpenAlertTriggerKey: (triggerKey: HogFunctionSubTemplateIdType | null) => ({ triggerKey }),
+        recordRecommendationInteraction: (
+            recommendationType: ErrorTrackingRecommendationType,
+            interactionType: RecommendationInteractionType
+        ) => ({ recommendationType, interactionType }),
     }),
 
     reducers({
@@ -70,6 +78,27 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             },
         ],
     }),
+
+    listeners(({ values }) => ({
+        recordRecommendationInteraction: ({ recommendationType, interactionType }) => {
+            posthog.capture('error_tracking_recommendation_interacted', {
+                recommendation_type: recommendationType,
+                interaction_type: interactionType,
+            })
+        },
+        dismissRecommendation: ({ id }) => {
+            const rec = values.recommendations.find((r) => r.id === id)
+            posthog.capture('error_tracking_recommendation_dismissed', {
+                recommendation_type: rec?.type ?? null,
+            })
+        },
+        restoreRecommendation: ({ id }) => {
+            const rec = values.recommendations.find((r) => r.id === id)
+            posthog.capture('error_tracking_recommendation_restored', {
+                recommendation_type: rec?.type ?? null,
+            })
+        },
+    })),
 
     selectors({
         pendingRecommendations: [
