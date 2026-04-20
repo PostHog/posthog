@@ -568,6 +568,12 @@ quality:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format Markdown files
+    lint:feature-flags:
+        cmd: node bin/lint-feature-flag-sorting.mjs
+        description: Check that FEATURE_FLAGS in constants.tsx are alphabetically sorted
+    lint:feature-flags:fix:
+        cmd: node bin/lint-feature-flag-sorting.mjs --fix
+        description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
     format:mcp:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
@@ -603,7 +609,7 @@ tools:
         description: Python linter and formatter with virtualenv auto-activation
     tool:ty:
         bin_script: ty.py
-        description: Type checker with mypy-baseline filtering and sync
+        description: Type checker with ty baseline filtering and sync
         hidden: true
     tool:turbo:
         bin_script: turbo

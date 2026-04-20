@@ -40,7 +40,7 @@ export const Default: Story = {
             <div className="max-w-xs">
                 <Combobox items={frameworks}>
                     <ComboboxInput placeholder="Select a framework" />
-                    <ComboboxContent>
+                    <ComboboxContent className="w-[218px]">
                         <ComboboxEmpty>No items found.</ComboboxEmpty>
                         <ComboboxList>
                             {(item: (typeof frameworks)[number]) => (
@@ -72,7 +72,7 @@ function MultipleComboboxInner(): React.ReactElement {
                     )}
                 </ComboboxValue>
             </ComboboxChips>
-            <ComboboxContent anchor={anchor}>
+            <ComboboxContent anchor={anchor} className="w-[218px]">
                 <ComboboxEmpty>No items found.</ComboboxEmpty>
                 <ComboboxList>
                     {(item) => (

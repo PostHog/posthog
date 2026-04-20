@@ -4,15 +4,10 @@ import { useMemo } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import {
-    dashboardTemplateChooserLogic,
-    resolveDashboardTemplateChooserExperimentVariant,
-} from 'scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic'
+import { dashboardTemplateChooserLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -34,18 +29,13 @@ export function NewDashboardModal(): JSX.Element {
     const { templateFilter } = useValues(templatesLogic)
     const { setTemplateFilter } = useActions(templatesLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const experimentVariant = resolveDashboardTemplateChooserExperimentVariant(
-        featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT]
-    )
     const createChooserLogic = useMemo(
         () =>
             dashboardTemplateChooserLogic({
                 scope: templateScope,
-                experimentVariant,
                 availabilityContexts: undefined,
             }),
-        [templateScope, experimentVariant]
+        [templateScope]
     )
     const { isLoading: blankDashboardLoading } = useValues(createChooserLogic)
     const { blankTileClicked } = useActions(createChooserLogic)
@@ -113,7 +103,7 @@ export function NewDashboardModal(): JSX.Element {
                     {activeDashboardTemplate ? (
                         <DashboardTemplateVariables />
                     ) : (
-                        <DashboardTemplateChooser scope={templateScope} experimentVariant={experimentVariant} />
+                        <DashboardTemplateChooser scope={templateScope} />
                     )}
                 </div>
             </div>
