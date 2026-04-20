@@ -317,7 +317,7 @@ def _revoke_github_user_authorization(identity: UserSocialIdentity) -> None:
     """
     access_token = identity.access_token
     client_id = settings.GITHUB_APP_CLIENT_ID
-    client_secret = settings.GITHUB_APP_OAUTH_CLIENT_SECRET
+    client_secret = settings.GITHUB_APP_CLIENT_SECRET
     if not access_token or not client_id or not client_secret:
         return
     try:

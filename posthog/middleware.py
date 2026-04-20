@@ -905,6 +905,9 @@ class SocialAuthExceptionMiddleware:
                 "github_sso_enforced",
                 "gitlab_sso_enforced",
                 "sso_enforced",
+                "github_login_disabled_for_account",
+                "google_login_disabled_for_account",
+                "gitlab_login_disabled_for_account",
             ):
                 return redirect(f"/login?error_code={error}")
 

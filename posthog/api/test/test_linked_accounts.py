@@ -306,7 +306,7 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
 
     # ── GitHub link flow ──
 
-    @override_settings(GITHUB_APP_CLIENT_ID="test-client-id", GITHUB_APP_OAUTH_CLIENT_SECRET="test-secret")
+    @override_settings(GITHUB_APP_CLIENT_ID="test-client-id", GITHUB_APP_CLIENT_SECRET="test-secret")
     def test_github_start_returns_authorize_url_and_stores_state(self):
         response = self.client.post("/api/linked_accounts/github/start/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -711,7 +711,7 @@ class TestUserGitHubIntegration(APIBaseTest):
         identity = self._create_identity()
         self.assertFalse(UserGitHubIntegration(identity).access_token_expired())
 
-    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_CLIENT_SECRET="secret")
     def test_refresh_access_token_updates_credentials(self):
         from posthog.models.user_social_identity import UserGitHubIntegration
 
@@ -730,7 +730,7 @@ class TestUserGitHubIntegration(APIBaseTest):
         self.assertEqual(identity.access_token, "gho_new")
         self.assertEqual(identity.refresh_token, "ghr_new")
 
-    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_CLIENT_SECRET="secret")
     def test_refresh_access_token_discards_row_on_unrecoverable_error(self):
         from posthog.models.user_social_identity import ReauthorizationRequired, UserGitHubIntegration
 
@@ -764,7 +764,7 @@ class TestUserGitHubIntegration(APIBaseTest):
         self.assertEqual(token, "gho_access")
         mock_post.assert_not_called()
 
-    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_CLIENT_SECRET="secret")
     def test_get_usable_access_token_refreshes_when_expired(self):
         import time
 
@@ -794,7 +794,7 @@ class TestUserGitHubIntegration(APIBaseTest):
         identity = self._create_identity(refresh_token="ghr_keep")
         response = MagicMock()
         response.json.return_value = {"access_token": "gho_fresh", "expires_in": 28800}
-        with override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret"):
+        with override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_CLIENT_SECRET="secret"):
             with patch("posthog.models.user_social_identity.requests.post", return_value=response):
                 UserGitHubIntegration(identity).refresh_access_token()
         identity.refresh_from_db()
@@ -804,7 +804,7 @@ class TestUserGitHubIntegration(APIBaseTest):
         from posthog.models.user_social_identity import ReauthorizationRequired, UserGitHubIntegration
 
         identity = self._create_identity(refresh_token=None)
-        with override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret"):
+        with override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_CLIENT_SECRET="secret"):
             with self.assertRaises(ReauthorizationRequired):
                 UserGitHubIntegration(identity).refresh_access_token()
         self.assertFalse(UserSocialIdentity.objects.filter(pk=identity.pk).exists())
@@ -890,7 +890,7 @@ class TestApplyGithubAuthorization(APIBaseTest):
 class TestGithubUserFromCode(APIBaseTest):
     """Verify ``GitHubIntegration.github_user_from_code`` captures the full token bundle."""
 
-    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_CLIENT_SECRET="secret")
     def test_returns_full_authorization_including_tokens(self):
         from posthog.models.integration import GitHubIntegration
 
@@ -917,7 +917,7 @@ class TestGithubUserFromCode(APIBaseTest):
         self.assertEqual(result.access_token_expires_in, 28800)
         self.assertEqual(result.refresh_token_expires_in, 15897600)
 
-    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_CLIENT_SECRET="secret")
     def test_returns_none_when_github_rejects_code(self):
         from posthog.models.integration import GitHubIntegration
 
@@ -927,13 +927,13 @@ class TestGithubUserFromCode(APIBaseTest):
             result = GitHubIntegration.github_user_from_code("abc")
         self.assertIsNone(result)
 
-    @override_settings(GITHUB_APP_CLIENT_ID="", GITHUB_APP_OAUTH_CLIENT_SECRET="")
+    @override_settings(GITHUB_APP_CLIENT_ID="", GITHUB_APP_CLIENT_SECRET="")
     def test_returns_none_when_oauth_not_configured(self):
         from posthog.models.integration import GitHubIntegration
 
         self.assertIsNone(GitHubIntegration.github_user_from_code("abc"))
 
-    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_CLIENT_SECRET="secret")
     def test_github_login_from_code_unwraps_login(self):
         """``github_login_from_code`` remains a thin helper for legacy callers."""
         from posthog.models.integration import GitHubIntegration
@@ -955,7 +955,7 @@ class TestGithubDisconnectRevokesAuthorization(APIBaseTest):
         super().setUp()
         self.client.force_login(self.user)
 
-    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_CLIENT_SECRET="secret")
     def test_disconnect_revokes_stored_token(self):
         UserSocialIdentity.objects.create(
             user=self.user,
@@ -973,7 +973,7 @@ class TestGithubDisconnectRevokesAuthorization(APIBaseTest):
         self.assertEqual(call.kwargs["json"], {"access_token": "gho_rev"})
         self.assertFalse(UserSocialIdentity.objects.filter(user=self.user, provider="github").exists())
 
-    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_CLIENT_SECRET="secret")
     def test_disconnect_succeeds_even_when_github_revoke_fails(self):
         UserSocialIdentity.objects.create(
             user=self.user,
@@ -998,7 +998,7 @@ class TestGithubDisconnectRevokesAuthorization(APIBaseTest):
             extra_data={"login": "octocat", "id": 42},
             sensitive_config={"access_token": "gho_rev", "refresh_token": "ghr_rev"},
         )
-        with override_settings(GITHUB_APP_CLIENT_ID="", GITHUB_APP_OAUTH_CLIENT_SECRET=""):
+        with override_settings(GITHUB_APP_CLIENT_ID="", GITHUB_APP_CLIENT_SECRET=""):
             with patch("posthog.api.linked_accounts.requests.delete") as mock_delete:
                 response = self.client.delete("/api/linked_accounts/github/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

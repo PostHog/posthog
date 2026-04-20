@@ -172,7 +172,7 @@ export const linkedAccountsLogic = kea<linkedAccountsLogicType>([
                                 : reason === 'invalid_state'
                                   ? 'The GitHub link request expired or could not be verified. Please try again.'
                                   : reason === 'exchange_failed'
-                                    ? 'GitHub rejected the authorization code. Check that GITHUB_APP_CLIENT_ID and GITHUB_APP_OAUTH_CLIENT_SECRET are configured correctly (server logs have the specific reason).'
+                                    ? 'GitHub rejected the authorization code. Check that GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET are configured correctly (server logs have the specific reason).'
                                     : 'Could not link GitHub account. Please try again.'
                 lemonToast.error(message)
             }

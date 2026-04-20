@@ -72,7 +72,7 @@ function GithubSignInToggle({
     account: LinkedAccount
     onChange: (value: boolean) => void
 }): JSX.Element {
-    const [optimisticLoginEnabled, setOptimisticLoginEnabled] = useState(account.login_enabled)
+    const [optimisticLoginEnabled, setOptimisticLoginEnabled] = useState(!!account.login_enabled)
 
     useEffect(() => {
         setOptimisticLoginEnabled(account.login_enabled)

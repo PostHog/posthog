@@ -1506,6 +1506,24 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
             ),
+            (
+                "github_login_disabled_for_account",
+                "/complete/github/",
+                AuthFailed(_social_auth_backend(), "github_login_disabled_for_account"),
+                "/login?error_code=github_login_disabled_for_account",
+            ),
+            (
+                "google_login_disabled_for_account",
+                "/complete/google-oauth2/",
+                AuthFailed(_social_auth_backend(), "google_login_disabled_for_account"),
+                "/login?error_code=google_login_disabled_for_account",
+            ),
+            (
+                "gitlab_login_disabled_for_account",
+                "/complete/gitlab/",
+                AuthFailed(_social_auth_backend(), "gitlab_login_disabled_for_account"),
+                "/login?error_code=gitlab_login_disabled_for_account",
+            ),
         ]
     )
     def test_redirects_with_expected_url(self, _name, path, exception, expected_url):
