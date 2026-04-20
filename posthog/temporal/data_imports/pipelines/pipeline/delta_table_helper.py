@@ -219,6 +219,8 @@ class DeltaTableHelper:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
+            existing_delta_table = delta_table
+
             await self._logger.adebug(f"write_to_deltalake: merging...")
 
             # Normalize keys and check the keys actually exist in the dataset
@@ -249,7 +251,7 @@ class DeltaTableHelper:
 
                     def _do_merge(filtered_table: pa.Table, predicate: str):
                         return (
-                            delta_table.merge(
+                            existing_delta_table.merge(
                                 source=filtered_table,
                                 source_alias="source",
                                 target_alias="target",
@@ -271,7 +273,7 @@ class DeltaTableHelper:
 
                 def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
                     return (
-                        delta_table.merge(
+                        existing_delta_table.merge(
                             source=data,
                             source_alias="source",
                             target_alias="target",
@@ -381,6 +383,7 @@ class DeltaTableHelper:
 
         # Step 1: Close existing current rows for PKs in this batch
         if delta_table is not None and primary_keys and "valid_from" in data.column_names:
+            existing_delta_table = delta_table
             py_column_names = data.column_names
             normalized_pks: list[str] = []
             for x in primary_keys:
@@ -398,7 +401,7 @@ class DeltaTableHelper:
 
                 def _do_scd2_close(first_per_pk: pa.Table, predicate: str) -> dict:
                     return (
-                        delta_table.merge(
+                        existing_delta_table.merge(
                             source=first_per_pk,
                             source_alias="source",
                             target_alias="target",
