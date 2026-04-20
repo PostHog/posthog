@@ -1,6 +1,8 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { SendMailOptions } from 'nodemailer'
 
+import { DateTime } from 'luxon'
+
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -42,6 +44,27 @@ export function parseAddressList(value?: string): string[] | undefined {
         .filter((addr) => addr.length > 0)
     return result.length > 0 ? result : undefined
 }
+
+// Errors that will never succeed on retry — bad config, not transient failures
+const PERMANENT_EMAIL_ERRORS = [
+    'Email integration not found',
+    'The selected email integration domain is not verified',
+    'The selected email integration is not configured correctly',
+    'Email delivery mode not supported',
+    'Invocation passed to sendEmail is not an email function',
+    'SES is not configured',
+    'Email address not verified',
+    'not verified',
+    'No messageId returned',
+]
+
+function isTransientEmailError(error: string): boolean {
+    return !PERMANENT_EMAIL_ERRORS.some((permanent) => error.includes(permanent))
+}
+
+const EMAIL_RETRY_BACKOFF_BASE_MS = 5_000
+const EMAIL_RETRY_BACKOFF_MAX_MS = 30_000
+const EMAIL_MAX_RETRIES = 3
 
 export class EmailService {
     sesV2Client: SESv2Client | null
@@ -107,8 +130,30 @@ export class EmailService {
             addLog('info', `Email sent to ${params.to.email}`)
             success = true
         } catch (error) {
-            addLog('error', error.message)
-            result.error = error.message
+            const errorMessage = error.message ?? String(error)
+            result.invocation.state.attempts = (result.invocation.state.attempts ?? 0) + 1
+
+            if (isTransientEmailError(errorMessage) && result.invocation.state.attempts < EMAIL_MAX_RETRIES) {
+                const backoffMs = Math.min(
+                    EMAIL_RETRY_BACKOFF_BASE_MS * result.invocation.state.attempts +
+                        Math.floor(Math.random() * EMAIL_RETRY_BACKOFF_BASE_MS),
+                    EMAIL_RETRY_BACKOFF_MAX_MS
+                )
+
+                addLog(
+                    'error',
+                    `Email send failed on attempt ${result.invocation.state.attempts}: ${errorMessage}. Retrying in ${backoffMs}ms.`
+                )
+
+                result.finished = false
+                result.invocation.queueParameters = invocation.queueParameters
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
+
+                return result
+            }
+
+            addLog('error', errorMessage)
+            result.error = errorMessage
             result.finished = true
         }
 

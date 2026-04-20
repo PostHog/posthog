@@ -550,5 +550,51 @@ describe('EmailService', () => {
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
         })
+
+        it('should retry on transient SES errors', async () => {
+            sendEmailSpy.mockRejectedValue(new Error('SES throttling'))
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.finished).toBe(false)
+            expect(result.error).toBeUndefined()
+            expect(result.invocation.queueScheduledAt).toBeDefined()
+            expect(result.invocation.state.attempts).toBe(1)
+            expect(result.logs[0].message).toContain('Retrying in')
+        })
+
+        it('should fail permanently on non-transient errors', async () => {
+            sendEmailSpy.mockRejectedValue(new Error('Email address not verified'))
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toContain('Email address not verified')
+        })
+
+        it('should fail after max retries', async () => {
+            sendEmailSpy.mockRejectedValue(new Error('SES connection timeout'))
+            invocation.state.attempts = 2
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toContain('SES connection timeout')
+        })
+
+        it('should increase backoff with each attempt', async () => {
+            sendEmailSpy.mockRejectedValue(new Error('SES throttling'))
+
+            const result1 = await service.executeSendEmail(invocation)
+            expect(result1.finished).toBe(false)
+
+            // Simulate second attempt
+            invocation.state.attempts = 1
+            const result2 = await service.executeSendEmail(invocation)
+            expect(result2.finished).toBe(false)
+
+            // Second retry should be scheduled further out
+            expect(result2.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(
+                result1.invocation.queueScheduledAt!.toMillis()
+            )
+        })
     })
 })
