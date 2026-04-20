@@ -63,7 +63,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod.object({
         .max(llmSkillsCreateBodyCompatibilityMax)
         .optional()
         .describe('Environment requirements (intended product, system packages, network access, etc.).'),
-    allowed_tools: zod.unknown().optional().describe('List of pre-approved tools the skill may use.'),
+    allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
     metadata: zod.unknown().optional().describe('Arbitrary key-value metadata.'),
     files: zod
         .array(
