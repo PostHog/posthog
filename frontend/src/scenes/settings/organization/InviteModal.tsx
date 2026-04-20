@@ -325,7 +325,7 @@ export function InviteTeamMatesComponent({
 
     const { currentOrganization } = useValues(organizationLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const hasAdvancedPermissions = hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
+    const hasAccessControl = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
 
     const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
 
@@ -376,7 +376,7 @@ export function InviteTeamMatesComponent({
                 </div>
             </div>
 
-            {guestModeEnabled && hasAdvancedPermissions && (
+            {guestModeEnabled && hasAccessControl && (
                 <div className="mt-4 p-3 border rounded-md space-y-3">
                     <div className="flex items-center gap-2">
                         <LemonCheckbox
