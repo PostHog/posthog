@@ -30,8 +30,80 @@ import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary
 
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
+import { ReactEmailEditorShim, type ReactEmailEditorShimRef } from './react-email/ReactEmailEditorShim'
+import type { ReactEmailDesign, ReactEmailMergeTags } from './react-email/types'
 
 export type EmailEditorMode = 'full' | 'preview'
+
+/**
+ * Renders either the Unlayer editor or the new @react-email/editor shim based
+ * on the `useReactEmailEditor` selector (feature flag + design-shape detection).
+ * Both editors expose the same `editor.loadDesign / exportHtml / exportPlainText`
+ * surface to the surrounding logic.
+ */
+function EmailEditorSwitch({ withUnlayerProjectConfig }: { withUnlayerProjectConfig: boolean }): JSX.Element {
+    const { unlayerEditorProjectId, logicProps, mergeTags, useReactEmailEditor, templatingEngine } =
+        useValues(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, setTemplatingEngine } = useActions(emailTemplaterLogic)
+
+    if (useReactEmailEditor) {
+        return (
+            <ReactEmailEditorShim
+                ref={(r: ReactEmailEditorShimRef | null) => setEmailEditorRef(r)}
+                onReady={() => onEmailEditorReady()}
+                initialDesign={logicProps.value?.design as ReactEmailDesign | null | undefined}
+                mergeTags={mergeTags as ReactEmailMergeTags}
+                templating={templatingEngine}
+                setTemplatingEngine={setTemplatingEngine}
+            />
+        )
+    }
+
+    return (
+        <EmailEditor
+            ref={(r: EditorRef | null) => setEmailEditorRef(r)}
+            onReady={() => onEmailEditorReady()}
+            minHeight={20}
+            options={{
+                mergeTags,
+                displayMode: 'email',
+                appearance: {
+                    actionBar: { placement: 'bottom' },
+                    panels: { tools: { dock: 'right', collapsible: true } },
+                },
+                features: {
+                    preview: true,
+                    imageEditor: true,
+                    stockImages: false,
+                },
+                ...(withUnlayerProjectConfig
+                    ? {
+                          projectId: unlayerEditorProjectId,
+                          customJS: [unsubscribeLinkToolCustomJs],
+                          fonts: unlayerEditorProjectId
+                              ? {
+                                    showDefaultFonts: true,
+                                    customFonts: [
+                                        {
+                                            label: 'Ubuntu',
+                                            value: "'Ubuntu',Tahoma,Verdana,Segoe,sans-serif",
+                                            url: 'https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700',
+                                            weights: [
+                                                { label: 'Light', value: 300 },
+                                                { label: 'Regular', value: 400 },
+                                                { label: 'Medium', value: 500 },
+                                                { label: 'Bold', value: 700 },
+                                            ],
+                                        },
+                                    ],
+                                }
+                              : undefined,
+                      }
+                    : {}),
+            }}
+        />
+    )
+}
 
 function AddAdvancedFieldButtons(): JSX.Element | null {
     const { hiddenAdvancedFields } = useValues(emailTemplaterLogic)
@@ -104,9 +176,8 @@ function DestinationEmailTemplaterForm({
     mode: EmailEditorMode
     fieldsHidden?: boolean
 }): JSX.Element {
-    const { logicProps, mergeTags, activeContentTab } = useValues(emailTemplaterLogic)
-    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, setActiveContentTab } =
-        useActions(emailTemplaterLogic)
+    const { logicProps, activeContentTab } = useValues(emailTemplaterLogic)
+    const { setIsModalOpen, setActiveContentTab } = useActions(emailTemplaterLogic)
 
     return (
         <>
@@ -166,31 +237,7 @@ function DestinationEmailTemplaterForm({
                                         : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
                                 )}
                             >
-                                <EmailEditor
-                                    ref={(r: EditorRef | null) => setEmailEditorRef(r)}
-                                    onReady={() => onEmailEditorReady()}
-                                    minHeight={20}
-                                    options={{
-                                        mergeTags,
-                                        displayMode: 'email',
-                                        appearance: {
-                                            actionBar: {
-                                                placement: 'bottom',
-                                            },
-                                            panels: {
-                                                tools: {
-                                                    dock: 'right',
-                                                    collapsible: true,
-                                                },
-                                            },
-                                        },
-                                        features: {
-                                            preview: true,
-                                            imageEditor: true,
-                                            stockImages: false,
-                                        },
-                                    }}
-                                />
+                                <EmailEditorSwitch withUnlayerProjectConfig={false} />
                             </div>
                             {activeContentTab === 'plaintext' && <PlainTextEditor />}
                         </div>
@@ -436,16 +483,8 @@ function NativeEmailTemplaterForm({
     fieldsHidden?: boolean
     onSaveAsTemplate?: () => void
 }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields } =
-        useValues(emailTemplaterLogic)
-    const {
-        setEmailEditorRef,
-        onEmailEditorReady,
-        setIsModalOpen,
-        applyTemplate,
-        setActiveContentTab,
-        hideAdvancedField,
-    } = useActions(emailTemplaterLogic)
+    const { logicProps, templates, activeContentTab, visibleFields } = useValues(emailTemplaterLogic)
+    const { setIsModalOpen, applyTemplate, setActiveContentTab, hideAdvancedField } = useActions(emailTemplaterLogic)
 
     const [previewTemplate, setPreviewTemplate] = useState<(typeof templates)[0] | null>(null)
 
@@ -543,51 +582,7 @@ function NativeEmailTemplaterForm({
                                         : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
                                 )}
                             >
-                                <EmailEditor
-                                    ref={(r: EditorRef | null) => setEmailEditorRef(r)}
-                                    onReady={() => onEmailEditorReady()}
-                                    minHeight={20}
-                                    options={{
-                                        mergeTags,
-                                        displayMode: 'email',
-                                        appearance: {
-                                            actionBar: {
-                                                placement: 'bottom',
-                                            },
-                                            panels: {
-                                                tools: {
-                                                    dock: 'right',
-                                                    collapsible: true,
-                                                },
-                                            },
-                                        },
-                                        features: {
-                                            preview: true,
-                                            imageEditor: true,
-                                            stockImages: false,
-                                        },
-                                        projectId: unlayerEditorProjectId,
-                                        customJS: [unsubscribeLinkToolCustomJs],
-                                        fonts: unlayerEditorProjectId
-                                            ? {
-                                                  showDefaultFonts: true,
-                                                  customFonts: [
-                                                      {
-                                                          label: 'Ubuntu',
-                                                          value: "'Ubuntu',Tahoma,Verdana,Segoe,sans-serif",
-                                                          url: 'https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700',
-                                                          weights: [
-                                                              { label: 'Light', value: 300 },
-                                                              { label: 'Regular', value: 400 },
-                                                              { label: 'Medium', value: 500 },
-                                                              { label: 'Bold', value: 700 },
-                                                          ],
-                                                      },
-                                                  ],
-                                              }
-                                            : undefined,
-                                    }}
-                                />
+                                <EmailEditorSwitch withUnlayerProjectConfig />
                             </div>
                             {activeContentTab === 'plaintext' && <PlainTextEditor />}
                         </div>

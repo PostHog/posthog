@@ -1,9 +1,19 @@
 import { Editor } from 'react-email-editor'
 
-type JSONTemplate = Parameters<Editor['loadDesign']>[0]
+import type { ReactEmailDesign } from './react-email/types'
+
+type UnlayerJSONTemplate = Parameters<Editor['loadDesign']>[0]
+
+/**
+ * Designs produced by the Unlayer editor have a `body`/`counters`/`schemaVersion`
+ * shape; designs produced by `@react-email/editor` are TipTap JSONContent with
+ * `type: 'doc'`. Both can live in the same `design` field — the logic picks
+ * which editor to use based on the shape.
+ */
+export type EmailDesign = UnlayerJSONTemplate | ReactEmailDesign
 
 export type EmailTemplate = {
-    design: JSONTemplate | null
+    design: EmailDesign | null
     html: string
     subject: string
     text: string

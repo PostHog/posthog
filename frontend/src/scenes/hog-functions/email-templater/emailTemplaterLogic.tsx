@@ -6,7 +6,9 @@ import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-e
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -15,6 +17,8 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } fr
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
+import type { ReactEmailEditorShimRef } from './react-email/ReactEmailEditorShim'
+import { isReactEmailDesign, isUnlayerDesign } from './react-email/types'
 import type { EmailTemplate } from './types'
 
 export type { EmailTemplate }
@@ -89,6 +93,13 @@ export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
 
+/**
+ * Unified handle covering both the Unlayer `EditorRef` and our react-email
+ * shim. Both expose an `editor` with the three methods `emailTemplaterLogic`
+ * actually calls: `loadDesign`, `exportHtml`, `exportPlainText`.
+ */
+export type EmailEditorHandle = EditorRef | ReactEmailEditorShimRef | null
+
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
@@ -120,10 +131,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
     path(['scenes', 'hog-functions', 'email-templater', 'emailTemplaterLogic']),
     connect(() => ({
-        values: [preflightLogic, ['preflight']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
-        setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
+        setEmailEditorRef: (emailEditorRef: EmailEditorHandle) => ({ emailEditorRef }),
         onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -137,7 +148,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     }),
     reducers({
         emailEditorRef: [
-            null as EditorRef | null,
+            null as EmailEditorHandle,
             {
                 setEmailEditorRef: (_, { emailEditorRef }) => emailEditorRef,
             },
@@ -258,6 +269,26 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 }
             },
         ],
+        /**
+         * Picks the editor engine for the current template:
+         * - always Unlayer when the flag is off (opt-in rollout),
+         * - always Unlayer when the existing design is an Unlayer shape so we
+         *   never orphan previously saved templates,
+         * - react-email otherwise (new blank templates or designs already saved
+         *   as TipTap JSONContent).
+         */
+        useReactEmailEditor: [
+            (s) => [s.featureFlags, (_, props: EmailTemplaterLogicProps) => props.value],
+            (featureFlags: Record<string, boolean | string>, value: EmailTemplate | null): boolean => {
+                if (!featureFlags[FEATURE_FLAGS.EMAIL_TEMPLATER_REACT_EMAIL]) {
+                    return false
+                }
+                if (value?.design && isUnlayerDesign(value.design)) {
+                    return false
+                }
+                return !value?.design || isReactEmailDesign(value.design)
+            },
+        ],
         visibleFields: [
             (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.revealedAdvancedFields],
             (type: EmailTemplaterType, revealedAdvancedFields: EmailMetaFieldKey[]): EmailMetaField[] =>
@@ -295,10 +326,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
 
+                // Both Unlayer's `EditorRef.editor` and our react-email shim
+                // expose `exportHtml(cb)` + `exportPlainText(cb)` with the same
+                // callback shape, so the polymorphism is safe here.
                 const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                     await Promise.all([
-                        new Promise<any>((res) => editor.exportHtml(res)),
-                        new Promise<any>((res) => editor.exportPlainText(res)),
+                        new Promise<any>((res) => (editor as any).exportHtml(res)),
+                        new Promise<any>((res) => (editor as any).exportPlainText(res)),
                     ])
 
                 const finalValues: EmailTemplate = {
@@ -318,9 +352,19 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     listeners(({ props, values, actions }) => ({
         onEmailEditorReady: () => {
-            if (props.value?.design) {
-                values.emailEditorRef?.editor?.loadDesign(props.value.design)
+            const design = props.value?.design
+            if (!design) {
+                return
             }
+            // Only hand the design to the active editor engine — mismatched
+            // shapes would crash either loader.
+            if (values.useReactEmailEditor && !isReactEmailDesign(design)) {
+                return
+            }
+            if (!values.useReactEmailEditor && !isUnlayerDesign(design)) {
+                return
+            }
+            ;(values.emailEditorRef as EmailEditorHandle)?.editor?.loadDesign(design as any)
         },
 
         setEmailTemplateValue: ({ name, value }) => {
@@ -360,9 +404,17 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             actions.setEmailTemplateValues(emailTemplateContent)
 
             // Load the design into the editor if it's ready and has a design
-            if (values.isEmailEditorReady && emailTemplateContent.design) {
-                values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
+            const design = emailTemplateContent.design
+            if (!values.isEmailEditorReady || !design) {
+                return
             }
+            if (values.useReactEmailEditor && !isReactEmailDesign(design)) {
+                return
+            }
+            if (!values.useReactEmailEditor && !isUnlayerDesign(design)) {
+                return
+            }
+            ;(values.emailEditorRef as EmailEditorHandle)?.editor?.loadDesign(design as any)
         },
 
         closeWithConfirmation: () => {
@@ -406,8 +458,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                     const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                         await Promise.all([
-                            new Promise<any>((res) => editor.exportHtml(res)),
-                            new Promise<any>((res) => editor.exportPlainText(res)),
+                            new Promise<any>((res) => (editor as any).exportHtml(res)),
+                            new Promise<any>((res) => (editor as any).exportPlainText(res)),
                         ])
 
                     emailContent = {

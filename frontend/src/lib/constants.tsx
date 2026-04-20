@@ -270,6 +270,7 @@ export const FEATURE_FLAGS = {
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
     DWH_POSTGRES_DIRECT_QUERY: 'dwh-postgres-direct-query', // owner: #team-data-tools
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
+    EMAIL_TEMPLATER_REACT_EMAIL: 'email-templater-react-email', // owner: #team-workflows, swap the Unlayer-based EmailTemplater for the @react-email/editor-based experience
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
     ERROR_TRACKING_ALERTS_WIZARD: 'error-tracking-alerts-wizard', // owner: @aleks #team-error-tracking
     ERROR_TRACKING_FORCE_QUERY_V2: 'error-tracking-force-query-v2', // owner: #team-error-tracking
