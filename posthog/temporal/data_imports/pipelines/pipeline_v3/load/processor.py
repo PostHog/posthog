@@ -1,4 +1,5 @@
 import datetime as dt
+from collections.abc import Callable
 from typing import Any, Literal
 
 import s3fs
@@ -234,6 +235,21 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
 
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
+    # Short-circuit if the job is already FAILED: redelivered DLQ'd messages
+    # (the retry state stays in Redis until its 72h TTL) would otherwise spam
+    # status updates and latest_error rewrites for a terminal job.
+    existing = ExternalDataJob.objects.filter(
+        id=export_signal.job_id, team_id=export_signal.team_id, status=ExternalDataJob.Status.FAILED
+    ).first()
+    if existing is not None:
+        logger.info(
+            "job_already_marked_failed",
+            job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            schema_id=export_signal.schema_id,
+        )
+        return
+
     job = update_external_job_status(
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
@@ -252,7 +268,7 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
     )
 
 
-def process_message(message: Any) -> None:
+def process_message(message: Any, progress_callback: Callable[[], None] | None = None) -> None:
     export_signal = ExportSignalMessage.from_dict(message)
 
     # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
@@ -427,6 +443,7 @@ def process_message(message: Any) -> None:
                     write_type=write_type,
                     should_overwrite_table=should_overwrite_table,
                     primary_keys=primary_keys,
+                    progress_callback=progress_callback,
                 )
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)

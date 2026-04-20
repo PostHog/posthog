@@ -67,6 +67,7 @@ PRODUCTS_APPS = [
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
+    "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -621,6 +622,7 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:read",
     "element:read",
     "uploaded_media:write",
+    "survey:read",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)

@@ -6,9 +6,9 @@ import pyarrow as pa
 import requests
 import structlog
 from dateutil import parser
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
@@ -70,7 +70,7 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
             logger.warning("Skipping DoIt report with empty name", report_id=report_id)
             continue
         try:
-            normalized = NamingConvention().normalize_identifier(report_name)
+            normalized = NamingConvention.normalize_identifier(report_name)
             result.append((normalized, report["id"]))
         except ValueError:
             logger.warning("Skipping DoIt report with invalid name", report_id=report_id, report_name=report_name)

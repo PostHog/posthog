@@ -11,6 +11,7 @@ from django.test.client import Client as HttpClient
 import psycopg
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.service import RPCError
 
 from posthog.api.test.test_organization import create_organization
@@ -101,6 +102,8 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "full_refresh_available": True,
             "supports_webhooks": False,
+            "available_columns": [],
+            "detected_primary_keys": None,
         }
 
     def test_incremental_fields_missing_source_type(self):
@@ -199,6 +202,10 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "full_refresh_available": True,
             "supports_webhooks": False,
+            "available_columns": [
+                {"field": "id", "label": "id", "type": "integer", "nullable": True},
+            ],
+            "detected_primary_keys": ["id"],
         }
 
     def test_update_schema_change_sync_type(self):
@@ -236,6 +243,56 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    @parameterized.expand(
+        [ExternalDataSchema.SyncType.APPEND, ExternalDataSchema.SyncType.INCREMENTAL],
+    )
+    def test_update_schema_to_webhook_does_not_reset_pipeline(self, from_sync_type):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=from_sync_type,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "incremental_field_last_value": 1000,
+            },
+            table=table,
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger_external_data_workflow,
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=True,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook"},
+            )
+
+            assert response.status_code == 200
+            mock_trigger_external_data_workflow.assert_not_called()
+
+            schema.refresh_from_db()
+
+            assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+            assert schema.sync_type_config.get("reset_pipeline") is None
+            assert schema.sync_type_config.get("incremental_field") == "created"
+            assert schema.sync_type_config.get("incremental_field_type") == "integer"
+            assert schema.sync_type_config.get("incremental_field_last_value") == 1000
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
@@ -275,6 +332,160 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("incremental_field") == "field"
             assert schema.sync_type_config.get("incremental_field_type") == "integer"
             assert schema.sync_type_config.get("incremental_field_last_value") == 1
+
+    def test_update_schema_with_primary_key_columns(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={
+                "sync_type": "incremental",
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "primary_key_columns": ["_id", "source_id"],
+            },
+        )
+
+        assert response.status_code == 200
+
+        schema.refresh_from_db()
+
+        assert schema.sync_type_config.get("primary_key_columns") == ["_id", "source_id"]
+        assert schema.primary_key_columns == ["_id", "source_id"]
+
+    def test_update_schema_rejects_primary_key_change_with_existing_data(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "primary_key_columns": ["id"],
+            },
+            table=table,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={
+                "sync_type": "incremental",
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "primary_key_columns": ["_id"],
+            },
+        )
+
+        assert response.status_code == 400
+
+    def test_update_schema_primary_key_columns_not_reset_on_full_refresh(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "primary_key_columns": ["_id"],
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "full_refresh"},
+        )
+
+        assert response.status_code == 200
+
+        schema.refresh_from_db()
+
+        assert schema.sync_type_config.get("primary_key_columns") == ["_id"]
+
+    def test_switch_synced_incremental_schema_to_append_with_existing_pk(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "primary_key_columns": ["id"],
+            },
+            table=table,
+        )
+
+        with mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "sync_type": "append",
+                    "incremental_field": "created",
+                    "incremental_field_type": "integer",
+                    "primary_key_columns": None,
+                },
+            )
+
+            assert response.status_code == 200
+
+            schema.refresh_from_db()
+            assert schema.sync_type == ExternalDataSchema.SyncType.APPEND
+            assert schema.sync_type_config.get("primary_key_columns") is None
+
+    def test_primary_key_columns_returned_in_serializer(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "primary_key_columns": ["_id"],
+            },
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_schemas/",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["results"][0]["primary_key_columns"] == ["_id"]
 
     def test_update_schema_to_webhook_triggers_webhook_creation(self):
         source = ExternalDataSource.objects.create(

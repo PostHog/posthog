@@ -6,6 +6,7 @@ use capture::metrics_middleware::track_metrics;
 use capture_logs::config::Config;
 use capture_logs::endpoints::datadog;
 use capture_logs::kafka::KafkaSink;
+use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::Service;
 use capture_logs::service::{export_logs_http, export_traces_http, options_handler};
 use common_metrics::setup_metrics_routes;
@@ -160,6 +161,7 @@ async fn main() {
         .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
         .layer(axum::middleware::from_fn(track_metrics))
         .layer(RequestDecompressionLayer::new())
+        .layer(axum::middleware::from_fn(translate_compression_query_param))
         .layer(cors);
 
     let http_server = tokio::spawn(async move {

@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -12,11 +12,10 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Logs',
             activityScope: ActivityScope.LOG,
+            settingsSection: 'environment-logs',
             layout: 'app-container',
             iconType: 'logs',
             description: 'Monitor and analyze your logs to understand and fix issues.',
-            defaultDocsPath: '/docs/logs',
-            changelogTeamSlug: 'Logs',
         },
     },
     routes: {
@@ -30,7 +29,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Logs',
             intents: [ProductKey.LOGS],
-            category: 'Behavior',
+            category: ProductItemCategory.BEHAVIOR,
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),

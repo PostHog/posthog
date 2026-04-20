@@ -629,7 +629,7 @@ impl From<HyperCacheError> for FlagError {
             HyperCacheError::CacheMiss => FlagError::CacheMiss,
             HyperCacheError::Redis(redis_error) => FlagError::from(redis_error),
             HyperCacheError::S3(_) => FlagError::CacheMiss,
-            HyperCacheError::Json(_) => FlagError::DataParsingError,
+            HyperCacheError::Json(_) | HyperCacheError::Pickle(_) => FlagError::DataParsingError,
             HyperCacheError::Timeout(_) => {
                 FlagError::TimeoutError(Some("cache_timeout".to_string()))
             }

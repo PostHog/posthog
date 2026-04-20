@@ -240,7 +240,7 @@ async def test_finish_batch_export_run_pauses_if_reaching_failure_threshold(acti
     )
 
     batch_export_id = str(batch_export.id)
-    failure_threshold = 10
+    failure_threshold = 3
 
     for run_number in range(1, failure_threshold * 2):
         run_id = await activity_environment.run(start_batch_export_run, inputs)

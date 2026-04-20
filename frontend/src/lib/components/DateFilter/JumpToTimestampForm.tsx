@@ -8,7 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { WindowDirection, WindowSize, computeDateRange, parseTimestampInput } from './jumpToTimestampUtils'
 
-const PLACEHOLDER_ISO = dayjs().format('YYYY-MM-DDTHH:mm:ss[Z]')
+const PLACEHOLDER_ISO = dayjs().utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
 const PLACEHOLDER_UNIX = Math.floor(Date.now() / 1000).toString()
 
 export interface JumpToTimestampFormProps {
@@ -34,7 +34,7 @@ export function JumpToTimestampForm({ onSubmit, children }: JumpToTimestampFormP
     }
 
     const statusSuffix = parsed ? (
-        <Tooltip title={`Parsed as: ${parsed.format('MMM D, YYYY HH:mm:ss')}`}>
+        <Tooltip title={`Parsed as: ${parsed.utc().format('MMM D, YYYY HH:mm:ss')} UTC`}>
             <IconCheck className="text-success text-base" />
         </Tooltip>
     ) : isInvalid ? (
@@ -93,11 +93,11 @@ export function JumpToTimestampForm({ onSubmit, children }: JumpToTimestampFormP
                 <div className="text-xs text-secondary mt-3">
                     Will show events from{' '}
                     <span className="whitespace-nowrap font-medium text-primary bg-fill-highlight-100 rounded px-0.5">
-                        {dayjs(dateRange.date_from).format('MMM D, YYYY HH:mm')}
+                        {dayjs.utc(dateRange.date_from).format('MMM D, YYYY HH:mm')} UTC
                     </span>{' '}
                     to{' '}
                     <span className="whitespace-nowrap font-medium text-primary bg-fill-highlight-100 rounded px-0.5">
-                        {dayjs(dateRange.date_to).format('MMM D, YYYY HH:mm')}
+                        {dayjs.utc(dateRange.date_to).format('MMM D, YYYY HH:mm')} UTC
                     </span>
                 </div>
             )}

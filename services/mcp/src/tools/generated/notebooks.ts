@@ -25,7 +25,7 @@ const notebooksList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedNotebookMinimalList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/notebooks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/`,
             query: {
                 contains: params.contains,
                 created_by: params.created_by,
@@ -65,7 +65,7 @@ const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, WithPostHogUr
         }
         const result = await context.api.request<Schemas.Notebook>({
             method: 'POST',
-            path: `/api/projects/${projectId}/notebooks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/`,
             body,
         })
         return await withPostHogUrl(context, result, `/notebooks/${result.short_id}`)
@@ -81,7 +81,7 @@ const notebooksRetrieve = (): ToolBase<typeof NotebooksRetrieveSchema, WithPostH
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Notebook>({
             method: 'GET',
-            path: `/api/projects/${projectId}/notebooks/${params.short_id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
         })
         return await withPostHogUrl(context, result, `/notebooks/${result.short_id}`)
     },
@@ -114,7 +114,7 @@ const notebooksPartialUpdate = (): ToolBase<typeof NotebooksPartialUpdateSchema,
         }
         const result = await context.api.request<Schemas.Notebook>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/notebooks/${params.short_id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
             body,
         })
         return await withPostHogUrl(context, result, `/notebooks/${result.short_id}`)
@@ -130,7 +130,7 @@ const notebooksDestroy = (): ToolBase<typeof NotebooksDestroySchema, Schemas.Not
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Notebook>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/notebooks/${params.short_id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
             body: { deleted: true },
         })
         return result

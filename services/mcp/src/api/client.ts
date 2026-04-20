@@ -12,7 +12,6 @@ import type {
 } from '@/schema/api'
 import type { Experiment, ExperimentExposureQuery, ExperimentExposureQueryResponse } from '@/schema/experiments'
 import { ExperimentExposureQuerySchema } from '@/schema/experiments'
-import { type CreateInsightInput, CreateInsightInputSchema, type ListInsightsData } from '@/schema/insights'
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
@@ -124,7 +123,7 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | boolean | (string | number)[] | null | undefined>
+        query?: Record<string, unknown>
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
     }): Promise<T> {
@@ -137,7 +136,12 @@ export class ApiClient {
                 if (Array.isArray(v) && v.length === 0) {
                     continue
                 }
-                searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
+                // JSON-stringify objects and arrays so backends that use json.loads() on query params work correctly
+                if (typeof v === 'object') {
+                    searchParams.append(k, JSON.stringify(v))
+                } else {
+                    searchParams.append(k, String(v))
+                }
             }
         }
         const qs = searchParams.toString()
@@ -691,40 +695,6 @@ export class ApiClient {
 
     insights({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListInsightsData } = {}): Promise<Result<Array<Schemas.Insight>>> => {
-                try {
-                    const qs = new URLSearchParams()
-                    if (params?.limit !== undefined) {
-                        qs.set('limit', String(params.limit))
-                    }
-                    if (params?.offset !== undefined) {
-                        qs.set('offset', String(params.offset))
-                    }
-                    if (params?.search) {
-                        qs.set('search', params.search)
-                    }
-                    const qStr = qs.toString()
-                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
-                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
-                    )
-                    if (!result.success) {
-                        throw result.error
-                    }
-                    return { success: true, data: result.data.results }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
-            create: async ({ data }: { data: CreateInsightInput }): Promise<Result<Schemas.Insight>> => {
-                const validatedInput = CreateInsightInputSchema.parse(data)
-
-                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
-                    method: 'POST',
-                    body: JSON.stringify({ ...validatedInput, saved: true }),
-                })
-            },
-
             get: async ({ insightId }: { insightId: string }): Promise<Result<Schemas.Insight>> => {
                 // Check if insightId is a short_id (8 character alphanumeric string)
                 // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
@@ -754,6 +724,13 @@ export class ApiClient {
                 return this.fetchJson<Schemas.Insight>(
                     `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
                 )
+            },
+
+            create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
+                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
+                    method: 'POST',
+                    body: JSON.stringify({ ...data, saved: true }),
+                })
             },
 
             update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<Schemas.Insight>> => {
@@ -796,10 +773,41 @@ export class ApiClient {
                 }
             },
 
-            query: async ({ query }: { query: Record<string, any> }): Promise<Result<any>> => {
+            list: async ({ params }: { params?: Record<string, any> } = {}): Promise<
+                Result<Array<Schemas.Insight>>
+            > => {
+                try {
+                    const qs = new URLSearchParams()
+                    if (params?.limit !== undefined) {
+                        qs.set('limit', String(params.limit))
+                    }
+                    if (params?.offset !== undefined) {
+                        qs.set('offset', String(params.offset))
+                    }
+                    if (params?.search) {
+                        qs.set('search', params.search)
+                    }
+                    const qStr = qs.toString()
+                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
+                    )
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return { success: true, data: result.data.results }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
+
+            query: async ({
+                query,
+            }: {
+                query: Record<string, any>
+            }): Promise<Result<{ results: unknown; columns?: unknown; formatted_results?: string }>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                return this.fetchJson<{ results: unknown; columns: unknown }>(url, {
+                return this.fetchJson<{ results: unknown; columns?: unknown; formatted_results?: string }>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
                 })
@@ -837,12 +845,88 @@ export class ApiClient {
     }
 
     query({ projectId }: { projectId: string }): Endpoint {
+        const queryUrl = `${this.baseUrl}/api/environments/${projectId}/query/`
+
+        // Bridge assistant-facing schema shape to the query API shape.
+        // The LLM emits `filterGroup` as a flat array; the API expects a nested PropertyGroupFilter.
+        const normalizeQuery = (query: Record<string, unknown>): Record<string, unknown> => {
+            const normalized = { ...query }
+            if (Array.isArray(normalized.filterGroup)) {
+                if (normalized.filterGroup.length > 0) {
+                    normalized.filterGroup = {
+                        type: 'AND',
+                        values: [{ type: 'AND', values: normalized.filterGroup }],
+                    }
+                } else {
+                    delete normalized.filterGroup
+                }
+            }
+            return normalized
+        }
+
         return {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
-                return this.fetchJson<{ results: unknown[] }>(`${this.baseUrl}/api/environments/${projectId}/query/`, {
+                return this.fetchJson<{ results: unknown[] }>(queryUrl, {
                     method: 'POST',
                     body: JSON.stringify({ query: queryBody }),
                 })
+            },
+
+            runQuery: async ({
+                query,
+            }: {
+                query: Record<string, unknown>
+            }): Promise<{ results: unknown; formatted_results?: string }> => {
+                return this.request<{ results: unknown; formatted_results?: string }>({
+                    method: 'POST',
+                    path: `/api/environments/${projectId}/query/`,
+                    body: { query: normalizeQuery(query) },
+                })
+            },
+
+            trendsActors: async ({
+                query,
+            }: {
+                query: Record<string, unknown>
+            }): Promise<{
+                query: Record<string, unknown>
+                results: { columns: readonly string[]; results: (string | number | null)[][] }
+                hasMore: boolean
+                offset: number
+            }> => {
+                const wrappedQuery = {
+                    kind: 'ActorsQuery',
+                    source: normalizeQuery(query),
+                    select: ['actor', 'event_count'],
+                    orderBy: ['event_count DESC', 'actor_id DESC'],
+                    limit: 100,
+                }
+
+                const response = await this.request<{
+                    results: any[][]
+                    hasMore?: boolean
+                    offset?: number
+                }>({
+                    method: 'POST',
+                    path: `/api/environments/${projectId}/query/`,
+                    body: { query: wrappedQuery },
+                })
+
+                const results = (response.results ?? []).map(([actor, count]) => {
+                    const properties = actor.properties ?? {}
+                    const distinctId = actor.distinct_ids?.[0] ?? null
+                    return [distinctId, properties.email, properties.name, count]
+                })
+
+                return {
+                    query: wrappedQuery,
+                    results: {
+                        columns: ['distinct_id', 'email', 'name', 'event_count'],
+                        results: results,
+                    },
+                    hasMore: response.hasMore ?? false,
+                    offset: response.offset ?? 0,
+                }
             },
         }
     }

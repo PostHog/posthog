@@ -12,13 +12,14 @@ from django.conf import settings
 
 import pyarrow as pa
 import pymysql
+import structlog
 import pymysql.converters
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -32,6 +33,13 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
+
+# Applied to the row-streaming connection so large result preparation
+# (e.g. filesort on a multi-GB table) doesn't hit MySQL's default 60s
+# net_write_timeout before the first rows are ready. Used for both the
+# client-side PyMySQL read_timeout and the server-side SET SESSION
+# net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
+STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 
 
 def _safe_convert_date(obj: Any) -> datetime.date | None:
@@ -185,6 +193,27 @@ def _build_query(
     }
 
 
+def _explain_query(cursor: Cursor, query: str, query_args: dict[str, Any], logger: FilteringBoundLogger) -> None:
+    """Log the MySQL EXPLAIN output for `query` at debug level.
+
+    Useful for diagnosing sync failures on large tables: reveals whether the
+    optimizer chose a full table scan + filesort (the failure mode where
+    nothing streams back before middlebox/query timeouts) vs. a range scan
+    on the incremental index.
+    """
+    try:
+        explain_query = f"EXPLAIN {query}"
+        logger.debug(f"Running EXPLAIN on: {query}")
+        cursor.execute(explain_query, query_args)
+        rows = cursor.fetchall()
+        column_names = [col[0] for col in cursor.description or []]
+        explain_lines = [str(dict(zip(column_names, row))) for row in rows]
+        logger.debug(f"EXPLAIN result: {' | '.join(explain_lines) if explain_lines else '(empty)'}")
+    except Exception as e:
+        logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
+        capture_exception(e)
+
+
 def _get_rows_to_sync(
     cursor: Cursor, inner_query: str, inner_query_args: dict[str, Any], logger: FilteringBoundLogger
 ) -> int:
@@ -281,6 +310,62 @@ def _get_partition_settings(
         logger.debug(f"_get_partition_settings: Error: {e}. Returning None", exc_info=e)
         capture_exception(e)
         return None
+
+
+def get_primary_keys_for_schemas(
+    host: str,
+    user: str,
+    password: str,
+    database: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+    using_ssl: bool = True,
+) -> dict[str, list[str] | None]:
+    """Detect primary keys for all tables in a single query."""
+    result: dict[str, list[str] | None] = dict.fromkeys(table_names)
+
+    try:
+        ssl_ca: str | None = None
+        if using_ssl:
+            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+
+        with pymysql.connect(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            connect_timeout=10,
+            ssl_ca=ssl_ca,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT tc.TABLE_NAME, kcu.COLUMN_NAME
+                    FROM information_schema.TABLE_CONSTRAINTS tc
+                    JOIN information_schema.KEY_COLUMN_USAGE kcu
+                    ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+                    AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+                    AND tc.TABLE_NAME = kcu.TABLE_NAME
+                    WHERE tc.TABLE_SCHEMA = %(schema)s
+                    AND tc.TABLE_NAME IN %(names)s
+                    AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                    """,
+                    {"schema": schema, "names": tuple(table_names)},
+                )
+                rows = cursor.fetchall()
+
+                pks: dict[str, list[str]] = collections.defaultdict(list)
+                for table_name, column_name in rows:
+                    pks[table_name].append(column_name)
+
+                for table_name, pk_cols in pks.items():
+                    result[table_name] = pk_cols
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect primary keys for MySQL schemas", exc_info=e)
+
+    return result
 
 
 def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str] | None:
@@ -629,10 +714,22 @@ def mysql_source(
                 user=user,
                 password=password,
                 connect_timeout=10,
+                read_timeout=STATEMENT_TIMEOUT_SECONDS,
                 ssl_ca=ssl_ca,
                 init_command=init_command,
                 conv=_MYSQL_SAFE_CONVERSIONS,
             ) as connection:
+                # Bump server-side timeouts for large table scans. The
+                # defaults (60s each) are too low for multi-GB unbuffered
+                # queries — the server drops the connection before the first
+                # rows are ready.
+                try:
+                    with connection.cursor() as setup_cursor:
+                        setup_cursor.execute(
+                            f"SET SESSION net_write_timeout = {STATEMENT_TIMEOUT_SECONDS}, net_read_timeout = {STATEMENT_TIMEOUT_SECONDS}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
                 with connection.cursor(SSCursor) as cursor:
                     query, args = _build_query(
                         schema,
@@ -643,6 +740,13 @@ def mysql_source(
                         db_incremental_field_last_value,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
+
+                    # EXPLAIN before the streaming query to help diagnose
+                    # failures where MySQL picks full scan + filesort over
+                    # the incremental index. _explain_query consumes its
+                    # rows via fetchall(), leaving the cursor in a clean
+                    # state for the streaming execute() below.
+                    _explain_query(cursor, query, args, logger)
 
                     cursor.execute(query, args)
 
@@ -656,7 +760,7 @@ def mysql_source(
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-    name = NamingConvention().normalize_identifier(table_name)
+    name = NamingConvention.normalize_identifier(table_name)
 
     return SourceResponse(
         name=name,

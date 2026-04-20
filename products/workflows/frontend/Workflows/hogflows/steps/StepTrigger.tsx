@@ -30,7 +30,6 @@ import {
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -539,7 +538,6 @@ function StepTriggerConfigurationBatch({
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="flex flex-col gap-2 my-2 w-full">
@@ -581,7 +579,7 @@ function StepTriggerConfigurationBatch({
                 />
             </div>
 
-            {featureFlags[FEATURE_FLAGS.WORKFLOWS_RECURRING_SCHEDULES] && <BatchScheduleSection />}
+            <BatchScheduleSection />
         </div>
     )
 }

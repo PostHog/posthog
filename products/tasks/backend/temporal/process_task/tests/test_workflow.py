@@ -298,13 +298,15 @@ class TestProcessTaskWorkflowUnit:
         read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
 
-    async def test_get_sandbox_for_repository_skips_clone_and_checkout_without_github_integration(self, monkeypatch):
+    async def test_get_sandbox_for_repository_skips_clone_and_checkout_for_private_repo_without_github_integration(
+        self, monkeypatch
+    ):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=None)
 
         prepared = PrepareSandboxForRepositoryOutput(
             sandbox_name="sandbox-name",
-            repository="posthog/posthog-js",
+            repository="posthog/charts",
             github_token="",
             branch="feature-branch",
             environment_variables={},

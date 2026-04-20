@@ -30,6 +30,7 @@ export interface TicketViewFilters {
     dateFrom?: string | null
     dateTo?: string | null
     sorting?: Sorting | null
+    search?: string
 }
 
 export interface SavedTicketView {
@@ -86,12 +87,14 @@ export interface Ticket {
         [key: string]: any
     }
     sla_due_at?: string | null
+    snoozed_until?: string | null
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
     slack_team_id?: string | null
     email_subject?: string | null
     email_from?: string | null
     email_to?: string | null
+    cc_participants?: string[]
     person?: TicketPerson | null
     tags?: string[]
 }
