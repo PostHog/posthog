@@ -19,7 +19,7 @@ logger = structlog.get_logger(__name__)
 
 MAX_REQUEST_RETRIES = 3
 INITIAL_RETRIES_BACKOFF = 1  # in seconds
-UNPREFIXED_SEMVER_TAG = re.compile(r"[0-9]")
+UNPREFIXED_SEMVER_TAG = re.compile(r"\d+\.\d+(?:\.\d+)*$")
 
 
 SdkTypes = Literal[
