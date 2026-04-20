@@ -474,6 +474,7 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         "update_delivery_record.updated",
         delivery_id=inputs.delivery_id,
         status=inputs.status,
+        has_change_summary=inputs.change_summary is not None,
     )
 
 

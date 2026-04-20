@@ -174,6 +174,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         delivery_exported_asset_ids: list[int] = []
         delivery_content_snapshot: dict = {}
         delivery_recipient_results: list[dict] = []
+        # Bound before the outer try so the finally block can always pass it to
+        # update_delivery_record, even on early returns (no-assets SKIPPED) or
+        # exceptions before the summary activity runs.
+        change_summary: str | None = None
 
         try:
             # Create delivery history record — uuid4() is deterministic across
@@ -262,7 +266,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # block also writes content_snapshot, but that runs after the summary
             # activity — without this early write the summary would always see
             # the create_delivery_record skeleton (id/short_id/name only).
-            change_summary: str | None = None
             if delivery_id is not None and delivery_content_snapshot:
                 try:
                     await temporalio.workflow.execute_activity(

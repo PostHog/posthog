@@ -139,7 +139,12 @@ class CreateDeliveryRecordInputs:
 
 @dataclasses.dataclass
 class UpdateDeliveryRecordInputs:
-    """Patch a SubscriptionDelivery row. None on optional collections means leave the column unchanged."""
+    """Patch a SubscriptionDelivery row.
+
+    None on any of the optional fields (collections, change_summary, error) means
+    "leave the column unchanged". error is the one exception — it is always
+    written so a successful run can clear a previous attempt's error payload.
+    """
 
     delivery_id: uuid.UUID
     status: str
