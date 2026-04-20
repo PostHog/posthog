@@ -1,6 +1,6 @@
 use crate::parsing::u64_or_string;
+use crate::types::PropVal;
 use crate::unordered_steps::AggregateFunnelRowUnordered;
-use crate::PropVal;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -67,21 +67,26 @@ pub const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     steps: 0,
 };
 
-pub fn process_line(line: &str) -> Value {
-    let args = parse_args(line);
+pub fn run(args: &Args) -> Vec<Result> {
     if args.funnel_order_type == "unordered" {
-        let mut aggregate_funnel_row = AggregateFunnelRowUnordered {
+        let mut row = AggregateFunnelRowUnordered {
             results: Vec::with_capacity(args.prop_vals.len()),
             breakdown_step: Option::None,
         };
-        let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-        return json!({ "result": result });
+        row.calculate_funnel_from_user_events(args);
+        return row.results;
     }
-    let mut aggregate_funnel_row = AggregateFunnelRow {
+    let mut row = AggregateFunnelRow {
         results: Vec::with_capacity(args.prop_vals.len()),
         breakdown_step: Option::None,
     };
-    let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
+    row.calculate_funnel_from_user_events(args);
+    row.results
+}
+
+pub fn process_line(line: &str) -> Value {
+    let args = parse_args(line);
+    let result = run(&args);
     json!({ "result": result })
 }
 

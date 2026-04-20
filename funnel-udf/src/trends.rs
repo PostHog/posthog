@@ -78,19 +78,22 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     excluded: false,
 };
 
-pub fn process_line(line: &str) -> Value {
-    let args = parse_args(line);
+pub fn run(args: &Args) -> Vec<ResultStruct> {
     if args.funnel_order_type == "unordered" {
-        let mut aggregate_funnel_row = AggregateFunnelRowUnordered {
+        let mut row = AggregateFunnelRowUnordered {
             breakdown_step: Option::None,
         };
-        let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-        return json!({ "result": result });
+        return row.calculate_funnel_from_user_events(args);
     }
-    let mut aggregate_funnel_row = AggregateFunnelRow {
+    let mut row = AggregateFunnelRow {
         breakdown_step: Option::None,
     };
-    let result: Vec<ResultStruct> = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
+    row.calculate_funnel_from_user_events(args)
+}
+
+pub fn process_line(line: &str) -> Value {
+    let args = parse_args(line);
+    let result = run(&args);
     json!({ "result": result })
 }
 

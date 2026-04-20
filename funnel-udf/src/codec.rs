@@ -1,0 +1,50 @@
+#![allow(dead_code)]
+
+pub mod chunk;
+pub mod rowbinary;
+
+use std::io;
+
+#[derive(Debug)]
+pub enum CodecError {
+    Io(io::Error),
+    InvalidNullMarker(u8),
+    VarintOverflow,
+    InvalidUtf8,
+    UnexpectedNull,
+    ShapeMismatch,
+    InvalidChunkHeader(String),
+    UnexpectedEof,
+}
+
+impl std::fmt::Display for CodecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "io error: {e}"),
+            Self::InvalidNullMarker(b) => write!(f, "invalid Nullable marker byte: {b}"),
+            Self::VarintOverflow => write!(f, "varint overflow: exceeded 10 bytes"),
+            Self::InvalidUtf8 => write!(f, "invalid utf-8 in String value"),
+            Self::UnexpectedNull => {
+                write!(
+                    f,
+                    "unexpected null in Nullable(String) — caller requires non-null"
+                )
+            }
+            Self::ShapeMismatch => {
+                write!(f, "PropVal variant does not match declared BreakdownShape")
+            }
+            Self::InvalidChunkHeader(s) => write!(f, "invalid chunk header: {s:?}"),
+            Self::UnexpectedEof => write!(f, "unexpected eof mid-row"),
+        }
+    }
+}
+
+impl std::error::Error for CodecError {}
+
+impl From<io::Error> for CodecError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+pub type CodecResult<T> = std::result::Result<T, CodecError>;
