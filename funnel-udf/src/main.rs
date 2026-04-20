@@ -15,7 +15,7 @@ use std::process::ExitCode;
 
 pub use types::{Bytes, PropVal};
 
-use crate::codec::chunk::{read_chunk_header, write_chunk_header};
+use crate::codec::chunk::read_chunk_header;
 use crate::codec::header::{read_block_header, write_block_header};
 use crate::codec::CodecResult;
 
@@ -42,6 +42,7 @@ mod e2e {
     use super::*;
     use clickhouse_types::{Column, DataTypeNode};
 
+    use crate::codec::chunk::write_chunk_header;
     use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
     use crate::io::propval::read_propval;
     use crate::types::BreakdownShape;
@@ -113,14 +114,7 @@ mod e2e {
         let out_bytes = writer.into_inner();
         let mut out = out_bytes.as_slice();
 
-        let header_end = out.iter().position(|&b| b == b'\n').unwrap();
-        let header_n: u64 = std::str::from_utf8(&out[..header_end])
-            .unwrap()
-            .parse()
-            .unwrap();
-        assert_eq!(header_n, 1);
-        out = &out[header_end + 1..];
-
+        // No chunk header on output — CH's `send_chunk_header` is input-only.
         let out_cols = crate::codec::header::read_block_header(&mut out).unwrap();
         assert_eq!(out_cols.len(), 1);
         assert_eq!(out_cols[0].name, "result");
@@ -151,9 +145,10 @@ mod e2e {
     }
 
     #[test]
-    fn rowbinary_emits_chunk_header_on_empty_input_chunk() {
+    fn rowbinary_empty_input_chunk_emits_header_only() {
         // Empty chunk (n=0) still carries a block header that declares schema
-        // — we must consume it before looping.
+        // — we must consume it before looping, and we still emit the format
+        // header so CH has schema for the (empty) result block.
         let mut input_buf = Vec::new();
         write_chunk_header(&mut input_buf, 0).unwrap();
         write_steps_header(&mut input_buf);
@@ -161,7 +156,7 @@ mod e2e {
         let mut writer = Cursor::new(Vec::new());
         run_rowbinary(&mut reader, &mut writer, Mode::Steps).unwrap();
         let out = writer.into_inner();
-        assert!(out.starts_with(b"0\n"));
+        assert!(!out.is_empty());
     }
 
     #[test]
@@ -275,6 +270,9 @@ fn run_rowbinary<R: BufRead, W: Write>(
             .clone();
         let shape = io::propval::detect_shape(&prop_vals_type)?;
 
+        // `send_chunk_header=true` applies only to the input side (CH -> our
+        // stdin). On output we emit plain `RowBinaryWithNamesAndTypes`:
+        // format header, then rows — no `N\n` chunk prefix.
         match mode {
             Mode::Steps => {
                 let mut results = Vec::with_capacity(n as usize);
@@ -282,7 +280,6 @@ fn run_rowbinary<R: BufRead, W: Write>(
                     let args = io::steps_io::read_args(reader, shape, &columns)?;
                     results.push(steps::run(&args));
                 }
-                write_chunk_header(writer, n)?;
                 let out_cols = io::steps_io::output_columns(shape);
                 write_block_header(writer, &out_cols)?;
                 for r in &results {
@@ -295,7 +292,6 @@ fn run_rowbinary<R: BufRead, W: Write>(
                     let args = io::trends_io::read_args(reader, shape, &columns)?;
                     results.push(trends::run(&args));
                 }
-                write_chunk_header(writer, n)?;
                 let out_cols = io::trends_io::output_columns(shape);
                 write_block_header(writer, &out_cols)?;
                 for r in &results {
