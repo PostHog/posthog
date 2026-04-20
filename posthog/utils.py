@@ -369,12 +369,13 @@ def get_js_url(request: HttpRequest) -> str:
     from urllib.parse import urlparse
 
     parsed = urlparse(settings.JS_URL)
-    if not (settings.DEBUG and parsed.hostname == "localhost"):
-        return settings.JS_URL
-
-    request_host = request.get_host().split(":")[0]
-    # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-    return f"{request.scheme}://{request_host}:{parsed.port}"
+    if settings.DEBUG and parsed.hostname == "localhost":
+        # Rewrite the JS_URL hostname to match the request origin so the browser
+        # can reach the Vite dev server when accessed via a non-localhost address
+        # (e.g. from a Docker container or remote host).
+        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
+        return f"http://{request.get_host().split(':')[0]}:{parsed.port}"
+    return settings.JS_URL
 
 
 def get_context_for_template(
