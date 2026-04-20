@@ -84,11 +84,6 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
     // Optional props in selector deps: use `(_, props) => props.field` like dataTableLogic `queryWithDefaults`
     // (LogicPropSelectors wraps optional props as callables; cohort's `p.query` is required so it works there).
     selectors({
-        filteredTemplates: [
-            (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
-            (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
-                filterTemplatesByAvailability(raw, availabilityContexts),
-        ],
         showBlankTile: [
             () => [(_, props) => props.availabilityContexts],
             (availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
@@ -98,11 +93,6 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
             (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
             (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
                 filterTemplatesByAvailability(raw, availabilityContexts).filter(isTeamTemplate),
-        ],
-        officialTemplates: [
-            (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
-            (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
-                filterTemplatesByAvailability(raw, availabilityContexts).filter((t) => !isTeamTemplate(t)),
         ],
         featuredTemplates: [
             (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
@@ -126,16 +116,6 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
                 raw: DashboardTemplateType[],
                 availabilityContexts: DashboardTemplateProps['availabilityContexts']
             ) => !loading && filterTemplatesByAvailability(raw, availabilityContexts).length === 0,
-        ],
-        showOfficialGrid: [
-            (s) => [s.allTemplatesLoading, s.allTemplates, (_, props) => props.availabilityContexts],
-            (
-                loading: boolean,
-                raw: DashboardTemplateType[],
-                availabilityContexts: DashboardTemplateProps['availabilityContexts']
-            ) =>
-                loading ||
-                filterTemplatesByAvailability(raw, availabilityContexts).filter((t) => !isTeamTemplate(t)).length > 0,
         ],
         allMatchesInFeaturedSection: [
             (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
