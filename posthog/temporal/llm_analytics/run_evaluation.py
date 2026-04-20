@@ -852,6 +852,12 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
 
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
 
+        source_props = (
+            json.loads(event_data["properties"])
+            if isinstance(event_data["properties"], str)
+            else event_data["properties"]
+        )
+
         properties: dict[str, Any] = {
             # Evaluation-specific properties
             "$ai_evaluation_id": evaluation["id"],
@@ -863,11 +869,10 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
-            "$ai_trace_id": (
-                json.loads(event_data["properties"])
-                if isinstance(event_data["properties"], str)
-                else event_data["properties"]
-            ).get("$ai_trace_id"),
+            "$ai_trace_id": source_props.get("$ai_trace_id"),
+            # Carry the trigger user's session_id from the source event so evals
+            # can link back to the session recording that originated the trace.
+            "$session_id": source_props.get("$session_id"),
         }
 
         # LLM-specific properties: cost attribution and model info (not applicable for hog evals)

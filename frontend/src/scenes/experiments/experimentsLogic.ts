@@ -149,8 +149,6 @@ export function getExperimentStatusLabel(status: ExperimentStatus, isPaused: boo
         case ExperimentStatus.Stopped:
             return 'Complete'
     }
-
-    return 'Draft'
 }
 
 export function getExperimentStatusColor(status: ExperimentStatus, isPaused: boolean = false): LemonTagType {
@@ -166,8 +164,6 @@ export function getExperimentStatusColor(status: ExperimentStatus, isPaused: boo
         case ExperimentStatus.Stopped:
             return 'completion'
     }
-
-    return 'default'
 }
 
 function normalizeExperimentFilterStatus(status: string | undefined): ExperimentStatus | 'all' {

@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -84,8 +84,6 @@ class UserManager(BaseUserManager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEFERED_ATTRS)
 
-    model: type["User"]
-
     use_in_migrations = True
 
     def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
@@ -94,7 +92,7 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
-        user = self.model(email=email, first_name=first_name, **extra_fields)
+        user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
             user.set_password(password)
@@ -165,9 +163,9 @@ class ShortcutPosition(models.TextChoices):
     HIDDEN = "hidden", "Hidden"
 
 
-class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
+class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS: list[str] = []
+    REQUIRED_FIELDS = []
 
     DISABLED = "disabled"
     TOOLBAR = "toolbar"
@@ -223,9 +221,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     temporary_token = deprecate_field(models.CharField(max_length=200, null=True, blank=True, unique=True))
 
     # Remove unused attributes from `AbstractUser`
-    username = None
+    username = cast(Any, None)
 
-    objects: UserManager = UserManager()
+    objects: UserManager = UserManager()  # type: ignore[assignment,misc]
 
     # Reverse relation from social_django.UserSocialAuth.user (related_name="social_auth"); not a DB column.
     if TYPE_CHECKING:
@@ -242,7 +240,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
         return instance
 
     @property
-    def is_superuser(self) -> bool:
+    def is_superuser(self) -> bool:  # type: ignore[override]
         return self.is_staff
 
     @cached_property
@@ -310,7 +308,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                     accessible_team_ids = accessible_private_team_ids | role_accessible_team_ids
 
                     # Build the list of all accessible team IDs
-                    all_accessible_team_ids = set()
+                    all_accessible_team_ids: set[int] = set()
 
                     # Add teams from organizations where user is admin
                     admin_teams = Team.objects.filter(

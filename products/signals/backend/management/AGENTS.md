@@ -45,6 +45,30 @@ python manage.py list_signal_reports --team-id 1 --signals --json
 Reports that aren't `ready` still appear in the output with their `error` field
 explaining why they were filtered, plus `artefacts` containing the full judge reasoning.
 
+## Seeding a pre-researched report
+
+Use `ingest_report_json` to short-circuit the research flow and drop a fully-researched
+`SignalReport` into the database, so you can test the autostart path without the sandbox.
+
+```bash
+# 1. Make sure at least one team user has opted into autonomy. Either set a default
+#    threshold for the team via SignalTeamConfig, or have a user POST to
+#    /api/users/<id>/signal_autonomy/ with their personal autostart_priority.
+
+# 2. Ingest a research-output fixture — creates a SignalReport, persists artefacts,
+#    triggers `_maybe_autostart_task_for_report`, then marks the report READY.
+python manage.py ingest_report_json \
+    products/signals/backend/report_generation/fixtures/insight_scene_logic_mode_property_bug.json \
+    --team-id 1
+```
+
+The fixture must match the shape in `report_generation/fixtures/` — a JSON object with
+`repository`, `signal_ids`, and a `result` that parses as `ReportResearchOutput`. Autostart
+still requires a working GitHub integration (for reviewer resolution) and the commit authors
+in `relevant_commit_hashes` to map to a user with a `SignalUserAutonomyConfig` whose effective
+priority threshold (personal or team default) covers the report's priority — otherwise the
+report will be saved but no `Task` will be created.
+
 ## Session summary (video-based)
 
 Test the SummarizeSingleSessionWorkflow with full video validation:

@@ -27,7 +27,7 @@ const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Sc
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.PaginatedSurveyList>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/surveys/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/`,
                 query: {
                     archived: params.archived,
                     limit: params.limit,
@@ -58,7 +58,7 @@ const surveyGet = (): ToolBase<typeof SurveyGetSchema, WithPostHogUrl<Schemas.Su
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Survey>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/surveys/${params.id}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/`,
             })
             return await withPostHogUrl(context, result, `/surveys/${result.id}`)
         },
@@ -134,7 +134,7 @@ const surveyCreate = (): ToolBase<
             }
             const result = await context.api.request<Schemas.SurveySerializerCreateUpdateOnly>({
                 method: 'POST',
-                path: `/api/projects/${projectId}/surveys/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/surveys/${result.id}`)
@@ -225,7 +225,7 @@ const surveyUpdate = (): ToolBase<
             }
             const result = await context.api.request<Schemas.SurveySerializerCreateUpdateOnly>({
                 method: 'PATCH',
-                path: `/api/projects/${projectId}/surveys/${params.id}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
             return await withPostHogUrl(context, result, `/surveys/${result.id}`)
@@ -241,7 +241,7 @@ const surveyDelete = (): ToolBase<typeof SurveyDeleteSchema, Schemas.SurveySeria
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SurveySerializerCreateUpdateOnly>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/surveys/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/`,
             body: { archived: true },
         })
         return result
@@ -260,7 +260,7 @@ const surveyStats = (): ToolBase<typeof SurveyStatsSchema, WithPostHogUrl<Schema
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.SurveyStatsResponse>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/surveys/${params.id}/stats/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/stats/`,
                 query: {
                     date_from: params.date_from,
                     date_to: params.date_to,
@@ -280,7 +280,7 @@ const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.SurveyGlobalStatsResponse>({
                 method: 'GET',
-                path: `/api/projects/${projectId}/surveys/stats/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/stats/`,
                 query: {
                     date_from: params.date_from,
                     date_to: params.date_to,

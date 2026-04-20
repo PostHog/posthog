@@ -1417,6 +1417,11 @@ export namespace Schemas {
       was_impersonated?: boolean | null;
       /** @nullable */
       is_system?: boolean | null;
+      /**
+       * @maxLength 32
+       * @nullable
+       */
+      client?: string | null;
       /** @maxLength 79 */
       activity: string;
       /**
@@ -1684,6 +1689,11 @@ export namespace Schemas {
       propertyGroupsMode?: PropertyGroupsMode | null;
       /** @nullable */
       s3TableUseInvalidColumns?: boolean | null;
+      /**
+       * Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.
+       * @nullable
+       */
+      sessionIdPushdown?: boolean | null;
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       /** @nullable */
@@ -2033,10 +2043,7 @@ export namespace Schemas {
     export type TrendsQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface TrendsQueryResponse {
-      /**
-       * Box plot data when display type is BoxPlot
-       * @nullable
-       */
+      /** @nullable */
       boxplot_data?: BoxPlotDatum[] | null;
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -3350,6 +3357,7 @@ export namespace Schemas {
 
     export interface StickinessCriteria {
       operator: StickinessOperator;
+      /** @minimum 1 */
       value: number;
     }
 
@@ -3395,6 +3403,7 @@ export namespace Schemas {
       interval?: IntervalType | null;
       /**
        * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+       * @minimum 1
        * @nullable
        */
       intervalCount?: number | null;
@@ -5780,6 +5789,8 @@ export namespace Schemas {
       /** @nullable */
       completed_at: string | null;
       is_stale?: boolean;
+      /** @nullable */
+      superseded_by_id?: string | null;
       metadata?: RunMetadata;
     }
 
@@ -5852,6 +5863,8 @@ export namespace Schemas {
 
     export type StaticFiltersActivitiesItem = {[key: string]: unknown};
 
+    export type StaticFiltersClientsItem = {[key: string]: unknown};
+
     export interface StaticFilters {
       /** Users who have logged activity. */
       users: StaticFiltersUsersItem[];
@@ -5859,6 +5872,8 @@ export namespace Schemas {
       scopes: StaticFiltersScopesItem[];
       /** Available activity types. */
       activities: StaticFiltersActivitiesItem[];
+      /** API clients that have generated activity (from x-posthog-client header). */
+      clients: StaticFiltersClientsItem[];
     }
 
     export interface AvailableFiltersResponse {
@@ -7510,7 +7525,11 @@ export namespace Schemas {
       /** @nullable */
       showNullsAsZero?: boolean | null;
       /** @nullable */
+      showPieTotal?: boolean | null;
+      /** @nullable */
       showTotalRow?: boolean | null;
+      /** @nullable */
+      showValuesOnSeries?: boolean | null;
       /** @nullable */
       showXAxisBorder?: boolean | null;
       /** @nullable */
@@ -7535,6 +7554,141 @@ export namespace Schemas {
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
+    }
+
+    /**
+     * * `interactive` - interactive
+    * `background` - background
+     */
+    export type ModeA07Enum = typeof ModeA07Enum[keyof typeof ModeA07Enum];
+
+
+    export const ModeA07Enum = {
+      Interactive: 'interactive',
+      Background: 'background',
+    } as const;
+
+    /**
+     * * `user` - user
+    * `bot` - bot
+     */
+    export type PrAuthorshipModeEnum = typeof PrAuthorshipModeEnum[keyof typeof PrAuthorshipModeEnum];
+
+
+    export const PrAuthorshipModeEnum = {
+      User: 'user',
+      Bot: 'bot',
+    } as const;
+
+    /**
+     * * `manual` - manual
+    * `signal_report` - signal_report
+     */
+    export type RunSourceEnum = typeof RunSourceEnum[keyof typeof RunSourceEnum];
+
+
+    export const RunSourceEnum = {
+      Manual: 'manual',
+      SignalReport: 'signal_report',
+    } as const;
+
+    /**
+     * * `claude` - claude
+     */
+    export type ClaudeTaskRunCreateSchemaRuntimeAdapterEnum = typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnum[keyof typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnum];
+
+
+    export const ClaudeTaskRunCreateSchemaRuntimeAdapterEnum = {
+      Claude: 'claude',
+    } as const;
+
+    /**
+     * * `low` - low
+    * `medium` - medium
+    * `high` - high
+    * `max` - max
+     */
+    export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
+
+
+    export const ReasoningEffortEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Max: 'max',
+    } as const;
+
+    /**
+     * * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions
+     */
+    export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum];
+
+
+    export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = {
+      Default: 'default',
+      AcceptEdits: 'acceptEdits',
+      Plan: 'plan',
+      BypassPermissions: 'bypassPermissions',
+    } as const;
+
+    /**
+     * Request body for creating a new task run
+     */
+    export interface ClaudeTaskRunCreateSchema {
+      /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+    * `interactive` - interactive
+    * `background` - background */
+      mode?: ModeA07Enum;
+      /**
+       * Git branch to checkout in the sandbox
+       * @maxLength 255
+       * @nullable
+       */
+      branch?: string | null;
+      /** ID of a previous run to resume from. Must belong to the same task. */
+      resume_from_run_id?: string;
+      /** Initial or follow-up user message to include in the run prompt. */
+      pending_user_message?: string;
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
+      /** Whether pull requests for this run should be authored by the user or the bot.
+
+    * `user` - user
+    * `bot` - bot */
+      pr_authorship_mode?: PrAuthorshipModeEnum;
+      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+    * `manual` - manual
+    * `signal_report` - signal_report */
+      run_source?: RunSourceEnum;
+      /** Optional signal report identifier when this run was started from Inbox. */
+      signal_report_id?: string;
+      /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
+
+    * `claude` - claude */
+      runtime_adapter: ClaudeTaskRunCreateSchemaRuntimeAdapterEnum;
+      /** LLM model identifier to run in the Claude runtime. */
+      model: string;
+      /** Reasoning effort to request for models that expose an effort control.
+
+    * `low` - low
+    * `medium` - medium
+    * `high` - high
+    * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
+      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      github_user_token?: string;
+      /** Initial permission mode for Claude runtimes.
+
+    * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions */
+      initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
     }
 
     export type ClickhouseEventProperties = {[key: string]: unknown};
@@ -7750,6 +7904,86 @@ export namespace Schemas {
     export interface CodeInviteRedeemRequest {
       /** @maxLength 50 */
       code: string;
+    }
+
+    /**
+     * * `codex` - codex
+     */
+    export type CodexTaskRunCreateSchemaRuntimeAdapterEnum = typeof CodexTaskRunCreateSchemaRuntimeAdapterEnum[keyof typeof CodexTaskRunCreateSchemaRuntimeAdapterEnum];
+
+
+    export const CodexTaskRunCreateSchemaRuntimeAdapterEnum = {
+      Codex: 'codex',
+    } as const;
+
+    /**
+     * * `auto` - auto
+    * `read-only` - read-only
+    * `full-access` - full-access
+     */
+    export type CodexTaskRunCreateSchemaInitialPermissionModeEnum = typeof CodexTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnum];
+
+
+    export const CodexTaskRunCreateSchemaInitialPermissionModeEnum = {
+      Auto: 'auto',
+      ReadOnly: 'read-only',
+      FullAccess: 'full-access',
+    } as const;
+
+    /**
+     * Request body for creating a new task run
+     */
+    export interface CodexTaskRunCreateSchema {
+      /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+    * `interactive` - interactive
+    * `background` - background */
+      mode?: ModeA07Enum;
+      /**
+       * Git branch to checkout in the sandbox
+       * @maxLength 255
+       * @nullable
+       */
+      branch?: string | null;
+      /** ID of a previous run to resume from. Must belong to the same task. */
+      resume_from_run_id?: string;
+      /** Initial or follow-up user message to include in the run prompt. */
+      pending_user_message?: string;
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
+      /** Whether pull requests for this run should be authored by the user or the bot.
+
+    * `user` - user
+    * `bot` - bot */
+      pr_authorship_mode?: PrAuthorshipModeEnum;
+      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+    * `manual` - manual
+    * `signal_report` - signal_report */
+      run_source?: RunSourceEnum;
+      /** Optional signal report identifier when this run was started from Inbox. */
+      signal_report_id?: string;
+      /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
+
+    * `codex` - codex */
+      runtime_adapter: CodexTaskRunCreateSchemaRuntimeAdapterEnum;
+      /** LLM model identifier to run in the Codex runtime. */
+      model: string;
+      /** Reasoning effort to request for models that expose an effort control.
+
+    * `low` - low
+    * `medium` - medium
+    * `high` - high
+    * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
+      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      github_user_token?: string;
+      /** Initial permission mode for Codex runtimes.
+
+    * `auto` - auto
+    * `read-only` - read-only
+    * `full-access` - full-access */
+      initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnum;
     }
 
     export type PropertyGroupOperator = typeof PropertyGroupOperator[keyof typeof PropertyGroupOperator];
@@ -13095,6 +13329,22 @@ export namespace Schemas {
       Frequentist: 'frequentist',
     } as const;
 
+    /**
+     * * `pending` - Pending
+    * `delivered` - Delivered
+    * `partial_failure` - Partial Failure
+    * `failed` - Failed
+     */
+    export type DeliveryStatusEnum = typeof DeliveryStatusEnum[keyof typeof DeliveryStatusEnum];
+
+
+    export const DeliveryStatusEnum = {
+      Pending: 'pending',
+      Delivered: 'delivered',
+      PartialFailure: 'partial_failure',
+      Failed: 'failed',
+    } as const;
+
     export interface DependentFlag {
       /** Feature flag ID */
       id: number;
@@ -14186,6 +14436,42 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `user` - user
+    * `role` - role
+     */
+    export type Type079Enum = typeof Type079Enum[keyof typeof Type079Enum];
+
+
+    export const Type079Enum = {
+      User: 'user',
+      Role: 'role',
+    } as const;
+
+    export interface ErrorTrackingAssignmentRuleAssigneeRequest {
+      /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
+
+    * `user` - user
+    * `role` - role */
+      type: Type079Enum;
+      /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
+      id: number | string;
+    }
+
+    export interface ErrorTrackingAssignmentRuleCreateRequest {
+      /** Property-group filters that define when this rule matches incoming error events. */
+      filters: PropertyGroupFilterValue;
+      /** User or role to assign matching issues to. */
+      assignee: ErrorTrackingAssignmentRuleAssigneeRequest;
+    }
+
+    export interface ErrorTrackingAssignmentRuleUpdateRequest {
+      /** Property-group filters that define when this rule matches incoming error events. */
+      filters?: PropertyGroupFilterValue | null;
+      /** User or role to assign matching issues to. */
+      assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
     export type ErrorTrackingBreakdownsQueryKind = typeof ErrorTrackingBreakdownsQueryKind[keyof typeof ErrorTrackingBreakdownsQueryKind];
 
 
@@ -14270,6 +14556,8 @@ export namespace Schemas {
       filters: unknown;
       /** @nullable */
       readonly assignee: ErrorTrackingGroupingRuleAssignee;
+      /** @nullable */
+      description?: string | null;
       /**
        * Issue linked to this rule
        * @nullable
@@ -14283,6 +14571,32 @@ export namespace Schemas {
       disabled_data?: unknown | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingGroupingRuleAssigneeRequest {
+      /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
+
+    * `user` - user
+    * `role` - role */
+      type: Type079Enum;
+      /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
+      id: number | string;
+    }
+
+    export interface ErrorTrackingGroupingRuleCreateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. */
+      filters: PropertyGroupFilterValue;
+      /** Optional user or role to assign to issues created by this grouping rule. */
+      assignee?: ErrorTrackingGroupingRuleAssigneeRequest | null;
+      /**
+       * Optional human-readable description of what this grouping rule is for.
+       * @nullable
+       */
+      description?: string | null;
+    }
+
+    export interface ErrorTrackingGroupingRuleListResponse {
+      results: ErrorTrackingGroupingRule[];
     }
 
     export interface ErrorTrackingIssueAssignment {
@@ -14359,6 +14673,20 @@ export namespace Schemas {
       success: boolean;
       /** IDs of the new issues created by the split. */
       new_issue_ids: string[];
+    }
+
+    export interface ErrorTrackingRecommendation {
+      readonly id: string;
+      readonly type: string;
+      readonly meta: unknown;
+      /** @nullable */
+      readonly computed_at: string | null;
+      /** @nullable */
+      readonly dismissed_at: string | null;
+      /** @nullable */
+      readonly next_refresh_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface ErrorTrackingRelease {
@@ -14616,6 +14944,76 @@ export namespace Schemas {
       description: string;
       frequency: string;
       example_generation_ids: string[];
+    }
+
+    /**
+     * * `scheduled` - Scheduled
+    * `every_n` - Every N
+     */
+    export type EvaluationReportFrequencyEnum = typeof EvaluationReportFrequencyEnum[keyof typeof EvaluationReportFrequencyEnum];
+
+
+    export const EvaluationReportFrequencyEnum = {
+      Scheduled: 'scheduled',
+      EveryN: 'every_n',
+    } as const;
+
+    export interface EvaluationReport {
+      readonly id: string;
+      evaluation: string;
+      frequency?: EvaluationReportFrequencyEnum;
+      rrule?: string;
+      /** @nullable */
+      starts_at?: string | null;
+      /** @maxLength 64 */
+      timezone_name?: string;
+      /** @nullable */
+      readonly next_delivery_date: string | null;
+      delivery_targets?: unknown;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      max_sample_size?: number;
+      enabled?: boolean;
+      deleted?: boolean;
+      /** @nullable */
+      readonly last_delivered_at: string | null;
+      report_prompt_guidance?: string;
+      /**
+       * Number of new eval results that triggers a report
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      trigger_threshold?: number | null;
+      /**
+       * Minimum minutes between count-triggered reports
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      cooldown_minutes?: number;
+      /**
+       * Maximum count-triggered report runs per calendar day (UTC)
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      daily_run_cap?: number;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+    }
+
+    export interface EvaluationReportRun {
+      readonly id: string;
+      readonly report: string;
+      readonly content: unknown;
+      readonly metadata: unknown;
+      readonly period_start: string;
+      readonly period_end: string;
+      readonly delivery_status: DeliveryStatusEnum;
+      readonly delivery_errors: unknown;
+      readonly created_at: string;
     }
 
     /**
@@ -15742,7 +16140,8 @@ export namespace Schemas {
     * `duckdb` - duckdb
     * `postgres` - postgres */
       readonly engine: EngineEnum | NullEnum | null;
-      readonly last_run_at: string;
+      /** @nullable */
+      readonly last_run_at: string | null;
       readonly schemas: readonly ExternalDataSourceSerializersSchemasItem[];
       job_inputs?: unknown | null;
       readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig;
@@ -16304,6 +16703,66 @@ export namespace Schemas {
       reason: string;
     }
 
+    export type FeatureFlagVersionResponseFilters = {[key: string]: unknown};
+
+    /**
+     * Feature flag state at a given version plus reconstruction metadata.
+     */
+    export interface FeatureFlagVersionResponse {
+      readonly id: number;
+      /** @maxLength 400 */
+      key: string;
+      name?: string;
+      readonly filters: FeatureFlagVersionResponseFilters;
+      active?: boolean;
+      deleted?: boolean;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      version?: number | null;
+      rollback_conditions?: unknown | null;
+      /** @nullable */
+      performed_rollback?: boolean | null;
+      /** @nullable */
+      ensure_experience_continuity?: boolean | null;
+      /** @nullable */
+      has_enriched_analytics?: boolean | null;
+      /** @nullable */
+      is_remote_configuration?: boolean | null;
+      /** @nullable */
+      has_encrypted_payloads?: boolean | null;
+      /** Specifies where this feature flag should be evaluated
+
+    * `server` - Server
+    * `client` - Client
+    * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | NullEnum | null;
+      /** Identifier used for bucketing users into rollout and variants
+
+    * `distinct_id` - User ID (default)
+    * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
+      /**
+       * Last time this feature flag was called (from $feature_flag_called events)
+       * @nullable
+       */
+      last_called_at?: string | null;
+      created_at?: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** False for the current version; true for reconstructed historical versions. */
+      readonly is_historical: boolean;
+      /** @nullable */
+      readonly version_timestamp: string | null;
+      /**
+       * User from the activity log entry that produced this version.
+       * @nullable
+       */
+      readonly modified_by: number | null;
+    }
+
     export interface FileSystem {
       readonly id: string;
       path: string;
@@ -16349,22 +16808,6 @@ export namespace Schemas {
       results: FlagValueItem[];
       refreshing: boolean;
     }
-
-    /**
-     * * `daily` - Daily
-    * `weekly` - Weekly
-    * `monthly` - Monthly
-    * `yearly` - Yearly
-     */
-    export type FrequencyEnum = typeof FrequencyEnum[keyof typeof FrequencyEnum];
-
-
-    export const FrequencyEnum = {
-      Daily: 'daily',
-      Weekly: 'weekly',
-      Monthly: 'monthly',
-      Yearly: 'yearly',
-    } as const;
 
     export type GenerateRequestStepsItem = {[key: string]: unknown};
 
@@ -16892,6 +17335,7 @@ export namespace Schemas {
     * `native_email` - native_email
     * `posthog_assignee` - posthog_assignee
     * `posthog_ticket_tags` - posthog_ticket_tags
+    * `posthog_business_hours` - posthog_business_hours
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -16909,6 +17353,7 @@ export namespace Schemas {
       NativeEmail: 'native_email',
       PosthogAssignee: 'posthog_assignee',
       PosthogTicketTags: 'posthog_ticket_tags',
+      PosthogBusinessHours: 'posthog_business_hours',
     } as const;
 
     /**
@@ -18726,22 +19171,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `default` - default
-    * `acceptEdits` - acceptEdits
-    * `plan` - plan
-    * `bypassPermissions` - bypassPermissions
-     */
-    export type InitialPermissionModeEnum = typeof InitialPermissionModeEnum[keyof typeof InitialPermissionModeEnum];
-
-
-    export const InitialPermissionModeEnum = {
-      Default: 'default',
-      AcceptEdits: 'acceptEdits',
-      Plan: 'plan',
-      BypassPermissions: 'bypassPermissions',
-    } as const;
-
-    /**
      * @nullable
      */
     export type InsightResolvedDateRange = {
@@ -19018,6 +19447,17 @@ export namespace Schemas {
       Boolean: 'boolean',
     } as const;
 
+    export interface LLMPromptOutlineEntry {
+      /**
+       * Markdown heading level (1-6).
+       * @minimum 1
+       * @maximum 6
+       */
+      level: number;
+      /** Heading text with markdown link syntax preserved. */
+      text: string;
+    }
+
     export interface LLMPrompt {
       readonly id: string;
       /**
@@ -19036,6 +19476,7 @@ export namespace Schemas {
       readonly latest_version: number;
       readonly version_count: number;
       readonly first_version_created_at: string;
+      readonly outline: readonly LLMPromptOutlineEntry[];
     }
 
     export interface LLMPromptDuplicate {
@@ -19068,6 +19509,7 @@ export namespace Schemas {
       readonly latest_version: number;
       readonly version_count: number;
       readonly first_version_created_at: string;
+      readonly outline: readonly LLMPromptOutlineEntry[];
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
     }
@@ -19075,7 +19517,12 @@ export namespace Schemas {
     export interface LLMPromptPublic {
       id: string;
       name: string;
-      prompt: unknown;
+      /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
+      prompt?: unknown;
+      /** First 160 characters of the prompt. Only present when 'content=preview'. */
+      prompt_preview?: string;
+      /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
+      outline: LLMPromptOutlineEntry[];
       version: number;
       created_at: string;
       updated_at: string;
@@ -19253,6 +19700,11 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at: string | null;
       readonly consecutive_failures: number;
+      /**
+       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+       * @nullable
+       */
+      readonly last_error_message: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
@@ -19686,6 +20138,7 @@ export namespace Schemas {
 
     export interface MaxCoreMemory {
       readonly id: string;
+      /** @maxLength 10000 */
       text: string;
       scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
     }
@@ -20296,6 +20749,7 @@ export namespace Schemas {
      * * `error_tracking` - Error Tracking
     * `eval_clusters` - Eval Clusters
     * `user_created` - User Created
+    * `automation` - Automation
     * `slack` - Slack
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
@@ -20308,6 +20762,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
+      Automation: 'automation',
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
@@ -20690,15 +21145,6 @@ export namespace Schemas {
       results: ErrorTrackingFingerprint[];
     }
 
-    export interface PaginatedErrorTrackingGroupingRuleList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ErrorTrackingGroupingRule[];
-    }
-
     export interface PaginatedErrorTrackingIssueFullList {
       count: number;
       /** @nullable */
@@ -20706,6 +21152,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingIssueFull[];
+    }
+
+    export interface PaginatedErrorTrackingRecommendationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingRecommendation[];
     }
 
     export interface PaginatedErrorTrackingReleaseList {
@@ -20760,6 +21215,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Evaluation[];
+    }
+
+    export interface PaginatedEvaluationReportList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EvaluationReport[];
+    }
+
+    export interface PaginatedEvaluationReportRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EvaluationReportRun[];
     }
 
     export interface PaginatedEventSchemaList {
@@ -22063,6 +22536,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `daily` - Daily
+    * `weekly` - Weekly
+    * `monthly` - Monthly
+    * `yearly` - Yearly
+     */
+    export type SubscriptionFrequencyEnum = typeof SubscriptionFrequencyEnum[keyof typeof SubscriptionFrequencyEnum];
+
+
+    export const SubscriptionFrequencyEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+      Yearly: 'yearly',
+    } as const;
+
+    /**
      * Standard Subscription serializer.
      */
     export interface Subscription {
@@ -22097,7 +22586,7 @@ export namespace Schemas {
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly */
-      frequency: FrequencyEnum;
+      frequency: SubscriptionFrequencyEnum;
       /**
        * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
        * @minimum -2147483648
@@ -22492,6 +22981,48 @@ export namespace Schemas {
       results: TaggedItem[];
     }
 
+    export interface TaskAutomation {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      prompt: string;
+      /** @maxLength 255 */
+      repository: string;
+      /** @nullable */
+      github_integration?: number | null;
+      /** @maxLength 100 */
+      cron_expression: string;
+      /** @maxLength 128 */
+      timezone?: string;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      template_id?: string | null;
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_run_at: string | null;
+      /** @nullable */
+      readonly last_run_status: string | null;
+      /** @nullable */
+      readonly last_task_id: string | null;
+      /** @nullable */
+      readonly last_task_run_id: string | null;
+      /** @nullable */
+      readonly last_error: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedTaskAutomationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskAutomation[];
+    }
+
     export interface PaginatedTaskList {
       count: number;
       /** @nullable */
@@ -22521,14 +23052,10 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
-    /**
-     * * `claude` - claude
-    * `codex` - codex
-     */
-    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
+    export type TaskRunDetailRuntimeAdapterEnum = typeof TaskRunDetailRuntimeAdapterEnum[keyof typeof TaskRunDetailRuntimeAdapterEnum];
 
 
-    export const RuntimeAdapterEnum = {
+    export const TaskRunDetailRuntimeAdapterEnum = {
       Claude: 'claude',
       Codex: 'codex',
     } as const;
@@ -22539,22 +23066,6 @@ export namespace Schemas {
     export const TaskRunDetailProviderEnum = {
       Anthropic: 'anthropic',
       Openai: 'openai',
-    } as const;
-
-    /**
-     * * `low` - low
-    * `medium` - medium
-    * `high` - high
-    * `max` - max
-     */
-    export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
-
-
-    export const ReasoningEffortEnum = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Max: 'max',
     } as const;
 
     export interface TaskRunArtifactResponse {
@@ -22594,7 +23105,7 @@ export namespace Schemas {
     * `cloud` - Cloud */
       environment?: EnvironmentEnum;
       /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-      readonly runtime_adapter: RuntimeAdapterEnum | NullEnum | null;
+      readonly runtime_adapter: TaskRunDetailRuntimeAdapterEnum | NullEnum | null;
       /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
       readonly provider: TaskRunDetailProviderEnum | NullEnum | null;
       /**
@@ -24251,6 +24762,13 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedErrorTrackingAssignmentRuleUpdateRequest {
+      /** Property-group filters that define when this rule matches incoming error events. */
+      filters?: PropertyGroupFilterValue | null;
+      /** User or role to assign matching issues to. */
+      assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
     export interface PatchedErrorTrackingExternalReference {
       readonly id?: string;
       readonly integration?: ErrorTrackingExternalReferenceIntegration;
@@ -24279,6 +24797,8 @@ export namespace Schemas {
       filters?: unknown;
       /** @nullable */
       readonly assignee?: PatchedErrorTrackingGroupingRuleAssignee;
+      /** @nullable */
+      description?: string | null;
       /**
        * Issue linked to this rule
        * @nullable
@@ -24382,6 +24902,52 @@ export namespace Schemas {
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
       deleted?: boolean;
+    }
+
+    export interface PatchedEvaluationReport {
+      readonly id?: string;
+      evaluation?: string;
+      frequency?: EvaluationReportFrequencyEnum;
+      rrule?: string;
+      /** @nullable */
+      starts_at?: string | null;
+      /** @maxLength 64 */
+      timezone_name?: string;
+      /** @nullable */
+      readonly next_delivery_date?: string | null;
+      delivery_targets?: unknown;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      max_sample_size?: number;
+      enabled?: boolean;
+      deleted?: boolean;
+      /** @nullable */
+      readonly last_delivered_at?: string | null;
+      report_prompt_guidance?: string;
+      /**
+       * Number of new eval results that triggers a report
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      trigger_threshold?: number | null;
+      /**
+       * Minimum minutes between count-triggered reports
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      cooldown_minutes?: number;
+      /**
+       * Maximum count-triggered report runs per calendar day (UTC)
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      daily_run_cap?: number;
+      /** @nullable */
+      readonly created_by?: number | null;
+      readonly created_at?: string;
     }
 
     export interface PatchedEventSchema {
@@ -24592,7 +25158,8 @@ export namespace Schemas {
     * `duckdb` - duckdb
     * `postgres` - postgres */
       readonly engine?: EngineEnum | NullEnum | null;
-      readonly last_run_at?: string;
+      /** @nullable */
+      readonly last_run_at?: string | null;
       readonly schemas?: readonly PatchedExternalDataSourceSerializersSchemasItem[];
       job_inputs?: unknown | null;
       readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfig;
@@ -25121,6 +25688,11 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at?: string | null;
       readonly consecutive_failures?: number;
+      /**
+       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+       * @nullable
+       */
+      readonly last_error_message?: string | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       /** @nullable */
@@ -25177,6 +25749,7 @@ export namespace Schemas {
 
     export interface PatchedMaxCoreMemory {
       readonly id?: string;
+      /** @maxLength 10000 */
       text?: string;
       scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
     }
@@ -25583,11 +26156,6 @@ export namespace Schemas {
       readonly uuid?: string;
       readonly api_token?: string;
       app_urls?: (string | null)[];
-      /**
-       * @maxLength 500
-       * @nullable
-       */
-      slack_incoming_webhook?: string | null;
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       readonly ingested_event?: boolean;
@@ -26049,7 +26617,7 @@ export namespace Schemas {
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly */
-      frequency?: FrequencyEnum;
+      frequency?: SubscriptionFrequencyEnum;
       /**
        * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
        * @minimum -2147483648
@@ -26818,6 +27386,44 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
+      /**
+       * Custom prompt for CI fixes. If blank, a default prompt will be used.
+       * @nullable
+       */
+      ci_prompt?: string | null;
+    }
+
+    export interface PatchedTaskAutomation {
+      readonly id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      prompt?: string;
+      /** @maxLength 255 */
+      repository?: string;
+      /** @nullable */
+      github_integration?: number | null;
+      /** @maxLength 100 */
+      cron_expression?: string;
+      /** @maxLength 128 */
+      timezone?: string;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      template_id?: string | null;
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_run_at?: string | null;
+      /** @nullable */
+      readonly last_run_status?: string | null;
+      /** @nullable */
+      readonly last_task_id?: string | null;
+      /** @nullable */
+      readonly last_task_run_id?: string | null;
+      /** @nullable */
+      readonly last_error?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedTaskRunSetOutputRequest {
@@ -26944,11 +27550,6 @@ export namespace Schemas {
        */
       readonly user_access_level?: string | null;
       app_urls?: (string | null)[];
-      /**
-       * @maxLength 500
-       * @nullable
-       */
-      slack_incoming_webhook?: string | null;
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       test_account_filters?: unknown;
@@ -27494,18 +28095,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `user` - user
-    * `bot` - bot
-     */
-    export type PrAuthorshipModeEnum = typeof PrAuthorshipModeEnum[keyof typeof PrAuthorshipModeEnum];
-
-
-    export const PrAuthorshipModeEnum = {
-      User: 'user',
-      Bot: 'bot',
-    } as const;
-
-    /**
      * Serializer for creating and updating ProductTour.
      */
     export interface ProductTourSerializerCreateUpdateOnly {
@@ -27574,11 +28163,6 @@ export namespace Schemas {
       readonly uuid: string;
       readonly api_token: string;
       app_urls?: (string | null)[];
-      /**
-       * @maxLength 500
-       * @nullable
-       */
-      slack_incoming_webhook?: string | null;
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       readonly ingested_event: boolean;
@@ -30052,10 +30636,7 @@ export namespace Schemas {
     export type QueryResponseAlternative66ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative66 {
-      /**
-       * Box plot data when display type is BoxPlot
-       * @nullable
-       */
+      /** @nullable */
       boxplot_data?: BoxPlotDatum[] | null;
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -30800,18 +31381,6 @@ export namespace Schemas {
       /** Results for each insight tile on the dashboard. */
       results: DashboardTileResult[];
     }
-
-    /**
-     * * `manual` - manual
-    * `signal_report` - signal_report
-     */
-    export type RunSourceEnum = typeof RunSourceEnum[keyof typeof RunSourceEnum];
-
-
-    export const RunSourceEnum = {
-      Manual: 'manual',
-      SignalReport: 'signal_report',
-    } as const;
 
     export interface SandboxEnvironment {
       readonly id: string;
@@ -31698,27 +32267,12 @@ export namespace Schemas {
       error?: TaskRunCommandResponseError;
     }
 
-    /**
-     * * `interactive` - interactive
-    * `background` - background
-     */
-    export type TaskRunCreateRequestModeEnum = typeof TaskRunCreateRequestModeEnum[keyof typeof TaskRunCreateRequestModeEnum];
-
-
-    export const TaskRunCreateRequestModeEnum = {
-      Interactive: 'interactive',
-      Background: 'background',
-    } as const;
-
-    /**
-     * Request body for creating a new task run
-     */
-    export interface TaskRunCreateRequest {
+    export interface TaskRunResumeRequestSchema {
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
 
     * `interactive` - interactive
     * `background` - background */
-      mode?: TaskRunCreateRequestModeEnum;
+      mode?: ModeA07Enum;
       /**
        * Git branch to checkout in the sandbox
        * @maxLength 255
@@ -31743,30 +32297,11 @@ export namespace Schemas {
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
-      /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
-
-    * `claude` - claude
-    * `codex` - codex */
-      runtime_adapter?: RuntimeAdapterEnum;
-      /** LLM model identifier to run in the selected runtime. */
-      model?: string;
-      /** Reasoning effort to request for models that expose an effort control.
-
-    * `low` - low
-    * `medium` - medium
-    * `high` - high
-    * `max` - max */
-      reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
       github_user_token?: string;
-      /** Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).
-
-    * `default` - default
-    * `acceptEdits` - acceptEdits
-    * `plan` - plan
-    * `bypassPermissions` - bypassPermissions */
-      initial_permission_mode?: InitialPermissionModeEnum;
     }
+
+    export type TaskRunCreateRequestSchema = ClaudeTaskRunCreateSchema | CodexTaskRunCreateSchema | TaskRunResumeRequestSchema;
 
     export interface TaskRunRelayMessageRequest {
       /** @maxLength 10000 */
@@ -31819,11 +32354,6 @@ export namespace Schemas {
        */
       readonly user_access_level: string | null;
       app_urls?: (string | null)[];
-      /**
-       * @maxLength 500
-       * @nullable
-       */
-      slack_incoming_webhook?: string | null;
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       test_account_filters?: unknown;
@@ -34203,7 +34733,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type ErrorTrackingGroupingRulesListParams = {
+    export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -34214,7 +34744,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type ErrorTrackingIssuesListParams = {
+    export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -34326,6 +34856,28 @@ export namespace Schemas {
     };
 
     export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsEvaluationReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsEvaluationReportsRunsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -34490,7 +35042,7 @@ export namespace Schemas {
 
     export type LlmPromptsListParams = {
     /**
-     * Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
 
     * `full` - full
     * `preview` - preview
@@ -34498,6 +35050,10 @@ export namespace Schemas {
      * @minLength 1
      */
     content?: LlmPromptsListContent;
+    /**
+     * Filter prompts by the ID of the user who created them.
+     */
+    created_by_id?: number;
     /**
      * Number of results to return per page.
      */
@@ -34523,11 +35079,29 @@ export namespace Schemas {
 
     export type LlmPromptsNameRetrieveParams = {
     /**
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+
+    * `full` - full
+    * `preview` - preview
+    * `none` - none
+     * @minLength 1
+     */
+    content?: LlmPromptsNameRetrieveContent;
+    /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
     version?: number;
     };
+
+    export type LlmPromptsNameRetrieveContent = typeof LlmPromptsNameRetrieveContent[keyof typeof LlmPromptsNameRetrieveContent];
+
+
+    export const LlmPromptsNameRetrieveContent = {
+      Full: 'full',
+      Preview: 'preview',
+      None: 'none',
+    } as const;
 
     export type LlmPromptsResolveNameRetrieveParams = {
     /**
@@ -34838,6 +35412,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string;
     };
 
     export type OauthApplicationsListParams = {
@@ -35265,6 +35843,7 @@ export namespace Schemas {
 
     export type AdvancedActivityLogsListParams = {
     activities?: string[];
+    clients?: string[];
     detail_filters?: string;
     end_date?: string;
     hogql_filter?: string;
@@ -37792,6 +38371,17 @@ export namespace Schemas {
     };
 
     export type TagsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TaskAutomationsListParams = {
     /**
      * Number of results to return per page.
      */

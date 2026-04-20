@@ -1,12 +1,15 @@
 import re
 import uuid
+from typing import Any
 
 import temporalio.activity
 from prometheus_client import Counter
 from structlog import get_logger
 
 from posthog.models import Insight
+from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, SubscriptionDelivery
+from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
@@ -23,6 +26,21 @@ SUBSCRIPTION_SUMMARY_FAILURE = Counter(
     "AI summary generation failed for a subscription delivery",
     ["reason"],
 )
+SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT = Counter(
+    "posthog_subscription_ai_summary_skipped_no_ai_consent_total",
+    "AI summary skipped because the organization has not approved AI data processing",
+)
+SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED = Counter(
+    "posthog_subscription_ai_summary_image_skipped_total",
+    "AI summary image attachment skipped for an insight",
+    ["reason"],
+)
+
+MAX_SUMMARY_IMAGES = 6
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024
+
+_MAX_LOGGED_KEYS = 15
 
 
 def _get_query_kind_from_insight(insight: Insight) -> str:
@@ -37,32 +55,108 @@ def _build_states_from_content_snapshot(
     content_snapshot: dict,
     insight_query_kinds: dict[int, str] | None = None,
     timestamp: str = "unknown",
+    snapshot_role: str = "current",
 ) -> list[dict]:
     states: list[dict] = []
     for insight_snap in content_snapshot.get("insights", []):
         insight_id = insight_snap.get("id")
         insight_name = insight_snap.get("name", f"Insight {insight_id}")
+        insight_description = insight_snap.get("description") or ""
         query_results = insight_snap.get("query_results")
 
-        query_kind = (insight_query_kinds or {}).get(insight_id, "Unknown")
+        raw_query_error = insight_snap.get("query_error")
+        query_error: dict | None = raw_query_error if isinstance(raw_query_error, dict) and raw_query_error else None
+        malformed_query_error = raw_query_error is not None and not isinstance(raw_query_error, dict)
 
-        if query_results and query_results.get("result"):
-            results_summary = build_results_summary(query_kind, query_results["result"])
+        query_kind = (insight_query_kinds or {}).get(insight_id, "Unknown")
+        result_payload = query_results.get("result") if query_results else None
+
+        if query_results and result_payload:
+            results_summary = build_results_summary(query_kind, result_payload)
+            fallback_reason: str | None = None
+        elif query_error:
+            results_summary = "Query failed"
+            fallback_reason = "query_error"
         else:
-            error = insight_snap.get("query_error", {})
-            results_summary = "Query failed" if error else "No results"
+            results_summary = "No results"
+            fallback_reason = "no_query_results"
+
+        _log_insight_state(
+            insight_id=insight_id,
+            snapshot_role=snapshot_role,
+            query_kind=query_kind,
+            result_payload=result_payload,
+            query_error=query_error,
+            malformed_query_error=malformed_query_error,
+            fallback_reason=fallback_reason,
+            results_summary_length=len(results_summary),
+            timestamp=timestamp,
+        )
 
         states.append(
             {
                 "insight_id": insight_id,
                 "insight_name": insight_name,
+                "insight_description": insight_description,
                 "query_kind": query_kind,
-                "query_definition": {"query_hash": insight_snap.get("query_hash")},
                 "results_summary": results_summary,
                 "timestamp": timestamp,
             }
         )
     return states
+
+
+def _log_insight_state(
+    *,
+    insight_id: int | None,
+    snapshot_role: str,
+    query_kind: str,
+    result_payload: Any,
+    query_error: dict | None,
+    malformed_query_error: bool,
+    fallback_reason: str | None,
+    results_summary_length: int,
+    timestamp: str,
+) -> None:
+    if malformed_query_error:
+        query_error_type: str | None = "non_dict"
+    elif query_error:
+        query_error_type = query_error.get("type")
+    else:
+        query_error_type = None
+
+    LOGGER.info(
+        "subscription_summary.insight_state_built",
+        insight_id=insight_id,
+        snapshot_role=snapshot_role,
+        query_kind=query_kind,
+        result_shape=_describe_result_shape(result_payload),
+        query_error_type=query_error_type,
+        fallback_reason=fallback_reason,
+        results_summary_length=results_summary_length,
+        timestamp=timestamp,
+    )
+
+
+def _describe_result_shape(result: Any) -> dict[str, Any]:
+    if result is None:
+        return {"type": "none"}
+    if isinstance(result, list):
+        first_item_type: str | None = None
+        first_item_keys: list[str] | None = None
+        if result:
+            first_item_type = type(result[0]).__name__
+            if isinstance(result[0], dict):
+                first_item_keys = sorted(result[0].keys())[:_MAX_LOGGED_KEYS]
+        return {
+            "type": "list",
+            "length": len(result),
+            "first_item_type": first_item_type,
+            "first_item_keys": first_item_keys,
+        }
+    if isinstance(result, dict):
+        return {"type": "dict", "keys": sorted(result.keys())[:_MAX_LOGGED_KEYS]}
+    return {"type": type(result).__name__}
 
 
 def _get_delivery_by_id(delivery_id: str) -> SubscriptionDelivery | None:
@@ -98,6 +192,61 @@ def _sanitize_prompt_guide(prompt_guide: str) -> str:
     return re.sub(r"</?[a-zA-Z_][^>]*>", "", prompt_guide)
 
 
+def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[int, bytes]:
+    if not exported_asset_ids:
+        return {}
+
+    assets_by_id = {
+        asset.id: asset
+        for asset in ExportedAsset.objects.filter(
+            pk__in=exported_asset_ids,
+            team_id=team_id,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        ).only("id", "insight_id", "content", "content_location")
+    }
+
+    images: dict[int, bytes] = {}
+    total_bytes = 0
+    for asset_id in exported_asset_ids:
+        if len(images) >= MAX_SUMMARY_IMAGES:
+            break
+        asset = assets_by_id.get(asset_id)
+        if asset is None:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="not_found").inc()
+            continue
+        if asset.insight_id is None:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="no_insight_id").inc()
+            continue
+        if asset.insight_id in images:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="duplicate_insight").inc()
+            continue
+
+        content: bytes | None = asset.content
+        if not content and asset.content_location:
+            try:
+                content = object_storage.read_bytes(asset.content_location, missing_ok=True)
+            except Exception:
+                SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="storage_error").inc()
+                continue
+
+        if not content:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="no_content").inc()
+            continue
+
+        if len(content) > MAX_IMAGE_BYTES:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="too_large").inc()
+            continue
+
+        if total_bytes + len(content) > MAX_TOTAL_IMAGE_BYTES:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="total_bytes_exceeded").inc()
+            continue
+
+        images[asset.insight_id] = content
+        total_bytes += len(content)
+
+    return images
+
+
 @temporalio.activity.defn
 async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
     await LOGGER.ainfo(
@@ -106,11 +255,20 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
     )
 
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("team").get,
+        Subscription.objects.select_related("team__organization").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
     if not subscription.summary_enabled:
+        return SnapshotInsightsResult()
+
+    if not subscription.team.organization.is_ai_data_processing_approved:
+        SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT.inc()
+        await LOGGER.ainfo(
+            "snapshot_subscription_insights.skipped_no_ai_consent",
+            subscription_id=inputs.subscription_id,
+            organization_id=str(subscription.team.organization_id),
+        )
         return SnapshotInsightsResult()
 
     if not inputs.delivery_id:
@@ -136,6 +294,7 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
         content_snapshot,
         insight_query_kinds=insight_query_kinds,
         timestamp=current_delivery.created_at.isoformat() if current_delivery.created_at else "unknown",
+        snapshot_role="current",
     )
     if not current_states:
         return SnapshotInsightsResult()
@@ -151,7 +310,24 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
             previous_delivery.content_snapshot,
             insight_query_kinds=insight_query_kinds,
             timestamp=previous_delivery.created_at.isoformat() if previous_delivery.created_at else "unknown",
+            snapshot_role="previous",
         )
+
+    temporalio.activity.heartbeat("loading insight images")
+    insight_images: dict[int, bytes] = {}
+    if inputs.exported_asset_ids:
+        try:
+            insight_images = await database_sync_to_async(_load_insight_images, thread_sensitive=False)(
+                inputs.exported_asset_ids, inputs.team_id
+            )
+        except Exception as e:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="load_failed").inc()
+            await LOGGER.awarning(
+                "snapshot_subscription_insights.image_load_failed",
+                subscription_id=inputs.subscription_id,
+                error=str(e),
+                exc_info=True,
+            )
 
     summary_text: str | None = None
     try:
@@ -163,6 +339,8 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
             subscription_title=subscription.title,
             prompt_guide=prompt_guide,
             team=subscription.team,
+            delivery_id=inputs.delivery_id,
+            insight_images=insight_images or None,
         )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:
@@ -180,6 +358,8 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
         "snapshot_subscription_insights.completed",
         subscription_id=inputs.subscription_id,
         insight_count=len(current_states),
+        image_count=len(insight_images),
+        image_bytes_total=sum(len(b) for b in insight_images.values()),
         has_previous=previous_states is not None,
         has_summary=summary_text is not None,
     )

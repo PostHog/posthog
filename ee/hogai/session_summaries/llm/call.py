@@ -26,6 +26,13 @@ from ee.hogai.session_summaries.constants import (
 logger = structlog.get_logger(__name__)
 
 
+def _build_posthog_props(trigger_session_id: str | None) -> dict[str, str]:
+    props: dict[str, str] = {"ai_product": "signals"}
+    if trigger_session_id:
+        props["$session_id"] = trigger_session_id
+    return props
+
+
 def _get_default_posthog_client() -> Client:
     """Return the default analytics client after validating the environment."""
     if not settings.DEBUG and not is_cloud():
@@ -94,6 +101,7 @@ async def stream_llm(
     trace_id: str | None = None,
     user_id: int,
     user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> AsyncStream[ChatCompletionChunk]:
     """
     LLM streaming call.
@@ -108,6 +116,7 @@ async def stream_llm(
         )
         logger.error(msg, session_id=session_id, signals_type="session-summaries")
         raise ValueError(msg)
+    posthog_props = _build_posthog_props(trigger_session_id)
     stream: AsyncStream = await client.chat.completions.create(  # type: ignore[call-overload]
         messages=messages,
         model=model,
@@ -116,7 +125,7 @@ async def stream_llm(
         stream=True,
         posthog_trace_id=trace_id,
         posthog_distinct_id=user_distinct_id,
-        posthog_properties={"ai_product": "signals"},
+        posthog_properties=posthog_props,
     )
     return stream
 
@@ -131,6 +140,7 @@ async def call_llm(
     trace_id: str | None = None,
     user_id: int,
     user_distinct_id: str | None = None,
+    trigger_session_id: str | None = None,
 ) -> ChatCompletion | OpenAIResponse:
     """
     LLM non-streaming call.
@@ -138,6 +148,7 @@ async def call_llm(
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_id)
     client = get_async_openai_client()
+    posthog_props = _build_posthog_props(trigger_session_id)
     if model in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
         result = await client.chat.completions.create(  # type: ignore[call-overload]
             messages=messages,
@@ -146,7 +157,7 @@ async def call_llm(
             user=user_param,
             posthog_trace_id=trace_id,
             posthog_distinct_id=user_distinct_id,
-            posthog_properties={"ai_product": "signals"},
+            posthog_properties=posthog_props,
         )
     elif model in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
         result = await client.responses.create(  # type: ignore[call-overload]
@@ -156,7 +167,7 @@ async def call_llm(
             user=user_param,
             posthog_trace_id=trace_id,
             posthog_distinct_id=user_distinct_id,
-            posthog_properties={"ai_product": "signals"},
+            posthog_properties=posthog_props,
         )
     else:
         msg = (

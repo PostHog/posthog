@@ -11,15 +11,15 @@ def _make_state(
     insight_id: int,
     name: str,
     summary: str,
-    query_def: dict | None = None,
     query_kind: str = "TrendsQuery",
     timestamp: str = "2025-04-14T10:00:00Z",
+    description: str = "",
 ) -> dict:
     return {
         "insight_id": insight_id,
         "insight_name": name,
+        "insight_description": description,
         "query_kind": query_kind,
-        "query_definition": query_def or {"kind": "TrendsQuery"},
         "results_summary": summary,
         "timestamp": timestamp,
     }
@@ -67,37 +67,6 @@ class TestBuildPromptMessages:
         user_content = messages[1]["content"]
         assert "retention curve" in user_content.lower()
 
-    def test_includes_query_definition_changes(self):
-        previous = [
-            _make_state(
-                1, "Pageviews", "avg 100/day", query_def={"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}
-            )
-        ]
-        current = [
-            _make_state(
-                1,
-                "Pageviews",
-                "avg 150/day",
-                query_def={"kind": "TrendsQuery", "series": [{"event": "$pageview"}, {"event": "signup"}]},
-                timestamp="2025-04-15T10:00:00Z",
-            )
-        ]
-
-        messages = build_prompt_messages(previous, current)
-
-        user_content = messages[1]["content"]
-        assert "query definition" in user_content.lower() or "modified" in user_content.lower()
-
-    def test_no_query_definition_change_note_when_unchanged(self):
-        same_query = {"kind": "TrendsQuery", "series": []}
-        previous = [_make_state(1, "Pageviews", "avg 100/day", query_def=same_query)]
-        current = [_make_state(1, "Pageviews", "avg 150/day", query_def=same_query, timestamp="2025-04-15T10:00:00Z")]
-
-        messages = build_prompt_messages(previous, current)
-
-        user_content = messages[1]["content"]
-        assert "modified" not in user_content.lower()
-
     def test_includes_subscription_title(self):
         previous = [_make_state(1, "Pageviews", "avg 100/day")]
         current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]
@@ -125,6 +94,32 @@ class TestBuildPromptMessages:
 
         user_content = messages[-1]["content"]
         assert "<user_context>" not in user_content
+
+    def test_includes_insight_description_in_section(self):
+        previous = [_make_state(1, "p95", "- p95: latest=2.0", description="Daily p95 response time in seconds")]
+        current = [
+            _make_state(
+                1,
+                "p95",
+                "- p95: latest=3.5",
+                timestamp="2025-04-15T10:00:00Z",
+                description="Daily p95 response time in seconds",
+            )
+        ]
+
+        messages = build_prompt_messages(previous, current)
+
+        user_content = messages[-1]["content"]
+        assert "Description: Daily p95 response time in seconds" in user_content
+
+    def test_omits_description_line_when_empty(self):
+        previous = [_make_state(1, "p95", "- p95: latest=2.0")]
+        current = [_make_state(1, "p95", "- p95: latest=3.5", timestamp="2025-04-15T10:00:00Z")]
+
+        messages = build_prompt_messages(previous, current)
+
+        user_content = messages[-1]["content"]
+        assert "Description:" not in user_content
 
 
 class TestBuildInitialPromptMessages:
@@ -253,3 +248,104 @@ class TestGenerateChangeSummary:
         )
 
         assert result == ""
+
+    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    def test_attaches_insight_images_as_multimodal_parts(self, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- Data shown")
+
+        current = [
+            _make_state(1, "Pageviews", "avg 100/day", timestamp="2025-04-15T10:00:00Z"),
+            _make_state(2, "Signups", "avg 10/day", timestamp="2025-04-15T10:00:00Z"),
+        ]
+        images = {1: b"png-for-1", 2: b"png-for-2"}
+
+        generate_change_summary(None, current, team=None, insight_images=images)
+
+        messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        user_content = messages[-1]["content"]
+        assert isinstance(user_content, list)
+        assert user_content[0]["type"] == "text"
+        image_parts = [p for p in user_content if p.get("type") == "image_url"]
+        assert len(image_parts) == 2
+        assert image_parts[0]["image_url"]["url"].startswith("data:image/png;base64,")
+        assert image_parts[0]["image_url"]["detail"] == "auto"
+
+    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    def test_prepends_label_text_part_before_each_image(self, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        current = [
+            _make_state(1, "Pageviews", "avg 100/day", timestamp="2025-04-15T10:00:00Z"),
+            _make_state(2, "Signups", "avg 10/day", timestamp="2025-04-15T10:00:00Z"),
+        ]
+        images = {1: b"pv", 2: b"su"}
+
+        generate_change_summary(None, current, team=None, insight_images=images)
+
+        messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        user_content = messages[-1]["content"]
+        label_texts = [p["text"] for p in user_content if p.get("type") == "text"]
+        assert "Chart for: Pageviews" in label_texts
+        assert "Chart for: Signups" in label_texts
+
+    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    def test_preserves_state_order_when_attaching_images(self, mock_get_client):
+        import base64
+
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        current = [
+            _make_state(2, "Signups", "...", timestamp="2025-04-15T10:00:00Z"),
+            _make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z"),
+        ]
+        images = {1: b"pv", 2: b"su"}
+
+        generate_change_summary(None, current, team=None, insight_images=images)
+
+        messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        user_content = messages[-1]["content"]
+        image_parts = [p for p in user_content if p.get("type") == "image_url"]
+        assert len(image_parts) == 2
+        expected_first = f"data:image/png;base64,{base64.b64encode(b'su').decode()}"
+        assert image_parts[0]["image_url"]["url"] == expected_first
+
+    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    def test_leaves_user_message_as_string_when_no_images(self, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        current = [_make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z")]
+
+        generate_change_summary(None, current, team=None)
+
+        messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        assert isinstance(messages[-1]["content"], str)
+
+    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    def test_skips_images_for_insights_not_in_current_states(self, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        current = [_make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z")]
+        images = {1: b"pv", 99: b"stale-insight"}
+
+        generate_change_summary(None, current, team=None, insight_images=images)
+
+        messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        image_parts = [p for p in messages[-1]["content"] if p.get("type") == "image_url"]
+        assert len(image_parts) == 1
+
+    @patch("posthog.temporal.subscriptions.llm_change_summary.get_llm_client")
+    def test_user_tag_includes_delivery_id_when_provided(self, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        current = [_make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z")]
+
+        generate_change_summary(None, current, team=None, delivery_id="abc-123")
+
+        user_tag = mock_client.chat.completions.create.call_args.kwargs["user"]
+        assert user_tag.endswith("-delivery-abc-123")

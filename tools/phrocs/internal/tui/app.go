@@ -76,6 +76,11 @@ type Model struct {
 	servicesCursor int
 	servicesOffset int
 	sortMode       SortMode
+	groupDims      []string       // available grouping dimensions from config (e.g. ["layer", "tech"])
+	groupDimIndex  int            // -1 = no grouping, 0+ = index into groupDims
+	sidebarEntries []sidebarEntry // grouped view; rebuilt when grouping or services change
+	entryCursor    int            // cursor into sidebarEntries (skips headers and spacers)
+	cfg            *config.Config // retained for group_order lookups
 
 	// Docker container sidebar (visible when docker-compose proc is selected)
 	containers         []docker.DockerContainer
@@ -135,7 +140,7 @@ func New(mgr *process.Manager, cfg *config.Config, configPath string, logger *lo
 	h := help.New()
 	h.Styles = helpStyles()
 
-	return Model{
+	m := Model{
 		mgr:              mgr,
 		services:         mgr.Procs(),
 		servicesCursor:   0,
@@ -147,11 +152,17 @@ func New(mgr *process.Manager, cfg *config.Config, configPath string, logger *lo
 		hideHelp:         cfg.HideKeymapWindow,
 		procListWidth:    cfg.ProcListWidth,
 		configPath:       configPath,
+		cfg:              cfg,
+		groupDims:        groupDimensions(cfg),
+		groupDimIndex:    -1,
 		keys:             keys,
 		help:             h,
 		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		log:              logger,
 	}
+	m.rebuildSidebarEntries()
+	m.keys.Group.SetEnabled(len(m.groupDims) > 0)
+	return m
 }
 
 func (m Model) dbg(format string, args ...any) {
@@ -330,16 +341,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		if msg.X < sidebarWidth {
-			delta := 0
+			moved := false
 			switch msg.Button {
 			case tea.MouseWheelDown:
-				delta = 1
+				if m.isGrouped() {
+					moved = m.nextProcEntry()
+				} else {
+					newCursor := min(m.servicesCursor+1, len(m.services)-1)
+					if newCursor != m.servicesCursor {
+						m.servicesCursor = newCursor
+						moved = true
+					}
+				}
 			case tea.MouseWheelUp:
-				delta = -1
+				if m.isGrouped() {
+					moved = m.prevProcEntry()
+				} else {
+					newCursor := max(m.servicesCursor-1, 0)
+					if newCursor != m.servicesCursor {
+						m.servicesCursor = newCursor
+						moved = true
+					}
+				}
 			}
-			newCursor := max(0, min(m.servicesCursor+delta, len(m.services)-1))
-			if newCursor != m.servicesCursor {
-				m.servicesCursor = newCursor
+			if moved {
 				m.ensureSidebarCursorVisible()
 				m.updateProcKeys()
 				var loadCmds []tea.Cmd
@@ -622,7 +647,75 @@ func (m *Model) sortServices() {
 			break
 		}
 	}
+	m.rebuildSidebarEntries()
 	m.ensureSidebarCursorVisible()
+}
+
+// activeGroupDim returns the current grouping dimension name, or "" if grouping is off.
+func (m Model) activeGroupDim() string {
+	if m.groupDimIndex < 0 || m.groupDimIndex >= len(m.groupDims) {
+		return ""
+	}
+	return m.groupDims[m.groupDimIndex]
+}
+
+// isGrouped returns true when a grouping dimension is active.
+func (m Model) isGrouped() bool {
+	return m.activeGroupDim() != ""
+}
+
+// cycleGroup advances to the next grouping dimension, or back to no grouping.
+func (m *Model) cycleGroup() {
+	if len(m.groupDims) == 0 {
+		return
+	}
+	m.groupDimIndex++
+	if m.groupDimIndex >= len(m.groupDims) {
+		m.groupDimIndex = -1
+	}
+}
+
+// rebuildSidebarEntries regenerates the sidebar entries from the
+// current services slice and grouping dimension. It preserves the cursor on the
+// same process by finding its entry in the new list.
+func (m *Model) rebuildSidebarEntries() {
+	activeName := ""
+	if p := m.activeProc(); p != nil {
+		activeName = p.Name
+	}
+	m.sidebarEntries = buildGroupedEntries(m.services, m.activeGroupDim(), m.cfg)
+	// Restore entryCursor to the same process
+	m.entryCursor = 0
+	for i, e := range m.sidebarEntries {
+		if e.proc != nil && e.proc.Name == activeName {
+			m.entryCursor = i
+			break
+		}
+	}
+}
+
+// nextProcEntry moves the entryCursor forward to the next process entry, skipping headers and spacers.
+func (m *Model) nextProcEntry() bool {
+	for i := m.entryCursor + 1; i < len(m.sidebarEntries); i++ {
+		if !m.sidebarEntries[i].isNonSelectable() {
+			m.entryCursor = i
+			m.servicesCursor = m.sidebarEntries[i].procIndex
+			return true
+		}
+	}
+	return false
+}
+
+// prevProcEntry moves the entryCursor backward to the previous process entry, skipping headers and spacers.
+func (m *Model) prevProcEntry() bool {
+	for i := m.entryCursor - 1; i >= 0; i-- {
+		if !m.sidebarEntries[i].isNonSelectable() {
+			m.entryCursor = i
+			m.servicesCursor = m.sidebarEntries[i].procIndex
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) toggleMetricsOnSelectedProc() {

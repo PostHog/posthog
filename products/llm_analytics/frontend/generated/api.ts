@@ -18,6 +18,7 @@ import type {
     DatasetItemsListParams,
     DatasetsListParams,
     EvaluationApi,
+    EvaluationReportApi,
     EvaluationSummaryRequestApi,
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
@@ -27,6 +28,8 @@ import type {
     LLMPromptResolveResponseApi,
     LLMProviderKeyApi,
     LlmAnalyticsClusteringJobsListParams,
+    LlmAnalyticsEvaluationReportsListParams,
+    LlmAnalyticsEvaluationReportsRunsListParams,
     LlmAnalyticsProviderKeysListParams,
     LlmAnalyticsReviewQueueItemsListParams,
     LlmAnalyticsReviewQueuesListParams,
@@ -39,6 +42,8 @@ import type {
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
     PaginatedEvaluationListApi,
+    PaginatedEvaluationReportListApi,
+    PaginatedEvaluationReportRunListApi,
     PaginatedLLMPromptListListApi,
     PaginatedLLMProviderKeyListApi,
     PaginatedReviewQueueItemListApi,
@@ -48,6 +53,7 @@ import type {
     PatchedClusteringJobApi,
     PatchedDatasetApi,
     PatchedDatasetItemApi,
+    PatchedEvaluationReportApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
     PatchedReviewQueueItemUpdateApi,
@@ -383,6 +389,193 @@ export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+/**
+ * CRUD for evaluation report configurations + report run history.
+ */
+export const getLlmAnalyticsEvaluationReportsListUrl = (
+    projectId: string,
+    params?: LlmAnalyticsEvaluationReportsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/evaluation_reports/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/evaluation_reports/`
+}
+
+export const llmAnalyticsEvaluationReportsList = async (
+    projectId: string,
+    params?: LlmAnalyticsEvaluationReportsListParams,
+    options?: RequestInit
+): Promise<PaginatedEvaluationReportListApi> => {
+    return apiMutator<PaginatedEvaluationReportListApi>(getLlmAnalyticsEvaluationReportsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * CRUD for evaluation report configurations + report run history.
+ */
+export const getLlmAnalyticsEvaluationReportsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_reports/`
+}
+
+export const llmAnalyticsEvaluationReportsCreate = async (
+    projectId: string,
+    evaluationReportApi: NonReadonly<EvaluationReportApi>,
+    options?: RequestInit
+): Promise<EvaluationReportApi> => {
+    return apiMutator<EvaluationReportApi>(getLlmAnalyticsEvaluationReportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationReportApi),
+    })
+}
+
+/**
+ * CRUD for evaluation report configurations + report run history.
+ */
+export const getLlmAnalyticsEvaluationReportsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/`
+}
+
+export const llmAnalyticsEvaluationReportsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvaluationReportApi> => {
+    return apiMutator<EvaluationReportApi>(getLlmAnalyticsEvaluationReportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * CRUD for evaluation report configurations + report run history.
+ */
+export const getLlmAnalyticsEvaluationReportsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/`
+}
+
+export const llmAnalyticsEvaluationReportsUpdate = async (
+    projectId: string,
+    id: string,
+    evaluationReportApi: NonReadonly<EvaluationReportApi>,
+    options?: RequestInit
+): Promise<EvaluationReportApi> => {
+    return apiMutator<EvaluationReportApi>(getLlmAnalyticsEvaluationReportsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationReportApi),
+    })
+}
+
+/**
+ * CRUD for evaluation report configurations + report run history.
+ */
+export const getLlmAnalyticsEvaluationReportsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/`
+}
+
+export const llmAnalyticsEvaluationReportsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedEvaluationReportApi: NonReadonly<PatchedEvaluationReportApi>,
+    options?: RequestInit
+): Promise<EvaluationReportApi> => {
+    return apiMutator<EvaluationReportApi>(getLlmAnalyticsEvaluationReportsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEvaluationReportApi),
+    })
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const getLlmAnalyticsEvaluationReportsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/`
+}
+
+export const llmAnalyticsEvaluationReportsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getLlmAnalyticsEvaluationReportsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Trigger immediate report generation.
+ */
+export const getLlmAnalyticsEvaluationReportsGenerateCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/generate/`
+}
+
+export const llmAnalyticsEvaluationReportsGenerateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsEvaluationReportsGenerateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
+ * List report runs (history) for this report.
+ */
+export const getLlmAnalyticsEvaluationReportsRunsListUrl = (
+    projectId: string,
+    id: string,
+    params?: LlmAnalyticsEvaluationReportsRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/runs/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/evaluation_reports/${id}/runs/`
+}
+
+export const llmAnalyticsEvaluationReportsRunsList = async (
+    projectId: string,
+    id: string,
+    params?: LlmAnalyticsEvaluationReportsRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedEvaluationReportRunListApi> => {
+    return apiMutator<PaginatedEvaluationReportRunListApi>(
+        getLlmAnalyticsEvaluationReportsRunsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
