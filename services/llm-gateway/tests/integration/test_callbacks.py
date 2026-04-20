@@ -64,15 +64,11 @@ class TestCallbacksFireOnAnthropicRequest:
         )
 
         assert (
-            TOKENS_INPUT.labels(
-                provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway"
-            )._value.get()
+            TOKENS_INPUT.labels(provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway")._value.get()
             > initial_input
         )
         assert (
-            TOKENS_OUTPUT.labels(
-                provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway"
-            )._value.get()
+            TOKENS_OUTPUT.labels(provider="anthropic", model=ANTHROPIC_TEST_MODEL, product="llm_gateway")._value.get()
             > initial_output
         )
 
