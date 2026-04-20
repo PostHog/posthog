@@ -225,19 +225,19 @@ class TestGetEventSource(BaseTest):
     def test_web_via_session_authentication(self):
         from rest_framework.authentication import SessionAuthentication
 
-        request = SimpleNamespace(META={}, successful_authenticator=SessionAuthentication())
+        request = SimpleNamespace(META={}, headers={}, successful_authenticator=SessionAuthentication())
         assert get_event_source(request) == EventSource.WEB
 
     def test_web_via_session_key_fallback(self):
-        request = SimpleNamespace(META={}, session=SimpleNamespace(session_key="abc123"))
+        request = SimpleNamespace(META={}, headers={}, session=SimpleNamespace(session_key="abc123"))
         assert get_event_source(request) == EventSource.WEB
 
     def test_api_when_session_is_dict(self):
-        request = SimpleNamespace(META={}, session={})
+        request = SimpleNamespace(META={}, headers={}, session={})
         assert get_event_source(request) == EventSource.API
 
     def test_api_when_session_key_is_none(self):
-        request = SimpleNamespace(META={}, session=SimpleNamespace(session_key=None))
+        request = SimpleNamespace(META={}, headers={}, session=SimpleNamespace(session_key=None))
         assert get_event_source(request) == EventSource.API
 
 
