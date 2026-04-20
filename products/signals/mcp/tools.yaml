@@ -7,6 +7,7 @@
 category: Signals
 feature: signals
 url_prefix: /signals
+ui_apps: {}
 tools:
     signals-autostart-get:
         operation: users_signal_autonomy_retrieve
@@ -19,17 +20,16 @@ tools:
             idempotent: true
         title: Get my signal autostart threshold
         description: >
-            Retrieve the current signal autostart threshold for a user. The threshold controls
-            the minimum report priority (P0–P4) at which PostHog Code will automatically start
-            work on signal reports assigned to the user. Pass `@me` as `user_id` to target the
-            currently authenticated user. Returns 404 when the user has not opted in — treat
-            that as "autostart is off for this user". Options are P0 (broadest), P1, P2, P3,
-            P4 (narrowest), or null (inherit the team default).
+            Retrieve the current signal autostart threshold for a user. The threshold controls the minimum report
+            priority (P0–P4) at which PostHog Code will automatically start work on signal reports assigned to the user.
+            Pass `@me` as `user_id` to target the currently authenticated user. Returns 404 when the user has not opted
+            in — treat that as "autostart is off for this user". Options are P0 (broadest), P1, P2, P3, P4 (narrowest),
+            or null (inherit the team default).
         param_overrides:
             user_id:
                 description: >
-                    PostHog user identifier. Use `@me` to target the currently authenticated user;
-                    staff users can pass another user's primary key.
+                    PostHog user identifier. Use `@me` to target the currently authenticated user; staff users can pass
+                    another user's primary key.
                 default: '@me'
     signals-autostart-set:
         operation: users_signal_autonomy_update
@@ -42,17 +42,15 @@ tools:
             idempotent: true
         title: Set my signal autostart threshold
         description: >
-            Opt in to signal autostart or update the existing threshold. `autostart_priority`
-            selects the minimum report priority at which PostHog Code will automatically start
-            assigned work — one of P0, P1, P2, P3, P4, or null to inherit the team default.
-            P0 is the broadest (autostart on any priority), P4 is the narrowest (only the
-            highest-priority reports). Pass `@me` as `user_id` to target the currently
-            authenticated user.
+            Opt in to signal autostart or update the existing threshold. `autostart_priority` selects the minimum report
+            priority at which PostHog Code will automatically start assigned work — one of P0, P1, P2, P3, P4, or null
+            to inherit the team default. P0 is the broadest (autostart on any priority), P4 is the narrowest (only the
+            highest-priority reports). Pass `@me` as `user_id` to target the currently authenticated user.
         param_overrides:
             user_id:
                 description: >
-                    PostHog user identifier. Use `@me` to target the currently authenticated user;
-                    staff users can pass another user's primary key.
+                    PostHog user identifier. Use `@me` to target the currently authenticated user; staff users can pass
+                    another user's primary key.
                 default: '@me'
     signals-autostart-remove:
         operation: users_signal_autonomy_destroy
@@ -65,12 +63,38 @@ tools:
             idempotent: true
         title: Opt out of signal autostart
         description: >
-            Remove the user's signal autostart config, opting them out of autostart entirely.
-            Unassigned reports can still be picked up manually. Pass `@me` as `user_id` to
-            target the currently authenticated user.
+            Remove the user's signal autostart config, opting them out of autostart entirely. Unassigned reports can
+            still be picked up manually. Pass `@me` as `user_id` to target the currently authenticated user.
         param_overrides:
             user_id:
                 description: >
-                    PostHog user identifier. Use `@me` to target the currently authenticated user;
-                    staff users can pass another user's primary key.
+                    PostHog user identifier. Use `@me` to target the currently authenticated user; staff users can pass
+                    another user's primary key.
                 default: '@me'
+    signals-processing-list:
+        operation: signals_processing_list
+        enabled: false
+    signals-processing-pause-update:
+        operation: signals_processing_pause_update
+        enabled: false
+    signals-processing-pause-destroy:
+        operation: signals_processing_pause_destroy
+        enabled: false
+    signals-source-configs-list:
+        operation: signals_source_configs_list
+        enabled: false
+    signals-source-configs-create:
+        operation: signals_source_configs_create
+        enabled: false
+    signals-source-configs-retrieve:
+        operation: signals_source_configs_retrieve
+        enabled: false
+    signals-source-configs-update:
+        operation: signals_source_configs_update
+        enabled: false
+    signals-source-configs-partial-update:
+        operation: signals_source_configs_partial_update
+        enabled: false
+    signals-source-configs-destroy:
+        operation: signals_source_configs_destroy
+        enabled: false
