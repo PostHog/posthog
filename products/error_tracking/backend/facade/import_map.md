@@ -20,7 +20,7 @@ This tracks cross-product imports that currently bypass the facade.
 1. **Read-only issue access** (lowest risk): move model reads to `backend/facade/api.py` (`list_issues`, `get_issue`, `issue_exists`, fingerprint lookup, values lookup).
 2. **Cross-product issue readers**: migrate `ee/hogai/context/error_tracking/context.py`, `products/tasks/backend/repository_readiness.py`, `posthog/tasks/usage_report.py`. ✅ completed in PR 2.
 3. **Task and digest callers**: migrate `posthog/tasks/email.py` and `backend/weekly_digest.py` consumers. ✅ completed in PR 3.
-4. **Presentation migration**: move `backend/api/*.py` viewsets into `backend/presentation/views.py`/`serializers.py` and route through facade.
+4. **Presentation migration**: move `backend/api/*.py` viewsets into `backend/presentation/views.py`/`serializers.py` and route through facade. ▶️ started in PR 4 by moving external references and fingerprints serializer/viewset into `backend/presentation/` with compatibility shims.
 5. **Boundary enforcement + cleanup**: add `backend/facade/contracts.py`, `backend:contract-check`, and `tach` interface block once legacy paths are removed.
 
 ## Graphite stack template
