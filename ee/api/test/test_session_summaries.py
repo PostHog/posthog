@@ -128,7 +128,6 @@ class TestSessionSummariesAPI(APIBaseTest):
             min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
             extra_summary_context=mock_execute.call_args[1]["extra_summary_context"],
-            video_based=False,
             summary_title="Group summary",
         )
         # Check extra_summary_context separately

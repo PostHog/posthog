@@ -1,5 +1,4 @@
 import json
-import uuid
 import asyncio
 import dataclasses
 from collections.abc import AsyncGenerator
