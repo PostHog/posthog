@@ -465,6 +465,18 @@ def _investigation_should_gate_notification(alert: AlertConfiguration, previous_
         return False
     if previous_state == AlertState.FIRING:
         return False
+    # If the cooldown would cause _maybe_start_investigation_agent to skip this fire,
+    # don't gate — no workflow will run and the only notifier would be the safety-net,
+    # adding up to INVESTIGATION_NOTIFY_GRACE_MINUTES of avoidable latency.
+    from posthog.models.alert import AlertCheck, InvestigationStatus
+
+    cooldown_since = datetime.now(UTC) - INVESTIGATION_COOLDOWN
+    if AlertCheck.objects.filter(
+        alert_configuration=alert,
+        created_at__gte=cooldown_since,
+        investigation_status__in=[InvestigationStatus.RUNNING, InvestigationStatus.DONE, InvestigationStatus.PENDING],
+    ).exists():
+        return False
     return True
 
 

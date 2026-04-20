@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import json
 import asyncio
-import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Optional
 from uuid import UUID
 
+import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -21,7 +21,7 @@ from temporalio.common import RetryPolicy
 from posthog.models import Team, User
 from posthog.temporal.common.base import PostHogWorkflow
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE = 20 * 60  # 20 minutes
@@ -127,7 +127,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
                 heartbeat=activity.heartbeat,
             )
     except Exception as err:
-        logger.exception("anomaly_investigation.agent_failed", extra={"alert_id": str(alert.id)})
+        logger.exception("anomaly_investigation.agent_failed", alert_id=str(alert.id))
         await _mark_failed(alert_check, f"Agent run failed: {err}")
         raise
 
@@ -213,11 +213,9 @@ def _dispatch_gated_notification(
             check.save(update_fields=["notification_suppressed_by_agent"])
             logger.info(
                 "anomaly_investigation.notification_suppressed",
-                extra={
-                    "alert_id": str(alert.id),
-                    "alert_check_id": str(alert_check.id),
-                    "verdict": verdict,
-                },
+                alert_id=str(alert.id),
+                alert_check_id=str(alert_check.id),
+                verdict=verdict,
             )
             return
 
@@ -229,7 +227,8 @@ def _dispatch_gated_notification(
         except Exception:
             logger.exception(
                 "anomaly_investigation.gated_notification_failed",
-                extra={"alert_id": str(alert.id), "alert_check_id": str(alert_check.id)},
+                alert_id=str(alert.id),
+                alert_check_id=str(alert_check.id),
             )
             # Don't swallow — let the safety-net task retry on the next tick.
             raise
@@ -316,7 +315,7 @@ def _build_multimodal_context(*, alert, context_text: str):
 
     sim = _run_detector_simulation(alert=alert, team=alert.team, date_from=None)
     if isinstance(sim, str) or not sim:
-        logger.info("anomaly_investigation.chart_skipped", extra={"alert_id": str(alert.id), "reason": str(sim)[:120]})
+        logger.info("anomaly_investigation.chart_skipped", alert_id=str(alert.id), reason=str(sim)[:120])
         return context_text
 
     dates = sim.get("dates") or []

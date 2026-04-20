@@ -11,6 +11,8 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import AlertState
 
 from posthog.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
@@ -50,26 +52,27 @@ class TestInvestigationTrigger(BaseTest):
         # _start_investigation_workflow is mocked so status stays at PENDING (set before enqueue).
         assert check.investigation_status == InvestigationStatus.PENDING
 
+    @parameterized.expand(
+        [
+            ("already_firing", AlertState.FIRING, None, None),
+            ("not_opted_in", AlertState.NOT_FIRING, "investigation_agent_enabled", False),
+            ("threshold_only", AlertState.NOT_FIRING, "detector_config", None),
+        ]
+    )
     @patch("posthog.tasks.alerts.checks._start_investigation_workflow")
-    def test_does_not_enqueue_when_already_firing(self, mock_start: Any) -> None:
+    def test_does_not_enqueue(
+        self,
+        _name: str,
+        previous_state: str,
+        alert_attr: str | None,
+        alert_value: Any,
+        mock_start: Any,
+    ) -> None:
+        if alert_attr is not None:
+            setattr(self.alert, alert_attr, alert_value)
+            self.alert.save()
         check = self._make_check()
-        _maybe_start_investigation_agent(self.alert, check, previous_state=AlertState.FIRING)
-        mock_start.assert_not_called()
-
-    @patch("posthog.tasks.alerts.checks._start_investigation_workflow")
-    def test_does_not_enqueue_when_not_opted_in(self, mock_start: Any) -> None:
-        self.alert.investigation_agent_enabled = False
-        self.alert.save()
-        check = self._make_check()
-        _maybe_start_investigation_agent(self.alert, check, previous_state=AlertState.NOT_FIRING)
-        mock_start.assert_not_called()
-
-    @patch("posthog.tasks.alerts.checks._start_investigation_workflow")
-    def test_does_not_enqueue_for_threshold_only_alerts(self, mock_start: Any) -> None:
-        self.alert.detector_config = None
-        self.alert.save()
-        check = self._make_check()
-        _maybe_start_investigation_agent(self.alert, check, previous_state=AlertState.NOT_FIRING)
+        _maybe_start_investigation_agent(self.alert, check, previous_state=previous_state)
         mock_start.assert_not_called()
 
     @patch("posthog.tasks.alerts.checks.transaction.on_commit", side_effect=lambda cb: cb())

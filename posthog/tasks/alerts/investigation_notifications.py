@@ -24,7 +24,7 @@ import structlog
 
 from posthog.schema import AlertState
 
-from posthog.models.alert import AlertCheck, InvestigationStatus
+from posthog.models.alert import AlertCheck
 from posthog.tasks.alerts.utils import send_notifications_for_breaches
 
 logger = structlog.get_logger(__name__)
@@ -40,15 +40,16 @@ def run_investigation_notification_safety_net() -> int:
     """
     cutoff = datetime.now(UTC) - timedelta(minutes=INVESTIGATION_NOTIFY_GRACE_MINUTES)
     candidates = (
-        AlertCheck.objects.select_related("alert_configuration")
-        .filter(
+        AlertCheck.objects.select_related("alert_configuration").filter(
             state=AlertState.FIRING,
             notification_sent_at__isnull=True,
             notification_suppressed_by_agent=False,
             created_at__lte=cutoff,
             alert_configuration__investigation_gates_notifications=True,
         )
-        .exclude(investigation_status=InvestigationStatus.DONE)
+        # Do NOT exclude DONE — the activity marks status=DONE before dispatching
+        # the notification, so if dispatch fails and retries are exhausted the check
+        # stays DONE with notification_sent_at=NULL. We need to pick those up here.
     )
 
     notified = 0
