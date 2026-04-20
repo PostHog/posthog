@@ -263,6 +263,11 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
             lines.append(f"- **URL:** {signal.extra['url']}")
         if "labels" in signal.extra:
             lines.append(f"- **Labels:** {', '.join(signal.extra['labels'])}")
+        images = signal.extra.get("images") or []
+        if images:
+            rendered = ", ".join(f"[{img.get('author', 'unknown')}] {img['url']}" for img in images if img.get("url"))
+            if rendered:
+                lines.append(f"- **Attached images:** {rendered}")
     lines.append(f"- **Description:** {signal.content}")
     return "\n".join(lines)
 
@@ -280,7 +285,9 @@ We never use the em-dash, only the en-dash (–).
 
 You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
-2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc."""
+2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
+
+When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence."""
 
 _RESEARCH_PROTOCOL = """## Research protocol
 
