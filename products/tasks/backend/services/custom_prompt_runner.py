@@ -187,7 +187,7 @@ async def _poll_for_turn(
         # Keep the cursor monotonic — S3 eventual-consistency can briefly return
         # fewer lines than the prior poll; without the clamp we'd re-parse old lines.
         skip_lines = max(skip_lines, total_lines)
-        refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        refreshed = await sync_to_async(TaskRun.objects.get, thread_sensitive=False)(id=task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
             TaskRun.Status.FAILED,

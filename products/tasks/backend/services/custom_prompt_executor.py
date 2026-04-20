@@ -7,8 +7,6 @@ from typing import Any, TypeVar
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 
-from posthog.storage import object_storage
-
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, OutputFn
 
@@ -59,7 +57,7 @@ async def run_sandbox_agent_get_structured_output(
         raise
 
     # For structured output tasks, read from task_run.output (set via set_output API)
-    refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    refreshed = await sync_to_async(TaskRun.objects.get, thread_sensitive=False)(id=task_run.id)
     if refreshed.output is not None:
         try:
             return model_to_validate.model_validate(refreshed.output)
@@ -145,25 +143,19 @@ async def _poll_for_structured_completion(
 
         # Best-effort: stream log lines for visibility, but don't fail if S3 is flaky
         try:
-            log_content = await sync_to_async(
-                lambda: object_storage.read(task_run.log_url, missing_ok=True),
-                thread_sensitive=False,
-            )()
-            if log_content:
-                printed_lines = _stream_new_lines(log_content, printed_lines, verbose=verbose, output_fn=output_fn)
-                # Try to extract latest agent text from logs
-                try:
-                    _, last_msg, _, total_lines, _ = _check_logs(task_run, skip_lines)
-                    if last_msg:
-                        latest_text = last_msg
-                    skip_lines = max(skip_lines, total_lines)
-                except Exception:
-                    pass
+            _, last_msg, full_log, total_lines, _ = await sync_to_async(_check_logs, thread_sensitive=False)(
+                task_run, skip_lines
+            )
+            if full_log:
+                printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+            if last_msg:
+                latest_text = last_msg
+            skip_lines = max(skip_lines, total_lines)
         except Exception:
             pass
 
         # Check if task_run reached terminal status
-        refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        refreshed = await sync_to_async(TaskRun.objects.get, thread_sensitive=False)(id=task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
             TaskRun.Status.FAILED,

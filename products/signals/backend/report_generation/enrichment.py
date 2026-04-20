@@ -212,7 +212,6 @@ async def run_report_enrichment(
     context: CustomPromptSandboxContext,
     *,
     report_id: str | None = None,
-    branch: str = "master",
     output_fn: OutputFn = None,
 ) -> ReportEnrichmentFinding:
     """Run a multi-turn sandbox session to enrich a report with code context.
@@ -232,7 +231,6 @@ async def run_report_enrichment(
         prompt=initial_prompt,
         context=context,
         model=CodeInvestigationResult,
-        branch=branch,
         step_name="report_enrichment",
         output_fn=output_fn,
         origin_product="signal_report",

@@ -10,8 +10,11 @@ Flow:
 6. Publish Kafka report-completed message (for ready reports)
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 import structlog
 import temporalio
@@ -43,6 +46,9 @@ from products.signals.backend.temporal.summary import (
     publish_report_completed_activity,
     reset_report_to_potential_activity,
 )
+
+if TYPE_CHECKING:
+    from products.signals.backend.report_generation.enrichment import ReportEnrichmentFinding
 
 logger = structlog.get_logger(__name__)
 
@@ -84,6 +90,11 @@ class EnrichAndPersistEmitReportInput:
     priority_explanation: str
 
 
+@dataclass
+class EnrichAndPersistEmitReportOutput:
+    enriched_summary: str  # Original summary + "Further context" section from enrichment
+
+
 # ---------------------------------------------------------------------------
 # Activities
 # ---------------------------------------------------------------------------
@@ -118,8 +129,39 @@ async def create_emit_report_activity(input: CreateEmitReportInput) -> None:
     logger.info("emit_report: created report", report_id=input.report_id, team_id=input.team_id)
 
 
+def _build_enriched_summary(
+    original_summary: str,
+    enrichment: ReportEnrichmentFinding,
+    repository: str,
+) -> str:
+    """Append a 'Further context' section with enrichment findings to the original summary."""
+
+    parts = [original_summary.rstrip()]
+    parts.append("\n\n---\n\n**Further context** (from automated code and data investigation):\n")
+
+    if enrichment.relevant_code_paths:
+        paths_list = ", ".join(f"`{p}`" for p in enrichment.relevant_code_paths[:8])
+        parts.append(f"**Relevant code paths:** {paths_list}")
+
+    if enrichment.relevant_commit_hashes:
+        commit_lines = []
+        for sha, reason in list(enrichment.relevant_commit_hashes.items())[:5]:
+            commit_lines.append(f"- `{sha}` – {reason}")
+        parts.append("**Relevant commits:**\n" + "\n".join(commit_lines))
+
+    if enrichment.data_queried:
+        parts.append(f"**Data queried:** {enrichment.data_queried}")
+
+    if repository:
+        parts.append(f"**Repository:** `{repository}`")
+
+    return "\n\n".join(parts)
+
+
 @temporalio.activity.defn
-async def enrich_and_persist_emit_report_activity(input: EnrichAndPersistEmitReportInput) -> None:
+async def enrich_and_persist_emit_report_activity(
+    input: EnrichAndPersistEmitReportInput,
+) -> EnrichAndPersistEmitReportOutput:
     """Run enrichment agent, build ReportResearchOutput, persist artefacts, and check auto-start."""
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
@@ -154,7 +196,6 @@ async def enrich_and_persist_emit_report_activity(input: EnrichAndPersistEmitRep
             summary=input.summary,
             context=context,
             report_id=input.report_id,
-            branch="master",
         )
 
         # 3. Convert enrichment finding to SignalFinding for the artefact pipeline
@@ -176,9 +217,13 @@ async def enrich_and_persist_emit_report_activity(input: EnrichAndPersistEmitRep
             explanation=input.priority_explanation,
             priority=Priority(input.priority),
         )
+
+        # 4b. Build enriched summary: original + "Further context" from enrichment
+        enriched_summary = _build_enriched_summary(input.summary, enrichment, input.repository)
+
         result = ReportResearchOutput(
             title=input.title,
-            summary=input.summary,
+            summary=enriched_summary,
             findings=[finding],
             actionability=actionability,
             priority=priority,
@@ -204,6 +249,8 @@ async def enrich_and_persist_emit_report_activity(input: EnrichAndPersistEmitRep
         code_paths=len(enrichment.relevant_code_paths),
         commit_hashes=len(enrichment.relevant_commit_hashes),
     )
+
+    return EnrichAndPersistEmitReportOutput(enriched_summary=enriched_summary)
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +307,9 @@ class EmitReportWorkflow:
             )
 
             if repo_result.repository is None:
-                workflow.logger.warning(f"emit_report {inputs.report_id} no repository selected: {repo_result.reason}")
+                workflow.logger.warning(
+                    "emit_report %s no repository selected: %s", inputs.report_id, repo_result.reason
+                )
                 await workflow.execute_activity(
                     mark_report_pending_input_activity,
                     MarkReportPendingInput(
@@ -276,7 +325,7 @@ class EmitReportWorkflow:
                 return
 
             # 3. Enrich + persist artefacts (triggers auto-start check)
-            await workflow.execute_activity(
+            enrich_result: EnrichAndPersistEmitReportOutput = await workflow.execute_activity(
                 enrich_and_persist_emit_report_activity,
                 EnrichAndPersistEmitReportInput(
                     team_id=inputs.team_id,
@@ -294,6 +343,9 @@ class EmitReportWorkflow:
                 heartbeat_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
+
+            # Use the enriched summary (original + further context) for the final report
+            final_summary = enrich_result.enriched_summary
 
             # 4. Apply the caller-provided actionability decision
             choice = ActionabilityChoice(inputs.actionability)
@@ -318,7 +370,7 @@ class EmitReportWorkflow:
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
                         title=inputs.title,
-                        summary=inputs.summary,
+                        summary=final_summary,
                         reason=f"Requires human input: {inputs.actionability_explanation}",
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
@@ -333,7 +385,7 @@ class EmitReportWorkflow:
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
                     title=inputs.title,
-                    summary=inputs.summary,
+                    summary=final_summary,
                     processed_signal_count=0,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
@@ -353,7 +405,7 @@ class EmitReportWorkflow:
             )
 
         except Exception as e:
-            workflow.logger.exception(f"EmitReportWorkflow failed for report {inputs.report_id}: {e}")
+            workflow.logger.exception("EmitReportWorkflow failed for report %s: %s", inputs.report_id, e)
             try:
                 await workflow.execute_activity(
                     mark_report_failed_activity,
@@ -366,5 +418,5 @@ class EmitReportWorkflow:
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
             except Exception:
-                workflow.logger.exception(f"Failed to mark report {inputs.report_id} as failed after workflow error")
+                workflow.logger.exception("Failed to mark report %s as failed after workflow error", inputs.report_id)
             raise
