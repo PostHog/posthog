@@ -1078,7 +1078,7 @@ def _set_provisioning_service_id(team: Team, service_id: str) -> None:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def provisioning_resources_create(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1190,7 +1190,7 @@ def provisioning_resources_create(request: Request) -> Response:
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def provisioning_resource_detail(request: Request, resource_id: str) -> Response:
     return _resolve_resource_response(request, resource_id)
 
@@ -1203,7 +1203,7 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def provisioning_rotate_credentials(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1273,7 +1273,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def provisioning_update_service(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1375,7 +1375,7 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def provisioning_resource_remove(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1523,7 +1523,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="bearer_lookup")
+@region_proxy(strategy="bearer_lookup")
 def deep_links(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:

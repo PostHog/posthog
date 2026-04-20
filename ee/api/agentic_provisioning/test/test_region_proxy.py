@@ -241,7 +241,7 @@ class TestDecoratorIntegration(ProvisioningTestBase):
         assert res.json()["type"] == "oauth"
 
 
-class TestBearerLookupDecoratorCoverage(StripeProvisioningTestBase):
+class TestBearerLookupDecoratorCoverage(ProvisioningTestBase):
     """Confirms every bearer-auth agentic endpoint proxies unknown tokens to the other region
     and handles known tokens locally."""
 
@@ -296,10 +296,10 @@ class TestBearerLookupDecoratorCoverage(StripeProvisioningTestBase):
 
 
 class TestDecoratorCoverageContract(BaseTest):
-    """Catches forgotten `@stripe_region_proxy` decorators on bearer-auth endpoints.
+    """Catches forgotten `@region_proxy` decorators on bearer-auth endpoints.
 
     If you add a new endpoint that accepts a bearer access token, either decorate it
-    with `stripe_region_proxy(strategy="bearer_lookup")` or add it to the allowlist here
+    with `region_proxy(strategy="bearer_lookup")` or add it to the allowlist here
     with a written reason."""
 
     REGION_AWARE_ENDPOINTS = {
@@ -326,12 +326,12 @@ class TestDecoratorCoverageContract(BaseTest):
             )
             registered_strategy = REGION_PROXY_REGISTRY.get(qualname) or REGION_PROXY_REGISTRY.get(view_name)
             assert registered_strategy == expected_strategy, (
-                f"{view_name} must be decorated with @stripe_region_proxy(strategy={expected_strategy!r}) "
+                f"{view_name} must be decorated with @region_proxy(strategy={expected_strategy!r}) "
                 f"(registry has: {registered_strategy!r})"
             )
 
 
-class TestCrossRegionLoopback(StripeProvisioningTestBase):
+class TestCrossRegionLoopback(ProvisioningTestBase):
     """In-process E2E: mock the outbound HTTPS call inside _proxy_to_region so it re-enters
     this Django process with CLOUD_DEPLOYMENT flipped. Proves path, body, headers, and the
     response all round-trip correctly through a real US → EU → US loop."""
