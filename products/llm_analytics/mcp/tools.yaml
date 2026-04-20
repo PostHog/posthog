@@ -327,3 +327,27 @@ tools:
     llm-skills-resolve-name-retrieve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false
+    evaluation-runs-create:
+        operation: evaluation_runs_create
+        enabled: false
+    evaluations-list:
+        operation: evaluations_list
+        enabled: false
+    evaluations-create:
+        operation: evaluations_create
+        enabled: false
+    evaluations-retrieve:
+        operation: evaluations_retrieve
+        enabled: false
+    evaluations-update:
+        operation: evaluations_update
+        enabled: false
+    evaluations-partial-update:
+        operation: evaluations_partial_update
+        enabled: false
+    evaluations-destroy:
+        operation: evaluations_destroy
+        enabled: false
+    evaluations-test-hog-create:
+        operation: evaluations_test_hog_create
+        enabled: false
