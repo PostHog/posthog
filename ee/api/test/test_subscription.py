@@ -559,7 +559,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         def fresh_api_key_headers() -> dict[str, str]:
             raw_key = generate_random_token_personal()
             PersonalAPIKey.objects.create(
-                label=f"throttle-test-{uuid4()}",
+                label=f"throttle-{uuid4().hex[:8]}",
                 user=self.user,
                 secure_value=hash_key_value(raw_key),
                 scopes=["*"],
