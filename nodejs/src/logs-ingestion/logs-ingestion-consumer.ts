@@ -296,7 +296,7 @@ export class LogsIngestionConsumer {
 
                     // Extract settings with defaults
                     const jsonParse = logsSettings.json_parse_logs ?? false
-                    const retentionDays = logsSettings.retention_days ?? 15
+                    const retentionDays = logsSettings.retention_days ?? 14
 
                     // ignore empty messages
                     if (message.message.value === null) {
