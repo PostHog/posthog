@@ -4,7 +4,12 @@ import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import type { SnapshotApi, SnapshotHistoryEntryApi, ToleratedHashEntryApi } from '../generated/api.schemas'
+import type {
+    QuarantinedIdentifierEntryApi,
+    SnapshotApi,
+    SnapshotHistoryEntryApi,
+    ToleratedHashEntryApi,
+} from '../generated/api.schemas'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
 interface SnapshotDiffViewerProps {
@@ -15,7 +20,7 @@ interface SnapshotDiffViewerProps {
     toleratedHashesLoading?: boolean
     onApprove?: () => void
     onMarkTolerated?: () => void
-    isQuarantined?: boolean
+    quarantineEntry?: QuarantinedIdentifierEntryApi | null
     onQuarantine?: () => void
     onUnquarantine?: () => void
     commitSha?: string
@@ -32,7 +37,7 @@ export function SnapshotDiffViewer({
     toleratedHashesLoading,
     onApprove,
     onMarkTolerated,
-    isQuarantined = false,
+    quarantineEntry,
     onQuarantine,
     onUnquarantine,
     commitSha,
@@ -48,6 +53,7 @@ export function SnapshotDiffViewer({
 
     const isApproved = snapshot.review_state === 'approved'
     const isTolerated = snapshot.review_state === 'tolerated'
+    const isQuarantined = !!quarantineEntry
     const hasChanges = snapshot.result === 'changed' || snapshot.result === 'new' || snapshot.result === 'removed'
     const needsAction = hasChanges && !isApproved && !isTolerated && !isQuarantined
 
@@ -118,10 +124,12 @@ export function SnapshotDiffViewer({
             {/* Content + sidebar */}
             <div className="flex gap-4">
                 <div className="flex-1 min-w-0 overflow-hidden">
-                    {isQuarantined && (
+                    {isQuarantined && quarantineEntry && (
                         <div className="flex items-center justify-between bg-warning-highlight border border-warning rounded px-3 py-2 mb-4 text-sm">
                             <span className="text-muted-alt">
-                                Quarantined — this snapshot is known-flaky and does not block PRs
+                                Quarantined — {quarantineEntry.reason}
+                                {quarantineEntry.expires_at &&
+                                    ` · until ${new Date(quarantineEntry.expires_at).toLocaleDateString()}`}
                             </span>
                             {onUnquarantine && (
                                 <LemonButton size="xsmall" type="secondary" onClick={onUnquarantine}>

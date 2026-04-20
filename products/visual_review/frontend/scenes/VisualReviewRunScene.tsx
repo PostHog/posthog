@@ -40,6 +40,7 @@ function SnapshotThumbnail({
     const shortName = parts.length > 1 ? parts.slice(1, isTheme ? -1 : undefined).join(' · ') : snapshot.identifier
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
+    const showBadge = isReviewed || isQuarantined
 
     return (
         <button
@@ -55,17 +56,21 @@ function SnapshotThumbnail({
                 opacity: isQuarantined ? 0.5 : 1,
             }}
         >
-            {isReviewed && (
+            {showBadge && (
                 <>
                     <span
                         className={`absolute top-0 right-0 w-7 h-7 z-10 ${
-                            snapshot.review_state === 'approved' ? 'bg-success' : 'bg-muted'
+                            isQuarantined
+                                ? 'bg-warning'
+                                : snapshot.review_state === 'approved'
+                                  ? 'bg-success'
+                                  : 'bg-muted'
                         }`}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }}
                     />
                     <span className="absolute top-[3px] right-[3px] z-10 text-white text-[10px] leading-none font-bold">
-                        {snapshot.review_state === 'approved' ? '✓' : '~'}
+                        {isQuarantined ? 'Q' : snapshot.review_state === 'approved' ? '✓' : '~'}
                     </span>
                 </>
             )}
@@ -107,6 +112,7 @@ export function VisualReviewRunScene(): JSX.Element {
         snapshotHistoryLoading,
         toleratedHashes,
         toleratedHashesLoading,
+        quarantinedIdentifiers,
         quarantinedIdentifierSet,
         repoFullName,
         isApproving,
@@ -312,7 +318,13 @@ export function VisualReviewRunScene(): JSX.Element {
                             toleratedHashesLoading={toleratedHashesLoading}
                             onApprove={handleApproveSnapshot}
                             onMarkTolerated={() => markAsTolerated(selectedSnapshot)}
-                            isQuarantined={quarantinedIdentifierSet.has(selectedSnapshot.identifier)}
+                            quarantineEntry={
+                                quarantinedIdentifiers.find(
+                                    (q) =>
+                                        q.identifier === selectedSnapshot.identifier &&
+                                        (!q.expires_at || new Date(q.expires_at) > new Date())
+                                ) ?? null
+                            }
                             onQuarantine={() => quarantineSnapshot(selectedSnapshot)}
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
                             commitSha={run.commit_sha}
