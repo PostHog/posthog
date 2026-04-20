@@ -18,12 +18,8 @@ from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilte
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
-from ee.hogai.eval.sandboxed.scorers import (
-    ExitCodeZero,
-    NoToolCall,
-    RetentionSchemaAlignment,
-    RetentionTimeRangeRelevancy,
-)
+from ee.hogai.eval.sandboxed.product_analytics.scorers import RetentionSchemaAlignment, RetentionTimeRangeRelevancy
+from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 
 # PostHog MCP tools that persist saved-insight state. The sandbox is disposable
 # but these tools still hit real rows, so any successful call is a bug in the

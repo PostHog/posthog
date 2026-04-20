@@ -1,4 +1,4 @@
-"""Retention-specific LLM-judge scorers for the sandboxed agent eval.
+"""Retention scorers for the sandboxed product-analytics eval.
 
 Both scorers extract the final ``query-retention`` MCP tool call the agent
 made, then grade it against an expected shape or against the user prompt.
@@ -7,13 +7,12 @@ Binary outputs only — the LLM is asked yes/no.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from autoevals.llm import LLMClassifier
 from braintrust import Score
 
-from .deterministic import iter_successful_tool_calls, normalize_tool_name
+from ee.hogai.eval.sandboxed.scorers import iter_successful_tool_calls, normalize_tool_name
 
 QUERY_RETENTION_TOOL_NAME = "query-retention"
 
@@ -186,11 +185,6 @@ Is the time range / period in the actual query consistent with the user's prompt
             max_tokens=512,
             **kwargs,
         )
-
-
-def _serialize_for_prompt(value: Any) -> str:
-    """Convenience: stable JSON rendering for debugging scorer prompts."""
-    return json.dumps(value, indent=2, sort_keys=True, default=str)
 
 
 def _extract_user_prompt(output: dict[str, Any] | None) -> str:
