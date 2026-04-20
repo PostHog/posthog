@@ -150,6 +150,36 @@ describe('createErrorTrackingPrepareEventStep', () => {
         }
     })
 
+    it('should delete $ip when team.anonymize_ips is true', async () => {
+        const event = createTestPluginEvent({
+            event: '$exception',
+            properties: { $ip: '1.2.3.4', other: 'kept' },
+        })
+        const anonymizedTeam = createTestTeam({ id: 123, project_id: 456 as any, anonymize_ips: true })
+
+        const result = await step({ event, team: anonymizedTeam, person: null, headers: createTestHeaders() })
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            expect(result.value.preparedEvent.properties['$ip']).toBeUndefined()
+            expect(result.value.preparedEvent.properties['other']).toBe('kept')
+        }
+    })
+
+    it('should keep $ip when team.anonymize_ips is false', async () => {
+        const event = createTestPluginEvent({
+            event: '$exception',
+            properties: { $ip: '1.2.3.4' },
+        })
+
+        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            expect(result.value.preparedEvent.properties['$ip']).toBe('1.2.3.4')
+        }
+    })
+
     it('removes $set from properties to prevent incorrect person_properties merging', async () => {
         // Error tracking events ($exception) are in NO_PERSON_UPDATE_EVENTS, so person
         // updates are never written. However, createEvent() merges $set into person_properties

@@ -207,12 +207,12 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--overlap-policy",
-            type=str,
-            choices=["buffer_all", "allow_all"],
-            default="buffer_all",
+            type=str.upper,
+            choices=["BUFFER_ALL", "ALLOW_ALL"],
+            default="BUFFER_ALL",
             help=(
-                "Temporal schedule overlap policy for backfills (default: buffer_all). "
-                "Only use allow_all when: (1) you are backfilling only the events model, "
+                "Temporal schedule overlap policy for backfills (default: BUFFER_ALL). "
+                "Only use ALLOW_ALL when: (1) you are backfilling only the events model, "
                 "and (2) there are not many backfill intervals to run"
             ),
         )
@@ -376,11 +376,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING("Aborted"))
                 return
 
-        overlap_policy_map = {
-            "buffer_all": temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
-            "allow_all": temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
-        }
-        overlap_policy = overlap_policy_map[options["overlap_policy"]]
+        overlap_policy = temporalio.client.ScheduleOverlapPolicy[options["overlap_policy"]]
 
         total_backfills, failures = asyncio.run(
             self._run_backfills(missing_by_export, options["dry_run"], overlap_policy, options["no_delay"]),

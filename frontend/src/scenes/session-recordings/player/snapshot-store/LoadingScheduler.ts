@@ -58,8 +58,11 @@ export class LoadingScheduler {
         }
         const targetTs = this.mode.targetTimestamp
 
-        // Step 1: Load window around target if not loaded
+        // Step 1: Load window around target if not loaded.
         const targetIndex = store.getSourceIndexForTimestamp(targetTs)
+        if (targetIndex === null) {
+            return null
+        }
         const windowStart = Math.max(0, targetIndex - SEEK_WINDOW_BEHIND)
         const windowEnd = Math.min(store.sourceCount - 1, targetIndex + SEEK_WINDOW_AHEAD)
 
@@ -129,10 +132,16 @@ export class LoadingScheduler {
     }
 
     private getBufferAheadBatch(store: SnapshotStore, batchSize: number, playbackPosition?: number): LoadBatch | null {
-        const anchorIndex =
-            playbackPosition !== undefined
-                ? store.getSourceIndexForTimestamp(playbackPosition)
-                : (this.seekRangeEnd ?? 0)
+        let anchorIndex: number
+        if (playbackPosition !== undefined) {
+            const idx = store.getSourceIndexForTimestamp(playbackPosition)
+            if (idx === null) {
+                return null
+            }
+            anchorIndex = idx
+        } else {
+            anchorIndex = this.seekRangeEnd ?? 0
+        }
 
         const bufferEnd = Math.min(store.sourceCount - 1, anchorIndex + BUFFER_AHEAD_SOURCES - 1)
         const aheadIndices = store.getUnloadedIndicesInRange(anchorIndex, bufferEnd)

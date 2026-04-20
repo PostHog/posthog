@@ -211,6 +211,8 @@ export interface ExternalDataSchemaApi {
     readonly sync_time_of_day: string | null
     /** @nullable */
     readonly description: string | null
+    /** @nullable */
+    readonly primary_key_columns: readonly string[] | null
     readonly cdc_table_mode: CdcTableModeEnumApi
 }
 
@@ -575,7 +577,8 @@ export interface ExternalDataSourceSerializersApi {
 * `duckdb` - duckdb
 * `postgres` - postgres */
     readonly engine: EngineEnumApi | NullEnumApi | null
-    readonly last_run_at: string
+    /** @nullable */
+    readonly last_run_at: string | null
     readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
@@ -628,7 +631,8 @@ export interface PatchedExternalDataSourceSerializersApi {
 * `duckdb` - duckdb
 * `postgres` - postgres */
     readonly engine?: EngineEnumApi | NullEnumApi | null
-    readonly last_run_at?: string
+    /** @nullable */
+    readonly last_run_at?: string | null
     readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
     job_inputs?: unknown | null
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
@@ -1220,6 +1224,11 @@ export type ExternalDataSourcesListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
+    valid?: boolean
+    errors?: string[]
 }
 
 export type ExternalDataSourcesConnectionsListParams = {

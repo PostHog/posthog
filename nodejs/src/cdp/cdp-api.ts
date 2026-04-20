@@ -32,6 +32,7 @@ import { BatchExportHogFunctionService, NotFoundError, ParseError } from './serv
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { CyclotronJobQueue } from './services/job-queue/job-queue'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
@@ -44,6 +45,30 @@ import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+
+// Allowlist of safe content types for webhook responses to prevent XSS
+const SAFE_CONTENT_TYPES = new Set([
+    'text/plain',
+    'text/csv',
+    'application/json',
+    'application/octet-stream',
+    'application/xml',
+    'image/gif',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+])
+
+function sanitizeContentType(contentType: string | undefined, fallback: string): string {
+    if (!contentType) {
+        return fallback
+    }
+    const normalized = contentType.toLowerCase().trim().split(';')[0].trim()
+    if (SAFE_CONTENT_TYPES.has(normalized)) {
+        return normalized
+    }
+    return fallback
+}
 
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
@@ -61,6 +86,7 @@ export class CdpApi {
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
+    private cyclotronJobQueue: CyclotronJobQueue
     private emailTrackingService: EmailTrackingService
     private recipientTokensService: RecipientTokensService
     private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
@@ -101,6 +127,7 @@ export class CdpApi {
             }),
         })
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps)
+        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
@@ -133,12 +160,14 @@ export class CdpApi {
         )
         this.hogFunctionMonitoringService.setWarehouseKafkaProducer(this.cdpWarehouseKafkaProducer)
         await this.cdpSourceWebhooksConsumer.start()
+        await this.cyclotronJobQueue.startAsProducer()
     }
 
     async stop(): Promise<void> {
         await Promise.all([
             this.cdpWarehouseKafkaProducer?.disconnect(),
             this.cdpSourceWebhooksConsumer.stop(),
+            this.cyclotronJobQueue.stop(),
             this.batchExportHogFunctionService.stop(),
         ])
     }
@@ -159,6 +188,10 @@ export class CdpApi {
         // API routes (authentication handled globally by middleware)
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
         router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/scheduled_invocations',
+            asyncHandler(this.postHogflowScheduledInvocation)
+        )
         router.post(
             '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
             asyncHandler(this.postHogFlowBatchInvocation)
@@ -534,6 +567,67 @@ export class CdpApi {
         }
     }
 
+    private postHogflowScheduledInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            const { id, team_id } = req.params
+            const { variables } = req.body
+
+            logger.info('⚡️', 'Received hogflow scheduled invocation', { id, team_id })
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            if (hogFlow.trigger?.type !== 'schedule') {
+                return res.status(400).json({ error: 'Workflow trigger must be of type "schedule"' })
+            }
+
+            // Build a synthetic event for the scheduled run. Schedule triggers don't have a real
+            // event, but the executor expects one to populate globals.event used by downstream actions.
+            const syntheticEvent: HogFunctionInvocationGlobals['event'] = {
+                uuid: new UUIDT().toString(),
+                event: '$workflow_scheduled',
+                distinct_id: `workflow-${hogFlow.id}`,
+                timestamp: DateTime.now().toISO(),
+                url: '',
+                properties: {},
+                elements_chain: '',
+            }
+
+            const triggerGlobals: HogFunctionInvocationGlobals = {
+                event: syntheticEvent,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                },
+                variables: variables ?? {},
+            }
+
+            const filterGlobals = convertToHogFunctionFilterGlobal({
+                event: syntheticEvent,
+                person: undefined,
+                groups: {},
+                variables: variables ?? {},
+            })
+
+            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+
+            await this.cyclotronJobQueue.queueInvocations([invocation])
+
+            res.json({ status: 'queued', invocation_id: invocation.id })
+        } catch (e) {
+            logger.error('Error handling hogflow scheduled invocation', { error: e })
+            res.status(500).json({ error: [e.message] })
+        }
+    }
+
     private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id, parent_run_id } = req.params
@@ -598,18 +692,21 @@ export class CdpApi {
 
             if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
                 const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
+
+                // Security headers to prevent XSS via content-type injection
+                res.set('X-Content-Type-Options', 'nosniff')
+                res.set('Content-Security-Policy', "default-src 'none'")
+
                 if (typeof httpResponse.body === 'string') {
+                    const safeContentType = sanitizeContentType(
+                        httpResponse.contentType,
+                        httpResponse.isBase64Encoded ? 'application/octet-stream' : 'text/plain'
+                    )
                     if (httpResponse.isBase64Encoded) {
                         const buffer = Buffer.from(httpResponse.body, 'base64')
-                        return res
-                            .status(httpResponse.status)
-                            .type(httpResponse.contentType ?? 'application/octet-stream')
-                            .send(buffer)
+                        return res.status(httpResponse.status).type(safeContentType).send(buffer)
                     }
-                    return res
-                        .status(httpResponse.status)
-                        .type(httpResponse.contentType ?? 'text/plain')
-                        .send(httpResponse.body)
+                    return res.status(httpResponse.status).type(safeContentType).send(httpResponse.body)
                 } else if (typeof httpResponse.body === 'object') {
                     return res.status(httpResponse.status).json(httpResponse.body)
                 }
@@ -662,7 +759,7 @@ export class CdpApi {
             try {
                 const { status, message } = await this.emailTrackingService.handleSesWebhook(req)
                 return res.status(status).json({ message })
-            } catch (error) {
+            } catch {
                 return res.status(500).json({ error: 'Internal error' })
             }
         }

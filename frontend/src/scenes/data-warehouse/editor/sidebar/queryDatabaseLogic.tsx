@@ -14,13 +14,10 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
@@ -36,13 +33,22 @@ import {
     QueryTabState,
 } from '~/types'
 
-import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
+import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { viewLinkLogic } from '../../viewLinkLogic'
 import { draftsLogic } from '../draftsLogic'
 import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
+
+export interface FuseSearchMatch {
+    // kea-typegen has a problem importing Fuse itself, so we have to duplicate this type
+    indices: readonly [number, number][]
+    key: string
+}
 
 const isLazyNodeId = (id: string): boolean => {
     return id.startsWith('lazy-') || id.includes('-lazy-')
@@ -1003,7 +1009,7 @@ const createSourceFolderNode = (
         name: sourceType,
         type: 'node',
         icon: (
-            <DataWarehouseSourceIcon
+            <SourceIcon
                 type={
                     sourceType === 'Self-managed' && (tables.length > 0 || matches.length > 0)
                         ? mapUrlToProvider(
@@ -1185,7 +1191,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     }),
     connect(() => ({
         values: [
-            dataWarehouseJoinsLogic,
+            joinsLogic,
             ['joins', 'joinsLoading'],
             databaseTableListLogic,
             [
@@ -1220,7 +1226,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         actions: [
             viewLinkLogic,
             ['toggleEditJoinModal', 'toggleJoinTableModal'],
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['deleteJoin'],
             dataWarehouseViewsLogic,
             [

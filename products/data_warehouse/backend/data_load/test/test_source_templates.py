@@ -10,22 +10,11 @@ from posthog.hogql.database.schema.test.base import RevenueAnalyticsTestBase
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from products.data_warehouse.backend.data_load.source_templates import _revenue_view_name, database_operations
+from products.data_warehouse.backend.data_load.source_templates import database_operations
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 
 pytestmark = [pytest.mark.django_db]
-
-
-class TestRevenueViewName(BaseTest):
-    @parameterized.expand(
-        [
-            ("", "stripe.customer_revenue_view"),
-            ("my_prefix_", "stripe.my_prefix.customer_revenue_view"),
-            ("org_123_", "stripe.org_123.customer_revenue_view"),
-        ]
-    )
-    def test_revenue_view_name(self, table_prefix, expected):
-        assert _revenue_view_name(table_prefix) == expected
 
 
 class TestDatabaseOperations(BaseTest):
@@ -66,7 +55,7 @@ class TestDatabaseOperations(BaseTest):
             joining_table_name=f"{prefix}stripe_customer", field_name=f"{prefix}stripe_customer"
         ).exists()
         assert joins.filter(joining_table_name=f"{prefix}stripe_invoice", field_name=f"{prefix}stripe_invoice").exists()
-        assert joins.filter(source_table_name=_revenue_view_name(prefix)).exists()
+        assert joins.filter(source_table_name=get_customer_revenue_view_name(prefix)).exists()
 
     def test_idempotent(self):
         database_operations(self.team.pk, "")
@@ -110,7 +99,7 @@ class TestCustomerRevenueViewPersonsJoin(RevenueAnalyticsTestBase):
         self.create_sources()
         self.team.base_currency = CurrencyCode.GBP.value
         self.team.save()
-        self.view_name = _revenue_view_name(self.source.prefix or "")
+        self.view_name = get_customer_revenue_view_name(self.source.prefix)
 
     def test_persons_join_resolves_on_customer_view(self):
         _create_person(

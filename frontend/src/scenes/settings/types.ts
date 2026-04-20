@@ -34,8 +34,9 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-experiments'
     | 'environment-error-tracking'
-    | 'environment-error-tracking-configuration'
     | 'environment-logs'
+    | 'environment-conversations'
+    | 'environment-visual-review'
     | 'environment-csp-reporting'
     | 'environment-max'
     | 'environment-posthog-code'
@@ -65,6 +66,7 @@ export type SettingSectionId =
     | 'organization-billing'
     | 'organization-startup-program'
     | 'user-profile'
+    | 'user-connected-apps'
     | 'user-api-keys'
     | 'user-notifications'
     | 'user-customization'
@@ -75,10 +77,14 @@ export type SettingSectionId =
 
 export type SettingId =
     | 'conversations-api'
-    | 'conversations-notifications'
-    | 'conversations-slack'
+    | 'conversations-api-key'
     | 'conversations-email'
+    | 'conversations-email-channel'
+    | 'conversations-notifications'
+    | 'conversations-public-token'
+    | 'conversations-slack'
     | 'conversations-widget'
+    | 'conversations-widget-config'
     | 'conversations-workflows'
     | 'snippet-v2'
     | 'js-snippet-version'
@@ -164,6 +170,7 @@ export type SettingId =
     | 'change-password'
     | '2fa'
     | 'passkeys'
+    | 'connected-apps'
     | 'personal-api-keys'
     | 'notifications'
     | 'feature-previews'
@@ -208,6 +215,7 @@ export type SettingId =
     | 'discussion-mention-integrations'
     | 'logs'
     | 'logs-json-parse'
+    | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-alerting'
     | 'organization-ip-anonymization-default'
@@ -215,6 +223,7 @@ export type SettingId =
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
+    | 'visual-review-repos'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -256,6 +265,12 @@ export type Setting = {
 
     /** Platform/SDK availability rendered as badges to the right of the title */
     platformSupport?: PlatformSupportConfig
+
+    /**
+     * Optional sub-group label. Settings with the same `subGroup` within a section are rendered
+     * together under a sticky divider with the sub-group label, to aid scannability in long sections.
+     */
+    subGroup?: string
 }
 
 export interface SettingSection extends Pick<Setting, 'flag'> {

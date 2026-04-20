@@ -25,12 +25,14 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyNotificationModal } from 'scenes/surveys/components/SurveyNotificationModal'
+import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
+import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -57,11 +59,8 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
-    PropertyFilterType,
-    PropertyOperator,
     Survey,
     SurveyEventName,
-    SurveyEventProperties,
     SurveyQuestionType,
 } from '~/types'
 
@@ -93,11 +92,12 @@ export const getThumbIcon = (value: unknown): JSX.Element | null => {
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const isRedesignEnabled = useFeatureFlag('SURVEYS_REDESIGNED_VIEW')
 
-    if (isRedesignEnabled) {
-        return <SurveyViewRedesign />
-    }
-
-    return <SurveyViewLegacy id={id} />
+    return (
+        <>
+            {isRedesignEnabled ? <SurveyViewRedesign /> : <SurveyViewLegacy id={id} />}
+            <SurveyNotificationModal surveyId={id} />
+        </>
+    )
 }
 
 function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
@@ -356,31 +356,10 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                 key: 'notifications',
                                 label: 'Notifications',
                                 content: (
-                                    <div>
-                                        <p>Get notified whenever a survey result is submitted</p>
-                                        <LinkedHogFunctions
-                                            type="destination"
-                                            subTemplateIds={['survey-response']}
-                                            forceFilterGroups={[
-                                                {
-                                                    events: [
-                                                        {
-                                                            id: SurveyEventName.SENT,
-                                                            type: 'events',
-                                                            properties: [
-                                                                {
-                                                                    key: SurveyEventProperties.SURVEY_ID,
-                                                                    type: PropertyFilterType.Event,
-                                                                    value: id,
-                                                                    operator: PropertyOperator.Exact,
-                                                                },
-                                                            ],
-                                                        },
-                                                    ],
-                                                },
-                                            ]}
-                                        />
-                                    </div>
+                                    <SurveyNotifications
+                                        surveyId={id}
+                                        description="Get notified whenever a survey result is submitted."
+                                    />
                                 ),
                             },
                             {
@@ -496,6 +475,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         <div className="deprecated-space-y-4">
             {isSurveyHeadlineEnabled && <SurveyHeadline />}
             <SurveyResponseFilters />
+            <SurveyNotificationsCallout surveyId={survey.id} />
             {isRefreshingResults || atLeastOneResponse ? (
                 <>
                     <SurveyResultsRefreshStatus visible={isRefreshingResults} />

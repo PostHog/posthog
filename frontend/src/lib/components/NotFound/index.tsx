@@ -8,7 +8,6 @@ import { useState } from 'react'
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, ProfilePicture, SpinnerOverlay, lemonToast } from '@posthog/lemon-ui'
 
-import { getCookie } from 'lib/api'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
@@ -20,6 +19,7 @@ import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { adminLoginAs } from '~/layout/navigation/ImpersonationNotice/adminLoginAs'
 import { ImpersonationReasonModal } from '~/layout/navigation/ImpersonationNotice/ImpersonationReasonModal'
 import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from '~/types'
 
@@ -147,76 +147,7 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
         setIsLoginInProgress(true)
 
         try {
-            // check if admin OAuth2 verification is needed
-            const authCheckResponse = await fetch('/admin/auth_check', {
-                method: 'GET',
-                credentials: 'same-origin',
-                redirect: 'manual',
-            })
-
-            if (!authCheckResponse.ok) {
-                // Need OAuth2 verification - open a popup
-                const width = 600
-                const height = 700
-                const left = window.screen.width / 2 - width / 2
-                const top = window.screen.height / 2 - height / 2
-
-                const authWindow = window.open(
-                    '/admin/oauth2/success', // This will redirect to OAuth2
-                    'admin_oauth2',
-                    `width=${width},height=${height},top=${top},left=${left},toolbar=no,location=no,directories=no,status=no,menubar=no,scrollbars=yes,resizable=yes`
-                )
-
-                if (!authWindow) {
-                    throw new Error('Popup blocked. Please allow popups for this site and try again.')
-                }
-
-                // Wait for the OAuth2 completion message
-                await new Promise<void>((resolve) => {
-                    let checkClosed: ReturnType<typeof setInterval>
-
-                    const handleMessage = (event: MessageEvent): void => {
-                        if (event.origin !== window.location.origin) {
-                            return
-                        }
-                        if (event.data?.type === 'oauth2_complete') {
-                            clearInterval(checkClosed)
-                            window.removeEventListener('message', handleMessage)
-                            resolve()
-                        }
-                    }
-                    window.addEventListener('message', handleMessage)
-
-                    // Also poll to check if the window was closed manually
-                    checkClosed = setInterval(() => {
-                        if (authWindow.closed) {
-                            clearInterval(checkClosed)
-                            window.removeEventListener('message', handleMessage)
-                            resolve()
-                        }
-                    }, 500)
-                })
-            }
-
-            // Now proceed with the login-as request
-            const loginResponse = await fetch(`/admin/login/user/${user.id}/`, {
-                method: 'POST',
-                credentials: 'same-origin',
-                mode: 'cors',
-                headers: {
-                    'X-CSRFToken': getCookie('posthog_csrftoken') as string,
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: new URLSearchParams({
-                    read_only: readOnly ? 'true' : 'false',
-                    reason: reason,
-                }),
-            })
-
-            if (!loginResponse.ok) {
-                throw new Error(`django-loginas request resulted in status ${loginResponse.status}`)
-            }
-
+            await adminLoginAs({ userId: user.id, reason, readOnly })
             setSuccessfulUserId(user.id)
             window.location.reload()
         } catch {

@@ -19,6 +19,7 @@ import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopy
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { SurveyHeadline } from 'scenes/surveys/SurveyHeadline'
@@ -484,6 +485,7 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
             <div className="px-4 pb-4">
                 <div className="mx-auto w-full max-w-[1200px] space-y-4">
                     <SurveyResultsFiltersBar />
+                    <SurveyNotificationsCallout surveyId={survey.id} />
                     <SurveyStatsSummary />
                     <SurveyNoResponsesBanner
                         type="survey"
@@ -504,6 +506,7 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
         <div className="px-4 pb-4">
             <div className="mx-auto w-full max-w-[1200px] space-y-4">
                 <SurveyResultsFiltersBar />
+                <SurveyNotificationsCallout surveyId={survey.id} />
                 <SurveyResultsRefreshStatus visible={isRefreshingResults} />
                 <div
                     aria-busy={isRefreshingResults}
@@ -558,6 +561,7 @@ function SurveyResponsesContent(): JSX.Element {
     return (
         <div className="px-4 pb-4 space-y-4">
             <SurveyResultsFiltersBar />
+            <SurveyNotificationsCallout surveyId={survey.id} />
             <SurveyResultsRefreshStatus visible={isRefreshingResults} />
             {isInitialSurveyLoad ? (
                 <LemonSkeleton />

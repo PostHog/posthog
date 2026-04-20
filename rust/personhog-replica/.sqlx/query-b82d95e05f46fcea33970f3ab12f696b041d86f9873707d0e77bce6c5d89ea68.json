@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM posthog_persondistinctid\n            WHERE team_id = $1 AND person_id = ANY($2)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b82d95e05f46fcea33970f3ab12f696b041d86f9873707d0e77bce6c5d89ea68"
+}

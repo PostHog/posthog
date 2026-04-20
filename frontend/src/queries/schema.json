@@ -1050,6 +1050,141 @@
             "required": ["type", "key", "value", "operator"],
             "type": "object"
         },
+        "AssistantDataVisualizationAxis": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "description": "Name of a column returned by the SQL query to map onto this axis.",
+                    "type": "string"
+                }
+            },
+            "required": ["column"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationChartSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "goalLines": {
+                    "description": "Horizontal goal lines drawn across the chart.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantDataVisualizationGoalLine"
+                    },
+                    "type": "array"
+                },
+                "seriesBreakdownColumn": {
+                    "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable.",
+                    "type": ["string", "null"]
+                },
+                "showLegend": {
+                    "description": "Show the chart legend.",
+                    "type": "boolean"
+                },
+                "showNullsAsZero": {
+                    "description": "Replace null aggregation results with zero.",
+                    "type": "boolean"
+                },
+                "stackBars100": {
+                    "description": "Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.",
+                    "type": "boolean"
+                },
+                "xAxis": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxis",
+                    "description": "Column used as the X axis. Typically a time bucket or categorical column."
+                },
+                "yAxis": {
+                    "description": "One or more numeric columns plotted as Y series.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantDataVisualizationAxis"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationDisplayType": {
+            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
+            "enum": [
+                "ActionsTable",
+                "BoldNumber",
+                "ActionsLineGraph",
+                "ActionsBar",
+                "ActionsStackedBar",
+                "ActionsAreaGraph",
+                "TwoDimensionalHeatmap"
+            ],
+            "type": "string"
+        },
+        "AssistantDataVisualizationGoalLine": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "description": "Label rendered next to the goal line.",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Y-axis value at which the goal line is drawn.",
+                    "type": "number"
+                }
+            },
+            "required": ["label", "value"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationNode": {
+            "additionalProperties": false,
+            "description": "SQL-backed visualization. Use this when the analysis requires custom SQL that cannot be expressed as a standard product-analytics insight — cross-source joins with the data warehouse, window functions, or bespoke aggregations.\n\nPrefer `AssistantInsightVizNode` for standard product analytics (trends, funnels, retention, paths, stickiness, lifecycle). Only reach for this node when SQL is strictly necessary.",
+            "properties": {
+                "chartSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationChartSettings",
+                    "description": "Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`."
+                },
+                "display": {
+                    "$ref": "#/definitions/AssistantDataVisualizationDisplayType",
+                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+                },
+                "kind": {
+                    "const": "DataVisualizationNode",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "HogQL query object that produces the rows to visualize.",
+                    "type": "object"
+                },
+                "tableSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationTableSettings",
+                    "description": "Table configuration. Only applies when `display` is `ActionsTable` or omitted."
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationTableSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "description": "Columns to display and their order. Omit to show every column returned by the query.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantDataVisualizationAxis"
+                    },
+                    "type": "array"
+                },
+                "pinnedColumns": {
+                    "description": "Column names to pin to the left of the table.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "showTotalRow": {
+                    "description": "Show a total row at the bottom of the table.",
+                    "type": "boolean"
+                },
+                "transpose": {
+                    "description": "Transpose rows and columns.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "AssistantDateRange": {
             "additionalProperties": false,
             "description": "This filter only works with absolute dates.",
@@ -1978,6 +2113,64 @@
             "required": ["kind", "query"],
             "type": "object"
         },
+        "AssistantInsightActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into an insight to list the persons behind a specific data point. Returned rows are trimmed to `distinct_id`, `name`, `email`, and an optional per-actor `count`.\n\nCurrently supports trends as the source; other insight kinds will be added incrementally. Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific cell in the source insight. Omit them to get all actors for the query.",
+            "properties": {
+                "breakdown": {
+                    "description": "Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "compare": {
+                    "description": "Whether to pull from the previous period when `compare` is enabled in the source.",
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
+                "day": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/integer"
+                        }
+                    ],
+                    "description": "Bucket date for the data point. Accepts ISO date or integer offset."
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "series": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Series index (0-based) when the source has multiple series."
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantTrendsQuery",
+                    "description": "The source insight query whose data point we are drilling into."
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "AssistantInsightVizNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "InsightVizNode",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
+                    "type": "object"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "AssistantInsightsQueryBase": {
             "additionalProperties": false,
             "properties": {
@@ -2456,6 +2649,248 @@
         },
         "AssistantQuerySchema": {
             "$ref": "#/definitions/QuerySchema"
+        },
+        "AssistantRecordingPropertyFilter": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. \"web\", \"mobile\").",
+                            "enum": [
+                                "duration",
+                                "active_seconds",
+                                "inactive_seconds",
+                                "console_error_count",
+                                "console_log_count",
+                                "console_warn_count",
+                                "click_count",
+                                "keypress_count",
+                                "activity_score",
+                                "visited_page",
+                                "snapshot_source"
+                            ],
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantStringOrBooleanValuePropertyFilterOperator",
+                            "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. \"web\", \"mobile\").",
+                            "enum": [
+                                "duration",
+                                "active_seconds",
+                                "inactive_seconds",
+                                "console_error_count",
+                                "console_log_count",
+                                "console_warn_count",
+                                "click_count",
+                                "keypress_count",
+                                "activity_score",
+                                "visited_page",
+                                "snapshot_source"
+                            ],
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        },
+                        "value": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. \"web\", \"mobile\").",
+                            "enum": [
+                                "duration",
+                                "active_seconds",
+                                "inactive_seconds",
+                                "console_error_count",
+                                "console_log_count",
+                                "console_warn_count",
+                                "click_count",
+                                "keypress_count",
+                                "activity_score",
+                                "visited_page",
+                                "snapshot_source"
+                            ],
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantArrayPropertyFilterOperator",
+                            "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. \"web\", \"mobile\").",
+                            "enum": [
+                                "duration",
+                                "active_seconds",
+                                "inactive_seconds",
+                                "console_error_count",
+                                "console_log_count",
+                                "console_warn_count",
+                                "click_count",
+                                "keypress_count",
+                                "activity_score",
+                                "visited_page",
+                                "snapshot_source"
+                            ],
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Value must be a date in ISO 8601 format.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. \"web\", \"mobile\").",
+                            "enum": [
+                                "duration",
+                                "active_seconds",
+                                "inactive_seconds",
+                                "console_error_count",
+                                "console_log_count",
+                                "console_warn_count",
+                                "click_count",
+                                "keypress_count",
+                                "activity_score",
+                                "visited_page",
+                                "snapshot_source"
+                            ],
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantSetPropertyFilterOperator",
+                            "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type"],
+                    "type": "object"
+                }
+            ]
+        },
+        "AssistantRecordingsQuery": {
+            "additionalProperties": false,
+            "description": "Simplified RecordingsQuery for MCP tool usage. Exposes the most useful filtering and pagination fields with LLM-friendly descriptions while hiding internal complexity (having_predicates, operand, actions, etc.).",
+            "properties": {
+                "after": {
+                    "description": "Cursor for pagination from a previous response's next_cursor field.",
+                    "type": "string"
+                },
+                "date_from": {
+                    "description": "Start of the date range. Supports relative dates like \"-7d\", \"-24h\" or ISO 8601 format. Default: \"-3d\".",
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "description": "End of the date range. Supports relative dates or ISO 8601 format. Default: now.",
+                    "type": ["string", "null"]
+                },
+                "filter_test_accounts": {
+                    "description": "Exclude internal and test users. Default: false.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "RecordingsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Maximum number of recordings to return."
+                },
+                "order": {
+                    "$ref": "#/definitions/RecordingOrder",
+                    "description": "Sort field. Options: \"start_time\", \"duration\", \"activity_score\", \"console_error_count\", \"click_count\". Default: \"start_time\"."
+                },
+                "order_direction": {
+                    "$ref": "#/definitions/RecordingOrderDirection",
+                    "description": "Sort direction: \"ASC\" or \"DESC\". Default: \"DESC\"."
+                },
+                "person_uuid": {
+                    "description": "Filter recordings to a specific person by their UUID.",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).",
+                    "items": {
+                        "$ref": "#/definitions/AssistantRecordingsQueryPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AssistantRecordingsQueryPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRecordingPropertyFilter"
+                }
+            ],
+            "description": "Extended property filter union for recordings queries that also supports recording-specific metric filters (e.g. duration, click_count, activity_score)."
         },
         "AssistantRetentionActionsNode": {
             "additionalProperties": false,
@@ -6696,6 +7131,89 @@
             ],
             "type": "object"
         },
+        "CachedRecordingsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "has_next": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_cursor": {
+                    "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SessionRecordingType"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "has_next",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedRetentionQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -8248,7 +8766,7 @@
             "additionalProperties": false,
             "properties": {
                 "boxplot_data": {
-                    "description": "Box plot data when display type is BoxPlot",
+                    "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
                     },
@@ -9516,7 +10034,13 @@
                 "showNullsAsZero": {
                     "type": "boolean"
                 },
+                "showPieTotal": {
+                    "type": "boolean"
+                },
                 "showTotalRow": {
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
                     "type": "boolean"
                 },
                 "showXAxisBorder": {
@@ -9718,6 +10242,69 @@
                     "type": "null"
                 }
             ]
+        },
+        "ConversationsTicketSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "channel_detail": {
+                    "type": ["string", "null"]
+                },
+                "channel_source": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "email_subject": {
+                    "type": ["string", "null"]
+                },
+                "priority": {
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "type": "string"
+                },
+                "ticket_number": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "ticket_number",
+                "channel_source",
+                "channel_detail",
+                "status",
+                "priority",
+                "created_at",
+                "email_subject"
+            ],
+            "type": "object"
+        },
+        "ConversationsTicketSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/ConversationsTicketSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "conversations",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "ticket",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "ConversionGoalFilter": {
             "anyOf": [
@@ -13456,6 +14043,10 @@
                     "description": "Whether to include debug information (such as the executed HogQL) in the response.",
                     "type": "boolean"
                 },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter",
+                    "deprecated": "Use `variables` instead. Will be removed in a future release.\n\nOverride dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).\nNot allowed for HogQL endpoints.\n\nFor date filtering, use variables: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`"
+                },
                 "limit": {
                     "$ref": "#/definitions/integer",
                     "description": "Maximum number of results to return. If not provided, returns all results."
@@ -15535,6 +16126,14 @@
         "ExperimentActorsQuery": {
             "additionalProperties": false,
             "properties": {
+                "exposureConfig": {
+                    "$ref": "#/definitions/ExperimentExposureConfig",
+                    "description": "Exposure configuration for filtering events. Defines when users were first exposed to the experiment."
+                },
+                "featureFlagKey": {
+                    "description": "Feature flag key for breakdown filtering.",
+                    "type": "string"
+                },
                 "funnelStep": {
                     "$ref": "#/definitions/integer",
                     "description": "Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons."
@@ -15554,6 +16153,11 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "multipleVariantHandling": {
+                    "description": "How to handle users with multiple variant exposures.",
+                    "enum": ["exclude", "first_seen"],
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
                 },
@@ -15569,6 +16173,140 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "ExperimentApiEventSource": {
+            "additionalProperties": false,
+            "description": "Slim event/action source for experiment API payloads.",
+            "properties": {
+                "event": {
+                    "description": "Event name, e.g. '$pageview'. Required for EventsNode.",
+                    "type": "string"
+                },
+                "id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Action ID. Required for ActionsNode."
+                },
+                "kind": {
+                    "enum": ["EventsNode", "ActionsNode"],
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Event property filters to narrow which events are counted.",
+                    "items": {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "ExperimentApiExposureConfig": {
+            "additionalProperties": false,
+            "description": "Slim exposure config for experiment API payloads.",
+            "properties": {
+                "event": {
+                    "description": "Custom exposure event name.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentEventExposureConfig",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Event property filters. Pass an empty array if no filters needed.",
+                    "items": {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "event", "properties"],
+            "type": "object"
+        },
+        "ExperimentApiExposureCriteria": {
+            "additionalProperties": false,
+            "description": "Exposure criteria for experiment API payloads.",
+            "properties": {
+                "exposure_config": {
+                    "$ref": "#/definitions/ExperimentApiExposureConfig"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "ExperimentApiMetric": {
+            "additionalProperties": false,
+            "description": "Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.",
+            "properties": {
+                "completion_event": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For retention metrics: completion event."
+                },
+                "conversion_window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Conversion window duration."
+                },
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For ratio metrics: denominator source."
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal",
+                    "description": "Whether higher or lower values indicate success."
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "$ref": "#/definitions/ExperimentMetricType"
+                },
+                "name": {
+                    "description": "Human-readable metric name.",
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For ratio metrics: numerator source."
+                },
+                "retention_window_end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "series": {
+                    "description": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentApiEventSource"
+                    },
+                    "type": "array"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For mean metrics: event source."
+                },
+                "start_event": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For retention metrics: start event."
+                },
+                "start_handling": {
+                    "enum": ["first_seen", "last_seen"],
+                    "type": "string"
+                },
+                "uuid": {
+                    "description": "Unique identifier. Auto-generated if omitted.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "metric_type"],
             "type": "object"
         },
         "ExperimentBreakdownResult": {
@@ -15907,6 +16645,9 @@
                 },
                 {
                     "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
             ]
         },
@@ -16406,6 +17147,23 @@
                 }
             ]
         },
+        "ExperimentParameters": {
+            "additionalProperties": false,
+            "properties": {
+                "feature_flag_variants": {
+                    "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariant"
+                    },
+                    "type": "array"
+                },
+                "minimum_detectable_effect": {
+                    "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.",
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentQuery": {
             "additionalProperties": false,
             "properties": {
@@ -16418,6 +17176,9 @@
                 },
                 "metric": {
                     "$ref": "#/definitions/ExperimentMetric"
+                },
+                "metric_events_precomputation": {
+                    "type": "boolean"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -16943,6 +17704,25 @@
                 "p_value",
                 "credible_intervals"
             ],
+            "type": "object"
+        },
+        "ExperimentVariant": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Human-readable variant name.",
+                    "type": "string"
+                },
+                "rollout_percentage": {
+                    "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100.",
+                    "type": "number"
+                }
+            },
+            "required": ["key", "rollout_percentage"],
             "type": "object"
         },
         "ExperimentVariantFunnelsBaseStats": {
@@ -19539,6 +20319,10 @@
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
+                "sessionIdPushdown": {
+                    "description": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+                    "type": "boolean"
+                },
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2", "v3"],
                     "type": "string"
@@ -20056,6 +20840,16 @@
                 "WebOverviewQuery"
             ],
             "type": "string"
+        },
+        "InsightQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantInsightVizNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantDataVisualizationNode"
+                }
+            ]
         },
         "InsightQueryNode": {
             "discriminator": {
@@ -20643,7 +21437,10 @@
                 "azure-blob",
                 "firebase",
                 "jira",
-                "pinterest-ads"
+                "pinterest-ads",
+                "customerio-app",
+                "customerio-webhook",
+                "customerio-track"
             ],
             "type": "string"
         },
@@ -20754,6 +21551,9 @@
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
                 },
+                "requestCost": {
+                    "type": "number"
+                },
                 "tools": {
                     "items": {
                         "type": "string"
@@ -20768,6 +21568,9 @@
                 },
                 "traceName": {
                     "type": "string"
+                },
+                "webSearchCost": {
+                    "type": "number"
                 }
             },
             "required": ["id", "createdAt", "distinctId", "events"],
@@ -22085,7 +22888,7 @@
             "type": "object"
         },
         "MarketingAnalyticsDrillDownLevel": {
-            "enum": ["channel", "source", "campaign"],
+            "enum": ["channel", "source", "campaign", "medium", "content", "term"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
@@ -24336,7 +25139,7 @@
             "additionalProperties": false,
             "properties": {
                 "allow_custom_answer": {
-                    "description": "Whether to show a \"Type your answer\" option (default: true). Only used for select type.",
+                    "description": "Whether to show a \"Type your answer\" option (default: true). Used for select and multi_select types.",
                     "type": "boolean"
                 },
                 "fields": {
@@ -25552,7 +26355,14 @@
             "description": "Product item structure matching products.json. NOTE: These types must match the structure generated by build-products.mjs. Any changes to these types should be reflected in the build script.",
             "properties": {
                 "category": {
-                    "type": ["string", "null"]
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ProductItemCategory"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "iconType": {
                     "type": ["string", "null"]
@@ -25572,6 +26382,20 @@
             },
             "required": ["path", "category", "iconType", "type", "intents"],
             "type": "object"
+        },
+        "ProductItemCategory": {
+            "enum": [
+                "Analytics",
+                "AI engineering",
+                "Behavior",
+                "Features",
+                "Tools",
+                "Schema",
+                "Pipeline",
+                "Metadata",
+                "Unreleased"
+            ],
+            "type": "string"
         },
         "ProductKey": {
             "enum": [
@@ -25617,6 +26441,7 @@
                 "session_replay",
                 "site_apps",
                 "subscriptions",
+                "streamlit_apps",
                 "surveys",
                 "tasks",
                 "teams",
@@ -29502,7 +30327,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "boxplot_data": {
-                            "description": "Box plot data when display type is BoxPlot",
+                            "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                             "items": {
                                 "$ref": "#/definitions/BoxPlotDatum"
                             },
@@ -29815,6 +30640,53 @@
                         }
                     },
                     "required": ["tables", "joins"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "has_next": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "next_cursor": {
+                            "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
+                            "type": "string"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/SessionRecordingType"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["has_next", "results"],
                     "type": "object"
                 },
                 {
@@ -30727,6 +31599,9 @@
                     "$ref": "#/definitions/DatabaseSchemaQuery"
                 },
                 {
+                    "$ref": "#/definitions/RecordingsQuery"
+                },
+                {
                     "$ref": "#/definitions/LogsQuery"
                 },
                 {
@@ -31133,21 +32008,48 @@
         "RecordingsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "has_next": {
                     "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "next_cursor": {
                     "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/SessionRecordingType"
                     },
                     "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["results", "has_next"],
+            "required": ["has_next", "results"],
             "type": "object"
         },
         "RedditAdsDefaultSources": {
@@ -33503,7 +34405,7 @@
                     "type": ["string", "null"]
                 },
                 "eventProperties": {
-                    "description": "Event property filters - only applies when event or actionId is set",
+                    "description": "Event property filters - filters sessions that contain events matching these properties",
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
@@ -33771,6 +34673,9 @@
                     "$ref": "#/definitions/LinearIssueSignalInput"
                 },
                 {
+                    "$ref": "#/definitions/ConversationsTicketSignalInput"
+                },
+                {
                     "$ref": "#/definitions/ErrorTrackingSignalInput"
                 }
             ],
@@ -33800,7 +34705,15 @@
             "type": "object"
         },
         "SignalSourceProduct": {
-            "enum": ["session_replay", "llm_analytics", "github", "linear", "zendesk", "error_tracking"],
+            "enum": [
+                "session_replay",
+                "llm_analytics",
+                "github",
+                "linear",
+                "zendesk",
+                "conversations",
+                "error_tracking"
+            ],
             "type": "string"
         },
         "SignalSourceType": {
@@ -34342,7 +35255,7 @@
                     "$ref": "#/definitions/StickinessOperator"
                 },
                 "value": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/positive_integer"
                 }
             },
             "required": ["operator", "value"],
@@ -34471,7 +35384,7 @@
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "intervalCount": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "How many intervals comprise a period. Only used for cohorts, otherwise default 1."
                 },
                 "kind": {
@@ -36224,7 +37137,7 @@
             "additionalProperties": false,
             "properties": {
                 "boxplot_data": {
-                    "description": "Box plot data when display type is BoxPlot",
+                    "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
                     },
@@ -38834,6 +39747,10 @@
                 }
             },
             "type": "object"
+        },
+        "positive_integer": {
+            "minimum": 1,
+            "type": "integer"
         }
     }
 }

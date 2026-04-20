@@ -353,6 +353,10 @@
                 "holdout_id": {
                     "description": "Holdout group ID if this experiment should exclude users from other experiments",
                     "type": "number"
+                },
+                "allow_unknown_events": {
+                    "description": "Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.",
+                    "type": "boolean"
                 }
             },
             "required": ["name", "feature_flag_key"]
@@ -363,36 +367,6 @@
                 "experimentId": {
                     "type": "number",
                     "description": "The ID of the experiment to delete"
-                }
-            },
-            "required": ["experimentId"]
-        },
-        "ExperimentGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                        }
-                    }
-                }
-            }
-        },
-        "ExperimentGetSchema": {
-            "type": "object",
-            "properties": {
-                "experimentId": {
-                    "type": "number",
-                    "description": "The ID of the experiment to retrieve"
                 }
             },
             "required": ["experimentId"]
@@ -826,63 +800,6 @@
             },
             "required": ["experimentId", "data"]
         },
-        "InsightCreateSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "query": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string",
-                                            "const": "InsightVizNode"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "const": "DataVisualizationNode"
-                                        }
-                                    ]
-                                },
-                                "source": {
-                                    "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused."
-                                }
-                            },
-                            "required": ["kind", "source"]
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "required": ["name", "query", "favorited"]
-                }
-            },
-            "required": ["data"]
-        },
-        "InsightDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                }
-            },
-            "required": ["insightId"]
-        },
         "InsightGenerateHogQLFromQuestionSchema": {
             "type": "object",
             "properties": {
@@ -894,109 +811,21 @@
             },
             "required": ["question"]
         },
-        "InsightGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "number"
-                        },
-                        "offset": {
-                            "type": "number"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "search": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "InsightGetSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                }
-            },
-            "required": ["insightId"]
-        },
         "InsightQueryInputSchema": {
             "type": "object",
             "properties": {
                 "insightId": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "The insight ID or short_id to run."
+                },
+                "output_format": {
+                    "default": "optimized",
+                    "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+                    "type": "string",
+                    "enum": ["optimized", "json"]
                 }
             },
             "required": ["insightId"]
-        },
-        "InsightUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "filters": {
-                            "type": "object",
-                            "propertyNames": {
-                                "type": "string"
-                            },
-                            "additionalProperties": {}
-                        },
-                        "query": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string",
-                                            "const": "InsightVizNode"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "const": "DataVisualizationNode"
-                                        }
-                                    ]
-                                },
-                                "source": {
-                                    "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused"
-                                }
-                            },
-                            "required": ["kind", "source"]
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "dashboards": {
-                            "description": "Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.",
-                            "type": "array",
-                            "items": {
-                                "type": "number"
-                            }
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "required": ["insightId", "data"]
         },
         "LLMAnalyticsGetCostsSchema": {
             "type": "object",
@@ -1011,14 +840,6 @@
                 }
             },
             "required": ["projectId"]
-        },
-        "OrganizationGetAllSchema": {
-            "type": "object",
-            "properties": {}
-        },
-        "OrganizationGetDetailsSchema": {
-            "type": "object",
-            "properties": {}
         },
         "OrganizationSetActiveSchema": {
             "type": "object",

@@ -13,6 +13,7 @@ import type {
     GitHubReposResponseApi,
     IntegrationApi,
     IntegrationsGithubBranchesRetrieveParams,
+    IntegrationsGithubReposRetrieveParams,
     IntegrationsList2Params,
     IntegrationsListParams,
     OrganizationIntegrationApi,
@@ -330,16 +331,33 @@ export const integrationsGithubBranchesRetrieve = async (
     })
 }
 
-export const getIntegrationsGithubReposRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/github_repos/`
+export const getIntegrationsGithubReposRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubReposRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_repos/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_repos/`
 }
 
 export const integrationsGithubReposRetrieve = async (
     projectId: string,
     id: number,
+    params?: IntegrationsGithubReposRetrieveParams,
     options?: RequestInit
 ): Promise<GitHubReposResponseApi> => {
-    return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
+    return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

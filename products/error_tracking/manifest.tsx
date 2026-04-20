@@ -1,8 +1,9 @@
 import { combineUrl } from 'kea-router'
 
+import { SettingId } from 'scenes/settings/types'
 import { urls } from 'scenes/urls'
 
-import { DateRange, FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { DateRange, FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest, UniversalFiltersGroup } from '../../frontend/src/types'
 
@@ -13,40 +14,43 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
             projectBased: true,
             name: 'Error tracking',
-            defaultDocsPath: '/docs/error-tracking',
             iconType: 'error_tracking',
             description: 'Track and analyze your error tracking data to understand and fix issues.',
+            settingsSection: 'environment-error-tracking',
         },
         ErrorTrackingIssue: {
             import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
             projectBased: true,
             name: 'Error tracking issue',
             layout: 'app-raw',
+            settingsSection: 'environment-error-tracking',
         },
         ErrorTrackingIssueFingerprints: {
             import: () =>
                 import('./frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
             projectBased: true,
             name: 'Error tracking issue fingerprints',
-        },
-        ErrorTrackingConfiguration: {
-            import: () => import('./frontend/scenes/ErrorTrackingConfigurationScene/ErrorTrackingConfigurationScene'),
-            projectBased: true,
-            name: 'Error tracking configuration',
+            settingsSection: 'environment-error-tracking',
         },
     },
     routes: {
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
-        '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
         '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     },
-    redirects: {},
+    redirects: {
+        '/error_tracking/configuration': (_params, searchParams) => {
+            const { tab, ...restSearchParams } = searchParams
+            return combineUrl(
+                urls.settings('environment-error-tracking', tab as SettingId | undefined),
+                restSearchParams
+            ).url
+        },
+    },
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
-        errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
         errorTrackingIssue: (
             id: string,
             params: {
@@ -67,7 +71,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Error tracking',
             intents: [ProductKey.ERROR_TRACKING],
-            category: 'Behavior',
+            category: ProductItemCategory.BEHAVIOR,
             type: 'error_tracking',
             iconType: 'error_tracking' as FileSystemIconType,
             iconColor: [

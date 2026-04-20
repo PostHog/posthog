@@ -37,7 +37,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
+import { alertFormLogic, canCheckOngoingInterval, getDefaultSimulationRange } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
@@ -80,19 +80,6 @@ function getSimulationRangeOptions(interval: AlertCalculationInterval): { label:
                 { label: 'Last 12m', value: '-12m' },
                 { label: 'Last 24m', value: '-24m' },
             ]
-    }
-}
-
-function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
-    switch (interval) {
-        case AlertCalculationInterval.HOURLY:
-            return '-48h'
-        case AlertCalculationInterval.DAILY:
-            return '-30d'
-        case AlertCalculationInterval.WEEKLY:
-            return '-12w'
-        case AlertCalculationInterval.MONTHLY:
-            return '-12m'
     }
 }
 
@@ -496,6 +483,7 @@ export function EditAlertModal({
                                                 <h4 className="m-0">Simulation</h4>
                                                 <LemonSelect
                                                     size="small"
+                                                    data-attr="alertForm-simulate-range"
                                                     value={
                                                         simulationDateFrom ??
                                                         getDefaultSimulationRange(alertForm.calculation_interval)
@@ -506,6 +494,7 @@ export function EditAlertModal({
                                                 <LemonButton
                                                     type="secondary"
                                                     size="small"
+                                                    data-attr="alertForm-simulate"
                                                     onClick={simulateAlert}
                                                     loading={simulationResultLoading}
                                                     tooltip="Run the detector on historical data to preview which points would be flagged as anomalies"

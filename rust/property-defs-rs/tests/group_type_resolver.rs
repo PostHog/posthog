@@ -194,6 +194,13 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<DeletePersonsResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _: Request<DeletePersonsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

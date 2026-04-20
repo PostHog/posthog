@@ -95,6 +95,31 @@ class TestProvisioningServices(StripeProvisioningTestBase):
 
     @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
+    def test_free_plan_can_upgrade_to_pay_as_you_go(self, mock_cache, mock_get):
+        res = self._get_signed("/api/agentic/provisioning/services")
+        free = res.json()["data"][0]
+        assert free["id"] == "free"
+        assert free["allowed_updates"] == ["pay_as_you_go"]
+
+    @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
+    @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
+    def test_pay_as_you_go_plan_can_downgrade_to_free(self, mock_cache, mock_get):
+        res = self._get_signed("/api/agentic/provisioning/services")
+        payg = res.json()["data"][1]
+        assert payg["id"] == "pay_as_you_go"
+        assert payg["allowed_updates"] == ["free"]
+
+    @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
+    @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
+    def test_pay_as_you_go_pricing_includes_rates(self, mock_cache, mock_get):
+        res = self._get_signed("/api/agentic/provisioning/services")
+        payg = res.json()["data"][1]
+        freeform = payg["pricing"]["paid"]["freeform"]
+        assert "$0/mo base" in freeform
+        assert "posthog.com/pricing" in freeform
+
+    @patch("ee.api.agentic_provisioning.views.requests.get", return_value=_mock_billing_response())
+    @patch("ee.api.agentic_provisioning.views.cache", new_callable=_mock_cache_empty)
     def test_analytics_deployable_has_component_pricing(self, mock_cache, mock_get):
         res = self._get_signed("/api/agentic/provisioning/services")
         analytics = res.json()["data"][2]

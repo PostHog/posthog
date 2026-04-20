@@ -12,13 +12,14 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHo
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsRequest, DeletePersonsResponse, DistinctIdWithVersion,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
-    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
-    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
+    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingsBatchResponse,
@@ -327,6 +328,29 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "delete_persons"))?;
 
         Ok(Response::new(DeletePersonsResponse { deleted_count }))
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        request: Request<DeletePersonsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.batch_size <= 0 || req.batch_size > 50000 {
+            return Err(Status::invalid_argument(
+                "batch_size must be between 1 and 50000",
+            ));
+        }
+
+        let deleted_count = self
+            .storage
+            .delete_persons_batch_for_team(req.team_id, req.batch_size)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_persons_batch_for_team"))?;
+
+        Ok(Response::new(DeletePersonsBatchForTeamResponse {
+            deleted_count,
+        }))
     }
 
     // ============================================================

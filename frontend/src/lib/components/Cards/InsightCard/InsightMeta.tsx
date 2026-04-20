@@ -646,13 +646,11 @@ export function InsightMetaContent({
     showDescription?: boolean
     infoPopover?: JSX.Element | null
 }): JSX.Element {
-    let titleEl: JSX.Element = (
-        <h4
-            title={!compact ? title : undefined}
-            data-attr="insight-card-title"
-            className={clsx(infoPopover && 'inline-flex items-center overflow-visible')}
-        >
-            <span className={clsx(infoPopover && 'truncate')}>{title || <i>{fallbackTitle || 'Untitled'}</i>}</span>
+    const titleContent = (
+        <>
+            <span className={clsx(infoPopover && 'truncate text-primary')}>
+                {title || <i>{fallbackTitle || 'Untitled'}</i>}
+            </span>
             {(loading || loadingQueued) && (
                 <Tooltip
                     title={loading ? 'This insight is loading results.' : 'This insight is waiting to load results.'}
@@ -664,16 +662,25 @@ export function InsightMetaContent({
                     </span>
                 </Tooltip>
             )}
+        </>
+    )
+
+    const titleEl = (
+        <h4
+            title={!compact ? title : undefined}
+            data-attr="insight-card-title"
+            className={clsx(infoPopover && 'inline-flex items-center overflow-visible')}
+        >
+            {link ? (
+                <Link to={link} className="max-w-full truncate">
+                    {titleContent}
+                </Link>
+            ) : (
+                titleContent
+            )}
             {infoPopover}
         </h4>
     )
-    if (link) {
-        titleEl = (
-            <Link to={link} className="max-w-full truncate">
-                {titleEl}
-            </Link>
-        )
-    }
 
     return (
         <>

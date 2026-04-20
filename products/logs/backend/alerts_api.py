@@ -1,43 +1,57 @@
 import datetime as dt
 from datetime import UTC, datetime
-from typing import Final
+from typing import Final, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import OuterRef, QuerySet, Subquery
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
+from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
+from products.logs.backend.alert_destinations import EVENT_KINDS, EventKind, build_slack_config, build_webhook_config
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertSnapshot,
     AlertState,
     CheckResult,
+    InvalidTransition,
     NotificationAction,
+    apply_disable,
+    apply_enable,
+    apply_outcome,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+    apply_user_reset,
     evaluate_alert_check,
 )
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
 
 ALLOWED_WINDOW_MINUTES = {1, 5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
 _SENTINEL: Final = object()
+_NOT_ANNOTATED: Final = object()
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -59,15 +73,38 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     evaluation_periods = serializers.IntegerField(
         default=1,
         min_value=1,
-        max_value=10,
+        max_value=MAX_EVALUATION_PERIODS,
         help_text="Total number of check periods in the sliding evaluation window for firing (M in N-of-M).",
     )
     datapoints_to_alarm = serializers.IntegerField(
         default=1,
         min_value=1,
-        max_value=10,
+        max_value=MAX_EVALUATION_PERIODS,
         help_text="How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
     )
+    last_error_message = serializers.SerializerMethodField(
+        help_text=(
+            "Error message from the most recent errored check, or null if the alert's "
+            "most recent check was successful. Sourced from LogsAlertCheck without "
+            "denormalization so retention-aware cleanup rules stay the only source of truth."
+        ),
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
+        # The viewset annotates `_latest_error_message` via Subquery to avoid N+1 on list.
+        # Fallback direct query covers callers that construct this serializer outside the
+        # viewset (tests, admin actions).
+        annotated = getattr(obj, "_latest_error_message", _NOT_ANNOTATED)
+        if annotated is not _NOT_ANNOTATED:
+            # Subquery annotation yields either the error_message string or None.
+            return cast(str | None, annotated)
+        return (
+            LogsAlertCheck.objects.filter(alert=obj, error_message__isnull=False)
+            .order_by("-created_at")
+            .values_list("error_message", flat=True)
+            .first()
+        )
 
     class Meta:
         model = LogsAlertConfiguration
@@ -89,6 +126,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_notified_at",
             "last_checked_at",
             "consecutive_failures",
+            "last_error_message",
             "created_at",
             "created_by",
             "updated_at",
@@ -101,6 +139,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_notified_at",
             "last_checked_at",
             "consecutive_failures",
+            "last_error_message",
             "created_at",
             "created_by",
             "updated_at",
@@ -143,21 +182,34 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         threshold_changed = _any_field_changed(instance, validated_data, threshold_or_filter_fields)
         window_changed = _any_field_changed(instance, validated_data, {"window_minutes"})
 
-        already_snoozed = snooze_data is _SENTINEL and instance.state == LogsAlertConfiguration.State.SNOOZED
+        enabled_change: bool | None = None
+        if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
+            enabled_change = validated_data["enabled"]
 
-        if threshold_changed:
-            instance.mark_for_recheck(reset_state=not already_snoozed)
-        elif window_changed:
-            instance.mark_for_recheck(reset_state=False)
-
-        # Apply snooze last so it takes priority over the recheck state reset
-        if snooze_data is not _SENTINEL:
+        # Resolve the state-machine transition in priority order: enable/disable wins over
+        # snooze, which wins over threshold/filter changes. Window-only edits don't touch
+        # state at all. All transitions return an Outcome; apply_outcome is the single
+        # place that actually writes to `state`/`consecutive_failures`.
+        snapshot = instance.to_snapshot()
+        if enabled_change is True:
+            apply_outcome(instance, apply_enable(snapshot))
+        elif enabled_change is False:
+            apply_outcome(instance, apply_disable(snapshot))
+        elif snooze_data is not _SENTINEL:
             if snooze_data is None:
-                instance.state = LogsAlertConfiguration.State.NOT_FIRING
-                instance.snooze_until = None
+                apply_outcome(instance, apply_unsnooze(snapshot))
             else:
-                instance.state = LogsAlertConfiguration.State.SNOOZED
-                instance.snooze_until = snooze_data
+                apply_outcome(instance, apply_snooze(snapshot))
+        elif threshold_changed:
+            apply_outcome(instance, apply_threshold_change(snapshot))
+
+        # snooze_until is a timestamp column, not a state — carry it alongside the state
+        # transition so the serializer's single save persists both.
+        if snooze_data is not _SENTINEL:
+            instance.snooze_until = snooze_data
+
+        if threshold_changed or window_changed:
+            instance.clear_next_check()
 
         return super().update(instance, validated_data)
 
@@ -214,13 +266,13 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     evaluation_periods = serializers.IntegerField(
         default=1,
         min_value=1,
-        max_value=10,
+        max_value=MAX_EVALUATION_PERIODS,
         help_text="Total check periods in the N-of-M evaluation window (M).",
     )
     datapoints_to_alarm = serializers.IntegerField(
         default=1,
         min_value=1,
-        max_value=10,
+        max_value=MAX_EVALUATION_PERIODS,
         help_text="How many periods must breach to fire (N in N-of-M).",
     )
     cooldown_minutes = serializers.IntegerField(
@@ -268,6 +320,42 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
     total_buckets = serializers.IntegerField(help_text="Total number of buckets in the simulation window.")
     threshold_count = serializers.IntegerField(help_text="Threshold count used for evaluation.")
     threshold_operator = serializers.CharField(help_text="Threshold operator used for evaluation.")
+
+
+class LogsAlertCreateDestinationSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["slack", "webhook"], help_text="Destination type — slack or webhook.")
+    slack_workspace_id = serializers.IntegerField(
+        required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
+    )
+    slack_channel_id = serializers.CharField(required=False, help_text="Slack channel ID. Required when type=slack.")
+    slack_channel_name = serializers.CharField(
+        required=False, allow_blank=True, help_text="Human-readable channel name for display."
+    )
+    webhook_url = serializers.URLField(
+        required=False, help_text="HTTPS endpoint to POST to. Required when type=webhook."
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        destination_type = attrs["type"]
+        if destination_type == "slack":
+            if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
+                raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
+        elif destination_type == "webhook":
+            if not attrs.get("webhook_url"):
+                raise ValidationError("webhook_url is required for webhook destinations.")
+        return attrs
+
+
+class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        help_text="HogFunction IDs to delete as one atomic destination group.",
+    )
+
+
+class LogsAlertDestinationResponseSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(child=serializers.UUIDField())
 
 
 def _build_reason(
@@ -373,7 +461,143 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id)
+        # Correlated subquery so list/retrieve can surface `last_error_message` in a
+        # single round-trip instead of one extra query per alert.
+        latest_error = (
+            LogsAlertCheck.objects.filter(alert=OuterRef("pk"), error_message__isnull=False)
+            .order_by("-created_at")
+            .values("error_message")[:1]
+        )
+        return queryset.filter(team_id=self.team_id).annotate(_latest_error_message=Subquery(latest_error))
+
+    @extend_schema(
+        request=LogsAlertCreateDestinationSerializer,
+        responses={201: LogsAlertDestinationResponseSerializer},
+        description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations")
+    def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        serializer = LogsAlertCreateDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        with transaction.atomic():
+            hog_functions = [self._build_and_create_hog_function(alert, data, kind) for kind in EVENT_KINDS]
+
+        report_user_action(
+            request.user,
+            "logs alert destination created",
+            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(EVENT_KINDS)},
+        )
+        response = LogsAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
+        return Response(response.data, status=201)
+
+    @extend_schema(
+        request=LogsAlertDeleteDestinationSerializer,
+        responses={204: None},
+        description="Delete a notification destination by deleting its HogFunction group atomically.",
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations/delete")
+    def delete_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        serializer = LogsAlertDeleteDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        hog_function_ids = serializer.validated_data["hog_function_ids"]
+
+        with transaction.atomic():
+            updated = HogFunction.objects.filter(
+                team_id=self.team_id,
+                id__in=hog_function_ids,
+                filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
+            ).update(deleted=True)
+            if updated != len(hog_function_ids):
+                # Ownership check: if the filtered UPDATE touched fewer rows than we were asked
+                # to delete, something in the list doesn't belong to this alert. Roll back.
+                raise ValidationError("One or more HogFunctions do not belong to this alert.")
+
+        report_user_action(
+            request.user,
+            "logs alert destination deleted",
+            {"alert_id": str(alert.id), "count": len(hog_function_ids)},
+        )
+        return Response(status=204)
+
+    def _build_and_create_hog_function(
+        self,
+        alert: LogsAlertConfiguration,
+        data: dict,
+        kind: EventKind,
+    ) -> HogFunction:
+        if data["type"] == "slack":
+            config = build_slack_config(
+                alert,
+                kind,
+                slack_workspace_id=data["slack_workspace_id"],
+                slack_channel_id=data["slack_channel_id"],
+                slack_channel_name=data.get("slack_channel_name"),
+            )
+        else:
+            config = build_webhook_config(alert, kind, webhook_url=data["webhook_url"])
+
+        # Route through HogFunctionSerializer so template lookup and bytecode compilation run.
+        team = config.pop("team")
+        serializer = HogFunctionSerializer(
+            data=config,
+            context={"request": self.request, "get_team": lambda: team, "is_create": True},
+        )
+        serializer.is_valid(raise_exception=True)
+        return serializer.save(team=team)
+
+    @extend_schema(
+        request=None,
+        responses={200: LogsAlertConfigurationSerializer},
+        description="Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.",
+    )
+    @action(detail=True, methods=["POST"], url_path="reset")
+    def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        previous_failures = alert.consecutive_failures
+        try:
+            outcome = apply_user_reset(alert.to_snapshot())
+        except InvalidTransition:
+            raise ValidationError({"state": "Only broken alerts can be reset."})
+        with transaction.atomic():
+            update_fields = apply_outcome(alert, outcome)
+            update_fields.extend(alert.clear_next_check())
+            alert.save(update_fields=update_fields)
+            # The model's auto-signal skips these fields (signal_exclusions silences
+            # engine-driven churn) so we log the user-initiated reset explicitly.
+            log_activity(
+                organization_id=self.team.organization_id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=alert.id,
+                scope="LogsAlertConfiguration",
+                activity="reset",
+                detail=Detail(
+                    name=alert.name,
+                    changes=[
+                        Change(
+                            type="LogsAlertConfiguration",
+                            action="changed",
+                            field="state",
+                            before="broken",
+                            after="not_firing",
+                        ),
+                        Change(
+                            type="LogsAlertConfiguration",
+                            action="changed",
+                            field="consecutive_failures",
+                            before=previous_failures,
+                            after=0,
+                        ),
+                    ],
+                ),
+            )
+        report_user_action(request.user, "logs alert reset", {"alert_id": str(alert.id)})
+        return Response(self.get_serializer(alert).data)
 
     @extend_schema(
         request=LogsAlertSimulateRequestSerializer,

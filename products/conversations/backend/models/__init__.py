@@ -5,6 +5,7 @@ from .restore_token import ConversationRestoreToken
 from .team_conversations_email_config import EmailChannel
 from .team_conversations_slack_config import TeamConversationsSlackConfig
 from .ticket import Ticket
+from .ticket_view import TicketView
 
 __all__ = [
     "Channel",
@@ -18,4 +19,5 @@ __all__ = [
     "TeamConversationsSlackConfig",
     "Ticket",
     "TicketAssignment",
+    "TicketView",
 ]

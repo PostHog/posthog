@@ -21,7 +21,7 @@ export const SCENE_TABS: SceneTabConfig[] = [
     {
         key: 'settings',
         label: 'Settings',
-        href: urls.supportSettings(),
+        href: urls.settings('environment-conversations'),
     },
 ]
 
@@ -54,7 +54,6 @@ export const scenesTabsLogic = kea<scenesTabsLogicType>([
         return {
             '/support/tickets': () => actions.setActiveTab('tickets'),
             '/support/tickets/:ticketId': () => actions.setActiveTab('tickets'),
-            '/support/settings': () => actions.setActiveTab('settings'),
         }
     }),
 ])

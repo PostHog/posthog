@@ -255,6 +255,44 @@ export interface PersonBulkDeleteRequestApi {
     keep_person?: boolean
 }
 
+export type PersonBulkDeleteResponseApiDeletionErrorsItem = { [key: string]: unknown }
+
+export interface PersonBulkDeleteResponseApi {
+    /** Number of persons matched by the provided IDs or distinct IDs. */
+    persons_found: number
+    /** Number of person records deleted from the database. 0 if keep_person was true. */
+    persons_deleted: number
+    /** Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
+    events_queued_for_deletion: boolean
+    /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
+    recordings_queued_for_deletion: boolean
+    /** Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists. */
+    deletion_errors?: PersonBulkDeleteResponseApiDeletionErrorsItem[]
+}
+
+export interface AsyncDeletionStatusApi {
+    /** The UUID of the person whose events are queued for deletion. */
+    person_uuid: string
+    /** When the deletion was requested. */
+    created_at: string
+    /** Current status: 'pending' or 'completed'. */
+    readonly status: string
+    /**
+     * When the deletion was verified complete. Null if still pending.
+     * @nullable
+     */
+    delete_verified_at: string | null
+}
+
+export interface PaginatedAsyncDeletionStatusListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    count?: number
+    results?: AsyncDeletionStatusApi[]
+}
+
 /**
  * Person properties as they existed at the specified time
  */
@@ -525,6 +563,43 @@ export type PersonsCohortsRetrieveFormat =
 export const PersonsCohortsRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
+} as const
+
+export type PersonsDeletionStatusListParams = {
+    format?: PersonsDeletionStatusListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by a specific person UUID.
+     */
+    person_uuid?: string
+    /**
+     * Filter by deletion status: 'pending', 'completed', or 'all'.
+     */
+    status?: PersonsDeletionStatusListStatus
+}
+
+export type PersonsDeletionStatusListFormat =
+    (typeof PersonsDeletionStatusListFormat)[keyof typeof PersonsDeletionStatusListFormat]
+
+export const PersonsDeletionStatusListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsDeletionStatusListStatus =
+    (typeof PersonsDeletionStatusListStatus)[keyof typeof PersonsDeletionStatusListStatus]
+
+export const PersonsDeletionStatusListStatus = {
+    All: 'all',
+    Completed: 'completed',
+    Pending: 'pending',
 } as const
 
 export type PersonsFunnelRetrieveParams = {

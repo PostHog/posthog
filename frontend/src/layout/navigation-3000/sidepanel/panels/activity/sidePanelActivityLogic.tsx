@@ -9,9 +9,9 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
 
+import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { SidePanelSceneContext } from '../../types'
-import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
 // ActivityScope values that should not appear in dropdowns

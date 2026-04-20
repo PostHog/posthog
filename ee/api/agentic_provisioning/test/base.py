@@ -5,9 +5,12 @@ from urllib.parse import urlencode
 import pytest
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
 
 from ee.api.agentic_provisioning.signature import compute_signature
@@ -17,8 +20,26 @@ HMAC_SECRET = "test_hmac_secret"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 
+def _generate_rsa_key() -> str:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    return pem.decode("utf-8")
+
+
+_RSA_KEY = _generate_rsa_key()
+
+
 @pytest.mark.requires_secrets
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET, STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID)
+@override_settings(
+    STRIPE_APP_SECRET_KEY=HMAC_SECRET,
+    STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
+    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
+    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
+)
 class StripeProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()

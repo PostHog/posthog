@@ -484,7 +484,14 @@ async def materialize_model(
     if not query_columns:
         query_columns = await database_sync_to_async(saved_query.get_columns)()
 
-    hogql_query = saved_query.query["query"]
+    if not isinstance(saved_query.query, dict):
+        raise ValueError(f"Saved query {saved_query.id} is missing its query payload")
+
+    hogql_query_value = saved_query.query.get("query")
+    if not isinstance(hogql_query_value, str):
+        raise ValueError(f"Saved query {saved_query.id} has an invalid query payload")
+
+    hogql_query = hogql_query_value
 
     try:
         row_count = 0
@@ -900,28 +907,29 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                     ]
 
                     # We can safely assume there is at least one element in this array due to the outer `if`
-                    call_tuple = call_tuples[0]
+                    selected_call_tuple = call_tuples[0]
 
                     has_type_to_convert = True
-                    query_typings.append((column_name, ch_type, call_tuple))
+                    query_typings.append((column_name, ch_type, selected_call_tuple))
                 else:
                     query_typings.append((column_name, ch_type, None))
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
 
         select_fields: list[ast.Expr] = []
-        for column_name, ch_type, call_tuple in query_typings:
-            if call_tuple:
+        for column_name, ch_type, conversion_tuple in query_typings:
+            if conversion_tuple is not None:
+                function_name, function_args = conversion_tuple
                 is_array = ch_type.lower().startswith("array(")
 
                 if is_array:
                     await logger.adebug(
-                        f"Converting {column_name} of type {ch_type} using arrayMap with {call_tuple[0]}(..)"
+                        f"Converting {column_name} of type {ch_type} using arrayMap with {function_name}(..)"
                     )
                     # Use arrayMap to apply the conversion function to each array element
                     lambda_expr = ast.Lambda(
                         args=["x"],
-                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=["x"]), *call_tuple[1]]),
+                        expr=ast.Call(name=function_name, args=[ast.Field(chain=["x"]), *function_args]),
                     )
                     select_fields.append(
                         ast.Alias(
@@ -931,11 +939,11 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                     )
                 else:
                     await logger.adebug(
-                        f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
+                        f"Converting {column_name} of type {ch_type} to be wrapped with {function_name}(..)"
                     )
                     select_fields.append(
                         ast.Alias(
-                            expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                            expr=ast.Call(name=function_name, args=[ast.Field(chain=[column_name]), *function_args]),
                             alias=column_name,
                         )
                     )
@@ -1130,7 +1138,7 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
             except Exception:
                 # Fallback: cast via string, truncate, then cast to reduced decimal
                 reduced_decimal_type = pa.decimal128(precision, scale)
-                string_col = pc.cast(col, pa.string())
+                string_col = typing.cast(pa.StringArray, pc.cast(col, pa.string()))
                 truncated = pc.utf8_slice_codeunits(string_col, 0, precision)
                 cast_reduced = pc.cast(truncated, reduced_decimal_type)
                 new_fields.append(field.with_type(reduced_decimal_type))
@@ -1230,9 +1238,11 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
         selector_paths: SelectorPaths = {}
 
         if not inputs.select:
-            matching_paths = await database_sync_to_async(list)(
-                DataWarehouseModelPath.objects.filter(team_id=inputs.team_id).values_list("path", flat=True)
-            )
+            matching_paths: list[str] = await database_sync_to_async(
+                lambda: list(
+                    DataWarehouseModelPath.objects.filter(team_id=inputs.team_id).values_list("path", flat=True)
+                )
+            )()
             selector_paths[
                 Selector(
                     label="*",
@@ -1246,11 +1256,13 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
             query = f"*.{selector_input.label}.*"
 
             # TODO: Make this one database fetch for all selectors, instead of one per selector
-            matching_paths = await database_sync_to_async(list)(
-                DataWarehouseModelPath.objects.filter(team_id=inputs.team_id, path__lquery=query).values_list(
-                    "path", flat=True
+            matching_paths = await database_sync_to_async(
+                lambda query_value=query: list(
+                    DataWarehouseModelPath.objects.filter(team_id=inputs.team_id, path__lquery=query_value).values_list(
+                        "path", flat=True
+                    )
                 )
-            )
+            )()
 
             selector_paths[selector_input] = matching_paths
 
@@ -1381,23 +1393,41 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
 @dataclasses.dataclass
 class CleanupRunningJobsActivityInputs:
     team_id: int
+    saved_query_ids: list[str] = dataclasses.field(default_factory=list)
 
 
 @database_sync_to_async
-def _preempt_running_jobs(team_id: int) -> list[DataModelingJob]:
+def _preempt_running_jobs(team_id: int, saved_query_ids: list[str] | None = None) -> list[DataModelingJob]:
     """Atomically fetch and mark orphaned RUNNING jobs as FAILED.
+
+    When saved_query_ids is provided, only jobs belonging to those saved queries
+    are preempted (self-preemption). Otherwise, falls back to team-wide cleanup
+    for backwards compatibility.
 
     The SELECT and UPDATE run inside a single transaction with row-level locks
     so concurrent cleanups cannot process the same jobs twice.
     """
     with transaction.atomic():
-        orphaned_jobs = list(
-            DataModelingJob.objects.select_for_update().filter(
-                team_id=team_id,
-                status=DataModelingJob.Status.RUNNING,
-                engine=DataModelingJob.Engine.CLICKHOUSE,
-            )
-        )
+        filters: dict[str, typing.Any] = {
+            "team_id": team_id,
+            "status": DataModelingJob.Status.RUNNING,
+            "engine": DataModelingJob.Engine.CLICKHOUSE,
+        }
+        if saved_query_ids:
+            resolved_uuids: list[uuid.UUID] = []
+            for label in saved_query_ids:
+                try:
+                    resolved_uuids.append(uuid.UUID(label))
+                except ValueError:
+                    try:
+                        sq = DataWarehouseSavedQuery.objects.exclude(deleted=True).get(team_id=team_id, name=label)
+                        resolved_uuids.append(sq.id)
+                    except DataWarehouseSavedQuery.DoesNotExist:
+                        pass
+            if resolved_uuids:
+                filters["saved_query_id__in"] = resolved_uuids
+
+        orphaned_jobs = list(DataModelingJob.objects.select_for_update().filter(**filters))
 
         if not orphaned_jobs:
             return []
@@ -1414,14 +1444,11 @@ def _preempt_running_jobs(team_id: int) -> list[DataModelingJob]:
 
 @temporalio.activity.defn
 async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
-    """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
-    Since only one job can run at a time per team, any existing RUNNING jobs
-    are orphaned when a new run starts.
-    """
+    """Marks orphaned RUNNING DataModelingJobs for this saved query as FAILED when starting a new run."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    orphaned_jobs = await _preempt_running_jobs(inputs.team_id)
+    orphaned_jobs = await _preempt_running_jobs(inputs.team_id, inputs.saved_query_ids or None)
 
     if not orphaned_jobs:
         await logger.adebug("No orphaned jobs found")
@@ -1614,9 +1641,10 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
+        saved_query_ids = [s.label for s in inputs.select]
         await temporalio.workflow.execute_activity(
             cleanup_running_jobs_activity,
-            CleanupRunningJobsActivityInputs(team_id=inputs.team_id),
+            CleanupRunningJobsActivityInputs(team_id=inputs.team_id, saved_query_ids=saved_query_ids),
             start_to_close_timeout=dt.timedelta(minutes=20),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )

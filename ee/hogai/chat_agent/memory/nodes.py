@@ -526,8 +526,11 @@ class MemoryCollectorToolsNode(AssistantNode):
         new_messages: list[LangchainToolMessage] = []
         for tool_call, schema in zip(last_message.tool_calls, tool_calls):
             if isinstance(schema, core_memory_append):
-                await core_memory.aappend_core_memory(schema.memory_content)
-                new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
+                try:
+                    await core_memory.aappend_core_memory(schema.memory_content)
+                    new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
+                except ValueError as e:
+                    new_messages.append(LangchainToolMessage(content=str(e), tool_call_id=tool_call["id"]))
             if isinstance(schema, core_memory_replace):
                 try:
                     await core_memory.areplace_core_memory(schema.original_fragment, schema.new_fragment)

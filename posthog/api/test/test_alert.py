@@ -901,6 +901,162 @@ class TestAlertSimulate(APIBaseTest):
         assert AlertCheck.objects.count() == checks_before
 
 
+class TestAlertEventProperties(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "threshold_absolute",
+                {"type": "absolute_value"},
+                None,
+                {
+                    "alert_mode": "threshold",
+                    "detector_type": None,
+                    "ensemble_operator": None,
+                    "ensemble_detector_types": None,
+                    "has_preprocessing": False,
+                },
+            ),
+            (
+                "single_detector_no_preprocessing",
+                {"type": "absolute_value"},
+                {"type": "zscore", "threshold": 0.95, "window": 30},
+                {
+                    "alert_mode": "detector",
+                    "detector_type": "zscore",
+                    "ensemble_operator": None,
+                    "ensemble_detector_types": None,
+                    "has_preprocessing": False,
+                },
+            ),
+            (
+                "single_detector_with_preprocessing",
+                {"type": "absolute_value"},
+                {"type": "zscore", "threshold": 0.95, "window": 30, "preprocessing": {"diffs_n": 1}},
+                {
+                    "alert_mode": "detector",
+                    "detector_type": "zscore",
+                    "ensemble_operator": None,
+                    "ensemble_detector_types": None,
+                    "has_preprocessing": True,
+                },
+            ),
+            (
+                "ensemble_and",
+                {"type": "absolute_value"},
+                {
+                    "type": "ensemble",
+                    "operator": "AND",
+                    "detectors": [
+                        {"type": "zscore", "threshold": 0.95, "window": 30, "preprocessing": {"diffs_n": 1}},
+                        {"type": "mad", "threshold": 0.95, "window": 30},
+                    ],
+                },
+                {
+                    "alert_mode": "detector",
+                    "detector_type": "ensemble",
+                    "ensemble_operator": "AND",
+                    "ensemble_detector_types": ["zscore", "mad"],
+                    "has_preprocessing": True,
+                },
+            ),
+            (
+                "ensemble_or_no_preprocessing",
+                {"type": "absolute_value"},
+                {
+                    "type": "ensemble",
+                    "operator": "OR",
+                    "detectors": [
+                        {"type": "iqr", "multiplier": 1.5, "window": 30},
+                        {"type": "threshold"},
+                    ],
+                },
+                {
+                    "alert_mode": "detector",
+                    "detector_type": "ensemble",
+                    "ensemble_operator": "OR",
+                    "ensemble_detector_types": ["iqr", "threshold"],
+                    "has_preprocessing": False,
+                },
+            ),
+        ]
+    )
+    def test_event_properties(
+        self,
+        _name: str,
+        condition: dict,
+        detector_config: dict | None,
+        expected_detector_fields: dict,
+    ) -> None:
+        alert = AlertConfiguration(
+            name="test alert",
+            condition=condition,
+            detector_config=detector_config,
+            calculation_interval="daily",
+        )
+        props = alert._get_event_properties()
+        assert props["alert_name"] == "test alert"
+        assert props["condition_type"] == condition["type"]
+        assert props["calculation_interval"] == "daily"
+        for key, value in expected_detector_fields.items():
+            assert props[key] == value, f"{key} expected {value}, got {props[key]}"
+
+
+class TestTriggerAlertHogFunctions(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "threshold_alert",
+                None,
+                {"alert_mode": "threshold", "detector_type": None, "ensemble_operator": None},
+            ),
+            (
+                "single_detector",
+                {"type": "zscore", "threshold": 0.95, "window": 30},
+                {"alert_mode": "detector", "detector_type": "zscore", "ensemble_operator": None},
+            ),
+            (
+                "ensemble_detector",
+                {
+                    "type": "ensemble",
+                    "operator": "AND",
+                    "detectors": [
+                        {"type": "zscore", "threshold": 0.95, "window": 30},
+                        {"type": "mad", "threshold": 0.95, "window": 30},
+                    ],
+                },
+                {"alert_mode": "detector", "detector_type": "ensemble", "ensemble_operator": "AND"},
+            ),
+        ]
+    )
+    @mock.patch("posthog.tasks.alerts.utils.produce_internal_event")
+    def test_insight_alert_firing_detector_props(
+        self,
+        _name: str,
+        detector_config: dict | None,
+        expected_props: dict,
+        mock_produce: mock.MagicMock,
+    ) -> None:
+        from posthog.tasks.alerts.utils import trigger_alert_hog_functions
+
+        alert = mock.MagicMock()
+        alert.id = "00000000-0000-0000-0000-000000000001"
+        alert.name = "test alert"
+        alert.insight.name = "test insight"
+        alert.insight.short_id = "abcd1234"
+        alert.state = AlertState.FIRING
+        alert.last_checked_at = None
+        alert.team_id = self.team.id
+        alert.detector_config = detector_config
+
+        trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
+
+        assert mock_produce.call_count == 1
+        event = mock_produce.call_args.kwargs["event"]
+        for key, value in expected_props.items():
+            assert event.properties[key] == value, f"{key} expected {value}, got {event.properties[key]}"
+        assert event.properties["breaches"] == "test breach"
+
+
 class TestAlertAPIKeyAccess(APIBaseTest):
     """Test that the alert scope is properly enforced for API key access."""
 

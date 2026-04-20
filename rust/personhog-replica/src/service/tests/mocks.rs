@@ -90,6 +90,14 @@ impl storage::PersonLookup for FailingStorage {
     async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
         Err(self.error.clone())
     }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -283,6 +291,14 @@ impl storage::PersonLookup for SuccessStorage {
     }
 
     async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
         Ok(0)
     }
 }
@@ -503,6 +519,14 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
     }
 
     async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
         Ok(0)
     }
 }

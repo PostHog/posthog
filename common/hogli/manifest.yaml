@@ -1,9 +1,7 @@
 metadata:
     devbox:
-        coder_url: https://coder.hedgehog-kitefin.ts.net
+        coder_url: https://coder.dev.posthog.dev
     categories:
-        - key: devbox
-          title: Remote development environment (devbox)
         - key: devenv
           title: Intent-based dev environment
         - key: core
@@ -30,6 +28,8 @@ metadata:
           title: Developer tools and utilities
         - key: utilities
           title: Git worktrees and admin
+        - key: devbox
+          title: Remote development environment (devbox)
         - key: environment
           title: Environment and shell
     services:
@@ -100,12 +100,18 @@ devbox:
     devbox:setup: null
     devbox:start: null
     devbox:stop: null
+    devbox:restart: null
+    devbox:update: null
+    devbox:list: null
     devbox:ssh: null
     devbox:open: null
     devbox:logs: null
     devbox:destroy: null
     devbox:status: null
     devbox:forward: null
+    devbox:users: null
+    devbox:share: null
+    devbox:cleanup:disk: null
 devenv:
     dev:setup: null
     dev:generate: null
@@ -562,6 +568,12 @@ quality:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format Markdown files
+    lint:feature-flags:
+        cmd: node bin/lint-feature-flag-sorting.mjs
+        description: Check that FEATURE_FLAGS in constants.tsx are alphabetically sorted
+    lint:feature-flags:fix:
+        cmd: node bin/lint-feature-flag-sorting.mjs --fix
+        description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
     format:mcp:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
@@ -692,6 +704,10 @@ tools:
     ci:wait:for:docker:
         bin_script: ci-wait-for-docker
         description: Launch Docker Compose services in CI and later wait for readiness
+        hidden: true
+    ci:find_affected_stories:
+        bin_script: find-affected-stories
+        description: Compute the set of stories affected by changed files during storybook builds
         hidden: true
 utilities:
     nuke:

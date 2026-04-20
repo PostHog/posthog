@@ -24,7 +24,7 @@ export interface OnboardingComponentsContext {
         file?: string
     }>
     CalloutBox: React.ComponentType<{
-        type: 'action' | 'fyi' | 'caution'
+        type: 'action' | 'fyi' | 'caution' | 'info'
         icon?: string
         title?: string
         children: ReactNode
@@ -214,12 +214,12 @@ function CalloutBox({
     title,
     children,
 }: {
-    type: 'action' | 'fyi' | 'caution'
+    type: 'action' | 'fyi' | 'caution' | 'info'
     icon?: string
     title?: string
     children: ReactNode
 }): JSX.Element {
-    const bannerType = type === 'caution' ? 'warning' : type === 'action' ? 'info' : 'info'
+    const bannerType = type === 'caution' ? 'warning' : 'info'
 
     return (
         <LemonBanner type={bannerType} className="my-4 [&>*]:font-normal">

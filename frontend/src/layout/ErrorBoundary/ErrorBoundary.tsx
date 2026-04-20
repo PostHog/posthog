@@ -2,7 +2,8 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from 'posthog-js/react'
+
+import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from '@posthog/react'
 
 import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'

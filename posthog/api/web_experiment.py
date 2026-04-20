@@ -228,7 +228,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         report_user_action(
             self.context["request"].user,
             "experiment created",
-            experiment.get_analytics_metadata(),
+            {**experiment.get_analytics_metadata(), "creation_mode": "new"},
             team=team,
             request=self.context["request"],
         )

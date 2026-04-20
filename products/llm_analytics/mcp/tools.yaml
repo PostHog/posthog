@@ -43,10 +43,9 @@ tools:
             idempotent: true
         title: List clustering jobs
         description: >
-            List all clustering job configurations for the current team (max 5 per team).
-            Each job defines an analysis level (trace or generation) and event filters that
-            scope which traces are included in clustering runs. Cluster results are stored
-            as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or
+            List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis
+            level (trace or generation) and event filters that scope which traces are included in clustering runs.
+            Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or
             execute-sql to query them.
     llm-analytics-clustering-jobs-create:
         operation: llm_analytics_clustering_jobs_create
@@ -69,19 +68,15 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        requires_ai_consent: true
         title: Summarize evaluation results
         description: >
-            Generate an AI-powered summary of LLM evaluation results for a given
-            evaluation config. Pass an evaluation_id and an optional filter
-            ("all", "pass", "fail", or "na") to scope which runs are analyzed.
-            Returns an overall assessment, pattern groups for passing, failing,
-            and N/A runs (each with title, description, frequency, and example
-            generation IDs), actionable recommendations, and run statistics.
-            Optionally pass generation_ids to restrict the analysis to specific
-            runs. Results are cached for one hour — use force_refresh to
-            recompute. Rate-limited; requires AI data processing approval for
-            the organization.
+            Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an
+            evaluation_id and an optional filter ("all", "pass", "fail", or "na") to scope which runs are analyzed.
+            Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title,
+            description, frequency, and example generation IDs), actionable recommendations, and run statistics.
+            Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour —
+            use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.
+        requires_ai_consent: true
     llm-analytics-models-retrieve:
         operation: llm_analytics_models_retrieve
         enabled: false
@@ -120,11 +115,10 @@ tools:
             idempotent: true
         title: Analyze sentiment
         description: >
-            Classify sentiment of LLM trace or generation user messages as positive,
-            neutral, or negative. Pass a list of trace or generation IDs and an
-            analysis_level ("trace" or "generation"). Returns per-ID sentiment labels
-            with confidence scores and per-message breakdowns. Results are cached —
-            use force_refresh to recompute. Rate-limited.
+            Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list
+            of trace or generation IDs and an analysis_level ("trace" or "generation"). Returns per-ID sentiment labels
+            with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute.
+            Rate-limited.
     llm-analytics-summarization-create:
         operation: llm_analytics_summarization_create
         enabled: true
@@ -136,11 +130,10 @@ tools:
             idempotent: true
         title: Summarize trace or generation
         description: >
-            Generate an AI-powered summary of an LLM trace or generation. Pass a
-            trace_id or generation_id with a date_from — the backend fetches the data
-            and returns a structured summary with title, flow diagram, summary bullets,
-            and interesting notes. Results are cached. Use mode "minimal" (default) for
-            3-5 points or "detailed" for 5-10 points. Rate-limited.
+            Generate an AI-powered summary of an LLM trace or generation. Pass a trace_id or generation_id with a
+            date_from — the backend fetches the data and returns a structured summary with title, flow diagram, summary
+            bullets, and interesting notes. Results are cached. Use mode "minimal" (default) for 3-5 points or
+            "detailed" for 5-10 points. Rate-limited.
     llm-analytics-summarization-batch-check-create:
         operation: llm_analytics_summarization_batch_check_create
         enabled: false
@@ -215,8 +208,8 @@ tools:
             idempotent: true
         title: Get clustering job
         description: >
-            Retrieve a specific clustering job configuration by ID. Returns the job name,
-            analysis level (trace or generation), event filters, enabled status, and timestamps.
+            Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or
+            generation), event filters, enabled status, and timestamps.
     llm-analytics-clustering-jobs-update:
         operation: llm_analytics_clustering_jobs_update
         enabled: false
@@ -297,4 +290,28 @@ tools:
         enabled: false
     llm-analytics-provider-keys-assign-create:
         operation: llm_analytics_provider_keys_assign_create
+        enabled: false
+    llm-analytics-evaluation-reports-list:
+        operation: llm_analytics_evaluation_reports_list
+        enabled: false
+    llm-analytics-evaluation-reports-create:
+        operation: llm_analytics_evaluation_reports_create
+        enabled: false
+    llm-analytics-evaluation-reports-retrieve:
+        operation: llm_analytics_evaluation_reports_retrieve
+        enabled: false
+    llm-analytics-evaluation-reports-update:
+        operation: llm_analytics_evaluation_reports_update
+        enabled: false
+    llm-analytics-evaluation-reports-partial-update:
+        operation: llm_analytics_evaluation_reports_partial_update
+        enabled: false
+    llm-analytics-evaluation-reports-destroy:
+        operation: llm_analytics_evaluation_reports_destroy
+        enabled: false
+    llm-analytics-evaluation-reports-generate-create:
+        operation: llm_analytics_evaluation_reports_generate_create
+        enabled: false
+    llm-analytics-evaluation-reports-runs-list:
+        operation: llm_analytics_evaluation_reports_runs_list
         enabled: false
