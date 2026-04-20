@@ -107,13 +107,13 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     ),
                     SourceFieldInputConfig(
                         name="schema",
-                        label="Schema (optional)",
+                        label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="public",
                         caption=(
-                            "Leave blank to browse tables across all non-system schemas. "
-                            "You can narrow the list further in the next step."
+                            "Required for warehouse imports. Leave blank only for direct Postgres queries "
+                            "to browse tables across all non-system schemas."
                         ),
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
@@ -300,6 +300,20 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
 
         return True, None
+
+    def validate_credentials_for_access_method(
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        access_method: str,
+        schema_name: Optional[str] = None,
+    ) -> tuple[bool, str | None]:
+        if access_method != "direct":
+            schema = config.schema.strip() if isinstance(config.schema, str) else ""
+            if not schema and not schema_name:
+                return False, "Schema is required for warehouse imports."
+
+        return self.validate_credentials(config, team_id, schema_name=schema_name)
 
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False

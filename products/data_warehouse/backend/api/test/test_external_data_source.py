@@ -1934,6 +1934,26 @@ class TestExternalDataSource(APIBaseTest):
             {"message": "Direct query mode is currently supported only for Postgres sources."},
         )
 
+    def test_create_postgres_warehouse_source_requires_schema(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "warehouse",
+                "payload": {
+                    "host": "db.example.com",
+                    "port": 5432,
+                    "database": "postgres",
+                    "user": "postgres",
+                    "password": "secret",
+                    "schema": "",
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"message": "Schema is required for warehouse imports."})
+
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
             host=settings.PG_HOST,

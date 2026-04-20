@@ -102,6 +102,42 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
 
+    def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
+        config = source.parse_config(
+            {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "",
+            }
+        )
+
+        valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="warehouse")
+
+        assert valid is False
+        assert error == "Schema is required for warehouse imports."
+
+    def test_validate_credentials_for_access_method_allows_blank_schema_for_direct_queries(self, source):
+        config = source.parse_config(
+            {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "",
+            }
+        )
+
+        with mock.patch.object(source, "validate_credentials", return_value=(True, None)) as validate_credentials:
+            valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="direct")
+
+        assert valid is True
+        assert error is None
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
+
 
 class TestPostgresSchemaDiscovery:
     def _mock_connection(self, *fetchall_results: list[tuple[object, ...]]):
