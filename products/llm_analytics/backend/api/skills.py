@@ -76,20 +76,22 @@ class LLMSkillFeatureFlagPermission(BasePermission):
         )
 
 
-ALLOWED_LIST_ORDERINGS = {
-    "name": "name",
-    "-name": "-name",
-    "created_at": "created_at",
-    "-created_at": "-created_at",
-    "updated_at": "updated_at",
-    "-updated_at": "-updated_at",
-    "version": "version",
-    "-version": "-version",
-    "latest_version": "latest_version",
-    "-latest_version": "-latest_version",
-    "version_count": "version_count",
-    "-version_count": "-version_count",
-}
+ALLOWED_LIST_ORDERINGS = frozenset(
+    {
+        "name",
+        "-name",
+        "created_at",
+        "-created_at",
+        "updated_at",
+        "-updated_at",
+        "version",
+        "-version",
+        "latest_version",
+        "-latest_version",
+        "version_count",
+        "-version_count",
+    }
+)
 
 
 @extend_schema(tags=["llm_analytics"])
@@ -113,6 +115,7 @@ class LLMSkillViewSet(
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
 
+    # Differentiates read vs write scopes for GET/PATCH on the shared /name/<slug> URL
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         super_method = getattr(super(), "dangerously_get_required_scopes", None)
         if callable(super_method):
@@ -173,7 +176,7 @@ class LLMSkillViewSet(
             queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
 
         order_by = request.query_params.get("order_by", "-created_at")
-        queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")
+        queryset = queryset.order_by(order_by if order_by in ALLOWED_LIST_ORDERINGS else "-created_at", "-id")
         return queryset
 
     def get_serializer_class(self):
@@ -446,6 +449,10 @@ class LLMSkillViewSet(
     @llma_track_latency("llma_skills_create")
     @monitor(feature=None, endpoint="llma_skills_create", method="POST")
     def create(self, request, *args, **kwargs):
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:

@@ -22,7 +22,7 @@ class LLMSkill(UUIDModel):
 
     # Required by Agent Skills spec (https://agentskills.io/specification)
     name = models.CharField(max_length=64)
-    description = models.CharField(max_length=1024)
+    description = models.CharField(max_length=4096)
 
     # The SKILL.md body content (markdown instructions)
     body = models.TextField()

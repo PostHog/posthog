@@ -165,6 +165,53 @@ class TestLLMSkillAPI(APIBaseTest):
         assert file_response.json()["content"] == "#!/bin/bash\necho hi"
         assert file_response.json()["content_type"] == "text/x-shellscript"
 
+    def test_create_skill_with_oversized_file_fails(self, mock_feature_enabled):
+        response = self.client.post(
+            self._url(),
+            data={
+                "name": "big-file-skill",
+                "description": "Has a huge file.",
+                "body": "# Body",
+                "files": [
+                    {"path": "big.txt", "content": "x" * 1_100_000},
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_skill_with_too_many_files_fails(self, mock_feature_enabled):
+        response = self.client.post(
+            self._url(),
+            data={
+                "name": "many-files-skill",
+                "description": "Has too many files.",
+                "body": "# Body",
+                "files": [{"path": f"file-{i}.txt", "content": "content"} for i in range(51)],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_skill_with_duplicate_file_paths_fails(self, mock_feature_enabled):
+        response = self.client.post(
+            self._url(),
+            data={
+                "name": "dup-files-skill",
+                "description": "Has duplicate file paths.",
+                "body": "# Body",
+                "files": [
+                    {"path": "scripts/run.sh", "content": "echo a"},
+                    {"path": "scripts/run.sh", "content": "echo b"},
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     # --- List ---
 
     def test_list_skills_returns_name_and_description_without_body(self, mock_feature_enabled):

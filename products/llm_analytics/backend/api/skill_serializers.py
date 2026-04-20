@@ -12,6 +12,8 @@ from ..models.skills import LLMSkill, LLMSkillFile
 RESERVED_SKILL_NAMES = {"new"}
 DEFAULT_VERSION_PAGE_SIZE = 50
 MAX_SKILL_BODY_BYTES = 1_000_000
+MAX_SKILL_FILE_BYTES = 1_000_000
+MAX_SKILL_FILE_COUNT = 50
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 
@@ -40,7 +42,12 @@ def validate_skill_name_value(value: str) -> str:
     return value
 
 
-def _validate_unique_file_paths(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _validate_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(files) > MAX_SKILL_FILE_COUNT:
+        raise serializers.ValidationError(
+            f"A skill may contain at most {MAX_SKILL_FILE_COUNT} files.",
+            code="max_count",
+        )
     paths = [f["path"] for f in files]
     if len(paths) != len(set(paths)):
         raise serializers.ValidationError("Duplicate file paths are not allowed.")
@@ -138,6 +145,14 @@ class LLMSkillFileInputSerializer(serializers.Serializer):
             raise serializers.ValidationError("File paths must be relative, not absolute.")
         return value
 
+    def validate_content(self, value: str) -> str:
+        if len(value.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
+            raise serializers.ValidationError(
+                f"File content must be {MAX_SKILL_FILE_BYTES} bytes or fewer.",
+                code="max_size",
+            )
+        return value
+
 
 class LLMSkillPublishSerializer(serializers.Serializer):
     body = serializers.CharField(
@@ -145,7 +160,7 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         help_text="Full skill body (SKILL.md instruction content) to publish as a new version.",
     )
     description = serializers.CharField(
-        max_length=1024,
+        max_length=4096,
         required=False,
         help_text="Updated description for the new version.",
     )
@@ -166,7 +181,7 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         required=False,
         help_text="List of pre-approved tools the skill may use.",
     )
-    metadata = serializers.JSONField(
+    metadata = serializers.DictField(
         required=False,
         help_text="Arbitrary key-value metadata.",
     )
@@ -184,12 +199,7 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         return validate_skill_body_size(value)
 
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return _validate_unique_file_paths(value)
-
-    def validate_metadata(self, value: Any) -> Any:
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Metadata must be a JSON object.")
-        return value
+        return _validate_files(value)
 
 
 class LLMSkillSerializer(serializers.ModelSerializer):
@@ -249,7 +259,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "name": {
                 "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters."
             },
-            "description": {"help_text": "What this skill does and when to use it. Max 1024 characters."},
+            "description": {"help_text": "What this skill does and when to use it. Max 4096 characters."},
             "body": {"help_text": "The SKILL.md instruction content (markdown)."},
             "license": {"help_text": "License name or reference to a bundled license file."},
             "compatibility": {
@@ -282,12 +292,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         return validate_skill_body_size(value)
 
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return _validate_unique_file_paths(value)
-
-    def validate_metadata(self, value: Any) -> Any:
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Metadata must be a JSON object.")
-        return value
+        return _validate_files(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()

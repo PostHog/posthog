@@ -1,1 +1,1 @@
-0026_llmskill_llmskillfile
+0027_increase_skill_description_max_length
