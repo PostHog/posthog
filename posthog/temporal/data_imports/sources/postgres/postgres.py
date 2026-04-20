@@ -4,6 +4,7 @@ import re
 import math
 import time
 import collections
+import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import UTC, date, datetime
@@ -43,6 +44,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 # Sources created after this date must use SSL/TLS connections
 SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 
 # Max rows per FETCH when reading a partitioned parent table. A partitioned
 # parent scan dispatches across every child partition; a large chunk size can
@@ -77,6 +79,21 @@ class SSLRequiredError(Exception):
     """Raised when SSL/TLS is required but the database does not support it."""
 
     pass
+
+
+@dataclasses.dataclass(frozen=True)
+class PostgresDiscoveredSchema:
+    source_catalog: str | None
+    source_schema: str
+    source_table_name: str
+    columns: list[tuple[str, str, bool]]
+
+
+def _is_duckdb_connection(cursor: psycopg.Cursor) -> bool:
+    cursor.execute("SELECT version()")
+    row = cursor.fetchone()
+    version = str(row[0]) if row and row[0] is not None else ""
+    return "duckdb" in version.lower() or "duckgres" in version.lower()
 
 
 def _get_sslmode(require_ssl: bool) -> str:
@@ -208,16 +225,142 @@ def filter_postgres_incremental_fields(
     return results
 
 
+def _normalize_selected_schema(schema: str | None) -> str | None:
+    if not isinstance(schema, str):
+        return None
+
+    normalized = schema.strip()
+    return normalized or None
+
+
+def _get_display_table_name(schema_name: str, table_name: str, *, qualify_with_schema: bool) -> str:
+    return f"{schema_name}.{table_name}" if qualify_with_schema else table_name
+
+
+def _build_named_value_placeholders(prefix: str, values: list[str]) -> tuple[str, dict[str, str]]:
+    placeholders: list[str] = []
+    params: dict[str, str] = {}
+
+    for index, value in enumerate(values):
+        key = f"{prefix}_{index}"
+        placeholders.append(f"%({key})s")
+        params[key] = value
+
+    return ", ".join(placeholders), params
+
+
+def _get_discovered_tables(
+    cursor: psycopg.Cursor, schema: str | None, names: list[str] | None = None
+) -> tuple[dict[str, tuple[str | None, str, str]], bool]:
+    selected_schema = _normalize_selected_schema(schema)
+    qualify_with_schema = selected_schema is None
+    is_duckdb = _is_duckdb_connection(cursor)
+
+    if is_duckdb:
+        cursor.execute("SELECT current_database()")
+        row = cursor.fetchone()
+        current_database = str(row[0]) if row and row[0] is not None else None
+
+        if selected_schema is not None:
+            cursor.execute(
+                """
+                SELECT table_catalog, table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_catalog = %(current_database)s
+                  AND table_schema = %(schema)s
+                ORDER BY table_schema, table_name
+                """,
+                {"current_database": current_database, "schema": selected_schema},
+            )
+        else:
+            system_schema_placeholders, system_schema_params = _build_named_value_placeholders(
+                "system_schema", SYSTEM_POSTGRES_SCHEMAS
+            )
+            cursor.execute(
+                f"""
+                SELECT table_catalog, table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_catalog = %(current_database)s
+                  AND table_schema NOT IN ({system_schema_placeholders})
+                ORDER BY table_schema, table_name
+                """,
+                {"current_database": current_database, **system_schema_params},
+            )
+
+        discovered_rows = cursor.fetchall()
+        all_tables = {
+            _get_display_table_name(schema_name, table_name, qualify_with_schema=qualify_with_schema): (
+                table_catalog,
+                schema_name,
+                table_name,
+            )
+            for table_catalog, schema_name, table_name in discovered_rows
+        }
+    else:
+        if selected_schema is not None:
+            cursor.execute(
+                """
+                SELECT schemaname AS schema_name, tablename AS table_name
+                FROM pg_tables
+                WHERE schemaname = %(schema)s
+                UNION ALL
+                SELECT schemaname AS schema_name, matviewname AS table_name
+                FROM pg_matviews
+                WHERE schemaname = %(schema)s
+                ORDER BY schema_name, table_name
+                """,
+                {"schema": selected_schema},
+            )
+        else:
+            system_schema_placeholders, system_schema_params = _build_named_value_placeholders(
+                "system_schema", SYSTEM_POSTGRES_SCHEMAS
+            )
+            cursor.execute(
+                f"""
+                SELECT schemaname AS schema_name, tablename AS table_name
+                FROM pg_tables
+                WHERE schemaname NOT IN ({system_schema_placeholders})
+                  AND schemaname NOT LIKE 'pg_temp_%%'
+                  AND schemaname NOT LIKE 'pg_toast_temp_%%'
+                UNION ALL
+                SELECT schemaname AS schema_name, matviewname AS table_name
+                FROM pg_matviews
+                WHERE schemaname NOT IN ({system_schema_placeholders})
+                  AND schemaname NOT LIKE 'pg_temp_%%'
+                  AND schemaname NOT LIKE 'pg_toast_temp_%%'
+                ORDER BY schema_name, table_name
+                """,
+                system_schema_params,
+            )
+
+        discovered_rows = cursor.fetchall()
+        all_tables = {
+            _get_display_table_name(schema_name, table_name, qualify_with_schema=qualify_with_schema): (
+                None,
+                schema_name,
+                table_name,
+            )
+            for schema_name, table_name in discovered_rows
+        }
+
+    if names is None:
+        return all_tables, qualify_with_schema
+
+    return {name: all_tables[name] for name in names if name in all_tables}, qualify_with_schema
+
+
 def get_postgres_row_count(
     host: str,
     port: int,
     database: str,
     user: str,
     password: str,
-    schema: str,
+    schema: str | None,
     require_ssl: bool = False,
     names: list[str] | None = None,
 ) -> dict[str, int]:
+    if _normalize_selected_schema(schema) is None and not names:
+        return {}
     try:
         with pg_connection(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -228,33 +371,17 @@ def get_postgres_row_count(
                         timeout=sql.Literal(1000 * 30)  # 30 secs
                     )
                 )
-
-                params: dict = {"schema": schema}
-                names_filter_tables = ""
-                names_filter_matviews = ""
-                if names:
-                    params["names"] = names
-                    names_filter_tables = "AND tablename = ANY(%(names)s)"
-                    names_filter_matviews = "AND matviewname = ANY(%(names)s)"
-
-                cursor.execute(
-                    f"""
-                    SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s {names_filter_tables}
-                    UNION ALL
-                    SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s {names_filter_matviews}
-                    """,
-                    params,
-                )
-                tables = cursor.fetchall()
-
-                if not tables:
+                discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+                if not discovered_tables:
                     return {}
 
                 counts = [
                     sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
-                        table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
+                        table_name=sql.Literal(display_name),
+                        schema=sql.Identifier(schema_name),
+                        table=sql.Identifier(table_name),
                     )
-                    for table in tables
+                    for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
                 ]
 
                 union_counts = sql.SQL(" UNION ALL ").join(counts)
@@ -270,55 +397,81 @@ def get_schemas(
     database: str,
     user: str,
     password: str,
-    schema: str,
+    schema: str | None,
     port: int,
     require_ssl: bool = False,
     names: list[str] | None = None,
-) -> dict[str, list[tuple[str, str, bool]]]:
+) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
     with pg_connection(
         host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
     ) as connection:
         with connection.cursor() as cursor:
-            params: dict = {"schema": schema}
-            names_filter = ""
-            names_filter_pg = ""
-            if names:
-                params["names"] = names
-                names_filter = "AND table_name = ANY(%(names)s)"
-                names_filter_pg = "AND c.relname = ANY(%(names)s)"
+            discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+            if not discovered_tables:
+                return {}
+
+            source_schemas = sorted(
+                {schema_name for _table_catalog, schema_name, _table_name in discovered_tables.values()}
+            )
+            schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
 
             cursor.execute(
                 f"""
                 SELECT * FROM (
-                    SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
-                    WHERE table_schema = %(schema)s {names_filter}
+                    SELECT
+                        table_schema,
+                        table_name,
+                        column_name,
+                        data_type,
+                        is_nullable,
+                        ordinal_position
+                    FROM information_schema.columns
+                    WHERE table_schema IN ({schema_placeholders})
                     UNION ALL
                     SELECT
+                        n.nspname AS table_schema,
                         c.relname AS table_name,
                         a.attname AS column_name,
                         pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
-                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable
+                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+                        a.attnum AS ordinal_position
                     FROM pg_class c
                     JOIN pg_namespace n ON c.relnamespace = n.oid
                     JOIN pg_attribute a ON a.attrelid = c.oid
-                    WHERE c.relkind = 'm'  -- materialized view
-                    AND n.nspname = %(schema)s
-                    AND a.attnum > 0
-                    AND NOT a.attisdropped
-                    {names_filter_pg}
+                    WHERE c.relkind = 'm'
+                      AND n.nspname IN ({schema_placeholders})
+                      AND a.attnum > 0
+                      AND NOT a.attisdropped
                 ) t
-                ORDER BY table_name ASC""",
-                params,
+                ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
+                """,
+                schema_params,
             )
             result = cursor.fetchall()
 
-        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
-        for row in result:
-            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
+            columns_by_table: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
+            discovered_pairs_by_schema_and_table = {
+                (schema_name, table_name): display_name
+                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
+            for table_schema, table_name, column_name, data_type, is_nullable, _ordinal_position in result:
+                display_name = discovered_pairs_by_schema_and_table.get((table_schema, table_name))
+                if display_name is None:
+                    continue
 
-    return schema_list
+                columns_by_table[display_name].append((column_name, data_type, is_nullable == "YES"))
+
+            return {
+                display_name: PostgresDiscoveredSchema(
+                    source_catalog=source_catalog,
+                    source_schema=schema_name,
+                    source_table_name=table_name,
+                    columns=columns_by_table.get(display_name, []),
+                )
+                for display_name, (source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
 
 
 def get_primary_keys_for_schemas(
@@ -352,7 +505,7 @@ def get_foreign_keys(
     database: str,
     user: str,
     password: str,
-    schema: str,
+    schema: str | None,
     port: int,
     require_ssl: bool = False,
     names: list[str] | None = None,
@@ -363,41 +516,65 @@ def get_foreign_keys(
         host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
     ) as connection:
         with connection.cursor() as cursor:
-            params: dict = {"schema": schema}
-            names_filter = ""
-            if names:
-                params["names"] = names
-                names_filter = "AND tc.table_name = ANY(%(names)s)"
+            discovered_tables, qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+            if not discovered_tables:
+                return {}
+
+            source_schemas = sorted(
+                {schema_name for _table_catalog, schema_name, _table_name in discovered_tables.values()}
+            )
+            schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
 
             cursor.execute(
                 f"""
                 SELECT
+                    tc.table_schema AS source_schema_name,
                     tc.table_name AS table_name,
                     kcu.column_name AS column_name,
+                    ccu.table_schema AS target_schema_name,
                     ccu.table_name AS target_table_name,
                     ccu.column_name AS target_column_name
                 FROM information_schema.table_constraints AS tc
                 JOIN information_schema.key_column_usage AS kcu
                     ON tc.constraint_name = kcu.constraint_name
+                    AND tc.constraint_schema = kcu.constraint_schema
                     AND tc.table_schema = kcu.table_schema
                 JOIN information_schema.constraint_column_usage AS ccu
                     ON ccu.constraint_name = tc.constraint_name
-                    AND ccu.table_schema = tc.table_schema
+                    AND ccu.constraint_schema = tc.constraint_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY'
-                  AND tc.table_schema = %(schema)s
-                  AND ccu.table_schema = %(schema)s
-                  {names_filter}
-                ORDER BY tc.table_name, kcu.ordinal_position
+                  AND tc.table_schema IN ({schema_placeholders})
+                ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position
                 """,
-                params,
+                schema_params,
             )
             result = cursor.fetchall()
 
-        foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
-        for table_name, column_name, target_table_name, target_column_name in result:
-            foreign_keys_by_table[table_name].append((column_name, target_table_name, target_column_name))
+            foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
+            discovered_pairs_by_schema_and_table = {
+                (schema_name, table_name): display_name
+                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
+            for (
+                source_schema_name,
+                table_name,
+                column_name,
+                target_schema_name,
+                target_table_name,
+                target_column_name,
+            ) in result:
+                display_name = discovered_pairs_by_schema_and_table.get((source_schema_name, table_name))
+                if display_name is None:
+                    continue
 
-    return foreign_keys_by_table
+                target_display_name = _get_display_table_name(
+                    target_schema_name,
+                    target_table_name,
+                    qualify_with_schema=qualify_with_schema or target_schema_name != source_schema_name,
+                )
+                foreign_keys_by_table[display_name].append((column_name, target_display_name, target_column_name))
+
+            return foreign_keys_by_table
 
 
 def get_connection_metadata(
