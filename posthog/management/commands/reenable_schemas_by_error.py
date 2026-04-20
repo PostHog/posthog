@@ -1,7 +1,6 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from django.core.management.base import BaseCommand
-from django.utils import timezone
 
 import structlog
 
@@ -66,24 +65,24 @@ class Command(BaseCommand):
         if disabled_after:
             dt = datetime.fromisoformat(disabled_after)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             schemas = schemas.filter(updated_at__gte=dt)
 
         if disabled_before:
             dt = datetime.fromisoformat(disabled_before)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             schemas = schemas.filter(updated_at__lte=dt)
 
-        schemas = list(schemas)
+        schema_list = list(schemas)
 
-        if not schemas:
+        if not schema_list:
             self.stdout.write(self.style.WARNING(f"No disabled schemas found matching error: {error_substring}"))
             return
 
-        self.stdout.write(f"Found {len(schemas)} disabled schema(s) matching '{error_substring}':\n")
+        self.stdout.write(f"Found {len(schema_list)} disabled schema(s) matching '{error_substring}':\n")
 
-        for schema in schemas:
+        for schema in schema_list:
             self.stdout.write(
                 f"  schema={schema.id} team={schema.team_id} source={schema.source_id} "
                 f"name={schema.name} source_type={schema.source.source_type}"
@@ -92,7 +91,7 @@ class Command(BaseCommand):
         if not live_run:
             self.stdout.write(
                 self.style.WARNING(
-                    f"\nDry run — {len(schemas)} schema(s) would be re-enabled. Pass --live-run to execute."
+                    f"\nDry run — {len(schema_list)} schema(s) would be re-enabled. Pass --live-run to execute."
                 )
             )
             return
@@ -100,7 +99,7 @@ class Command(BaseCommand):
         succeeded = 0
         failed = 0
 
-        for schema in schemas:
+        for schema in schema_list:
             try:
                 update_should_sync(schema_id=str(schema.id), team_id=schema.team_id, should_sync=True)
                 succeeded += 1
