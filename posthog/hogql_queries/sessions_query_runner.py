@@ -23,6 +23,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action, Person
 from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid
+from posthog.models.property import Property
 from posthog.utils import relative_date_parse
 
 COLUMN_COMMENT_SEPARATOR = " -- "
@@ -352,10 +353,11 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             if prop_type == "session":
                                 where_exprs.append(property_to_expr(prop, self.team, scope="session"))
                             elif prop_type == "person":
-                                from posthog.models.property import Property
-
-                                parsed = Property(**prop) if isinstance(prop, dict) else prop
-                                where_exprs.append(self._person_property_to_expr(parsed))
+                                try:
+                                    parsed = Property(**prop) if isinstance(prop, dict) else prop
+                                    where_exprs.append(self._person_property_to_expr(parsed))
+                                except (ValueError, TypeError):
+                                    continue
                             elif prop_type in ("cohort", "static-cohort", "precalculated-cohort"):
                                 # Cohort filters reference person_id which doesn't exist on sessions;
                                 # route through the events subquery instead.
@@ -365,7 +367,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                                 # route through the events subquery.
                                 test_account_event_filters.append(prop)
                             else:
-                                # Other types (hogql, etc.) — try applying directly
+                                # Unknown types (hogql, etc.) — route through events subquery as a best-effort fallback
                                 test_account_event_filters.append(prop)
 
                 # Filter sessions by events
@@ -438,9 +440,16 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                                     property_to_expr(prop, self.team) for prop in test_account_event_filters
                                 )
 
-                            # Add timestamp filter to events subquery based on session date range
-                            if self.query.after and self.query.after != "all":
-                                parsed_after = relative_date_parse(self.query.after, self.team.timezone_info)
+                            # Add timestamp filter to events subquery based on session date range.
+                            # Use the same effective lower bound as sessions (default -1h when
+                            # neither after nor before is set) to avoid scanning the full events
+                            # history when only filterTestAccounts triggers this subquery.
+                            effective_after = self.query.after
+                            if not effective_after and not self.query.before:
+                                effective_after = "-1h"
+                            effective_after = effective_after or "all"
+                            if effective_after != "all":
+                                parsed_after = relative_date_parse(effective_after, self.team.timezone_info)
                                 event_where_exprs.append(
                                     parse_expr(
                                         "timestamp > {timestamp}",

@@ -1336,7 +1336,6 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"properties": [{"key": "email", "value": "@test.com", "operator": "icontains", "type": "person"}]}
             ],
         )
-        cohort.calculate_people_ch(pending_version=0)
 
         self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"}]
         self.team.save()
@@ -1370,6 +1369,8 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
+        cohort.calculate_people_ch(pending_version=0)
+
         with freeze_time("2024-01-01T14:00:00Z"):
             query = SessionsQuery(
                 after="2024-01-01",
@@ -1381,6 +1382,8 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Should not raise — cohort filter routes through events subquery
             response = runner.run()
             assert isinstance(response, CachedSessionsQueryResponse)
+            # Cohort filter should actually exclude the test user
+            assert len(response.results) == 1
 
     def test_filter_test_accounts_with_session_property(self):
         self.team.test_account_filters = [
