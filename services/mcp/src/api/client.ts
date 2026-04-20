@@ -167,7 +167,9 @@ export class ApiClient {
         const result = await this.fetchJson<T>(url, fetchOptions)
 
         if (!result.success) {
-            throw new Error(result.error.message)
+            // Re-throw the original error instance so callers can instanceof-check
+            // typed errors (e.g. PostHogPermissionError) that fetchJson throws.
+            throw result.error
         }
         return result.data as T
     }

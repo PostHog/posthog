@@ -316,4 +316,26 @@ describe('ApiClient fetchJson on 403 permission_denied', () => {
 
         vi.unstubAllGlobals()
     })
+
+    it('preserves PostHogPermissionError when surfaced via ApiClient.request()', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(
+            new Response(permissionDeniedBody, {
+                status: 403,
+                statusText: 'Forbidden',
+                headers: { 'Content-Type': 'application/json' },
+            })
+        )
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'phx_test',
+            baseUrl: 'https://us.posthog.com',
+        })
+
+        await expect(client.request({ method: 'GET', path: '/api/users/@me/' })).rejects.toBeInstanceOf(
+            PostHogPermissionError
+        )
+
+        vi.unstubAllGlobals()
+    })
 })
