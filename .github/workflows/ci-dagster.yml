@@ -36,6 +36,22 @@ env:
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
+    # Verify the path filter below stays in sync with what dagster files
+    # actually import — prevents silent drift where a new import slips in
+    # without a matching filter entry.
+    validate-paths:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Validate dagster path filter coverage
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+            - run: uv run .github/scripts/check-dagster-paths.py
+
     # Job to decide if we should run dagster ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
@@ -78,6 +94,8 @@ jobs:
                         - 'posthog/git.py'
                         - 'posthog/person_db_router.py'
                         - 'posthog/redis.py'
+                        - 'posthog/event_usage.py'
+                        - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
                         - 'posthog/ducklake/**'
                         # Test infrastructure used by dagster tests
