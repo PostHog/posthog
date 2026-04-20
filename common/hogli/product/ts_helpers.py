@@ -5,25 +5,15 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-# Matches exported async function declarations in generated api.ts files.
-# e.g. "export const visualReviewReposList = async ("
 _EXPORTED_ASYNC_RE = re.compile(r"^export\s+const\s+(\w+)\s*=\s*async\s*\(", re.MULTILINE)
-
-# Matches "get" + PascalCase + "Url" helper functions that orval generates alongside
-# each endpoint function. We exclude these from the endpoint count.
-_URL_HELPER_RE = re.compile(r"^get\w+Url$")
 
 
 def get_generated_endpoint_names(generated_api_ts: Path) -> list[str]:
-    """Return names of generated endpoint functions in a product's generated/api.ts.
-
-    Filters out the getXxxUrl helper functions that orval generates — those aren't
-    endpoint calls, just URL builders.
-    """
+    """Return names of generated endpoint functions in a product's generated/api.ts."""
     if not generated_api_ts.exists():
         return []
     content = generated_api_ts.read_text()
-    return [name for name in _EXPORTED_ASYNC_RE.findall(content) if not _URL_HELPER_RE.match(name)]
+    return _EXPORTED_ASYNC_RE.findall(content)
 
 
 def get_generated_imports_in_frontend(frontend_dir: Path) -> set[str]:
@@ -83,7 +73,13 @@ def count_manual_api_calls(frontend_dir: Path) -> int:
         if _is_inside(ts_file, generated_dir):
             continue
         content = ts_file.read_text()
-        if "from 'lib/api'" not in content and 'from "lib/api"' not in content:
+        has_api_import = (
+            "from 'lib/api'" in content
+            or 'from "lib/api"' in content
+            or "from '~/lib/api'" in content
+            or 'from "~/lib/api"' in content
+        )
+        if not has_api_import:
             continue
         total += len(_HTTP_VERBS.findall(content))
 

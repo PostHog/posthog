@@ -55,5 +55,11 @@ def cmd_maturity(name: str | None, score_all: bool) -> None:
     if not name:
         raise click.UsageError("Provide a product name or use --all")
 
+    from .paths import PRODUCTS_DIR
+
+    product_dir = PRODUCTS_DIR / name
+    if not product_dir.exists():
+        raise click.ClickException(f"Product '{name}' not found at {product_dir}")
+
     ps = score_product(name)
     click.echo(generate_detail(ps))

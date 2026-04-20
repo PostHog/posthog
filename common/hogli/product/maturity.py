@@ -137,6 +137,11 @@ def _count_tach_depends_on(block: str) -> tuple[int, list[str]]:
     for line in block.split("\n"):
         stripped = line.strip()
         if stripped.startswith("depends_on"):
+            if "[" in stripped and "]" in stripped:
+                for dep in re.findall(r'"([^"]+)"', stripped):
+                    if dep not in baseline:
+                        deps.append(dep)
+                break
             in_depends = True
             continue
         if in_depends:
@@ -328,9 +333,8 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
         else:
             parts.append(f"{len(orm_bound)} ORM-bound serializers")
     else:
-        # No serializers file — neutral
         score += 25
-        parts.append("no serializers file")
+        parts.append("no serializers (ok)")
 
     return DimensionScore("presentation", score, ", ".join(parts))
 
@@ -340,28 +344,27 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
 # ---------------------------------------------------------------------------
 
 
-def _build_inbound_violation_map() -> dict[str, int]:
+def _build_inbound_violation_map() -> dict[str, int] | None:
     """Build a map of product_name -> inbound violation count for ALL products.
 
     Single rg pass across the repo, then distributes results. Much faster
-    than running rg per-product.
+    than running rg per-product. Returns None if the scan fails (rg missing
+    or timeout) so callers can distinguish "no violations" from "scan failed".
     """
     try:
         result = subprocess.run(
-            ["rg", "-n", "--type", "py", r"from products\.\w+\.backend\.", str(REPO_ROOT)],
+            ["rg", "-n", "--type", "py", r"(?:from|import)\s+products\.\w+\.backend\.", str(REPO_ROOT)],
             capture_output=True,
             text=True,
             timeout=30,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        return {}
+        return None
 
     counts: dict[str, int] = {}
     for line in result.stdout.strip().split("\n"):
         if not line:
             continue
-        # Format: /path/to/file.py:123:from products.foo.backend.models import Bar
-        # Extract the file path and the import
         colon_idx = line.find(":", 1)
         if colon_idx == -1:
             continue
@@ -371,25 +374,20 @@ def _build_inbound_violation_map() -> dict[str, int]:
         file_path = line[:colon_idx]
         import_text = line[colon2_idx + 1 :].strip()
 
-        # Extract which product is being imported
-        if not import_text.startswith("from products."):
+        # Extract which product is being imported (handles both from/import style)
+        match = re.search(r"products\.(\w+)\.backend\.", import_text)
+        if not match:
             continue
-        parts = import_text.split(".")
-        if len(parts) < 4:
-            continue
-        product_name = parts[1]
+        product_name = match.group(1)
 
         # Skip files inside the product itself
         if f"products/{product_name}/" in file_path:
             continue
-        # Skip migration files
         if "/migrations/" in file_path:
             continue
-        # Facade imports are allowed
-        if f".backend.facade" in import_text:
+        if ".backend.facade" in import_text:
             continue
-        # Presentation imports are allowed (URL routing)
-        if f".backend.presentation" in import_text:
+        if ".backend.presentation" in import_text:
             continue
 
         counts[product_name] = counts.get(product_name, 0) + 1
@@ -397,12 +395,14 @@ def _build_inbound_violation_map() -> dict[str, int]:
     return counts
 
 
-def _count_inbound_violations(name: str, inbound_map: dict[str, int] | None = None) -> int:
-    """Count inbound violations for a single product."""
+def _count_inbound_violations(name: str, inbound_map: dict[str, int] | None = None) -> int | None:
+    """Count inbound violations for a single product. None means scan failed."""
     if inbound_map is not None:
         return inbound_map.get(name, 0)
-    # Fallback: build the map for just this product (single-product mode)
-    return _build_inbound_violation_map().get(name, 0)
+    built = _build_inbound_violation_map()
+    if built is None:
+        return None
+    return built.get(name, 0)
 
 
 def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, int] | None = None) -> DimensionScore:
@@ -466,11 +466,12 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, int] |
 
     # Inbound: other code importing this product's non-facade internals
     inbound = _count_inbound_violations(name, inbound_map)
-    if inbound == 0:
+    if inbound is None:
+        parts.append("inbound scan failed")
+    elif inbound == 0:
         score += 60
         parts.append("inbound clean")
     else:
-        # Harsh: each violation costs 3 points, 20+ violations = 0
         score += max(0, 60 - inbound * 3)
         parts.append(f"{inbound} inbound violations")
 
@@ -516,12 +517,9 @@ def score_codegen(product_dir: Path) -> DimensionScore:
     else:
         parts.append("0 generated used")
 
-    # Migration completeness: what fraction of API calls are generated?
     total_calls = used + manual
     if total_calls > 0:
         score += round(60 * used / total_calls)
-    elif used > 0:
-        score += 60
 
     if manual > 0:
         parts.append(f"{manual} manual")
@@ -572,6 +570,11 @@ def score_all_products() -> list[ProductScore]:
     team_map = _load_team_map()
     assigned_counts = _load_model_assignments()
     inbound_map = _build_inbound_violation_map()
+    if inbound_map is None:
+        import warnings
+
+        warnings.warn("inbound violation scan failed (rg unavailable or timeout)", stacklevel=2)
+        inbound_map = {}
 
     scores = [
         score_product(name, team_map=team_map, assigned_counts=assigned_counts, inbound_map=inbound_map)
