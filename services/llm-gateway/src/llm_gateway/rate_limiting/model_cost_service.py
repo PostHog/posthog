@@ -40,7 +40,7 @@ class ModelCost(TypedDict, total=False):
     max_tokens: int
     """Legacy field: defaults to max_output_tokens if set, otherwise max_input_tokens."""
     litellm_provider: str
-    """Provider identifier (e.g., "anthropic", "openai")."""
+    """LiteLLM provider identifier (e.g., "anthropic", "openai", "bedrock", "openrouter", "fireworks_ai")."""
     supports_vision: bool
     """Whether the model supports image/vision input."""
     mode: str

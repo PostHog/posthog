@@ -1,6 +1,6 @@
 # LLM Gateway
 
-A standalone microservice for proxying LLM requests to Anthropic, OpenAI, OpenRouter, and Fireworks AI APIs.
+A standalone microservice for proxying LLM requests to Anthropic (direct or via AWS Bedrock), OpenAI, OpenRouter, and Fireworks AI APIs.
 
 ## Quick start
 
