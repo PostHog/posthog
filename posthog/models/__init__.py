@@ -88,7 +88,7 @@ from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
-from .user_social_auth_login_preference import UserSocialAuthLoginPreference
+from .user_social_identity import UserSocialIdentity
 from .repo_routing_rule import RepoRoutingRule
 from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
@@ -224,7 +224,7 @@ __all__ = [
     "UserManager",
     "UserGroup",
     "UserGroupMembership",
-    "UserSocialAuthLoginPreference",
+    "UserSocialIdentity",
     "DataWarehouseTable",
     "ScheduledChange",
     "WebAnalyticsFilterPreset",

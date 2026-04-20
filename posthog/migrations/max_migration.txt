@@ -1,1 +1,1 @@
-1103_user_social_auth_login_preference
+1103_usersocialidentity

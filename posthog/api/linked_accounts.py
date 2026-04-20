@@ -1,10 +1,19 @@
 """Personal Settings → Linked accounts: list/patch/disconnect, plus GitHub link flow.
 
-Storage stays on ``UserSocialAuth`` — identity lives alongside auth. This module
-adds a GitHub link path that deliberately bypasses the social-auth *login*
-pipeline, so SSO-enforced users can still map their PostHog account to a
-GitHub identity (for task attribution, reviewer suggestions, etc.) without
-requesting the right to sign in via GitHub.
+A PostHog user's external-provider state lives in two tables:
+
+* ``UserSocialIdentity`` — identity mapping (for task attribution, reviewer
+  suggestions, etc.). Multiple PostHog users may point at the same external uid.
+* ``UserSocialAuth`` (python-social-auth) — login credential. At most one
+  PostHog user may hold a ``UserSocialAuth`` row for a given provider+uid.
+
+A user with login enabled has **both** rows. Identity-only users have only
+``UserSocialIdentity``. For backward compatibility, a ``UserSocialAuth``
+without a matching ``UserSocialIdentity`` is treated as if both exist.
+
+GitHub linking uses a dedicated OAuth flow that bypasses social-auth's login
+pipeline, so SSO-enforced users can still map their identity without gaining
+sign-in rights.
 """
 
 from typing import Any, Literal, TypedDict
@@ -27,13 +36,12 @@ from social_django.models import UserSocialAuth
 from posthog.auth import SessionAuthentication, session_auth_required
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
-from posthog.models.user_social_auth_login_preference import (
+from posthog.models.user_social_identity import (
     GITHUB_PROVIDER,
-    UserSocialAuthLoginPreference,
+    UserSocialIdentity,
     available_providers_for_user,
     can_disconnect_provider,
     can_user_enable_login_for,
-    effective_login_enabled,
     sso_enforcement_for,
 )
 from posthog.rate_limit import UserAuthenticationThrottle
@@ -41,8 +49,7 @@ from posthog.rate_limit import UserAuthenticationThrottle
 GITHUB_LINK_STATE_CACHE_PREFIX = "github_link_state:"
 GITHUB_LINK_STATE_TTL_SECONDS = 10 * 60
 
-# Frontend route for the personal Settings → Linked accounts section. Kept here
-# (rather than as a literal in callbacks) so a future rename happens in one place.
+# Frontend route for the personal Settings → Linked accounts section.
 LINKED_ACCOUNTS_SETTINGS_PATH = "/settings/user-linked-accounts"
 
 PROVIDER_DISPLAY_NAMES = {
@@ -63,15 +70,9 @@ class ConnectInstructions(TypedDict):
 def _connect_instructions(provider: str) -> ConnectInstructions:
     """Where the frontend should send the user to start connecting this provider.
 
-    GitHub uses the identity-only link flow (two-step: POST to get authorize_url, then
-    redirect) so SSO-enforced users can still link GitHub for attribution without
-    completing a sign-in. Other OAuth providers use social-auth's standard login
-    pipeline, which associates the returning ``UserSocialAuth`` row with the
-    already-authenticated PostHog user.
-
-    SAML returns ``(None, None)`` because SAML linking can't be initiated from a button:
-    ``MultitenantSAMLAuth.auth_url`` requires an ``email`` query param and reads from
-    ``strategy.request_data()``. SAML rows materialize via an actual SAML sign-in.
+    GitHub uses the identity-only link flow so SSO-enforced users can still link
+    GitHub for attribution without completing a sign-in. Other OAuth providers use
+    social-auth's standard login pipeline. SAML can't be initiated from a button.
     """
     if provider == GITHUB_PROVIDER:
         return {
@@ -86,16 +87,17 @@ def _connect_instructions(provider: str) -> ConnectInstructions:
 def _serialize_linked_account(
     user: User,
     provider: str,
+    identity: UserSocialIdentity | None,
     sa: UserSocialAuth | None,
     *,
     enforcement: str | None,
 ) -> dict[str, Any]:
-    """Build the row payload. ``enforcement`` is resolved once per request by the
-    caller and threaded in to avoid an OrganizationDomain lookup per provider.
-    """
+    """Build the row payload for a single provider."""
     display_name = PROVIDER_DISPLAY_NAMES.get(provider, provider)
     enforcement_allows_login = enforcement is None or enforcement == provider
-    if sa is None:
+    connected = identity is not None or sa is not None
+
+    if not connected:
         return {
             "provider": provider,
             "display_name": display_name,
@@ -109,33 +111,28 @@ def _serialize_linked_account(
             **_connect_instructions(provider),
         }
 
-    login = None
-    if isinstance(sa.extra_data, dict):
-        login = sa.extra_data.get("login") or sa.extra_data.get("email") or sa.extra_data.get("username")
+    # Prefer identity's extra_data; fall back to social_auth (backward compat).
+    extra = identity.extra_data if identity else (sa.extra_data if sa else None)
+    account_id = None
+    if isinstance(extra, dict):
+        account_id = extra.get("login") or extra.get("email") or extra.get("username")
+
+    created = identity.created_at if identity else (sa.created if sa else None)
+    modified = identity.updated_at if identity else (sa.modified if sa else None)
+
     return {
         "provider": provider,
         "display_name": display_name,
         "connected": True,
-        "account_identifier": login,
-        "login_enabled": _effective_login_enabled_with_enforcement(sa, enforcement),
+        "account_identifier": account_id,
+        "login_enabled": sa is not None,
         "can_enable_login": enforcement_allows_login,
         "can_disconnect": enforcement != provider and can_disconnect_provider(user, provider),
-        "created_at": sa.created,
-        "modified_at": sa.modified,
+        "created_at": created,
+        "modified_at": modified,
         "connect_flow": None,
         "connect_path": None,
     }
-
-
-def _effective_login_enabled_with_enforcement(sa: UserSocialAuth, enforcement: str | None) -> bool:
-    """Like :func:`effective_login_enabled` but uses the pre-resolved ``enforcement``
-    value to skip an extra ``OrganizationDomain`` query per row."""
-    try:
-        return sa.login_preference.login_enabled
-    except UserSocialAuthLoginPreference.DoesNotExist:
-        if enforcement is not None:
-            return enforcement == sa.provider
-        return True
 
 
 class LinkedAccountUpdateSerializer(serializers.Serializer):
@@ -152,8 +149,6 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch", "delete"]
-    # Provider is a snake-case/hyphenated string (e.g. ``google-oauth2``) — override the
-    # default numeric pk lookup so the router builds `<provider>` path converters correctly.
     lookup_field = "provider"
     lookup_value_regex = r"[\w-]+"
 
@@ -163,61 +158,95 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
     def _serialize_all(self, user: User) -> list[dict[str, Any]]:
         enforcement = sso_enforcement_for(user)
         available = available_providers_for_user(user)
-        connected_by_provider = {sa.provider: sa for sa in user.social_auth.select_related("login_preference")}
-        # Also surface any historical rows for providers no longer available instance-wide,
-        # so users can still disconnect them. Hidden when SSO is enforced — only the enforced
-        # provider is shown.
+        identities = {i.provider: i for i in UserSocialIdentity.objects.filter(user=user)}
+        social_auths = {sa.provider: sa for sa in user.social_auth.all()}
+
+        # Surface stray historical rows for providers no longer available instance-wide.
+        all_connected = set(identities.keys()) | set(social_auths.keys())
         if enforcement is None:
-            for provider in connected_by_provider:
+            for provider in all_connected:
                 if provider not in available:
                     available.append(provider)
+
         return [
-            _serialize_linked_account(user, p, connected_by_provider.get(p), enforcement=enforcement) for p in available
+            _serialize_linked_account(user, p, identities.get(p), social_auths.get(p), enforcement=enforcement)
+            for p in available
         ]
+
+    def _enforcement_response_fields(self, user: User) -> dict[str, Any]:
+        enforcement = sso_enforcement_for(user)
+        return {
+            "sso_enforcement": enforcement,
+            "sso_enforcement_provider_name": (
+                PROVIDER_DISPLAY_NAMES.get(enforcement, enforcement) if enforcement else None
+            ),
+        }
 
     def list(self, request: Request) -> Response:
         user = self._get_user()
-        enforcement = sso_enforcement_for(user)
         return Response(
             {
                 "results": self._serialize_all(user),
-                # Surface enforcement to the frontend so it can explain why the list is
-                # narrowed to a single provider; falsy values render without the callout.
-                "sso_enforcement": enforcement,
-                "sso_enforcement_provider_name": (
-                    PROVIDER_DISPLAY_NAMES.get(enforcement, enforcement) if enforcement else None
-                ),
+                **self._enforcement_response_fields(user),
             }
         )
 
     def partial_update(self, request: Request, provider: str) -> Response:
         user = self._get_user()
-        sa = user.social_auth.filter(provider=provider).select_related("login_preference").first()
-        if sa is None:
-            raise exceptions.NotFound("No linked account for this provider.")
 
         serializer = LinkedAccountUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         desired = serializer.validated_data["login_enabled"]
 
-        if desired and not can_user_enable_login_for(user, provider):
-            # Org policy (SSO enforcement) forbids enabling login for this provider.
-            raise exceptions.PermissionDenied(
-                "Sign-in with this provider is blocked by your organization's SSO enforcement."
-            )
+        identity = UserSocialIdentity.objects.filter(user=user, provider=provider).first()
+        sa = user.social_auth.filter(provider=provider).first()
 
-        UserSocialAuthLoginPreference.objects.update_or_create(
-            social_auth=sa,
-            defaults={"login_enabled": desired},
-        )
-        sa = user.social_auth.filter(provider=provider).select_related("login_preference").get()
+        if identity is None and sa is None:
+            raise exceptions.NotFound("No linked account for this provider.")
+
+        if desired:
+            if sa is None:
+                # Enable login: create UserSocialAuth from identity.
+                if not can_user_enable_login_for(user, provider):
+                    raise exceptions.PermissionDenied(
+                        "Sign-in with this provider is blocked by your organization's SSO enforcement."
+                    )
+                uid = identity.uid if identity else None
+                if not uid:
+                    raise exceptions.ValidationError("Cannot determine account UID.")
+                # Only one user may have login for a given provider+uid.
+                if UserSocialAuth.objects.filter(provider=provider, uid=uid).exists():
+                    raise exceptions.PermissionDenied("Another account already uses this external account for sign-in.")
+                UserSocialAuth.objects.create(
+                    user=user,
+                    provider=provider,
+                    uid=uid,
+                    extra_data=identity.extra_data if identity else {},
+                )
+        else:
+            if sa is not None:
+                # Disable login: ensure identity row exists (backfill), then delete social_auth.
+                if identity is None:
+                    UserSocialIdentity.objects.create(
+                        user=user,
+                        provider=provider,
+                        uid=sa.uid,
+                        extra_data=sa.extra_data or {},
+                    )
+                sa.delete()
+
+        # Re-fetch for response.
+        identity = UserSocialIdentity.objects.filter(user=user, provider=provider).first()
+        sa = user.social_auth.filter(provider=provider).first()
         enforcement = sso_enforcement_for(user)
-        return Response(_serialize_linked_account(user, provider, sa, enforcement=enforcement))
+        return Response(_serialize_linked_account(user, provider, identity, sa, enforcement=enforcement))
 
     def destroy(self, request: Request, provider: str) -> Response:
         user = self._get_user()
+        identity = UserSocialIdentity.objects.filter(user=user, provider=provider).first()
         sa = user.social_auth.filter(provider=provider).first()
-        if sa is None:
+
+        if identity is None and sa is None:
             raise exceptions.NotFound("No linked account for this provider.")
 
         if not can_disconnect_provider(user, provider):
@@ -225,27 +254,23 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
                 "This account is required by your organization's SSO enforcement and can't be disconnected."
             )
 
-        # Guardrail: don't let users strand themselves if this is their only
-        # way to sign in. They should set a password or another provider first.
-        if not user.has_usable_password():
-            other_login_enabled = any(
-                effective_login_enabled(other)
-                for other in user.social_auth.exclude(pk=sa.pk).select_related("login_preference")
-            )
-            if not other_login_enabled:
+        # Guardrail: don't strand users who rely on this social login.
+        if sa is not None and not user.has_usable_password():
+            has_other_login = user.social_auth.exclude(provider=provider).exists()
+            if not has_other_login:
                 raise exceptions.ValidationError(
                     "Set a password or link another sign-in method before disconnecting this account."
                 )
-        sa.delete()
-        # Return the refreshed list (same shape as list()) so the client doesn't need a follow-up GET.
-        enforcement = sso_enforcement_for(user)
+
+        if sa is not None:
+            sa.delete()
+        if identity is not None:
+            identity.delete()
+
         return Response(
             {
                 "results": self._serialize_all(user),
-                "sso_enforcement": enforcement,
-                "sso_enforcement_provider_name": (
-                    PROVIDER_DISPLAY_NAMES.get(enforcement, enforcement) if enforcement else None
-                ),
+                **self._enforcement_response_fields(user),
             }
         )
 
@@ -256,12 +281,7 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
         throttle_classes=[UserAuthenticationThrottle],
     )
     def github_start(self, request: Request) -> Response:
-        """Initiates a link-only GitHub OAuth flow. Returns ``{authorize_url}``.
-
-        Uses the same GitHub App OAuth credentials as the App install, but the
-        callback is on PostHog's link route rather than social-auth's login
-        pipeline — SSO enforcement does not intercept.
-        """
+        """Initiates a link-only GitHub OAuth flow. Returns ``{authorize_url}``."""
         client_id = settings.GITHUB_APP_OAUTH_CLIENT_ID
         if not client_id:
             raise exceptions.ValidationError("GitHub linking is not configured on this instance.")
@@ -277,7 +297,6 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
                 "client_id": client_id,
                 "state": state,
                 "redirect_uri": request.build_absolute_uri("/complete/github-link/"),
-                # no scope — we only need identity; default scope gives public profile
             }
         )
         return Response({"authorize_url": f"https://github.com/login/oauth/authorize?{params}"})
@@ -288,9 +307,10 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
 def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     """GitHub OAuth callback for the link-only flow.
 
-    Runs outside DRF/social-auth. Validates state, exchanges the code for
-    ``(id, login)``, writes the ``UserSocialAuth`` row on the already-authenticated
-    PostHog user, then redirects to the personal Settings page.
+    Creates a ``UserSocialIdentity`` row (identity-only, no login). Multiple
+    PostHog users may link to the same GitHub uid this way. If the user already
+    had a ``UserSocialAuth`` for a *different* GitHub uid, that stale login row
+    is removed.
     """
     error_redirect = redirect(f"{LINKED_ACCOUNTS_SETTINGS_PATH}?github_link_error=1")
 
@@ -310,20 +330,14 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
         return error_redirect
     gh_id, gh_login = result
 
-    existing_owner = (
-        UserSocialAuth.objects.filter(provider=GITHUB_PROVIDER, uid=str(gh_id)).exclude(user_id=request.user.id).first()
-    )
-    if existing_owner is not None:
-        return redirect(f"{LINKED_ACCOUNTS_SETTINGS_PATH}?github_link_error=already_linked")
+    # Invalidate any stale login row pointing at a different GitHub account.
+    old_sa = UserSocialAuth.objects.filter(user=request.user, provider=GITHUB_PROVIDER).first()
+    if old_sa and old_sa.uid != str(gh_id):
+        old_sa.delete()
 
-    sa, created = UserSocialAuth.objects.update_or_create(
+    UserSocialIdentity.objects.update_or_create(
         user=request.user,
         provider=GITHUB_PROVIDER,
         defaults={"uid": str(gh_id), "extra_data": {"login": gh_login, "id": gh_id}},
     )
-    if created:
-        # Brand-new GitHub link: opt out of sign-in by default (identity-only product policy).
-        # If the row already existed (e.g. from a historical GH login), don't disturb the user's
-        # current sign-in behavior — they can opt out manually via the Settings toggle.
-        UserSocialAuthLoginPreference.objects.create(social_auth=sa, login_enabled=False)
     return redirect(f"{LINKED_ACCOUNTS_SETTINGS_PATH}?github_link_success=1")

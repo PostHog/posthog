@@ -355,17 +355,21 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     def get_github_login(self) -> str | None:
         """Resolve this user's GitHub login.
 
-        Prefers a ``UserSocialAuth`` row (auth records — populated by the OAuth App used
-        for GitHub sign-in and by the identity-only link flow) over a GitHub App
-        integration's ``connecting_user_github_login``. The two live in separate GitHub
-        Apps (auth ≠ integration App), so the auth record is the authoritative identity
-        signal; the integration's ``connecting_user_github_login`` is just an implicit
-        fallback in case the user never linked via auth.
-
-        When called from a context with prefetched data (``_prefetched_github_integrations``
-        or ``social_auth``), the prefetch cache is used. Otherwise, queries are issued.
+        Precedence:
+        1. ``UserSocialIdentity`` — the explicit identity-mapping record.
+        2. ``UserSocialAuth`` — backward compat for pre-feature rows that haven't
+           been backfilled with an identity yet.
+        3. GitHub App integration ``connecting_user_github_login`` — implicit
+           identity captured at App install time, before the identity model existed.
         """
         from posthog.models.integration import Integration
+        from posthog.models.user_social_identity import UserSocialIdentity
+
+        identity = UserSocialIdentity.objects.filter(user=self, provider="github").first()
+        if identity and isinstance(identity.extra_data, dict):
+            login = identity.extra_data.get("login")
+            if login:
+                return str(login)
 
         for sa in self.social_auth.all():
             if sa.provider != "github":
