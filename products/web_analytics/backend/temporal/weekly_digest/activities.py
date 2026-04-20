@@ -99,7 +99,7 @@ def _send_digest_for_user(
 
     campaign_key = f"web_analytics_weekly_digest_{org.id}_{user.uuid}_{date_suffix}"
     if test:
-        campaign_key = f"{campaign_key}_test_{timezone.now().isoformat()}"
+        campaign_key = f"{campaign_key}_test_{int(timezone.now().timestamp())}"
 
     if dry_run:
         return True
