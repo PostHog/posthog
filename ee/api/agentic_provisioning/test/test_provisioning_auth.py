@@ -745,6 +745,38 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         assert not OAuthApplication.objects.filter(cimd_metadata_url=CIMD_PROV_URL).exists()
 
     @patch("posthog.api.oauth.cimd.requests.get")
+    def test_partner_rate_limit_enforced_after_threshold(self, mock_get, _url_mock):
+        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata())
+
+        _, challenge = _pkce_pair()
+
+        def post_account_request(email: str):
+            return self.client.post(
+                "/api/agentic/provisioning/account_requests",
+                data={
+                    "id": f"req_{email}",
+                    "email": email,
+                    "client_id": CIMD_PROV_URL,
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                },
+                content_type="application/json",
+                HTTP_API_VERSION="0.1d",
+            )
+
+        # First request auto-registers the CIMD partner with a low default limit (10/hr).
+        assert post_account_request("ratelimit-1@example.com").status_code == 200
+
+        partner = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        partner.provisioning_rate_limit_account_requests = 2
+        partner.save(update_fields=["provisioning_rate_limit_account_requests"])
+
+        assert post_account_request("ratelimit-2@example.com").status_code == 200
+        res = post_account_request("ratelimit-3@example.com")
+        assert res.status_code == 429
+        assert res.json()["error"]["code"] == "rate_limited"
+
+    @patch("posthog.api.oauth.cimd.requests.get")
     def test_self_serve_org_named_after_client_name(self, mock_get, _url_mock):
         from posthog.models.user import User
 

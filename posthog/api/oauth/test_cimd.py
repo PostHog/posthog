@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
 
 from posthog.api.oauth.cimd import (
+    CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
     CIMDBurstThrottle,
     CIMDFetchError,
     CIMDValidationError,
@@ -458,6 +459,32 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
         self.assertTrue(app.provisioning_active)
         self.assertTrue(app.provisioning_can_create_accounts)
         self.assertTrue(app.provisioning_can_provision_resources)
+        self.assertEqual(
+            app.provisioning_rate_limit_account_requests,
+            CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+        )
+
+    @patch("posthog.api.oauth.cimd.posthoganalytics.capture")
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_emits_registration_event_on_provisioning_upgrade(self, mock_get, mock_capture, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+
+        get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+
+        events = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+        self.assertIn("cimd_provisioning_partner_registered", events)
+
+    @patch("posthog.api.oauth.cimd.posthoganalytics.capture")
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_no_event_when_provisioning_already_configured(self, mock_get, mock_capture, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        mock_capture.reset_mock()
+
+        get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+
+        events = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+        self.assertNotIn("cimd_provisioning_partner_registered", events)
 
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_backfills_provisioning_defaults_on_existing_cimd_app(self, mock_get, _url_mock):

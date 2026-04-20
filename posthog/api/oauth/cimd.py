@@ -442,11 +442,16 @@ def get_application_by_client_id(client_id: str) -> OAuthApplication:
 # Defaults applied when a CIMD app is first used for provisioning. A self-serve
 # partner can hit /account_requests immediately without manual admin setup; the
 # app is opted into provisioning at the same trust level as other PKCE partners.
+# The account-request rate limit is set to a conservative floor so a single
+# self-serve partner cannot burn through bulk user-onboarding calls — admin can
+# raise it per-partner once a partner demonstrates legitimate volume.
+CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT = 10  # per hour
 CIMD_PROVISIONING_DEFAULTS = {
     "provisioning_auth_method": "pkce",
     "provisioning_active": True,
     "provisioning_can_create_accounts": True,
     "provisioning_can_provision_resources": True,
+    "provisioning_rate_limit_account_requests": CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
 }
 
 
@@ -465,4 +470,14 @@ def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication:
         for field, value in CIMD_PROVISIONING_DEFAULTS.items():
             setattr(app, field, value)
         app.save(update_fields=list(CIMD_PROVISIONING_DEFAULTS.keys()))
+        posthoganalytics.capture(
+            distinct_id=url,
+            event="cimd_provisioning_partner_registered",
+            properties={
+                "cimd_url": url,
+                "client_name": app.name,
+                "app_id": str(app.pk),
+                "account_requests_rate_limit": CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+            },
+        )
     return app
