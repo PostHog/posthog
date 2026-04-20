@@ -6,12 +6,12 @@ use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use personhog_proto::personhog::types::v1::Person;
 use prost::Message;
-use rdkafka::consumer::StreamConsumer;
 use rdkafka::message::Message as KafkaMessage;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::buffer::PersonBuffer;
+use crate::kafka::PersonConsumer;
 
 /// Batch of persons and their Kafka offsets, sent from consumer to writer.
 pub struct FlushBatch {
@@ -25,7 +25,7 @@ pub struct FlushBatch {
 /// Reads from Kafka, decodes Person protos, buffers with dedup, and
 /// sends batches to the writer task for PG upsert + offset commit.
 pub struct ConsumerTask {
-    consumer: Arc<StreamConsumer>,
+    consumer: Arc<PersonConsumer>,
     buffer: PersonBuffer,
     flush_tx: mpsc::Sender<FlushBatch>,
     flush_interval: Duration,
@@ -37,7 +37,7 @@ pub struct ConsumerTask {
 
 impl ConsumerTask {
     pub fn new(
-        consumer: Arc<StreamConsumer>,
+        consumer: Arc<PersonConsumer>,
         buffer: PersonBuffer,
         flush_tx: mpsc::Sender<FlushBatch>,
         flush_interval: Duration,
@@ -120,6 +120,8 @@ impl ConsumerTask {
                                         counter!("personhog_writer_messages_consumed_total")
                                             .increment(1);
                                         self.buffer.insert(person, partition, offset);
+                                        gauge!("personhog_writer_buffer_size")
+                                            .set(self.buffer.len() as f64);
 
                                         if self.buffer.len() >= self.flush_buffer_size {
                                             counter!(
@@ -157,6 +159,7 @@ impl ConsumerTask {
     /// provides backpressure -- if the writer is busy, this blocks.
     async fn send_flush(&mut self) {
         let (persons, offsets) = self.buffer.drain();
+        gauge!("personhog_writer_buffer_size").set(self.buffer.len() as f64);
         if persons.is_empty() {
             return;
         }

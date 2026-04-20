@@ -10,7 +10,7 @@ use sqlx::postgres::PgPool;
 pub const PERSONS_DB_URL: &str = "postgres://posthog:posthog@localhost:5432/posthog_persons";
 pub const KAFKA_BOOTSTRAP: &str = "localhost:9092";
 pub const TOPIC: &str = "personhog_updates";
-pub const TARGET_TABLE: &str = "personhog_person";
+pub const TARGET_TABLE: &str = "personhog_person_tmp";
 
 /// Create a mock Kafka cluster with the personhog_updates topic.
 pub async fn create_mock_kafka() -> (
@@ -70,9 +70,9 @@ pub fn make_person(team_id: i64, person_id: i64, version: i64) -> Person {
     }
 }
 
-/// Clean up test data from the personhog_person table for a given team.
+/// Clean up test data from the personhog_person_tmp table for a given team.
 pub async fn cleanup_team(pool: &PgPool, team_id: i32) {
-    sqlx::query("DELETE FROM personhog_person WHERE team_id = $1")
+    sqlx::query("DELETE FROM personhog_person_tmp WHERE team_id = $1")
         .bind(team_id)
         .execute(pool)
         .await

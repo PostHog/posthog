@@ -6721,6 +6721,7 @@ dependencies = [
 name = "personhog-writer"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum 0.7.9",
  "chrono",
  "common-alloc",

@@ -12,6 +12,7 @@ common-alloc = { path = "../common/alloc" }
 common-metrics = { path = "../common/metrics" }
 lifecycle = { path = "../common/lifecycle" }
 
+async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }

@@ -6,7 +6,6 @@ use common_database::{get_pool_with_config, PoolConfig};
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
-use rdkafka::ClientConfig;
 use tokio::sync::mpsc;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -14,11 +13,13 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
+use common_kafka::kafka_producer::create_kafka_producer;
 use personhog_writer::buffer::PersonBuffer;
 use personhog_writer::config::Config;
 use personhog_writer::consumer::ConsumerTask;
-use personhog_writer::kafka::build_consumer;
-use personhog_writer::pg::PgWriter;
+use personhog_writer::kafka::{PersonConsumer, WarningsProducer};
+use personhog_writer::pg::PgStore;
+use personhog_writer::store::PersonWriteStore;
 use personhog_writer::writer::WriterTask;
 
 common_alloc::used!();
@@ -114,54 +115,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (flush_tx, flush_rx) = mpsc::channel(config.flush_channel_capacity);
 
     // Kafka consumer
-    let mut client_config = ClientConfig::new();
-    client_config
-        .set("bootstrap.servers", &config.kafka.kafka_hosts)
-        .set("group.id", &config.kafka_consumer_group)
-        .set("auto.offset.reset", &config.kafka_consumer_offset_reset)
-        .set("enable.auto.commit", "false")
-        .set("enable.auto.offset.store", "false")
-        // Cooperative-sticky: during scale events, only partitions that need
-        // to move are revoked. Non-moving partitions keep being consumed.
-        .set("partition.assignment.strategy", "cooperative-sticky");
-
-    // Static group membership: the broker holds partition assignments for
-    // session.timeout.ms after a pod disappears, so quick restarts
-    // (deploys, OOM kills) don't trigger a rebalance at all.
-    // Requires stable pod names (StatefulSet) so the same ID reconnects.
-    if !config.kafka.kafka_client_id.is_empty() {
-        client_config
-            .set("client.id", &config.kafka.kafka_client_id)
-            .set("group.instance.id", &config.kafka.kafka_client_id);
-    }
-
-    if config.kafka.kafka_tls {
-        client_config
-            .set("security.protocol", "ssl")
-            .set("enable.ssl.certificate.verification", "false");
-    }
-
-    if !config.kafka.kafka_client_rack.is_empty() {
-        client_config.set("client.rack", &config.kafka.kafka_client_rack);
-    }
-
-    let kafka_consumer = Arc::new(match build_consumer(&client_config, &config.kafka_topic) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to create Kafka consumer");
-            return Err(e.into());
-        }
-    });
+    let kafka_consumer = Arc::new(PersonConsumer::from_config(
+        &config.kafka,
+        &config.kafka_consumer_group,
+        &config.kafka_consumer_offset_reset,
+        config.kafka_topic.clone(),
+    )?);
     tracing::info!("Subscribed to Kafka topic: {}", config.kafka_topic);
 
+    // Ingestion warnings producer
+    let warnings_producer = create_kafka_producer(&config.kafka, writer_handle.clone())
+        .await
+        .map(|producer| {
+            WarningsProducer::new(producer, config.kafka_ingestion_warnings_topic.clone())
+        })
+        .ok();
+
+    if warnings_producer.is_some() {
+        tracing::info!(
+            "Ingestion warnings enabled (topic: {})",
+            config.kafka_ingestion_warnings_topic
+        );
+    } else {
+        tracing::warn!("Ingestion warnings disabled (Kafka producer creation failed)");
+    }
+
     // Writer task
-    let pg_writer = PgWriter::new(pool, config.upsert_batch_size, config.pg_target_table.clone());
+    let pg_store = PgStore::new(
+        pool,
+        config.upsert_batch_size,
+        config.pg_target_table.clone(),
+    );
+    let store = PersonWriteStore::new(pg_store);
     let writer_task = WriterTask::new(
         Arc::clone(&kafka_consumer),
-        pg_writer,
+        store,
         flush_rx,
         writer_handle,
-        config.kafka_topic.clone(),
+        warnings_producer,
     );
 
     tokio::spawn(async move {

@@ -25,8 +25,8 @@ pub struct Config {
     pub pg_max_connections: u32,
 
     /// Target table for person upserts. Set to "posthog_person" for
-    /// production cutover, "personhog_person" for validation.
-    #[envconfig(default = "personhog_person")]
+    /// production cutover, "personhog_person_tmp" for validation.
+    #[envconfig(default = "personhog_person_tmp")]
     pub pg_target_table: String,
 
     // ── Flush tuning ─────────────────────────────────────────────
@@ -49,8 +49,12 @@ pub struct Config {
 
     /// Channel capacity between consumer and writer tasks.
     /// Higher values allow more buffered batches but use more memory.
-    #[envconfig(default = "2")]
+    #[envconfig(default = "8")]
     pub flush_channel_capacity: usize,
+
+    // ── Ingestion warnings ────────────────────────────────────────
+    #[envconfig(default = "client_iwarnings_ingestion")]
+    pub kafka_ingestion_warnings_topic: String,
 
     // ── Service ──────────────────────────────────────────────────
     #[envconfig(default = "9103")]
