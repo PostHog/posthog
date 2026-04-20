@@ -221,6 +221,37 @@ class TestEvaluateSingleAlert(APIBaseTest):
         # The errored row survives the cap — events are retention-managed, not count-managed.
         assert LogsAlertEvent.objects.filter(pk=errored.pk).exists()
 
+    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_inline_prune_leaves_non_check_kinds_alone(self, _name, non_check_kind, _mock_produce, mock_query_cls):
+        # Control-plane rows are excluded from the prune candidate set by `kind=CHECK`.
+        # Without that filter, a hypothetical non-CHECK row with state_before=state_after
+        # would match the legacy "non-event" filter and get trimmed along with OK rows.
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=5, query_duration_ms=100)
+        alert = self._make_alert()
+
+        for _ in range(MAX_EVALUATION_PERIODS + 5):
+            LogsAlertEvent.objects.create(
+                alert=alert,
+                kind=LogsAlertEvent.Kind.CHECK,
+                threshold_breached=False,
+                state_before="not_firing",
+                state_after="not_firing",
+            )
+        control = LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=non_check_kind,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+
+        assert LogsAlertEvent.objects.filter(pk=control.pk).exists()
+
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.produce_internal_event")

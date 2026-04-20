@@ -32,6 +32,7 @@ procs:
         groups:
             layer: pinned
             tech: pinned
+            capability: pinned
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
@@ -482,6 +483,9 @@ procs:
 group_order:
     layer: [Application, Processing, Ingestion pipeline, Infrastructure, Product services, Tools]
     tech: [Python, Frontend, Node, Rust, Docker, Migrations, Other]
+    # `capability` is inferred: each proc's `capability:` is copied into
+    # Groups["capability"] at load time. Display order falls back to the order
+    # capabilities first appear across procs.
 
 mouse_scroll_speed: 1
 scrollback: 10000
