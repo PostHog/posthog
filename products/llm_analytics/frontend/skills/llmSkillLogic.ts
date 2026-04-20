@@ -225,7 +225,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             : undefined
 
                     if (isNew) {
-                        savedSkill = await llmSkillsCreate(String(ApiConfig.getCurrentTeamId()), {
+                        const createResponse = await llmSkillsCreate(String(ApiConfig.getCurrentTeamId()), {
                             name: formValues.name,
                             description: formValues.description,
                             body: formValues.body,
@@ -233,6 +233,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             compatibility: formValues.compatibility || undefined,
                             files: filesToSend,
                         })
+                        savedSkill = { ...createResponse, files: [] }
                         llmSkillsLogic.findMounted()?.actions.loadSkills(false)
                         lemonToast.success('Skill created successfully')
                         router.actions.replace(urls.llmAnalyticsSkill(savedSkill.name))

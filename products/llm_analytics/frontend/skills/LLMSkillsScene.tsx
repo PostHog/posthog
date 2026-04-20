@@ -70,7 +70,7 @@ export function LLMSkillsScene(): JSX.Element {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                        {created_by && <ProfilePicture user={created_by as any} size="md" showName />}
                     </div>
                 )
             },
