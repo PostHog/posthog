@@ -21,9 +21,11 @@ export function WeeklyDigestRecommendationCard({
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { updateUser } = useAsyncActions(userLogic)
-    const { refreshRecommendation } = useActions(recommendationsTabLogic)
+    const { enableInProgressId } = useValues(recommendationsTabLogic)
+    const { refreshRecommendation, setEnableInProgress } = useActions(recommendationsTabLogic)
 
     const enabled = recommendation.meta.enabled
+    const isLoading = enableInProgressId === recommendation.id
 
     const handleEnable = async (): Promise<void> => {
         if (!user?.notification_settings || !currentTeamId) {
@@ -38,17 +40,22 @@ export function WeeklyDigestRecommendationCard({
         // and `error_tracking_weekly_digest` can get reset to `false`.
         // We deliberately don't touch `all_weekly_digest_disabled` — that's a global preference
         // the user set elsewhere and isn't ours to override.
-        await updateUser({
-            notification_settings: {
-                ...user.notification_settings,
-                error_tracking_weekly_digest: true,
-                error_tracking_weekly_digest_project_enabled: {
-                    ...user.notification_settings.error_tracking_weekly_digest_project_enabled,
-                    [currentTeamId]: true,
+        setEnableInProgress(recommendation.id)
+        try {
+            await updateUser({
+                notification_settings: {
+                    ...user.notification_settings,
+                    error_tracking_weekly_digest: true,
+                    error_tracking_weekly_digest_project_enabled: {
+                        ...user.notification_settings.error_tracking_weekly_digest_project_enabled,
+                        [currentTeamId]: true,
+                    },
                 },
-            },
-        })
-        refreshRecommendation(recommendation.id)
+            })
+            refreshRecommendation(recommendation.id)
+        } finally {
+            setEnableInProgress(null)
+        }
     }
 
     return (
@@ -67,7 +74,7 @@ export function WeeklyDigestRecommendationCard({
             progress={enabled ? { current: 1, total: 1, label: 'subscribed' } : undefined}
         >
             {!enabled && (
-                <LemonButton size="small" type="secondary" onClick={handleEnable}>
+                <LemonButton size="small" type="secondary" onClick={handleEnable} loading={isLoading}>
                     Subscribe me
                 </LemonButton>
             )}

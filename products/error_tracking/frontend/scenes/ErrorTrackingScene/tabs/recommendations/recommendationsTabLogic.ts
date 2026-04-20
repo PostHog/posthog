@@ -48,6 +48,9 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         toggleDismissedExpanded: true,
         toggleCompletedExpanded: true,
         setOpenAlertTriggerKey: (triggerKey: HogFunctionSubTemplateIdType | null) => ({ triggerKey }),
+        // Tracks which recommendation's primary action is currently in-flight, so the card
+        // can show a loading state on its button until the underlying mutation + refresh land.
+        setEnableInProgress: (id: string | null) => ({ id }),
     }),
 
     reducers({
@@ -67,6 +70,12 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             null as HogFunctionSubTemplateIdType | null,
             {
                 setOpenAlertTriggerKey: (_, { triggerKey }) => triggerKey,
+            },
+        ],
+        enableInProgressId: [
+            null as string | null,
+            {
+                setEnableInProgress: (_, { id }) => id,
             },
         ],
     }),

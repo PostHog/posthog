@@ -24,9 +24,11 @@ export function ExceptionAutocaptureRecommendationCard({
     const { addProductIntent } = useActions(teamLogic)
     const { updateCurrentTeam } = useAsyncActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
-    const { refreshRecommendation } = useActions(recommendationsTabLogic)
+    const { enableInProgressId } = useValues(recommendationsTabLogic)
+    const { refreshRecommendation, setEnableInProgress } = useActions(recommendationsTabLogic)
 
     const enabled = recommendation.meta.enabled
+    const isLoading = enableInProgressId === recommendation.id
 
     const handleEnable = async (): Promise<void> => {
         if (!currentTeam) {
@@ -37,9 +39,14 @@ export function ExceptionAutocaptureRecommendationCard({
             product_type: ProductKey.ERROR_TRACKING,
             intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
         })
-        await updateCurrentTeam({ autocapture_exceptions_opt_in: true })
-        reportAutocaptureExceptionsToggled(true)
-        refreshRecommendation(recommendation.id)
+        setEnableInProgress(recommendation.id)
+        try {
+            await updateCurrentTeam({ autocapture_exceptions_opt_in: true })
+            reportAutocaptureExceptionsToggled(true)
+            refreshRecommendation(recommendation.id)
+        } finally {
+            setEnableInProgress(null)
+        }
     }
 
     return (
@@ -61,7 +68,7 @@ export function ExceptionAutocaptureRecommendationCard({
             progress={enabled ? { current: 1, total: 1, label: 'enabled' } : undefined}
         >
             {!enabled && (
-                <LemonButton size="small" type="secondary" onClick={handleEnable}>
+                <LemonButton size="small" type="secondary" onClick={handleEnable} loading={isLoading}>
                     Turn on autocapture
                 </LemonButton>
             )}
