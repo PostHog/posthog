@@ -2158,7 +2158,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         run.emit_console_event("info", "hello")
         self._mark_stream_complete(run)
 
-        response = self.client.get(self._stream_url(task, run), HTTP_ACCEPT="text/event-stream")
+        response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         events = self._collect_sse_events(response)
@@ -2177,7 +2177,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
 
         response = self.client.get(
             self._stream_url(task, run),
-            HTTP_LAST_EVENT_ID=stream_ids[1],
+            headers={"last-event-id": stream_ids[1]}
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2288,7 +2288,7 @@ class TestTaskRunStreamKeepaliveAPI(BaseTaskAPITest):
         ):
             response = cast(
                 StreamingHttpResponse,
-                self.client.get(self._stream_url(task, run), HTTP_ACCEPT="text/event-stream"),
+                self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"}),
             )
             content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
 

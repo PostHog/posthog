@@ -79,7 +79,7 @@ class SignalTeamConfig(UUIDModel):
         related_name="signal_team_config",
     )
     default_autostart_priority = models.CharField(
-        max_length=2, choices=AutonomyPriority.choices, default=AutonomyPriority.P0
+        max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -94,7 +94,7 @@ register_team_extension_signal(SignalTeamConfig, logger=logger)
 
 class SignalUserAutonomyConfig(UUIDModel):
     user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
-    autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority.choices, null=True, blank=True)
+    autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -60,8 +60,7 @@ class TestCustomerIOWebhook(APIBaseTest):
             self.url,
             data=body_str,
             content_type="application/json",
-            HTTP_X_CIO_SIGNATURE=signature,
-            HTTP_X_CIO_TIMESTAMP=timestamp,
+            headers={"x-cio-signature": signature, "x-cio-timestamp": timestamp}
         )
 
     # ── HMAC verification ──
@@ -92,7 +91,7 @@ class TestCustomerIOWebhook(APIBaseTest):
             self.url,
             data=json.dumps(body),
             content_type="application/json",
-            HTTP_X_CIO_TIMESTAMP=str(int(time.time())),
+            headers={"x-cio-timestamp": str(int(time.time()))}
         )
         self.assertEqual(response.status_code, 401)
 
@@ -104,7 +103,7 @@ class TestCustomerIOWebhook(APIBaseTest):
             self.url,
             data=body_str,
             content_type="application/json",
-            HTTP_X_CIO_SIGNATURE=sig,
+            headers={"x-cio-signature": sig}
         )
         self.assertEqual(response.status_code, 401)
 
@@ -153,8 +152,7 @@ class TestCustomerIOWebhook(APIBaseTest):
             f"/api/environments/{other_team.id}/messaging/customerio/webhook/",
             data=body_str,
             content_type="application/json",
-            HTTP_X_CIO_SIGNATURE=sig,
-            HTTP_X_CIO_TIMESTAMP=ts,
+            headers={"x-cio-signature": sig, "x-cio-timestamp": ts}
         )
         self.assertEqual(response.status_code, 401)
         self.assertFalse(

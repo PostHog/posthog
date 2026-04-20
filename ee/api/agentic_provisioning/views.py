@@ -310,7 +310,7 @@ def account_requests(request: Request) -> Response:
         partner_account_id = orchestrator.get("account", "")
 
     # If no partner identified, require Stripe Projects HMAC auth
-    if not partner and not request.META.get("HTTP_STRIPE_SIGNATURE"):
+    if not partner and not request.headers.get("stripe-signature"):
         return Response(
             {"type": "error", "error": {"code": "unauthorized", "message": "Authentication required"}},
             status=401,
@@ -737,7 +737,7 @@ def _exchange_authorization_code(request: Request) -> Response:
     # Auth check: PKCE codes require code_verifier, non-PKCE codes require HMAC.
     # All verification happens BEFORE cache.delete so a failed attempt doesn't consume the code.
     stored_challenge = code_data.get("code_challenge", "")
-    has_hmac = bool(request.META.get("HTTP_STRIPE_SIGNATURE"))
+    has_hmac = bool(request.headers.get("stripe-signature"))
     if stored_challenge:
         code_verifier = request.data.get("code_verifier", "")
         if not code_verifier:
@@ -1593,7 +1593,7 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
     For HMAC partners (Stripe), both HMAC + Bearer are required on resource endpoints.
     For non-HMAC partners (wizard, Bearer-only), skip HMAC and rely on Bearer auth alone.
     """
-    if request.META.get("HTTP_STRIPE_SIGNATURE"):
+    if request.headers.get("stripe-signature"):
         return verify_stripe_signature(request)
     return None
 
@@ -1610,7 +1610,7 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     then falls back to Stripe Projects HMAC auth.
     """
 
-    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
         return (_error_response("unauthorized", "Missing bearer token", status=401), None, None)
 

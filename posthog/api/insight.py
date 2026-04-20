@@ -1152,7 +1152,7 @@ class InsightViewSet(
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
-        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+        return request.headers.get("x-posthog-client") == "mcp"
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(

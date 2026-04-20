@@ -154,7 +154,7 @@ def _bearer_exists_locally(token_value: str) -> bool:
 
 
 def _should_proxy_bearer_lookup(request: Request, current_region: str) -> bool:
-    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith(BEARER_PREFIX):
         return False
 
@@ -183,7 +183,7 @@ def stripe_region_proxy(strategy: str):
 
         @functools.wraps(view_func)
         def wrapper(request: Request, *args, **kwargs) -> Response:
-            if request.META.get("HTTP_STRIPE_SIGNATURE"):
+            if request.headers.get("stripe-signature"):
                 error = verify_stripe_signature(request)
                 if error:
                     return error

@@ -32,7 +32,7 @@ class EventDefinition(UUIDTModel):
 
     enforcement_mode = models.CharField(
         max_length=10,
-        choices=SchemaEnforcementMode.choices,
+        choices=SchemaEnforcementMode,
         default=SchemaEnforcementMode.ALLOW,
     )
 

@@ -70,7 +70,7 @@ class ProvisioningAuthentication(BaseAuthentication):
 
         # 2. Check for Bearer token -> look up OAuthApplication
         if app is None:
-            auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+            auth_header = request.headers.get("authorization", "")
             if auth_header.startswith(BEARER_PREFIX):
                 app = self._identify_bearer_partner(auth_header)
 
@@ -160,7 +160,7 @@ class ProvisioningAuthentication(BaseAuthentication):
         return None
 
     def _verify_bearer(self, request: Request, app: OAuthApplication):
-        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith(BEARER_PREFIX):
             raise AuthenticationFailed("Missing bearer token")
 
@@ -203,7 +203,7 @@ def _capture_auth_event(app: OAuthApplication, outcome: str, **extra: object) ->
 
 class StripeProvisioningBearerAuthentication(BaseAuthentication):
     def authenticate(self, request: Request):
-        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith(BEARER_PREFIX):
             return None
 
