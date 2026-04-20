@@ -174,8 +174,12 @@ def _build_query(
     incremental_field: str | None,
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
+    force_index_name: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    query = f"SELECT * FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)}"
+    table = f"{_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)}"
+    hint = f" FORCE INDEX ({_sanitize_identifier(force_index_name)})" if force_index_name else ""
+
+    query = f"SELECT * FROM {table}{hint}"
 
     if not should_use_incremental_field:
         return query, {}
@@ -186,11 +190,69 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = f"SELECT * FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)} WHERE {_sanitize_identifier(incremental_field)} >= %(incremental_value)s ORDER BY {_sanitize_identifier(incremental_field)} ASC"
+    query = (
+        f"SELECT * FROM {table}{hint}"
+        f" WHERE {_sanitize_identifier(incremental_field)} >= %(incremental_value)s"
+        f" ORDER BY {_sanitize_identifier(incremental_field)} ASC"
+    )
 
     return query, {
         "incremental_value": db_incremental_field_last_value,
     }
+
+
+# pymysql error code for "Lost connection to MySQL server during query" — the
+# symptom we see when the optimizer picks a bad plan (full scan + filesort) and
+# the filesort preparation exceeds a middlebox / server-side query timeout
+# before any rows stream back.
+_LOST_CONNECTION_DURING_QUERY_CODE = 2013
+
+
+def _is_bad_plan_timeout(e: pymysql.err.OperationalError) -> bool:
+    """Return True if the error suggests we hit a bad-plan-induced query timeout.
+
+    Narrowly matches `OperationalError(2013, ...)`. Other `OperationalError`s
+    (access denied, table missing, etc.) should propagate untouched.
+    """
+    code = e.args[0] if e.args else None
+    return code == _LOST_CONNECTION_DURING_QUERY_CODE
+
+
+def _find_index_for_cursor(
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    cursor_field: str,
+    logger: FilteringBoundLogger,
+) -> str | None:
+    """Return the name of an index whose leading column is `cursor_field`.
+
+    Used to target a `FORCE INDEX` hint at the right index when the optimizer
+    picks a full table scan over the incremental field's index. Returns None
+    when no usable index exists — callers should fall through to the original
+    error in that case (same behavior as today, with a clearer log).
+    """
+    try:
+        query = f"SHOW INDEX FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)}"
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        column_names = [col[0] for col in cursor.description or []]
+        # SHOW INDEX column positions vary by MySQL version; look them up by name.
+        try:
+            key_name_idx = column_names.index("Key_name")
+            seq_idx = column_names.index("Seq_in_index")
+            column_idx = column_names.index("Column_name")
+        except ValueError:
+            logger.debug("SHOW INDEX returned unexpected columns: %s", column_names)
+            return None
+
+        for row in rows:
+            if row[column_idx] == cursor_field and row[seq_idx] == 1:
+                return row[key_name_idx]
+        return None
+    except Exception as e:
+        logger.debug(f"_find_index_for_cursor failed: {e}", exc_info=e)
+        return None
 
 
 def _explain_query(cursor: Cursor, query: str, query_args: dict[str, Any], logger: FilteringBoundLogger) -> None:
@@ -700,9 +762,18 @@ def mysql_source(
                 if primary_keys is None and "id" in table:
                     primary_keys = ["id"]
 
-    def get_rows() -> Iterator[Any]:
-        arrow_schema = table.to_arrow_schema()
+    arrow_schema = table.to_arrow_schema()
 
+    def _stream_with_optional_force_index(
+        force_index_name: str | None,
+        lower_bound_cursor_value: Any,
+    ) -> Iterator[tuple[Any, Any]]:
+        """Open a fresh connection and stream rows from `lower_bound_cursor_value`.
+
+        Yields (arrow_table, last_cursor_value_in_batch) pairs so the caller can
+        track progress for a fallback resume. The `last_cursor_value_in_batch`
+        is None when there's no incremental field.
+        """
         with tunnel() as (host, port):
             # PlanetScale needs this to be set
             init_command = "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None
@@ -737,7 +808,8 @@ def mysql_source(
                         should_use_incremental_field,
                         incremental_field,
                         incremental_field_type,
-                        db_incremental_field_last_value,
+                        lower_bound_cursor_value,
+                        force_index_name=force_index_name,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
 
@@ -751,6 +823,11 @@ def mysql_source(
                     cursor.execute(query, args)
 
                     column_names = [column[0] for column in cursor.description or []]
+                    cursor_idx = (
+                        column_names.index(incremental_field)
+                        if should_use_incremental_field and incremental_field in column_names
+                        else None
+                    )
 
                     while True:
                         # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
@@ -758,7 +835,77 @@ def mysql_source(
                         if not rows:
                             break
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                        last_cursor_in_batch = rows[-1][cursor_idx] if cursor_idx is not None else None
+                        arrow_batch = table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                        yield arrow_batch, last_cursor_in_batch
+
+    def _force_index_fallback(
+        lower_bound_cursor_value: Any,
+    ) -> Iterator[tuple[Any, Any]]:
+        """Re-run the streaming query with FORCE INDEX after a bad-plan timeout.
+
+        Opens a fresh connection (the previous one is dead), looks up a usable
+        index on the incremental field, and streams from `lower_bound_cursor_value`
+        (the last committed cursor, if any — else the sync's starting cursor).
+        If no suitable index exists, re-raises the original exception by yielding
+        nothing and raising.
+        """
+        if not should_use_incremental_field or not incremental_field:
+            # Without an incremental field there's no cursor to force an index on.
+            logger.warning(
+                "Bad-plan timeout hit, but sync has no incremental field — cannot apply FORCE INDEX fallback."
+            )
+            raise
+
+        with tunnel() as (host, port):
+            with pymysql.connect(
+                host=host,
+                port=port,
+                database=database,
+                user=user,
+                password=password,
+                connect_timeout=10,
+                ssl_ca=ssl_ca,
+                conv=_MYSQL_SAFE_CONVERSIONS,
+            ) as probe_connection:
+                with probe_connection.cursor() as probe_cursor:
+                    force_index_name = _find_index_for_cursor(
+                        probe_cursor, schema, table_name, incremental_field, logger
+                    )
+
+        if not force_index_name:
+            logger.warning(
+                f"Bad-plan timeout hit and no usable index on "
+                f"{schema}.{table_name}.{incremental_field} — cannot apply FORCE INDEX fallback. "
+                f"Customer should add an index on the incremental field."
+            )
+            raise
+
+        logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad-plan timeout")
+        yield from _stream_with_optional_force_index(force_index_name, lower_bound_cursor_value)
+
+    def get_rows() -> Iterator[Any]:
+        last_cursor_value = db_incremental_field_last_value
+
+        try:
+            for arrow_batch, batch_cursor in _stream_with_optional_force_index(
+                force_index_name=None,
+                lower_bound_cursor_value=db_incremental_field_last_value,
+            ):
+                if batch_cursor is not None:
+                    last_cursor_value = batch_cursor
+                yield arrow_batch
+        except pymysql.err.OperationalError as e:
+            if not _is_bad_plan_timeout(e):
+                raise
+            logger.warning(
+                f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}). "
+                f"Attempting FORCE INDEX fallback from cursor={last_cursor_value!r}."
+            )
+            for arrow_batch, batch_cursor in _force_index_fallback(last_cursor_value):
+                if batch_cursor is not None:
+                    last_cursor_value = batch_cursor
+                yield arrow_batch
 
     name = NamingConvention.normalize_identifier(table_name)
 
