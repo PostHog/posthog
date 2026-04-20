@@ -46,7 +46,7 @@ from products.logs.backend.alert_state_machine import (
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
-ALLOWED_WINDOW_MINUTES = {1, 5, 10, 15, 30, 60}
+ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
@@ -646,7 +646,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         minute_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, 1)
 
         # Compute rolling window sum: for each minute, sum the preceding window_minutes of counts.
-        # This matches the real alerting cadence: check every minute, count logs in the last N minutes.
+        # Simulate samples at minute granularity for a dense preview chart; real alerts evaluate
+        # less frequently (see LogsAlertConfiguration.check_interval_minutes, currently 5m).
         counts = [b.count for b in minute_buckets]
         rolling_counts: list[int] = []
         for i in range(len(counts)):

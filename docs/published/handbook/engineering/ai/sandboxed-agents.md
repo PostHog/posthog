@@ -229,7 +229,7 @@ or the PostHog Code settings UI.
 
 To set up sandboxed agents for local development:
 
-1. Create a personal dev GitHub App (see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/temporal/process_task/SETUP_GUIDE.md#github-app) for details)
+1. Create a personal dev GitHub App (see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md#github-app) for details)
 2. Run `python manage.py setup_background_agents`
 3. Run `hogli start`
 
@@ -240,7 +240,7 @@ The setup command is idempotent and handles:
 - Enabling the `tasks` feature flag for all teams
 - Building the agent skills bundle
 
-For advanced setup options (Modal sandboxes, local agent packages), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/temporal/process_task/SETUP_GUIDE.md).
+For advanced setup options (Modal sandboxes, local agent packages), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
 
 ## Questions?
 

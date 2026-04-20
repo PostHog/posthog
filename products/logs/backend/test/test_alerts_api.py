@@ -286,7 +286,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    @parameterized.expand([(2,), (7,), (45,), (120,)])
+    @parameterized.expand([(1,), (2,), (7,), (45,), (120,)])
     def test_create_rejects_invalid_window(self, window):
         response = self.client.post(
             self.base_url,
@@ -358,7 +358,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["enabled"] is True
         assert data["threshold_operator"] == "above"
         assert data["window_minutes"] == 5
-        assert data["check_interval_minutes"] == 1
+        assert data["check_interval_minutes"] == 5
         assert data["evaluation_periods"] == 1
         assert data["datapoints_to_alarm"] == 1
         assert data["cooldown_minutes"] == 0
@@ -994,8 +994,11 @@ class TestLogsAlertAPI(APIBaseTest):
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_n_of_m_delays_firing(self, mock_query_cls):
-        # window=1 (so rolling sum = per-minute count), 2-of-3 N-of-M
-        # Minutes: 150, 50, 150 — at minute 2, breach_count in window of 3 = 2 >= 2 -> fires
+        # window=5, 2-of-3 N-of-M. A spike at minute 0 pushes rolling sum above threshold
+        # for minutes 0-4. At minute 0 there's only one evaluation, so N=2 isn't met and
+        # the alert stays not_firing; by minute 1 there are two consecutive breaches,
+        # satisfying 2-of-3 -> fires. This is the "N-of-M delays firing past first breach"
+        # invariant; with window=5 the delay is one tick rather than two.
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(
             [(0, 150), (1, 50), (2, 150)]
         )
@@ -1007,43 +1010,43 @@ class TestLogsAlertAPI(APIBaseTest):
                 threshold_operator="above",
                 evaluation_periods=3,
                 datapoints_to_alarm=2,
-                window_minutes=1,
+                window_minutes=5,
             ),
             format="json",
         )
         data = response.json()
         data_buckets = [b for b in data["buckets"] if b["count"] > 0]
-        # Minute 0: 150 breached, but only 1-of-1 so far -> not_firing
+        # Minute 0: rolling=150 breached, but only 1 evaluation -> not_firing
         assert data_buckets[0]["state"] == "not_firing"
-        # Minute 2: 150 breached, now 2-of-3 -> firing
-        assert data_buckets[2]["state"] == "firing"
-        assert data_buckets[2]["notification"] == "fire"
+        # Minute 1: rolling=200 breached, 2 consecutive breaches met N=2 -> fires
+        assert data_buckets[1]["state"] == "firing"
+        assert data_buckets[1]["notification"] == "fire"
 
     @freeze_time("2025-12-16T10:30:00Z")
     @patch("products.logs.backend.alerts_api.AlertCheckQuery")
     def test_simulate_cooldown_suppresses_renotification(self, mock_query_cls):
-        # window=1, cooldown=5 min. Fires at minute 1, should suppress re-fire at minute 3.
-        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets(
-            [(0, 50), (1, 150), (2, 50), (3, 150), (4, 50)]
-        )
+        # window=5, cooldown=15 min. Two spikes 10 minutes apart: first fires at minute 0,
+        # rolling sum drops below threshold at minute 5 (spike falls out of window) -> resolves,
+        # second spike at minute 10 would re-fire but cooldown from minute 0 fire suppresses it.
+        mock_query_cls.return_value.execute_bucketed.return_value = self._mock_minute_buckets([(0, 200), (10, 200)])
 
         response = self.client.post(
             self._simulate_url(),
             self._simulate_payload(
                 threshold_count=100,
                 threshold_operator="above",
-                cooldown_minutes=5,
-                window_minutes=1,
+                cooldown_minutes=15,
+                window_minutes=5,
             ),
             format="json",
         )
         data = response.json()
         data_buckets = [b for b in data["buckets"] if b["count"] > 0]
-        # Minute 1: fires
-        assert data_buckets[1]["notification"] == "fire"
-        # Minute 3: would fire again, cooldown suppresses
-        assert data_buckets[3]["state"] == "firing"
-        assert data_buckets[3]["notification"] == "none"
+        # Minute 0: fires (index 0 in data_buckets since only 2 raw counts are non-zero)
+        assert data_buckets[0]["notification"] == "fire"
+        # Minute 10: firing again, cooldown suppresses the fire notification
+        assert data_buckets[1]["state"] == "firing"
+        assert data_buckets[1]["notification"] == "none"
         assert data["fire_count"] == 1
 
     @freeze_time("2025-12-16T10:30:00Z")
