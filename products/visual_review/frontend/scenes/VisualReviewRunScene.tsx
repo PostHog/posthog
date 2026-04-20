@@ -37,6 +37,7 @@ function SnapshotThumbnail({
     const shortName = parts.length > 1 ? parts.slice(1, isTheme ? -1 : undefined).join(' · ') : snapshot.identifier
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
+    const isQuarantined = snapshot.is_quarantined === true
 
     return (
         <button
@@ -49,6 +50,7 @@ function SnapshotThumbnail({
                 border: '1.5px solid',
                 borderColor: isSelected ? 'var(--primary-3000-button-border)' : 'var(--border)',
                 boxShadow: isSelected ? '0 3px 0 -1px var(--primary-3000-frame-bg)' : 'none',
+                opacity: isQuarantined ? 0.5 : 1,
             }}
         >
             {isReviewed && (
@@ -65,9 +67,13 @@ function SnapshotThumbnail({
                     </span>
                 </>
             )}
-            <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000">
+            <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000 relative">
                 {snapshot.current_artifact?.download_url ? (
-                    <img src={snapshot.current_artifact.download_url} alt="" className="w-full h-full object-contain" />
+                    <img
+                        src={snapshot.current_artifact.download_url}
+                        alt=""
+                        className={`w-full h-full object-contain ${isQuarantined ? 'grayscale' : ''}`}
+                    />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
                         <span className="text-[10px] text-muted">No image</span>
