@@ -5,6 +5,8 @@ import { IconPauseFilled, IconPlayFilled, IconRefresh, IconTerminal } from '@pos
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LiveRecordingsCount, LiveUserCount } from 'lib/components/LiveUserCount'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -16,7 +18,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivityTab } from '~/types'
+import { ActivityTab, PropertyOperator } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
 
@@ -83,6 +85,14 @@ export function LiveEventsTable(): JSX.Element {
                         onChange={(value) => setFilters({ ...filters, eventType: value })}
                         placeholder="Filter by event"
                         allEventsOption="clear"
+                    />
+                    <PropertyFilters
+                        pageKey="live-events"
+                        propertyFilters={filters.properties ?? []}
+                        onChange={(properties) => setFilters({ ...filters, properties })}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                        operatorAllowlist={[PropertyOperator.Exact]}
+                        buttonText="Filter by property"
                     />
                     <LemonButton
                         icon={

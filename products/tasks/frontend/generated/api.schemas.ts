@@ -142,6 +142,48 @@ export interface SandboxEnvironmentApi {
     readonly updated_at: string
 }
 
+export interface TaskAutomationApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    prompt: string
+    /** @maxLength 255 */
+    repository: string
+    /** @nullable */
+    github_integration?: number | null
+    /** @maxLength 100 */
+    cron_expression: string
+    /** @maxLength 128 */
+    timezone?: string
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    template_id?: string | null
+    enabled?: boolean
+    /** @nullable */
+    readonly last_run_at: string | null
+    /** @nullable */
+    readonly last_run_status: string | null
+    /** @nullable */
+    readonly last_task_id: string | null
+    /** @nullable */
+    readonly last_task_run_id: string | null
+    /** @nullable */
+    readonly last_error: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedTaskAutomationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskAutomationApi[]
+}
+
 /**
  * Serializer for extracted tasks
  */
@@ -171,6 +213,7 @@ export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
+ * `automation` - Automation
  * `slack` - Slack
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
@@ -182,6 +225,7 @@ export const OriginProductEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
+    Automation: 'automation',
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
@@ -222,16 +266,20 @@ export interface PatchedTaskApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
+    /**
+     * Custom prompt for CI fixes. If blank, a default prompt will be used.
+     * @nullable
+     */
+    ci_prompt?: string | null
 }
 
 /**
  * * `interactive` - interactive
  * `background` - background
  */
-export type TaskRunCreateRequestModeEnumApi =
-    (typeof TaskRunCreateRequestModeEnumApi)[keyof typeof TaskRunCreateRequestModeEnumApi]
+export type ModeA07EnumApi = (typeof ModeA07EnumApi)[keyof typeof ModeA07EnumApi]
 
-export const TaskRunCreateRequestModeEnumApi = {
+export const ModeA07EnumApi = {
     Interactive: 'interactive',
     Background: 'background',
 } as const
@@ -259,14 +307,189 @@ export const RunSourceEnumApi = {
 } as const
 
 /**
+ * * `claude` - claude
+ */
+export type ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi =
+    (typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi]
+
+export const ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi = {
+    Claude: 'claude',
+} as const
+
+/**
+ * * `low` - low
+ * `medium` - medium
+ * `high` - high
+ * `max` - max
+ */
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
+
+export const ReasoningEffortEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Max: 'max',
+} as const
+
+/**
+ * * `default` - default
+ * `acceptEdits` - acceptEdits
+ * `plan` - plan
+ * `bypassPermissions` - bypassPermissions
+ */
+export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi =
+    (typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi]
+
+export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Plan: 'plan',
+    BypassPermissions: 'bypassPermissions',
+} as const
+
+/**
  * Request body for creating a new task run
  */
-export interface TaskRunCreateRequestApi {
+export interface ClaudeTaskRunCreateSchemaApi {
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: TaskRunCreateRequestModeEnumApi
+    mode?: ModeA07EnumApi
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** ID of a previous run to resume from. Must belong to the same task. */
+    resume_from_run_id?: string
+    /** Initial or follow-up user message to include in the run prompt. */
+    pending_user_message?: string
+    /** Optional sandbox environment to apply for this cloud run. */
+    sandbox_environment_id?: string
+    /** Whether pull requests for this run should be authored by the user or the bot.
+
+* `user` - user
+* `bot` - bot */
+    pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+* `manual` - manual
+* `signal_report` - signal_report */
+    run_source?: RunSourceEnumApi
+    /** Optional signal report identifier when this run was started from Inbox. */
+    signal_report_id?: string
+    /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
+
+* `claude` - claude */
+    runtime_adapter: ClaudeTaskRunCreateSchemaRuntimeAdapterEnumApi
+    /** LLM model identifier to run in the Claude runtime. */
+    model: string
+    /** Reasoning effort to request for models that expose an effort control.
+
+* `low` - low
+* `medium` - medium
+* `high` - high
+* `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi
+    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    github_user_token?: string
+    /** Initial permission mode for Claude runtimes.
+
+* `default` - default
+* `acceptEdits` - acceptEdits
+* `plan` - plan
+* `bypassPermissions` - bypassPermissions */
+    initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi
+}
+
+/**
+ * * `codex` - codex
+ */
+export type CodexTaskRunCreateSchemaRuntimeAdapterEnumApi =
+    (typeof CodexTaskRunCreateSchemaRuntimeAdapterEnumApi)[keyof typeof CodexTaskRunCreateSchemaRuntimeAdapterEnumApi]
+
+export const CodexTaskRunCreateSchemaRuntimeAdapterEnumApi = {
+    Codex: 'codex',
+} as const
+
+/**
+ * * `auto` - auto
+ * `read-only` - read-only
+ * `full-access` - full-access
+ */
+export type CodexTaskRunCreateSchemaInitialPermissionModeEnumApi =
+    (typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi]
+
+export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
+    Auto: 'auto',
+    ReadOnly: 'read-only',
+    FullAccess: 'full-access',
+} as const
+
+/**
+ * Request body for creating a new task run
+ */
+export interface CodexTaskRunCreateSchemaApi {
+    /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+* `interactive` - interactive
+* `background` - background */
+    mode?: ModeA07EnumApi
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** ID of a previous run to resume from. Must belong to the same task. */
+    resume_from_run_id?: string
+    /** Initial or follow-up user message to include in the run prompt. */
+    pending_user_message?: string
+    /** Optional sandbox environment to apply for this cloud run. */
+    sandbox_environment_id?: string
+    /** Whether pull requests for this run should be authored by the user or the bot.
+
+* `user` - user
+* `bot` - bot */
+    pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+* `manual` - manual
+* `signal_report` - signal_report */
+    run_source?: RunSourceEnumApi
+    /** Optional signal report identifier when this run was started from Inbox. */
+    signal_report_id?: string
+    /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
+
+* `codex` - codex */
+    runtime_adapter: CodexTaskRunCreateSchemaRuntimeAdapterEnumApi
+    /** LLM model identifier to run in the Codex runtime. */
+    model: string
+    /** Reasoning effort to request for models that expose an effort control.
+
+* `low` - low
+* `medium` - medium
+* `high` - high
+* `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi
+    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    github_user_token?: string
+    /** Initial permission mode for Codex runtimes.
+
+* `auto` - auto
+* `read-only` - read-only
+* `full-access` - full-access */
+    initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi
+}
+
+export interface TaskRunResumeRequestSchemaApi {
+    /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+* `interactive` - interactive
+* `background` - background */
+    mode?: ModeA07EnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -294,6 +517,11 @@ export interface TaskRunCreateRequestApi {
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
     github_user_token?: string
 }
+
+export type TaskRunCreateRequestSchemaApi =
+    | ClaudeTaskRunCreateSchemaApi
+    | CodexTaskRunCreateSchemaApi
+    | TaskRunResumeRequestSchemaApi
 
 /**
  * * `not_started` - Not Started
@@ -323,6 +551,22 @@ export type EnvironmentEnumApi = (typeof EnvironmentEnumApi)[keyof typeof Enviro
 export const EnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
+} as const
+
+export type TaskRunDetailRuntimeAdapterEnumApi =
+    (typeof TaskRunDetailRuntimeAdapterEnumApi)[keyof typeof TaskRunDetailRuntimeAdapterEnumApi]
+
+export const TaskRunDetailRuntimeAdapterEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+} as const
+
+export type TaskRunDetailProviderEnumApi =
+    (typeof TaskRunDetailProviderEnumApi)[keyof typeof TaskRunDetailProviderEnumApi]
+
+export const TaskRunDetailProviderEnumApi = {
+    Anthropic: 'anthropic',
+    Openai: 'openai',
 } as const
 
 export interface TaskRunArtifactResponseApi {
@@ -361,6 +605,17 @@ export interface TaskRunDetailApi {
 * `local` - Local
 * `cloud` - Cloud */
     environment?: EnvironmentEnumApi
+    /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
+    readonly runtime_adapter: TaskRunDetailRuntimeAdapterEnumApi | NullEnumApi | null
+    /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
+    readonly provider: TaskRunDetailProviderEnumApi | NullEnumApi | null
+    /**
+     * Configured LLM model identifier for this run.
+     * @nullable
+     */
+    readonly model: string | null
+    /** Configured reasoning effort for this run when the selected model supports it. */
+    readonly reasoning_effort: ReasoningEffortEnumApi | NullEnumApi | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
      * @nullable
@@ -535,6 +790,8 @@ export const JsonrpcEnumApi = {
  * * `user_message` - user_message
  * `cancel` - cancel
  * `close` - close
+ * `permission_response` - permission_response
+ * `set_config_option` - set_config_option
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -542,6 +799,8 @@ export const MethodEnumApi = {
     UserMessage: 'user_message',
     Cancel: 'cancel',
     Close: 'close',
+    PermissionResponse: 'permission_response',
+    SetConfigOption: 'set_config_option',
 } as const
 
 /**
@@ -556,7 +815,9 @@ export interface TaskRunCommandRequestApi {
 
 * `user_message` - user_message
 * `cancel` - cancel
-* `close` - close */
+* `close` - close
+* `permission_response` - permission_response
+* `set_config_option` - set_config_option */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
@@ -698,6 +959,17 @@ export interface RepositoryReadinessResponseApi {
 }
 
 export type SandboxListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TaskAutomationsListParams = {
     /**
      * Number of results to return per page.
      */

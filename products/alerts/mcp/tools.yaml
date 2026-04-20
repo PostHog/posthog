@@ -143,3 +143,12 @@ tools:
     logs-alerts-simulate-create:
         operation: logs_alerts_simulate_create
         enabled: false
+    logs-alerts-destinations-create:
+        operation: logs_alerts_destinations_create
+        enabled: false
+    logs-alerts-destinations-delete-create:
+        operation: logs_alerts_destinations_delete_create
+        enabled: false
+    logs-alerts-reset-create:
+        operation: logs_alerts_reset_create
+        enabled: false

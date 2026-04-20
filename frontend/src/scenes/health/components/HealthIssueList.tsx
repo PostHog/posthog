@@ -53,7 +53,7 @@ export const HealthIssueList = (): JSX.Element => {
     const populatedCategories = CATEGORY_ORDER.filter((cat) => groupedByCategory[cat])
 
     return (
-        <div className="flex flex-col gap-4 max-w-3xl">
+        <div className="flex flex-col gap-4">
             {populatedCategories.map((category) => {
                 const categoryIssues = groupedByCategory[category]!
                 const config = HEALTH_CATEGORY_CONFIG[category]

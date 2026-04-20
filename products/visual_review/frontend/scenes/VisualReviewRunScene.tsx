@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
+import React from 'react'
 
-import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
+import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
@@ -17,13 +20,6 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { runId } }): VisualReviewRunSceneLogicProps => ({
         runId: runId || '',
     }),
-}
-
-const RESULT_DOT_COLORS: Record<string, string> = {
-    changed: 'bg-warning',
-    new: 'bg-primary',
-    removed: 'bg-danger',
-    unchanged: 'bg-muted',
 }
 
 function SnapshotThumbnail({
@@ -36,44 +32,58 @@ function SnapshotThumbnail({
     onClick: () => void
 }): JSX.Element {
     const parts = snapshot.identifier.split('--')
-    const shortName = parts.length > 1 ? parts[parts.length - 1] : parts[0]
-    const result = snapshot.result || 'unchanged'
+    const theme = parts[parts.length - 1]
+    const isTheme = theme === 'dark' || theme === 'light'
+    const shortName = parts.length > 1 ? parts.slice(1, isTheme ? -1 : undefined).join(' · ') : snapshot.identifier
+
+    const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
 
     return (
-        <Tooltip title={snapshot.identifier}>
-            <button
-                type="button"
-                onClick={onClick}
-                className="flex flex-col items-center gap-1 shrink-0 rounded p-1.5 transition-colors"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    background: isSelected ? 'var(--primary-3000-button-bg)' : 'transparent',
-                    border: '1.5px solid',
-                    borderColor: isSelected ? 'var(--primary-3000-button-border)' : 'var(--border)',
-                    boxShadow: isSelected ? '0 3px 0 -1px var(--primary-3000-frame-bg)' : 'none',
-                }}
-            >
-                <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000">
-                    {snapshot.current_artifact?.download_url ? (
-                        <img
-                            src={snapshot.current_artifact.download_url}
-                            alt=""
-                            className="w-full h-full object-contain"
-                        />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                            <span className="text-[10px] text-muted">No image</span>
-                        </div>
-                    )}
-                </div>
-                <div className="flex items-center gap-1 max-w-[108px]">
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${RESULT_DOT_COLORS[result] || 'bg-muted'}`} />
-                    <span className={`text-[11px] truncate ${isSelected ? 'font-medium' : 'text-muted'}`}>
-                        {shortName}
+        <button
+            type="button"
+            onClick={onClick}
+            className="relative flex flex-col items-center gap-1 shrink-0 rounded overflow-hidden p-1.5 transition-colors"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                background: isSelected ? 'var(--primary-3000-button-bg)' : 'transparent',
+                border: '1.5px solid',
+                borderColor: isSelected ? 'var(--primary-3000-button-border)' : 'var(--border)',
+                boxShadow: isSelected ? '0 3px 0 -1px var(--primary-3000-frame-bg)' : 'none',
+            }}
+        >
+            {isReviewed && (
+                <>
+                    <span
+                        className={`absolute top-0 right-0 w-7 h-7 z-10 ${
+                            snapshot.review_state === 'approved' ? 'bg-success' : 'bg-muted'
+                        }`}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%)' }}
+                    />
+                    <span className="absolute top-[3px] right-[3px] z-10 text-white text-[10px] leading-none font-bold">
+                        {snapshot.review_state === 'approved' ? '✓' : '~'}
                     </span>
-                </div>
-            </button>
-        </Tooltip>
+                </>
+            )}
+            <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000">
+                {snapshot.current_artifact?.download_url ? (
+                    <img src={snapshot.current_artifact.download_url} alt="" className="w-full h-full object-contain" />
+                ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                        <span className="text-[10px] text-muted">No image</span>
+                    </div>
+                )}
+            </div>
+            <div className="flex items-center gap-1 max-w-[108px]">
+                <SnapshotStatusIndicator
+                    result={snapshot.result || 'unchanged'}
+                    reviewState=""
+                    classificationReason={snapshot.classification_reason}
+                    compact
+                />
+                <span className={`text-[11px] truncate ${isSelected ? 'font-medium' : 'text-muted'}`}>{shortName}</span>
+            </div>
+        </button>
     )
 }
 
@@ -84,14 +94,16 @@ export function VisualReviewRunScene(): JSX.Element {
         snapshots,
         snapshotsLoading,
         selectedSnapshot,
-        hasChanges,
-        unapprovedChangesCount,
         changedSnapshots,
         snapshotHistory,
         snapshotHistoryLoading,
+        toleratedHashes,
+        toleratedHashesLoading,
         repoFullName,
+        isApproving,
     } = useValues(visualReviewRunSceneLogic)
-    const { setSelectedSnapshotId, approveChanges, approveSnapshot } = useActions(visualReviewRunSceneLogic)
+    const { setSelectedSnapshotId, approveChanges, approveSnapshot, markAsTolerated } =
+        useActions(visualReviewRunSceneLogic)
 
     if (runLoading || !run) {
         return (
@@ -110,10 +122,23 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
-    // Count by result type
-    const changedCount = snapshots.filter((s: SnapshotApi) => s.result === 'changed').length
-    const newCount = snapshots.filter((s: SnapshotApi) => s.result === 'new').length
-    const removedCount = snapshots.filter((s: SnapshotApi) => s.result === 'removed').length
+    // Review summary (from loaded snapshots — paginated but covers actionable ones first)
+    const reviewPending = snapshots.filter(
+        (s: SnapshotApi) => s.result !== 'unchanged' && s.review_state === 'pending'
+    ).length
+    const reviewApproved = snapshots.filter((s: SnapshotApi) => s.review_state === 'approved').length
+    const reviewTolerated = snapshots.filter((s: SnapshotApi) => s.review_state === 'tolerated').length
+
+    // Diff summary (server-side counts)
+    const diffChanged = run.summary.changed
+    const diffNew = run.summary.new
+    const diffRemoved = run.summary.removed
+    const diffTolerated = Math.max(0, (run.summary.tolerated_matched ?? 0) - reviewTolerated)
+
+    // If server counts are higher than loaded, show "+" to hint at pagination
+    const totalActionable = diffChanged + diffNew + diffRemoved
+    const loadedActionable = reviewPending + reviewApproved + reviewTolerated
+    const hasMore = totalActionable > loadedActionable
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = changedSnapshots.length > 0 ? changedSnapshots : snapshots
@@ -147,26 +172,75 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    hasChanges && unapprovedChangesCount > 0 ? (
-                        <LemonButton type="primary" onClick={approveChanges}>
-                            Approve {unapprovedChangesCount} change{unapprovedChangesCount !== 1 ? 's' : ''}
+                    !run.approved &&
+                    !run.is_stale &&
+                    (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
+                        <LemonButton type="primary" onClick={approveChanges} loading={isApproving}>
+                            {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
                         </LemonButton>
                     ) : undefined
                 }
             />
 
+            {run.is_stale && (
+                <LemonBanner type="warning" className="mb-4">
+                    This run has been superseded by a newer run.{' '}
+                    {run.superseded_by_id && (
+                        <Link to={`/visual_review/runs/${run.superseded_by_id}`} className="font-semibold">
+                            View latest run
+                        </Link>
+                    )}
+                </LemonBanner>
+            )}
+
             {/* Snapshots panel — thumbnail strip as nav, diff viewer as body */}
             <div className="border rounded-lg overflow-hidden">
                 {/* Header: summary + thumbnail strip */}
                 <div className="bg-bg-light border-b">
-                    <div className="flex items-center gap-3 px-3 pt-3 pb-2">
-                        <span className="text-sm font-semibold">Visual changes</span>
-                        <span className="text-xs text-muted">
-                            {changedCount > 0 && <span className="text-warning-dark">{changedCount} changed</span>}
-                            {changedCount > 0 && (newCount > 0 || removedCount > 0) && ' · '}
-                            {newCount > 0 && <span className="text-primary-dark">{newCount} new</span>}
-                            {newCount > 0 && removedCount > 0 && ' · '}
-                            {removedCount > 0 && <span className="text-danger">{removedCount} removed</span>}
+                    <div className="flex items-center justify-between px-3 pt-3 pb-2">
+                        {/* Review summary (left) — what humans decided */}
+                        <span className="text-xs text-muted flex items-center gap-1.5">
+                            <span className="font-semibold text-default">Review</span>
+                            {[
+                                reviewPending > 0 && (
+                                    <span key="pend">
+                                        <span className="font-semibold">{reviewPending}</span>
+                                        {hasMore ? '+' : ''} pending
+                                    </span>
+                                ),
+                                reviewApproved > 0 && (
+                                    <span key="appr" className="text-success">
+                                        {reviewApproved} approved
+                                    </span>
+                                ),
+                                reviewTolerated > 0 && <span key="tol">{reviewTolerated} tolerated</span>,
+                            ]
+                                .filter(Boolean)
+                                .reduce<React.ReactNode[]>((acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]), [])}
+                        </span>
+                        {/* Diff summary (right) — what the system found */}
+                        <span className="text-xs text-muted flex items-center gap-1.5">
+                            <span className="font-semibold text-default">Diff</span>
+                            {[
+                                diffChanged > 0 && (
+                                    <span key="ch" className="text-warning-dark">
+                                        {diffChanged} changed
+                                    </span>
+                                ),
+                                diffNew > 0 && (
+                                    <span key="new" className="text-success">
+                                        {diffNew} added
+                                    </span>
+                                ),
+                                diffRemoved > 0 && (
+                                    <span key="rm" className="text-danger">
+                                        {diffRemoved} removed
+                                    </span>
+                                ),
+                                diffTolerated > 0 && <span key="tol">{diffTolerated} auto-tolerated</span>,
+                            ]
+                                .filter(Boolean)
+                                .reduce<React.ReactNode[]>((acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]), [])}
                         </span>
                     </div>
 
@@ -191,7 +265,10 @@ export function VisualReviewRunScene(): JSX.Element {
                             snapshot={selectedSnapshot}
                             snapshotHistory={snapshotHistory}
                             snapshotHistoryLoading={snapshotHistoryLoading}
+                            toleratedHashes={toleratedHashes}
+                            toleratedHashesLoading={toleratedHashesLoading}
                             onApprove={handleApproveSnapshot}
+                            onMarkTolerated={() => markAsTolerated(selectedSnapshot)}
                             onPrevious={goToPrevious}
                             onNext={goToNext}
                             hasPrevious={hasPrevious}
@@ -201,6 +278,7 @@ export function VisualReviewRunScene(): JSX.Element {
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
                             repoFullName={repoFullName}
+                            runType={run.run_type}
                         />
                     ) : snapshotsLoading ? (
                         <div className="space-y-3 py-4">

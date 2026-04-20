@@ -87,6 +87,7 @@ export interface Ticket {
         [key: string]: any
     }
     sla_due_at?: string | null
+    snoozed_until?: string | null
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
     slack_team_id?: string | null

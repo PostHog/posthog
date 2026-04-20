@@ -65,6 +65,7 @@ async def _run_activity(
     timestamp_columns: collections.abc.Sequence[str] = (),
     uppercase_columns: list[str] | None = None,
     extra_fields: dict[str, t.Any] | None = None,
+    min_ingested_timestamp: dt.datetime | None = None,
 ):
     """Helper function to run insert_into_snowflake_activity_from_stage and assert records in Snowflake"""
     insert_inputs = SnowflakeInsertInputs(
@@ -117,6 +118,7 @@ async def _run_activity(
             timestamp_columns=timestamp_columns,
             uppercase_columns=uppercase_columns,
             extra_fields=extra_fields,
+            min_ingested_timestamp=min_ingested_timestamp,
         )
     return result
 
@@ -168,6 +170,8 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         elif batch_export_model.name == "sessions":
             sort_key = "session_id"
 
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
@@ -181,6 +185,7 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
         sort_key=sort_key,
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 
@@ -458,6 +463,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
     activity_environment.on_heartbeat = capture_heartbeat_details
 
     table_name = f"test_insert_activity_table_{ateam.pk}"
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     insert_inputs = SnowflakeInsertInputs(
         team_id=ateam.pk,
         table_name=table_name,
@@ -499,6 +505,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         sort_key="event",
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 

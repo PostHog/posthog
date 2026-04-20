@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Run ty with mypy-baseline integration.
+"""Run ty with baseline integration.
 
-This helper mirrors the workflow provided by mypy-baseline's CLI helpers. It
-supports filtering diagnostics during pre-commit runs and updating the
-``mypy-baseline.txt`` file from ty's output when new violations are added or
-removed.
+This helper uses the ``mypy-baseline`` CLI against ``ty-baseline.txt`` so ty
+diagnostics can be filtered during pre-commit runs and synced after cleanup.
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ TY_BASELINE_PATH = REPO_ROOT / "ty-baseline.txt"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 # ty prints lines like ``path:line[:column]: error[rule] message``.
-# Normalizing them makes mypy-baseline treat ty the same way as mypy.
+# Normalizing them makes the baseline tool treat ty the same way as mypy.
 _TY_PATTERN = re.compile(
     r"^(?P<prefix>.+:\d+(?::\d+)?): (?P<severity>error|warn|warning)\[(?P<rule>[^\]]+)\] (?P<message>.*)$"
 )
@@ -128,7 +126,7 @@ def _run_mypy_baseline(
 
 
 def _check(paths: Sequence[str], *, from_hook: bool = False) -> int:
-    # Check all files - mypy-baseline filter handles line-level filtering
+    # Check all files - baseline filtering handles line-level filtering
     filtered_targets = list(paths)
     if not filtered_targets:
         return 0
@@ -136,7 +134,7 @@ def _check(paths: Sequence[str], *, from_hook: bool = False) -> int:
     ty_result = _run_ty(filtered_targets)
     normalized = _normalize_ty_output(ty_result.output)
 
-    # If ty found no issues, don't even run mypy-baseline filter
+    # If ty found no issues, don't even run the baseline filter
     if ty_result.returncode == 0 and not normalized.strip():
         return 0
 
@@ -200,19 +198,19 @@ def _sync(paths: Sequence[str]) -> int:
 
 def _parse_args(argv: Sequence[str]) -> tuple[str, list[str], bool]:
     parser = argparse.ArgumentParser(
-        description="Run ty with mypy-baseline integration.",
+        description="Run ty with baseline integration.",
     )
     subparsers = parser.add_subparsers(dest="command")
 
     check_parser = subparsers.add_parser(
         "check",
-        help="Run ty on the given paths, filtering diagnostics using mypy-baseline.",
+        help="Run ty on the given paths, filtering diagnostics using the ty baseline.",
     )
     check_parser.add_argument("paths", nargs="*")
 
     sync_parser = subparsers.add_parser(
         "sync",
-        help="Update mypy-baseline.txt by re-running ty on the provided paths.",
+        help="Update ty-baseline.txt by re-running ty on the provided paths.",
     )
     sync_parser.add_argument("paths", nargs="*")
 

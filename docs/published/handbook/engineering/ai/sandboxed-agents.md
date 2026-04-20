@@ -227,15 +227,20 @@ or the PostHog Code settings UI.
 
 ## Local development
 
-See the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/temporal/process_task/SETUP_GUIDE.md)
-for step-by-step instructions on running sandboxed agents locally with Docker.
+To set up sandboxed agents for local development:
 
-Key requirements:
+1. Create a personal dev GitHub App (see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/temporal/process_task/SETUP_GUIDE.md#github-app) for details)
+2. Run `python manage.py setup_background_agents`
+3. Run `hogli start`
 
-- `DEBUG=1` and `SANDBOX_PROVIDER=docker` in your `.env`
-- A GitHub App with Contents and Pull Requests permissions
-- The `tasks` feature flag enabled at 100%
-- Temporal running (starts automatically via phrocs with `./bin/start`)
+The setup command is idempotent and handles:
+
+- Writing required env vars (`OIDC_RSA_PRIVATE_KEY`, `SANDBOX_JWT_PRIVATE_KEY`, `DEBUG`, `SANDBOX_PROVIDER`) to your `.env`
+- Creating the Array OAuth application
+- Enabling the `tasks` feature flag for all teams
+- Building the agent skills bundle
+
+For advanced setup options (Modal sandboxes, local agent packages), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/temporal/process_task/SETUP_GUIDE.md).
 
 ## Questions?
 
