@@ -184,7 +184,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.GotoTop, k.GotoBottom, k.ClearLogs},
 		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
 		{k.Start, k.Stop, k.Restart, k.InfoMode},
-		{k.SearchMode, k.CopyMode, k.ShowAll, k.SetupMode},
-		{k.Quit, k.Help},
+		{k.SearchMode, k.CopyMode, k.SetupMode},
+		{k.Quit, k.Help, k.ShowAll},
 	}
 }
