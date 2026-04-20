@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
@@ -23,12 +23,14 @@ from products.error_tracking.backend.facade.api import (
 logger = logging.getLogger(__name__)
 
 
+@extend_schema_serializer(component_name="ErrorTrackingExternalReferenceIntegrationResult")
 class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
     kind = serializers.CharField(read_only=True)
     display_name = serializers.CharField(read_only=True)
 
 
+@extend_schema_serializer(component_name="ErrorTrackingExternalReferenceResult")
 class ErrorTrackingExternalReferenceSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     integration = ErrorTrackingExternalReferenceIntegrationSerializer(read_only=True)

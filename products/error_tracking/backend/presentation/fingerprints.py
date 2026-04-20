@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
@@ -11,6 +11,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.error_tracking.backend.facade.api import get_fingerprint, list_fingerprints
+from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 
 
 class ErrorTrackingFingerprintSerializer(serializers.Serializer):
@@ -25,6 +26,7 @@ class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     scope_object = "error_tracking"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions: list[str] = []
+    queryset = ErrorTrackingIssueFingerprintV2.objects.all()
     serializer_class = ErrorTrackingFingerprintSerializer
 
     def list(self, request, *args, **kwargs):
@@ -46,6 +48,16 @@ class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
         serializer = self.get_serializer(fingerprints, many=True)
         return Response(serializer.data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="Fingerprint ID.",
+            )
+        ]
+    )
     def retrieve(self, request, *args, **kwargs):
         try:
             fingerprint_id = UUID(str(kwargs["pk"]))
