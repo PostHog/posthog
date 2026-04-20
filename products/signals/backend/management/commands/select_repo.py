@@ -18,7 +18,7 @@ from products.signals.backend.report_generation.select_repo import (
     _build_repo_selection_prompt,
     select_repository_for_report,
 )
-from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.temporal.types import SignalData, render_signals_to_text
 from products.tasks.backend.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
 
 # Synthetic signals that span multiple product areas so the agent has to reason about repo relevance.
@@ -167,7 +167,7 @@ class Command(BaseCommand):
         except RuntimeError as e:
             raise CommandError(str(e)) from e
 
-        prompt = _build_repo_selection_prompt(signals, candidate_repos)
+        prompt = _build_repo_selection_prompt(render_signals_to_text(signals), candidate_repos)
         context = CustomPromptSandboxContext(
             team_id=context_for_dev.team_id,
             user_id=context_for_dev.user_id,
