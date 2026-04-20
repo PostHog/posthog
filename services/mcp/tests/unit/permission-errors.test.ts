@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import {
+    buildInsufficientScopeChallenge,
     findPostHogPermissionError,
     formatPermissionErrorMessage,
     handleToolError,
@@ -15,9 +16,10 @@ vi.mock('@/api/rate-limiter', () => ({
     },
 }))
 
+const captureException = vi.fn()
 vi.mock('@/lib/analytics', () => ({
     getPostHogClient: () => ({
-        captureException: vi.fn(),
+        captureException,
     }),
     AnalyticsEvent: { MCP_INIT: 'mcp init' },
     isFeatureFlagEnabled: vi.fn().mockResolvedValue(false),
@@ -86,6 +88,48 @@ describe('formatPermissionErrorMessage', () => {
     })
 })
 
+describe('buildInsufficientScopeChallenge', () => {
+    it('follows RFC 6750 §3.1 when a scope is known', () => {
+        const error = new PostHogPermissionError({
+            detail: "API key missing required scope 'user:read'",
+            missingScope: 'user:read',
+            url: 'https://us.posthog.com/api/users/@me/',
+            method: 'GET',
+        })
+
+        expect(buildInsufficientScopeChallenge(error)).toBe(
+            'Bearer error="insufficient_scope", scope="user:read", error_description="API key missing required scope \'user:read\'"'
+        )
+    })
+
+    it('omits scope when unknown', () => {
+        const error = new PostHogPermissionError({
+            detail: 'team access denied',
+            url: 'https://us.posthog.com/api/projects/1/',
+            method: 'GET',
+        })
+
+        expect(buildInsufficientScopeChallenge(error)).toBe(
+            'Bearer error="insufficient_scope", error_description="team access denied"'
+        )
+    })
+
+    it('strips control chars and balances quotes in detail', () => {
+        const error = new PostHogPermissionError({
+            detail: 'hi "there"\nthis is bad',
+            missingScope: 'user:read',
+            url: 'https://us.posthog.com/api/users/@me/',
+            method: 'GET',
+        })
+
+        const header = buildInsufficientScopeChallenge(error)
+        // Double quotes inside error_description must be swapped out and newlines dropped.
+        expect(header).not.toMatch(/"there"/)
+        expect(header).not.toMatch(/\n/)
+        expect(header).toContain(`error_description="hi 'there'this is bad"`)
+    })
+})
+
 describe('findPostHogPermissionError', () => {
     it('returns the error directly when instance matches', () => {
         const original = new PostHogPermissionError({
@@ -141,6 +185,25 @@ describe('handleToolError with permission errors', () => {
         expect(content?.text).toContain('[users-me]')
         expect(content?.text).toContain("'user:read'")
         expect(content?.text).toContain('MCP Server')
+    })
+
+    it('fingerprints per tool to avoid dogpiling multiple tools into one issue', () => {
+        captureException.mockClear()
+        const error = new PostHogPermissionError({
+            detail: "API key missing required scope 'user:read'",
+            missingScope: 'user:read',
+            url: 'https://us.posthog.com/api/users/@me/',
+            method: 'GET',
+        })
+
+        handleToolError(error, 'insights-list')
+        handleToolError(error, 'dashboards-list')
+
+        const fingerprints = captureException.mock.calls.map(([, , props]) => props.$exception_fingerprint)
+        expect(fingerprints).toEqual([
+            'posthog-permission-error:insights-list:user:read',
+            'posthog-permission-error:dashboards-list:user:read',
+        ])
     })
 
     it('unwraps permission errors hidden behind Error.cause', () => {

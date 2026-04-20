@@ -1,6 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { getPostHogClient } from '@/lib/analytics'
+import { sanitizeHeaderValue } from '@/lib/utils'
 
 export enum ErrorCode {
     INVALID_API_KEY = 'INVALID_API_KEY',
@@ -88,6 +89,25 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
 }
 
 /**
+ * RFC 6750 §3.1: OAuth 2.0 Bearer challenge for 403 insufficient_scope. When
+ * a missing scope is known, advertise it so OAuth-aware clients can prompt
+ * for re-consent with the correct scope instead of reporting a generic error.
+ */
+export function buildInsufficientScopeChallenge(error: PostHogPermissionError): string {
+    const parts = ['Bearer error="insufficient_scope"']
+    const scope = sanitizeHeaderValue(error.missingScope)
+    if (scope) {
+        parts.push(`scope="${scope}"`)
+    }
+    // Replace double quotes to keep the challenge syntactically valid.
+    const description = sanitizeHeaderValue(error.detail)?.replace(/"/g, "'")
+    if (description) {
+        parts.push(`error_description="${description}"`)
+    }
+    return parts.join(', ')
+}
+
+/**
  * Walk `Error.cause` chains to find a wrapped PostHogPermissionError.
  * Tool-level wrappers (e.g. `throw new Error("Failed to X: ...", { cause })`)
  * hide the underlying permission error, so callers must unwrap before acting.
@@ -129,7 +149,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             tool: toolName,
             is_permission_error: true,
             missing_scope: permissionError.missingScope,
-            $exception_fingerprint: `posthog-permission-error:${permissionError.missingScope ?? 'unknown'}`,
+            $exception_fingerprint: `posthog-permission-error:${toolName}:${permissionError.missingScope ?? 'unknown'}`,
         }
 
         if (sessionUuid) {

@@ -1,5 +1,10 @@
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
-import { ErrorCode, findPostHogPermissionError, formatPermissionErrorMessage } from '@/lib/errors'
+import {
+    buildInsufficientScopeChallenge,
+    ErrorCode,
+    findPostHogPermissionError,
+    formatPermissionErrorMessage,
+} from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, sanitizeHeaderValue } from '@/lib/utils'
@@ -84,9 +89,7 @@ const onCatchErrorHandler = async (error: Error): Promise<Response> => {
             status: 403,
             headers: {
                 'Content-Type': 'text/plain; charset=utf-8',
-                ...(permissionError.missingScope
-                    ? { 'x-posthog-mcp-missing-scope': permissionError.missingScope }
-                    : {}),
+                'WWW-Authenticate': buildInsufficientScopeChallenge(permissionError),
             },
         })
     }
