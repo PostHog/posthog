@@ -159,13 +159,13 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             if not ok:
                 raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
 
-        # Reject formats that have no working dispatcher before any workflow
-        # is enqueued. Without this gate, an undispatchable format (e.g. JSON
-        # or PDF) would enqueue a workflow, raise NotImplementedError during
-        # dispatch, and pollute the export SLO with a failure event for what
-        # is really a 4xx client error. `ACCEPTED_FORMATS` is the set with a
-        # real dispatch path — see `ExportedAsset.ExportFormat` for why some
-        # formats are in the enum but not accepted.
+        # Defensive gate: reject formats that lack a working dispatcher before
+        # any workflow is enqueued. DRF ChoiceField already rejects values
+        # outside `ExportFormat`, so this only fires if someone adds a new
+        # format to the enum without wiring up a dispatcher — without this
+        # check, such a request would reach the exporter, raise
+        # NotImplementedError, and pollute the export SLO with a failure event
+        # for what is really a 4xx contract bug.
         if export_format not in ExportedAsset.ACCEPTED_FORMATS:
             raise ValidationError({"export_format": [f"{export_format} is not currently supported."]})
 

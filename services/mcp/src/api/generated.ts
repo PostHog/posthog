@@ -15164,7 +15164,6 @@ export namespace Schemas {
     * `video/webm` - video/webm
     * `video/mp4` - video/mp4
     * `image/gif` - image/gif
-    * `application/json` - application/json
      */
     export type ExportFormatEnum = typeof ExportFormatEnum[keyof typeof ExportFormatEnum];
 
@@ -15176,7 +15175,6 @@ export namespace Schemas {
       VideoWebm: 'video/webm',
       VideoMp4: 'video/mp4',
       ImageGif: 'image/gif',
-      ApplicationJson: 'application/json',
     } as const;
 
     /**

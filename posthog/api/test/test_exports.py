@@ -55,9 +55,9 @@ def get_counter_value(counter: Counter, labels: dict) -> float:
     return value_container.get() if value_container else 0.0
 
 
-# Expected API response for every ExportFormat. Accepts have a working dispatcher
-# (csv_exporter, image_exporter, or VideoExportWorkflow); rejects do not. If you
-# add a new ExportFormat, add a row here — the completeness assertion in
+# Expected API response for every ExportFormat. Every entry in
+# ExportFormat.choices must have a working dispatcher — if you add a new
+# format, add a row here. The completeness assertion in
 # `test_format_status_matrix_covers_every_enum_value` fails otherwise.
 _FORMAT_STATUS_MATRIX = [
     (ExportedAsset.ExportFormat.PNG, status.HTTP_201_CREATED),
@@ -66,8 +66,12 @@ _FORMAT_STATUS_MATRIX = [
     (ExportedAsset.ExportFormat.WEBM, status.HTTP_201_CREATED),
     (ExportedAsset.ExportFormat.MP4, status.HTTP_201_CREATED),
     (ExportedAsset.ExportFormat.GIF, status.HTTP_201_CREATED),
-    (ExportedAsset.ExportFormat.JSON, status.HTTP_400_BAD_REQUEST),
 ]
+
+# Legacy MIME types that were removed from the enum but may still arrive from
+# stale clients. DRF ChoiceField rejects them with `invalid_choice` before the
+# serializer gate runs.
+_REJECTED_LEGACY_FORMATS = ["application/pdf", "application/json"]
 
 
 class TestExports(APIBaseTest):
@@ -350,18 +354,28 @@ class TestExports(APIBaseTest):
             self._payload_for_format(export_format),
         )
         self.assertEqual(response.status_code, expected_status, response.json())
-        if expected_status == status.HTTP_400_BAD_REQUEST:
-            body = response.json()
-            self.assertEqual(body["attr"], "export_format")
-            self.assertIn("not currently supported", body["detail"])
 
     def test_format_status_matrix_covers_every_enum_value(self) -> None:
         # If a new ExportFormat is added without a row in _FORMAT_STATUS_MATRIX,
-        # this test fails — keeping the accept/reject decision explicit for
-        # every format instead of implicit in the serializer gate.
+        # this test fails — keeping the accept decision explicit for every
+        # format and tied to an actual dispatcher.
         matrix_formats = {row[0] for row in _FORMAT_STATUS_MATRIX}
         enum_values = set(ExportedAsset.ExportFormat.values)
         self.assertSetEqual(matrix_formats, enum_values)
+
+    @parameterized.expand([(fmt,) for fmt in _REJECTED_LEGACY_FORMATS])
+    def test_rejects_legacy_removed_format(self, export_format: str) -> None:
+        # PDF and JSON used to be in ExportFormat but were removed (PDF never
+        # had a dispatcher; JSON was only ever used client-side). Stale clients
+        # may still POST them — DRF ChoiceField rejects before our gate runs.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": export_format, "dashboard": self.dashboard.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["attr"], "export_format")
+        self.assertEqual(body["code"], "invalid_choice")
 
     def test_will_error_if_dashboard_missing(self) -> None:
         response = self.client.post(

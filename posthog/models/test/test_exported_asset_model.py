@@ -86,7 +86,6 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
             (ExportedAsset.ExportFormat.MP4, TWELVE_MONTHS),
             (ExportedAsset.ExportFormat.WEBM, TWELVE_MONTHS),
             (ExportedAsset.ExportFormat.GIF, TWELVE_MONTHS),
-            (ExportedAsset.ExportFormat.JSON, SIX_MONTHS),
         ]
     )
     @freeze_time("2024-06-15T10:30:00Z")

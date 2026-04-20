@@ -42,14 +42,15 @@ class ExportedAssetManager(models.Manager):
 
 class ExportedAsset(models.Model):
     class ExportFormat(models.TextChoices):
-        # NOTE: Not every choice here is accepted by the /exports API —
-        # `ACCEPTED_FORMATS` below is the honest subset. JSON has no server-side
-        # exporter (rejected by the serializer) but is kept here because it is
-        # used client-side as a MIME type for local Blob downloads and clipboard
-        # copies (staff dashboard-as-template export, web analytics copy, SQL
-        # editor output). Adding real server support for JSON means wiring a
-        # dispatcher in `posthog/tasks/exporter.py` and moving it into
-        # `ACCEPTED_FORMATS`.
+        # Every choice here must have a working dispatcher in
+        # `posthog/tasks/exporter.py` (TABULAR/VISUAL) or the
+        # `VideoExportWorkflow` (VIDEO_FORMATS). Adding a format without one
+        # will trip the `ACCEPTED_FORMATS` gate on the `/exports` endpoint and
+        # the completeness assertion in test_exports.py.
+        #
+        # Client-side MIME types (e.g. JSON for Blob downloads / clipboard
+        # copies) live in the hand-written `ExporterFormat` enum in
+        # `frontend/src/types.ts` and do not need a server-side counterpart.
         PNG = "image/png", "image/png"
         CSV = "text/csv", "text/csv"
         XLSX = (
@@ -59,7 +60,6 @@ class ExportedAsset(models.Model):
         WEBM = "video/webm", "video/webm"
         MP4 = "video/mp4", "video/mp4"
         GIF = "image/gif", "image/gif"
-        JSON = "application/json", "application/json"
 
     # Format routing for the standard exporter dispatch (`posthog/tasks/exporter.py`).
     # Tabular formats are fed to csv_exporter; visual formats go through image_exporter.

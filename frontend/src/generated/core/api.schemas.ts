@@ -821,7 +821,6 @@ export interface PatchedDashboardTemplateApi {
  * `video/webm` - video/webm
  * `video/mp4` - video/mp4
  * `image/gif` - image/gif
- * `application/json` - application/json
  */
 export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
 
@@ -833,7 +832,6 @@ export const ExportFormatEnumApi = {
     VideoWebm: 'video/webm',
     VideoMp4: 'video/mp4',
     ImageGif: 'image/gif',
-    ApplicationJson: 'application/json',
 } as const
 
 /**
