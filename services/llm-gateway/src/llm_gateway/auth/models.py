@@ -13,9 +13,7 @@ class AuthenticatedUser:
     application_id: str | None = None
 
 
-def has_required_scope(
-    scopes: list[str], required: str = "llm_gateway:read", *, allow_wildcard: bool = False
-) -> bool:
+def has_required_scope(scopes: list[str], required: str = "llm_gateway:read", *, allow_wildcard: bool = False) -> bool:
     if not scopes:
         return False
     if allow_wildcard and "*" in scopes:
