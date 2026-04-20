@@ -15,14 +15,16 @@ import { execute, dryRun } from './executor.js'
 import { loadManifest, type CliToolManifest } from './manifest.js'
 import { briefSchema, fullSchema } from './schema-explorer.js'
 
+const CMD = process.env['PH_CLI_PREFIX'] ?? 'ph'
+
 const AGENT_HINT = `
-Workflow: ph list → ph schema <tool> → ph <tool> --json '{...}'
+Workflow: ${CMD} list → ${CMD} schema <tool> → ${CMD} <tool> --json '{...}'
 Use --dry-run before mutations. Pipe to jq for filtering.
 Query tools (query-trends, query-funnel, ...) auto-inject the query kind.`.trim()
 
 function createProgram(manifest: Record<string, CliToolManifest>, config: CliConfig): Command {
     const program = new Command()
-    program.name('ph').description(`Agent-first CLI for the PostHog API\n\n${AGENT_HINT}`).version('0.1.0')
+    program.name(CMD).description(`Agent-first CLI for the PostHog API\n\n${AGENT_HINT}`).version('0.1.0')
 
     // --- ph list ---
     program
@@ -72,7 +74,7 @@ function createProgram(manifest: Record<string, CliToolManifest>, config: CliCon
                 }
             }
             process.stdout.write(
-                `\n${filtered.length} tools. Use "ph schema <tool>" for params, "ph <tool> --json '{...}'" to execute.\n`
+                `\n${filtered.length} tools. Use "${CMD} schema <tool>" for params, "${CMD} <tool> --json '{...}'" to execute.\n`
             )
         })
 
@@ -85,7 +87,7 @@ function createProgram(manifest: Record<string, CliToolManifest>, config: CliCon
             const tool = manifest[toolName]
             if (!tool) {
                 process.stderr.write(`Unknown tool: ${toolName}\n`)
-                process.stderr.write(`Run "ph list" to see available tools.\n`)
+                process.stderr.write(`Run "${CMD} list" to see available tools.\n`)
                 process.exitCode = 1
                 return
             }

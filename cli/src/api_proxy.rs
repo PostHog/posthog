@@ -106,7 +106,8 @@ pub fn run(args: Vec<String>, host_override: Option<String>) -> Result<(), Captu
     cmd.args(&script_args);
     cmd.args(&args);
 
-    // Inject stored credentials from `posthog-cli login`
+    cmd.env("PH_CLI_PREFIX", "posthog-cli api");
+
     inject_credentials(&mut cmd);
 
     // --host flag takes precedence over everything
