@@ -210,7 +210,7 @@ jobs:
             - name: Run a representative product test
               env:
                   PYTEST_ADDOPTS: --reuse-db
-              run: pnpm turbo run backend:test --concurrency=1 --output-logs=full --force --log-order=stream --filter='@posthog/data_warehouse'
+              run: pnpm turbo run backend:test --concurrency=1 --output-logs=full --force --log-order=stream --filter='@posthog/products-data-warehouse'
 
     # --- check-migrations-shadow ---
     # Original: ci-backend.yml check-migrations — complex single-shot with many PR side effects.
@@ -318,7 +318,7 @@ jobs:
             - run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: '3.11'
+                  python-version: 3.12.12
             - id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
