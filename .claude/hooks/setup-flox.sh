@@ -5,13 +5,39 @@
 # CLAUDE_ENV_FILE is only available in SessionStart hooks:
 # https://code.claude.com/docs/en/hooks#sessionstart
 
-# Skip on Claude web (no flox there) or if CLAUDE_ENV_FILE isn't set
-if [ "$CLAUDE_CODE_REMOTE" = "true" ] || [ -z "$CLAUDE_ENV_FILE" ]; then
+HOOK_LOG="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/setup-flox.log"
+log_hook() {
+  printf '%s reason=%s remote=%q env_file=%s project=%q\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$1" \
+    "${CLAUDE_CODE_REMOTE:-}" \
+    "${CLAUDE_ENV_FILE:+set}" \
+    "${CLAUDE_PROJECT_DIR:-}" \
+    >> "$HOOK_LOG" 2>/dev/null || true
+}
+mark_exit() {
+  log_hook "$1"
+  if [ -n "$CLAUDE_ENV_FILE" ]; then
+    printf 'export POSTHOG_FLOX_HOOK_EXIT=%q\n' "$1" >> "$CLAUDE_ENV_FILE"
+    printf 'export POSTHOG_FLOX_HOOK_STARTED=%q\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$CLAUDE_ENV_FILE"
+  fi
+}
+log_hook started
+
+# Skip on Claude web (no flox there); distinguish from a missing CLAUDE_ENV_FILE
+# so the log tells us which branch fired.
+if [ "$CLAUDE_CODE_REMOTE" = "true" ]; then
+  log_hook remote
+  exit 0
+fi
+if [ -z "$CLAUDE_ENV_FILE" ]; then
+  log_hook no_env_file
   exit 0
 fi
 
 # Skip if flox isn't installed
 if ! command -v flox &>/dev/null; then
+  mark_exit no_flox
   exit 0
 fi
 
@@ -35,6 +61,7 @@ if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   CACHED_HASH=$(head -1 "$CACHE_FILE" | sed 's/^# manifest-hash: //')
   if [ "$CACHED_HASH" = "$MANIFEST_HASH" ]; then
     tail -n +2 "$CACHE_FILE" >> "$CLAUDE_ENV_FILE"
+    mark_exit cache_hit
     exit 0
   fi
 fi
@@ -44,6 +71,7 @@ FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/
 
 if [ $? -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
   echo "Warning: flox activate failed, skipping env setup" >&2
+  mark_exit flox_failed
   exit 0
 fi
 
@@ -61,4 +89,5 @@ mkdir -p "$(dirname "$CACHE_FILE")"
 printf '%s' "$ENV_CONTENT" >> "$CLAUDE_ENV_FILE"
 printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
 
+mark_exit fresh_snapshot
 exit 0
