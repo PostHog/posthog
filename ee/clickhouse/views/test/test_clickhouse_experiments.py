@@ -5820,3 +5820,52 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         ordering = response.json()["primary_metrics_ordered_uuids"]
         self.assertIn(inline_uuid, ordering)
         self.assertIn(saved_metric_uuid, ordering)
+
+
+class TestExperimentParametersFieldMutation(APILicensedTest):
+    """
+    ExperimentParametersField translates split_percent <-> rollout_percentage at the API
+    boundary. Both methods must be pure transformations — mutating caller state would leak
+    the alias translation into serializer.initial_data, request.data, activity logs, Sentry
+    reports, and any downstream consumer that reads the original input/output.
+    """
+
+    def test_to_internal_value_does_not_mutate_input_dict(self):
+        from ee.clickhouse.views.experiments import ExperimentParametersField
+
+        input_dict = {
+            "feature_flag_variants": [
+                {"key": "control", "split_percent": 50},
+                {"key": "test", "split_percent": 50},
+            ]
+        }
+
+        ExperimentParametersField().to_internal_value(input_dict)
+
+        # Caller's dict must still have split_percent (not replaced by rollout_percentage)
+        assert input_dict == {
+            "feature_flag_variants": [
+                {"key": "control", "split_percent": 50},
+                {"key": "test", "split_percent": 50},
+            ]
+        }
+
+    def test_to_representation_does_not_mutate_stored_value(self):
+        from ee.clickhouse.views.experiments import ExperimentParametersField
+
+        stored_value = {
+            "feature_flag_variants": [
+                {"key": "control", "rollout_percentage": 50},
+                {"key": "test", "rollout_percentage": 50},
+            ]
+        }
+
+        ExperimentParametersField().to_representation(stored_value)
+
+        # Stored value (the model's in-memory parameters dict) must not gain split_percent
+        assert stored_value == {
+            "feature_flag_variants": [
+                {"key": "control", "rollout_percentage": 50},
+                {"key": "test", "rollout_percentage": 50},
+            ]
+        }

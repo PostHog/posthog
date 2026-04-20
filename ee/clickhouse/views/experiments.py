@@ -79,9 +79,13 @@ class ExperimentParametersField(serializers.JSONField):
         return data
 
     def to_internal_value(self, data: Any) -> Any:
+        from copy import deepcopy
+
+        # Deep copy to avoid mutating the caller's dict (e.g. serializer.initial_data / request.data)
         if isinstance(data, dict) and "feature_flag_variants" in data:
+            data = deepcopy(data)
             for variant in data["feature_flag_variants"]:
-                if "split_percent" in variant:
+                if isinstance(variant, dict) and "split_percent" in variant:
                     # split_percent wins in case both keys present, as rollout_percentage deprecated
                     variant["rollout_percentage"] = variant.pop("split_percent")
         return super().to_internal_value(data)
