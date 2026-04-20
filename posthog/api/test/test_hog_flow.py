@@ -110,6 +110,72 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["actions"] == [trigger_action_expectation]
         assert response.json()["trigger"] == trigger_action_expectation["config"]
 
+    def _make_delay_flow(self, delay_config: dict, status: Optional[str] = "active") -> dict:
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        delay_action = {"id": "d1", "name": "d1", "type": "delay", "config": delay_config}
+        flow: dict = {"name": "Test Flow", "actions": [trigger_action, delay_action]}
+        if status is not None:
+            flow["status"] = status
+        return flow
+
+    @parameterized.expand(
+        [
+            ("missing_delay_duration", {}),
+            ("null_delay_duration", {"delay_duration": None}),
+            ("numeric_delay_duration", {"delay_duration": 1800}),
+            ("seconds_as_input_shape", {"inputs": {"duration": {"value": 1800}}}),
+            ("iso_8601_duration", {"delay_duration": "P30D"}),
+            ("unit_and_duration_shape", {"unit": "days", "duration": 3}),
+            ("unsupported_unit", {"delay_duration": "30s"}),
+            ("empty_string", {"delay_duration": ""}),
+        ]
+    )
+    def test_hog_flow_delay_validation_rejects_malformed_config(self, _name, bad_config):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_delay_flow(bad_config))
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": (
+                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
+                "(e.g. '30m', '2h', '1d'). Seconds and ISO-8601 formats are not supported."
+            ),
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("minutes", "30m"),
+            ("hours", "2h"),
+            ("days", "1d"),
+            ("fractional", "1.5h"),
+        ]
+    )
+    def test_hog_flow_delay_validation_accepts_canonical_config(self, _name, delay_duration):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"delay_duration": delay_duration}),
+        )
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_delay_validation_lenient_for_drafts(self):
+        # status omitted defaults to draft; draft mode lets users save WIP with invalid configs
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"inputs": {"duration": {"value": 1800}}}, status=None),
+        )
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_function_validation(self):
         hog_flow, action = self._create_hog_flow_with_action(
             {

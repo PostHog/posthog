@@ -2,7 +2,7 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, ClassVar, Literal, Optional, Union, cast
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -67,19 +67,24 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
 class BasePrinter(Visitor[str]):
     # NOTE: Call "print_ast()", not this class directly.
     # Shared AST walker for all dialect printers (HogQL, ClickHouse, Postgres).
-    # Dialect-specific behavior currently lives behind `self.dialect` checks
-    # and is being progressively moved into subclass overrides.
+    # Each subclass sets ``DIALECT_NAME`` to identify itself for error messages and
+    # resolver wiring; dialect-specific rendering lives in subclass-overridden hooks.
+
+    DIALECT_NAME: ClassVar[HogQLDialect]
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if not hasattr(cls, "DIALECT_NAME"):
+            raise TypeError(f"{cls.__name__} must define DIALECT_NAME")
 
     def __init__(
         self,
         context: HogQLContext,
-        dialect: HogQLDialect,
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
     ):
         self.context = context
-        self.dialect = dialect
         self.stack: list[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
         self.pretty = pretty
@@ -108,7 +113,7 @@ class BasePrinter(Visitor[str]):
     def _assert_set_operator_supported(self, set_operator: str) -> None:
         """Raise if this dialect does not support the given set operator. Postgres overrides to permit all."""
         if set_operator in ("INTERSECT ALL", "EXCEPT ALL"):
-            raise ImpossibleASTError(f"{set_operator} is not supported in the '{self.dialect}' dialect")
+            raise ImpossibleASTError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
 
     def _assert_recursive_cte_supported(self) -> None:
         """Raise if this dialect does not support recursive CTEs. Postgres overrides to permit."""
@@ -116,7 +121,7 @@ class BasePrinter(Visitor[str]):
 
     def _assert_qualify_supported(self) -> None:
         """Raise if this dialect does not support the QUALIFY clause. Postgres overrides to permit."""
-        raise QueryError("QUALIFY is not supported in the '{}' dialect".format(self.dialect))
+        raise QueryError("QUALIFY is not supported in the '{}' dialect".format(self.DIALECT_NAME))
 
     def _assert_with_ties_supported(self) -> None:
         """Raise if this dialect does not support WITH TIES. Postgres overrides to reject."""
@@ -191,7 +196,7 @@ class BasePrinter(Visitor[str]):
         `limit_str` is the already-visited limit expression. The default raises because
         most dialects don't support LIMIT percent; CH and PG override.
         """
-        raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+        raise QueryError(f"LIMIT percent is not allowed in {self.DIALECT_NAME} dialect")
 
     def _render_select_query_limit_clause(self, limit: ast.Expr, is_percent: bool) -> str:
         """Render the full LIMIT clause (including the keyword) for a single SELECT.
@@ -199,7 +204,7 @@ class BasePrinter(Visitor[str]):
         Default handles the non-percent case and raises for percent; CH and PG override.
         """
         if is_percent:
-            raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+            raise QueryError(f"LIMIT percent is not allowed in {self.DIALECT_NAME} dialect")
         return f"LIMIT {self.visit(limit)}"
 
     def _validate_within_group_for_aggregation(self, node: "ast.Call", func_meta) -> None:
@@ -241,9 +246,11 @@ class BasePrinter(Visitor[str]):
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is not None:
-            raise ImpossibleASTError(f"CTE materialization hints are not supported in the '{self.dialect}' dialect")
+            raise ImpossibleASTError(
+                f"CTE materialization hints are not supported in the '{self.DIALECT_NAME}' dialect"
+            )
         if node.using_key is not None:
-            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.dialect}' dialect")
+            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.DIALECT_NAME}' dialect")
 
         if node.cte_type == "subquery":
             if node.columns is not None:
@@ -507,7 +514,7 @@ class BasePrinter(Visitor[str]):
             return []
 
         scope = ast.SelectQueryType(tables={"t": node_type})
-        return [resolve_types(clone_expr(pred), self.context, self.dialect, [scope]) for pred in predicates]
+        return [resolve_types(clone_expr(pred), self.context, self.DIALECT_NAME, [scope]) for pred in predicates]
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         """Print a table reference. Fail-fast by default: each dialect must override.
@@ -764,7 +771,7 @@ class BasePrinter(Visitor[str]):
         return ""
 
     def visit_array_slice(self, node: ast.ArraySlice):
-        raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
+        raise QueryError(f"Array slices are not allowed in {self.DIALECT_NAME} dialect")
 
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
@@ -777,7 +784,7 @@ class BasePrinter(Visitor[str]):
         return str + ")"
 
     def visit_try_cast(self, node: ast.TryCast):
-        raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
+        raise QueryError(f"TRY_CAST is not allowed in {self.DIALECT_NAME} dialect")
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]

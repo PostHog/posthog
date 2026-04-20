@@ -4,7 +4,7 @@ from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
-from croniter import croniter  # type: ignore[import-untyped]
+from croniter import croniter  # type: ignore[import-untyped,unused-ignore]
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
