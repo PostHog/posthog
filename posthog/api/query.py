@@ -37,7 +37,13 @@ from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
-from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
+from posthog.clickhouse.client.execute_async import (
+    ASYNC_QUERY_TASK_FAILED_ERROR_MESSAGE,
+    ASYNC_QUERY_TASK_REVOKED_ERROR_MESSAGE,
+    ASYNC_QUERY_WORKER_LOST_ERROR_MESSAGE,
+    cancel_query,
+    get_query_status,
+)
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
@@ -70,6 +76,12 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "Query validation failures returned from the query API.",
     labelnames=["query_type", "validation_code"],
 )
+
+ASYNC_QUERY_INFRASTRUCTURE_ERROR_MESSAGES = {
+    ASYNC_QUERY_TASK_FAILED_ERROR_MESSAGE,
+    ASYNC_QUERY_TASK_REVOKED_ERROR_MESSAGE,
+    ASYNC_QUERY_WORKER_LOST_ERROR_MESSAGE,
+}
 
 
 def _extract_validation_code(error: ValidationError) -> str:
@@ -271,7 +283,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
-            if query_status.error_message:
+            if query_status.error_message in ASYNC_QUERY_INFRASTRUCTURE_ERROR_MESSAGES:
+                http_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            elif query_status.error_message:
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
             else:
                 http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise

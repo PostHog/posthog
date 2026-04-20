@@ -4,13 +4,17 @@ import time
 from django.dispatch import receiver
 
 import structlog
-from celery import Celery
+from celery import (
+    Celery,
+    states as celery_states,
+)
 from celery.signals import (
     setup_logging,
     task_failure,
     task_postrun,
     task_prerun,
     task_retry,
+    task_revoked,
     task_success,
     worker_process_init,
 )
@@ -81,6 +85,8 @@ app.conf.broker_pool_limit = 0
 app.steps["worker"].add(DjangoStructLogInitStep)
 
 task_timings: dict[str, float] = {}
+
+PROCESS_QUERY_TASK_NAME = "posthog.tasks.tasks.process_query_task"
 
 
 def _initialize_worker_metrics() -> None:
@@ -181,6 +187,54 @@ def success_signal_handler(sender, **kwargs):
 @task_failure.connect
 def failure_signal_handler(sender, **kwargs):
     CELERY_TASK_FAILURE_COUNTER.labels(task_name=sender.name).inc()
+    _mark_process_query_task_failed_from_signal(sender, kwargs, state=celery_states.FAILURE)
+
+
+@task_revoked.connect
+def revoked_signal_handler(sender=None, request=None, **kwargs):
+    _mark_process_query_task_failed_from_signal(sender, {**kwargs, "request": request}, state=celery_states.REVOKED)
+
+
+def _get_signal_task_name(sender, request) -> str | None:
+    request_task = getattr(request, "task", None)
+    return (
+        getattr(sender, "name", None)
+        or getattr(request_task, "name", None)
+        or getattr(request, "name", None)
+        or (request_task if isinstance(request_task, str) else None)
+    )
+
+
+def _mark_process_query_task_failed_from_signal(sender, signal_kwargs, *, state: str) -> None:
+    request = signal_kwargs.get("request")
+    task_name = _get_signal_task_name(sender, request)
+    if task_name != PROCESS_QUERY_TASK_NAME:
+        return
+
+    args = signal_kwargs.get("args") or getattr(request, "args", None) or ()
+    task_kwargs = signal_kwargs.get("kwargs") or getattr(request, "kwargs", None) or {}
+    task_id = signal_kwargs.get("task_id") or getattr(request, "id", None)
+
+    team_id = task_kwargs.get("team_id")
+    query_id = task_kwargs.get("query_id")
+    if team_id is None and len(args) >= 1:
+        team_id = args[0]
+    if query_id is None and len(args) >= 3:
+        query_id = args[2]
+
+    if team_id is None or query_id is None:
+        logger.warning("failed_to_mark_async_query_task_failed", task_id=task_id, state=state)
+        return
+
+    from posthog.clickhouse.client.execute_async import mark_process_query_task_failed
+
+    mark_process_query_task_failed(
+        team_id=int(team_id),
+        query_id=str(query_id),
+        task_id=str(task_id) if task_id else None,
+        exception=signal_kwargs.get("exception"),
+        state=state,
+    )
 
 
 @task_retry.connect

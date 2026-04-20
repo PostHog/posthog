@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Optional
 import orjson as json
 import structlog
 import posthoganalytics
-from prometheus_client import Histogram
+from celery import states as celery_states
+from prometheus_client import Counter, Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
 
@@ -39,6 +40,20 @@ QUERY_WAIT_TIME = Histogram(
 
 QUERY_PROCESS_TIME = Histogram(
     "query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"], buckets=CUSTOM_BUCKETS
+)
+
+QUERY_ASYNC_TASK_FAILURE_TOTAL = Counter(
+    "query_async_task_failure_total",
+    "Async query statuses marked as failed due to a terminal Celery task state.",
+    labelnames=["reason"],
+)
+
+ASYNC_QUERY_WORKER_LOST_ERROR_MESSAGE = (
+    "The worker processing this query stopped before returning results. Please retry the query."
+)
+ASYNC_QUERY_TASK_FAILED_ERROR_MESSAGE = "The async query task failed before returning results. Please retry the query."
+ASYNC_QUERY_TASK_REVOKED_ERROR_MESSAGE = (
+    "The async query task was canceled before returning results. Please retry the query."
 )
 
 
@@ -138,13 +153,84 @@ class QueryStatusManager:
             logger.exception("Clickhouse Status Check Failed", error=e)
             return None
 
-    def get_query_status(self, show_progress: bool = False) -> QueryStatus:
+    def _load_query_status(self) -> QueryStatus:
         byte_results = self._get_results()
 
         if not byte_results:
             raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
 
-        query_status = QueryStatus(**json.loads(byte_results))
+        return QueryStatus(**json.loads(byte_results))
+
+    @staticmethod
+    def _looks_like_worker_lost(exception: object | None) -> bool:
+        if exception is None:
+            return False
+        return exception.__class__.__name__ == "WorkerLostError" or "WorkerLostError" in str(exception)
+
+    def _task_failure_message_and_reason(self, state: str, exception: object | None) -> tuple[str, str]:
+        if state == celery_states.REVOKED:
+            return ASYNC_QUERY_TASK_REVOKED_ERROR_MESSAGE, "revoked"
+        if self._looks_like_worker_lost(exception):
+            return ASYNC_QUERY_WORKER_LOST_ERROR_MESSAGE, "worker_lost"
+        return ASYNC_QUERY_TASK_FAILED_ERROR_MESSAGE, "task_failed"
+
+    def mark_query_status_failed(
+        self, query_status: QueryStatus, *, error_message: str, reason: str, task_id: str | None = None
+    ) -> QueryStatus:
+        if query_status.complete:
+            return query_status
+
+        query_status.complete = True
+        query_status.error = True
+        query_status.error_message = error_message
+        query_status.results = None
+        query_status.end_time = datetime.datetime.now(datetime.UTC)
+        self.store_query_status(query_status)
+
+        QUERY_ASYNC_TASK_FAILURE_TOTAL.labels(reason=reason).inc()
+        logger.warning(
+            "async_query_status_marked_failed",
+            team_id=self.team_id,
+            query_id=self.query_id,
+            task_id=task_id or query_status.task_id,
+            reason=reason,
+        )
+        return query_status
+
+    def _fail_if_task_finished_unsuccessfully(self, query_status: QueryStatus) -> QueryStatus:
+        if query_status.complete or not query_status.task_id:
+            return query_status
+
+        try:
+            task_result = celery.app.AsyncResult(query_status.task_id)
+            task_state = task_result.state
+        except Exception as err:
+            logger.warning(
+                "async_query_task_state_check_failed",
+                team_id=self.team_id,
+                query_id=self.query_id,
+                task_id=query_status.task_id,
+                error=str(err),
+            )
+            return query_status
+
+        if task_state not in (celery_states.FAILURE, celery_states.REVOKED):
+            return query_status
+
+        exception = getattr(task_result, "result", None)
+        error_message, reason = self._task_failure_message_and_reason(task_state, exception)
+        return self.mark_query_status_failed(
+            query_status,
+            error_message=error_message,
+            reason=reason,
+            task_id=query_status.task_id,
+        )
+
+    def get_query_status(self, show_progress: bool = False, check_task_state: bool = True) -> QueryStatus:
+        query_status = self._load_query_status()
+
+        if check_task_state:
+            query_status = self._fail_if_task_finished_unsuccessfully(query_status)
 
         if show_progress and not query_status.complete:
             query_status.query_progress = self.get_clickhouse_progresses()
@@ -172,6 +258,25 @@ class QueryStatusManager:
     def unregister_cache_key_mapping(self, cache_key: str) -> None:
         """Unregister a query that's no longer running."""
         self.redis_client.hdel(self.running_queries_key, cache_key)
+
+
+def mark_process_query_task_failed(
+    *, team_id: int, query_id: str, task_id: str | None, exception: object | None, state: str = celery_states.FAILURE
+) -> None:
+    manager = QueryStatusManager(query_id, team_id)
+    try:
+        query_status = manager.get_query_status(check_task_state=False)
+    except QueryNotFoundError:
+        logger.info(
+            "async_query_status_missing_for_failed_task",
+            team_id=team_id,
+            query_id=query_id,
+            task_id=task_id,
+        )
+        return
+
+    error_message, reason = manager._task_failure_message_and_reason(state, exception)
+    manager.mark_query_status_failed(query_status, error_message=error_message, reason=reason, task_id=task_id)
 
 
 def execute_process_query(

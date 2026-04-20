@@ -19,7 +19,12 @@ from posthog.clickhouse.client import (
     sync_execute,
 )
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.execute_async import (
+    ASYNC_QUERY_WORKER_LOST_ERROR_MESSAGE,
+    QueryNotFoundError,
+    QueryStatusManager,
+    execute_process_query,
+)
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
@@ -101,6 +106,30 @@ class TestQueryStatusManager(SimpleTestCase):
 
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(show_progress=True), self.query_status)
+
+    @patch("posthog.clickhouse.client.execute_async.celery.app.AsyncResult")
+    def test_get_query_status_marks_worker_lost_task_failed(self, async_result_mock):
+        class WorkerLostError(Exception):
+            pass
+
+        task_result = MagicMock()
+        task_result.state = "FAILURE"
+        task_result.result = WorkerLostError()
+        async_result_mock.return_value = task_result
+
+        self.query_status.task_id = "celery-task-id"
+        self.manager.store_query_status(self.query_status)
+
+        result = self.manager.get_query_status()
+
+        self.assertTrue(result.complete)
+        self.assertTrue(result.error)
+        self.assertEqual(result.error_message, ASYNC_QUERY_WORKER_LOST_ERROR_MESSAGE)
+
+        stored_status = QueryStatus(**json.loads(get_client().get(self.manager.results_key)))
+        self.assertTrue(stored_status.complete)
+        self.assertTrue(stored_status.error)
+        self.assertEqual(stored_status.error_message, ASYNC_QUERY_WORKER_LOST_ERROR_MESSAGE)
 
 
 class TestExecuteProcessQuery(TestCase):

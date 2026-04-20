@@ -34,6 +34,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import process_query_dict, process_query_model
+from posthog.clickhouse.client.execute_async import ASYNC_QUERY_WORKER_LOST_ERROR_MESSAGE
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
@@ -1164,6 +1165,30 @@ class TestQueryRetrieve(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 202)
         self.assertFalse(response.json()["query_status"]["complete"])
+
+    @patch("posthog.clickhouse.client.execute_async.celery.app.AsyncResult")
+    def test_running_query_with_worker_lost_task_returns_error(self, async_result_mock):
+        class WorkerLostError(Exception):
+            pass
+
+        task_result = mock.Mock()
+        task_result.state = "FAILURE"
+        task_result.result = WorkerLostError()
+        async_result_mock.return_value = task_result
+
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "complete": False,
+                "task_id": "celery-task-id",
+            }
+        ).encode()
+        response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 500)
+        self.assertTrue(response.json()["query_status"]["complete"])
+        self.assertTrue(response.json()["query_status"]["error"])
+        self.assertEqual(response.json()["query_status"]["error_message"], ASYNC_QUERY_WORKER_LOST_ERROR_MESSAGE)
 
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
