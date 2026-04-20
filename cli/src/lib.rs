@@ -1,4 +1,5 @@
 pub mod api;
+pub mod api_proxy;
 pub mod commands;
 pub mod dsym;
 pub mod error;

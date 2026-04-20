@@ -7,8 +7,9 @@
     "bin": {
         "ph": "dist/index.js"
     },
+    "type": "module",
     "scripts": {
-        "build": "tsx src/index.ts --help > /dev/null",
+        "build": "tsc",
         "dev": "tsx src/index.ts",
         "typecheck": "tsc --noEmit"
     },

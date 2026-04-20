@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use tracing::error;
 
 use crate::{
+    api_proxy,
     dsym::DsymSubcommand,
     error::CapturedError,
     experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
@@ -66,6 +67,23 @@ pub enum Commands {
     Proguard {
         #[command(subcommand)]
         cmd: ProguardSubcommand,
+    },
+
+    /// Agent-first API tools — list, explore schemas, and execute any PostHog API tool.
+    /// Powered by the same codegen pipeline as the MCP server.
+    ///
+    /// Examples:
+    ///   posthog-cli api list
+    ///   posthog-cli api schema feature-flags-list
+    ///   posthog-cli api feature-flags-list --json '{"limit": 5}'
+    #[command(
+        about = "Agent-first API tools (list, schema, execute)",
+        trailing_var_arg = true
+    )]
+    Api {
+        /// Arguments passed through to the API CLI
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 }
 
@@ -155,7 +173,7 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
-        if !matches!(self.command, Commands::Login) {
+        if !matches!(self.command, Commands::Login | Commands::Api { .. }) {
             init_context(
                 self.host.clone(),
                 self.skip_ssl_verification,
@@ -202,6 +220,10 @@ impl Cli {
                     crate::proguard::upload::upload(&args)?;
                 }
             },
+            Commands::Api { args } => {
+                api_proxy::run(args, self.host)?;
+                return Ok(());
+            }
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,

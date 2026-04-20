@@ -95,25 +95,6 @@
         },
         "soft_delete": true
     },
-    "activity-logs-list": {
-        "method": "GET",
-        "path": "/api/projects/{project_id}/activity_log/",
-        "title": "List activity logs",
-        "description": "List recent activity logs for the project. Shows who changed what and when — includes feature flag updates, insight creations, dashboard modifications, experiment launches, and other project changes. Use scope parameter to filter by resource type (e.g. \"FeatureFlag\", \"Insight\", \"Dashboard\", \"Experiment\", \"Survey\", \"Cohort\"). Use item_id to filter changes for a specific resource. Returns results ordered by most recent first. Each result includes: user (who performed the action with first_name and email), activity (e.g. \"created\", \"updated\", \"deleted\"), scope (entity type like \"FeatureFlag\"), item_id (ID of the affected resource), detail (structured JSON with name, short_id, and a changes array where each change has type, action, field, before, and after values), and created_at timestamp.",
-        "category": "Activity logs",
-        "feature": "activity_logs",
-        "scopes": ["activity_log:read"],
-        "annotations": {
-            "readOnly": true,
-            "destructive": false,
-            "idempotent": true
-        },
-        "params": {
-            "path": [],
-            "query": ["item_id", "page", "page_size", "scope", "scopes", "user"],
-            "body": []
-        }
-    },
     "alerts-list": {
         "method": "GET",
         "path": "/api/projects/{project_id}/alerts/",
@@ -148,7 +129,7 @@
         },
         "params": {
             "path": ["id"],
-            "query": ["checks_date_from", "checks_date_to", "checks_limit"],
+            "query": ["checks_date_from", "checks_date_to", "checks_limit", "checks_offset"],
             "body": []
         }
     },
@@ -179,7 +160,8 @@
                 "detector_config",
                 "calculation_interval",
                 "snoozed_until",
-                "skip_weekend"
+                "skip_weekend",
+                "schedule_restriction"
             ]
         }
     },
@@ -210,7 +192,8 @@
                 "detector_config",
                 "calculation_interval",
                 "snoozed_until",
-                "skip_weekend"
+                "skip_weekend",
+                "schedule_restriction"
             ]
         }
     },
@@ -552,7 +535,7 @@
         "method": "GET",
         "path": "/api/projects/{project_id}/cohorts/",
         "title": "List all cohorts",
-        "description": "List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on property filters).",
+        "description": "List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count (person count), is_static (cohort type), and created_at timestamp. Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,\nand query definition.",
         "category": "Cohorts",
         "feature": "cohorts",
         "scopes": ["cohort:read"],
@@ -662,11 +645,264 @@
             "body": ["person_id"]
         }
     },
+    "conversations-tickets-list": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/conversations/tickets/",
+        "title": "List support tickets",
+        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high), channel_source (widget, email, slack), assignee, date range, and search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "scopes": ["ticket:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [
+                "assignee",
+                "channel_detail",
+                "channel_source",
+                "date_from",
+                "date_to",
+                "distinct_ids",
+                "limit",
+                "offset",
+                "order_by",
+                "priority",
+                "search",
+                "sla",
+                "status",
+                "tags"
+            ],
+            "body": []
+        }
+    },
+    "conversations-tickets-retrieve": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/conversations/tickets/{id}/",
+        "title": "Get support ticket",
+        "description": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message count, channel info, person data, and session context.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "scopes": ["ticket:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "conversations-tickets-update": {
+        "method": "PATCH",
+        "path": "/api/projects/{project_id}/conversations/tickets/{id}/",
+        "title": "Update support ticket",
+        "description": "Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium, high), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user' or 'role') and id, or null to unassign.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "scopes": ["ticket:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": ["status", "priority", "sla_due_at", "snoozed_until", "tags"]
+        }
+    },
+    "subscriptions-list": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/subscriptions/",
+        "title": "List subscriptions",
+        "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
+        "category": "Core",
+        "feature": "core",
+        "scopes": ["subscription:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [
+                "created_by",
+                "dashboard",
+                "insight",
+                "limit",
+                "offset",
+                "ordering",
+                "resource_type",
+                "search",
+                "target_type"
+            ],
+            "body": []
+        }
+    },
+    "subscriptions-create": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/subscriptions/",
+        "title": "Create subscription",
+        "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
+        "category": "Core",
+        "feature": "core",
+        "scopes": ["subscription:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": [
+                "dashboard",
+                "insight",
+                "dashboard_export_insights",
+                "target_type",
+                "target_value",
+                "frequency",
+                "interval",
+                "byweekday",
+                "bysetpos",
+                "count",
+                "start_date",
+                "until_date",
+                "deleted",
+                "title",
+                "integration_id",
+                "invite_message",
+                "summary_enabled",
+                "summary_prompt_guide"
+            ]
+        }
+    },
+    "subscriptions-retrieve": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/subscriptions/{id}/",
+        "title": "Get subscription",
+        "description": "Get a specific subscription by ID. Returns the full subscription configuration including target type and value, schedule details, next delivery date, and associated insight or dashboard.",
+        "category": "Core",
+        "feature": "core",
+        "scopes": ["subscription:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "subscriptions-partial-update": {
+        "method": "PATCH",
+        "path": "/api/projects/{project_id}/subscriptions/{id}/",
+        "title": "Update subscription",
+        "description": "Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday, start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.",
+        "category": "Core",
+        "feature": "core",
+        "scopes": ["subscription:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": true,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": [
+                "dashboard",
+                "insight",
+                "dashboard_export_insights",
+                "target_type",
+                "target_value",
+                "frequency",
+                "interval",
+                "byweekday",
+                "bysetpos",
+                "count",
+                "start_date",
+                "until_date",
+                "deleted",
+                "title",
+                "integration_id",
+                "invite_message",
+                "summary_enabled",
+                "summary_prompt_guide"
+            ]
+        }
+    },
+    "subscriptions-test-delivery-create": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/subscriptions/{id}/test-delivery/",
+        "title": "Send test delivery",
+        "description": "Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription is already in flight.",
+        "category": "Core",
+        "feature": "core",
+        "scopes": ["subscription:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": true,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "subscriptions-deliveries-list": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/subscriptions/{subscription_id}/deliveries/",
+        "title": "List subscription deliveries",
+        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
+        "category": "Core",
+        "feature": "core",
+        "scopes": ["subscription:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["subscription_id"],
+            "query": ["cursor", "status"],
+            "body": []
+        }
+    },
+    "subscriptions-deliveries-retrieve": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/subscriptions/{subscription_id}/deliveries/{id}/",
+        "title": "Get subscription delivery",
+        "description": "Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value, timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state. recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
+        "category": "Core",
+        "feature": "core",
+        "scopes": ["subscription:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id", "subscription_id"],
+            "query": [],
+            "body": []
+        }
+    },
     "dashboards-get-all": {
         "method": "GET",
         "path": "/api/projects/{project_id}/dashboards/",
         "title": "Get all dashboards",
-        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata.",
+        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "scopes": ["dashboard:read"],
@@ -685,7 +921,7 @@
         "method": "POST",
         "path": "/api/projects/{project_id}/dashboards/",
         "title": "Create dashboard",
-        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard.",
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "scopes": ["dashboard:write"],
@@ -716,7 +952,7 @@
         "method": "GET",
         "path": "/api/projects/{project_id}/dashboards/{id}/",
         "title": "Get dashboard",
-        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information.",
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "scopes": ["dashboard:read"],
@@ -735,7 +971,7 @@
         "method": "PATCH",
         "path": "/api/projects/{project_id}/dashboards/{id}/",
         "title": "Update dashboard",
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "scopes": ["dashboard:write"],
@@ -781,6 +1017,25 @@
             "body": []
         },
         "soft_delete": true
+    },
+    "dashboard-insights-run": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/dashboards/{id}/run_insights/",
+        "title": "Run dashboard insights",
+        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. Use this after dashboard-get to see the actual data behind each insight tile.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "scopes": ["query:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": ["output_format", "refresh"],
+            "body": []
+        }
     },
     "dashboard-reorder-tiles": {
         "method": "POST",
@@ -836,7 +1091,7 @@
         "params": {
             "path": [],
             "query": [],
-            "body": ["name", "query", "is_test"]
+            "body": ["name", "query", "folder_id", "dag_id", "is_test"]
         }
     },
     "view-get": {
@@ -874,7 +1129,7 @@
         "params": {
             "path": ["id"],
             "query": [],
-            "body": ["name", "query", "edited_history_id", "is_test"]
+            "body": ["name", "query", "folder_id", "edited_history_id", "dag_id", "is_test"]
         }
     },
     "view-delete": {
@@ -913,7 +1168,7 @@
         "params": {
             "path": ["id"],
             "query": [],
-            "body": ["deleted", "name", "query", "edited_history_id", "soft_update", "is_test"]
+            "body": ["deleted", "name", "query", "folder_id", "edited_history_id", "soft_update", "dag_id", "is_test"]
         }
     },
     "view-unmaterialize": {
@@ -932,7 +1187,7 @@
         "params": {
             "path": ["id"],
             "query": [],
-            "body": ["deleted", "name", "query", "edited_history_id", "soft_update", "is_test"]
+            "body": ["deleted", "name", "query", "folder_id", "edited_history_id", "soft_update", "dag_id", "is_test"]
         }
     },
     "view-run": {
@@ -951,7 +1206,7 @@
         "params": {
             "path": ["id"],
             "query": [],
-            "body": ["deleted", "name", "query", "edited_history_id", "soft_update", "is_test"]
+            "body": ["deleted", "name", "query", "folder_id", "edited_history_id", "soft_update", "dag_id", "is_test"]
         }
     },
     "view-run-history": {
@@ -1068,11 +1323,259 @@
             "body": []
         }
     },
+    "endpoints-get-all": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/endpoints/",
+        "title": "Get all endpoints",
+        "description": "Get all API endpoints in the current project. Endpoints expose saved HogQL or insight queries as callable API routes. Returns name, description, query, active status, current version, and materialization info for each endpoint.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "scopes": ["endpoint:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["created_by", "is_active", "limit", "offset"],
+            "body": []
+        }
+    },
+    "endpoint-get": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/endpoints/{name}/",
+        "title": "Get endpoint",
+        "description": "Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version info, materialization status, and column types. Supports ?version=N to retrieve a specific version.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "scopes": ["endpoint:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["name"],
+            "query": [],
+            "body": []
+        }
+    },
+    "endpoint-create": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/endpoints/",
+        "title": "Create endpoint",
+        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "scopes": ["endpoint:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": ["name", "query", "description", "cache_age_seconds", "is_materialized"]
+        }
+    },
+    "endpoint-update": {
+        "method": "PATCH",
+        "path": "/api/projects/{project_id}/endpoints/{name}/",
+        "title": "Update endpoint",
+        "description": "Update an existing endpoint by name. Can update the query (auto-creates a new version), description, cache age, active status, and materialization. Pass version in body to target a specific version for non-query updates.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "scopes": ["endpoint:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["name"],
+            "query": [],
+            "body": ["query", "description", "cache_age_seconds", "is_active", "is_materialized", "version"]
+        }
+    },
+    "endpoint-delete": {
+        "method": "PATCH",
+        "path": "/api/projects/{project_id}/endpoints/{name}/",
+        "title": "Delete endpoint",
+        "description": "Delete an endpoint by name. The endpoint is soft-deleted and its materialized views are cleaned up.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "scopes": ["endpoint:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": true,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["name"],
+            "query": [],
+            "body": []
+        },
+        "soft_delete": true
+    },
+    "endpoint-run": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/endpoints/{name}/run/",
+        "title": "Run endpoint",
+        "description": "Execute an endpoint's query and return results. Uses materialized results when available, otherwise runs inline. For HogQL endpoints, variable keys must match code_name values. For insight endpoints with breakdowns, use the breakdown property name as the key.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "scopes": ["endpoint:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["name"],
+            "query": [],
+            "body": ["limit", "offset", "refresh", "variables"]
+        }
+    },
+    "endpoint-versions": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/endpoints/{name}/versions/",
+        "title": "Get endpoint versions",
+        "description": "List all versions for an endpoint, in descending order (latest first). Each version contains the query snapshot, description, cache settings, and materialization status at that point in time.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "scopes": ["endpoint:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["name"],
+            "query": ["created_by", "is_active", "limit", "offset"],
+            "body": []
+        }
+    },
+    "endpoint-materialization-status": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/endpoints/{name}/materialization_status/",
+        "title": "Get materialization status",
+        "description": "Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether materialization is possible, current status, last run time, and any errors. Supports ?version=N.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "scopes": ["endpoint:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["name"],
+            "query": [],
+            "body": []
+        }
+    },
+    "endpoint-openapi-spec": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/endpoints/{name}/openapi.json/",
+        "title": "Get endpoint OpenAPI spec",
+        "description": "Get the OpenAPI 3.0 specification for an endpoint. Returns a JSON spec that can be used with SDK generators like openapi-generator or @hey-api/openapi-ts to create typed API clients. Supports ?version=N to generate a spec for a specific version.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "scopes": ["endpoint:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["name"],
+            "query": ["version"],
+            "body": []
+        }
+    },
+    "error-tracking-assignment-rules-list": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/error_tracking/assignment_rules/",
+        "title": "List error tracking assignment rules",
+        "description": "List error tracking assignment rules for the current project. Returns rules in evaluation order with their filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "scopes": ["error_tracking:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["limit", "offset"],
+            "body": []
+        }
+    },
+    "error-tracking-assignment-rules-create": {
+        "method": "POST",
+        "path": "/api/environments/{project_id}/error_tracking/assignment_rules/",
+        "title": "Create error tracking assignment rule",
+        "description": "Create an error tracking assignment rule for the current project. Provide `filters` to match incoming errors and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "scopes": ["error_tracking:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": ["filters", "assignee"]
+        }
+    },
+    "error-tracking-grouping-rules-list": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/error_tracking/grouping_rules/",
+        "title": "List error tracking grouping rules",
+        "description": "List error tracking grouping rules for the current project. Returns rules in evaluation order with their filters, optional assignee, description, and linked issue when available.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "scopes": ["error_tracking:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": []
+        }
+    },
+    "error-tracking-grouping-rules-create": {
+        "method": "POST",
+        "path": "/api/environments/{project_id}/error_tracking/grouping_rules/",
+        "title": "Create error tracking grouping rule",
+        "description": "Create an error tracking grouping rule for the current project. Provide required `filters`, and optionally set `assignee` and `description` for the issues this rule creates.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "scopes": ["error_tracking:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": ["filters", "assignee", "description"]
+        }
+    },
     "error-tracking-issues-list": {
         "method": "GET",
         "path": "/api/environments/{project_id}/error_tracking/issues/",
         "title": "List error tracking issues",
-        "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
+        "description": "List all error tracking issues in the project. Returns issues with id, status, name, first seen timestamp, and assignee info.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "scopes": ["error_tracking:read"],
@@ -1123,6 +1626,63 @@
             "path": ["id"],
             "query": [],
             "body": ["status", "name", "description", "first_seen", "assignee", "external_issues"]
+        }
+    },
+    "error-tracking-issues-merge-create": {
+        "method": "POST",
+        "path": "/api/environments/{project_id}/error_tracking/issues/{id}/merge/",
+        "title": "Merge error tracking issues",
+        "description": "Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and the issues to merge into it as `ids`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "scopes": ["error_tracking:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": true,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": ["ids"]
+        }
+    },
+    "error-tracking-issues-split-create": {
+        "method": "POST",
+        "path": "/api/environments/{project_id}/error_tracking/issues/{id}/split/",
+        "title": "Split error tracking issue fingerprints",
+        "description": "Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required `fingerprint` and optional `name` or `description`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "scopes": ["error_tracking:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": true,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": ["fingerprints"]
+        }
+    },
+    "error-tracking-suppression-rules-list": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/error_tracking/suppression_rules/",
+        "title": "List error tracking suppression rules",
+        "description": "List error tracking suppression rules for the current project. Returns rules in evaluation order with their filters, sampling rate, and disabled state. Supports pagination with `limit` and `offset`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "scopes": ["error_tracking:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["limit", "offset"],
+            "body": []
         }
     },
     "query-error-tracking-issues": {
@@ -1253,6 +1813,256 @@
                     }
                 ]
             }
+        }
+    },
+    "experiment-get-all": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/experiments/",
+        "title": "Get all experiments",
+        "description": "Get all experiments in the project.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["limit", "offset"],
+            "body": []
+        }
+    },
+    "experiment-get": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/experiments/{id}/",
+        "title": "Get experiment details",
+        "description": "Get details of a specific experiment by ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "experiment-create": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/experiments/",
+        "title": "Create experiment",
+        "description": "Create a comprehensive A/B test experiment. PROCESS: 1) Understand experiment goal and hypothesis 2) Search existing feature flags with 'feature-flags-get-all' tool first and suggest reuse or new key 3) Help user define success metrics by asking what they want to optimize 4) MOST IMPORTANT: Use 'event-definitions-list' tool to find available events in their project 5) For funnel metrics, provide the series array with EventsNode entries for each step 6) Configure variants (default 50/50 control/test unless they specify otherwise) 7) Set targeting criteria if needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": [
+                "name",
+                "description",
+                "feature_flag_key",
+                "holdout_id",
+                "parameters",
+                "type",
+                "exposure_criteria",
+                "metrics",
+                "metrics_secondary",
+                "allow_unknown_events"
+            ]
+        }
+    },
+    "experiment-update": {
+        "method": "PATCH",
+        "path": "/api/projects/{project_id}/experiments/{id}/",
+        "title": "Update experiment",
+        "description": "Update an existing experiment by ID. Can update name, description, variants, metrics, and other properties. Use lifecycle tools for state transitions: experiment-launch to start, experiment-end to stop, experiment-reset to return to draft, experiment-pause/experiment-resume to temporarily halt. NOTE: feature_flag_key cannot be changed after creation.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": [
+                "name",
+                "description",
+                "parameters",
+                "archived",
+                "exposure_criteria",
+                "metrics",
+                "metrics_secondary",
+                "conclusion",
+                "conclusion_comment"
+            ]
+        }
+    },
+    "experiment-delete": {
+        "method": "PATCH",
+        "path": "/api/projects/{project_id}/experiments/{id}/",
+        "title": "Delete experiment",
+        "description": "Delete an experiment by ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": true,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        },
+        "soft_delete": true
+    },
+    "experiment-launch": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/experiments/{id}/launch/",
+        "title": "Launch experiment",
+        "description": "Launch a draft experiment. Activates the linked feature flag, sets start_date to now, and transitions the experiment to running. Returns 400 if the experiment has already been launched.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "experiment-end": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/experiments/{id}/end/",
+        "title": "End experiment",
+        "description": "End a running experiment. Sets end_date to now but does NOT modify the feature flag. Optionally provide a conclusion and comment. Returns 400 if the experiment is not running.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": ["conclusion", "conclusion_comment"]
+        }
+    },
+    "experiment-archive": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/experiments/{id}/archive/",
+        "title": "Archive experiment",
+        "description": "Archive an ended experiment to hide it from the default list view. Returns 400 if the experiment is already archived or has not ended.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "experiment-ship-variant": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/experiments/{id}/ship_variant/",
+        "title": "Ship experiment variant",
+        "description": "Ship a variant to 100% of users and optionally end the experiment. Requires variant_key. Can include conclusion and conclusion_comment. Returns 400 if the experiment is in draft state.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": ["conclusion", "conclusion_comment", "variant_key"]
+        }
+    },
+    "experiment-pause": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/experiments/{id}/pause/",
+        "title": "Pause experiment",
+        "description": "Pause a running experiment by deactivating its feature flag. Users fall back to the default experience and no new exposures are recorded. Returns 400 if the experiment is not running or is already paused.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "experiment-resume": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/experiments/{id}/resume/",
+        "title": "Resume experiment",
+        "description": "Resume a paused experiment by reactivating its feature flag. Returns 400 if the experiment is not paused.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "experiment-reset": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/experiments/{id}/reset/",
+        "title": "Reset experiment",
+        "description": "Reset an experiment back to draft state. Clears start/end dates, conclusion, and archived flag. The feature flag is left unchanged. Returns 400 if the experiment is already in draft state.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "scopes": ["experiment:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
         }
     },
     "feature-flag-get-all": {
@@ -1491,7 +2301,7 @@
         },
         "params": {
             "path": [],
-            "query": ["limit", "offset"],
+            "query": ["limit", "model_name", "offset", "record_id"],
             "body": []
         }
     },
@@ -1537,6 +2347,7 @@
                 "scheduled_at",
                 "is_recurring",
                 "recurrence_interval",
+                "cron_expression",
                 "end_date"
             ]
         }
@@ -1564,6 +2375,7 @@
                 "scheduled_at",
                 "is_recurring",
                 "recurrence_interval",
+                "cron_expression",
                 "end_date"
             ]
         }
@@ -1576,6 +2388,63 @@
         "category": "Feature flags",
         "feature": "flags",
         "scopes": ["feature_flag:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": true,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "integrations-list": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/integrations/",
+        "title": "List integrations",
+        "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key, only GitHub integrations are returned.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "scopes": ["integration:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["limit", "offset"],
+            "body": []
+        }
+    },
+    "integration-get": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/integrations/{id}/",
+        "title": "Get integration",
+        "description": "Get a specific integration by ID. Returns the full integration details including kind, display name, non-sensitive configuration, error status, and creation metadata. Does not expose sensitive credentials.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "scopes": ["integration:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "integration-delete": {
+        "method": "DELETE",
+        "path": "/api/projects/{project_id}/integrations/{id}/",
+        "title": "Delete integration",
+        "description": "Permanently delete an integration by ID. This removes the connection to the third-party service. Any features relying on this integration (alerts, workflow destinations, etc.) will stop working.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "scopes": ["integration:write"],
         "annotations": {
             "readOnly": false,
             "destructive": true,
@@ -1604,6 +2473,25 @@
             "path": [],
             "query": ["limit", "offset"],
             "body": []
+        }
+    },
+    "llm-analytics-evaluation-summary-create": {
+        "method": "POST",
+        "path": "/api/environments/{project_id}/llm_analytics/evaluation_summary/",
+        "title": "Summarize evaluation results",
+        "description": "Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "scopes": ["llm_analytics:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": ["evaluation_id", "filter", "generation_ids", "force_refresh"]
         }
     },
     "llm-analytics-sentiment-create": {
@@ -1641,7 +2529,17 @@
         "params": {
             "path": [],
             "query": [],
-            "body": ["summarize_type", "mode", "data", "force_refresh", "model"]
+            "body": [
+                "summarize_type",
+                "mode",
+                "data",
+                "force_refresh",
+                "model",
+                "trace_id",
+                "generation_id",
+                "date_from",
+                "date_to"
+            ]
         }
     },
     "llm-analytics-clustering-jobs-retrieve": {
@@ -1661,6 +2559,82 @@
             "path": ["id"],
             "query": [],
             "body": []
+        }
+    },
+    "query-logs": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/logs/query/",
+        "title": "Query logs",
+        "description": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. Returns log entries with timestamp, body, level, service_name, trace_id, and attributes.\n\nUse `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.\n\n# Workflow — follow this order every time\n\n1. **Discover services first.** Call `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to see available services.\n2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: \"resource\"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: \"resource\"` for relevant attributes to validate what data exists.\n3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.\n4. **Check volume with a sparkline.** Call `logs-sparkline-query` with the discovered `serviceNames` and filters to see log volume over time. This confirms there is data and shows patterns before you pull individual entries.\n5. **Only then query logs.** Once you have confirmed the service name, volume looks right, and relevant filters are set, call `query-logs` with `serviceNames` and any additional filters.\n\n10 attribute/value queries and 1 sparkline query are cheaper than 1 log query. Prefer thorough exploration over speculative log searches.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nMANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body/message. Use key \"message\" for this type.\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-attributes-list` to discover available attribute keys** before building filters.\n- **Use `logs-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\n**Important:** The `logs-attributes-list` and `logs-attribute-values-list` tools default to `attribute_type: \"log\"` (log-level attributes). To search resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`), you must explicitly pass `attribute_type: \"resource\"`. Forgetting this will return log-level attributes when you intended resource-level ones.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"serviceNames\": [\"<service>\"]\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }]\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }]\n  }\n}\n```\n\n# Reminders\n\n- Always set `serviceNames` or a resource attribute filter. Never run a broad unfiltered log query.\n- Limit `dateRange` to at most `-1d` (24 hours) unless the user explicitly requests a longer range.\n- When using `logs-attributes-list` or `logs-attribute-values-list`, remember they default to `attribute_type: \"log\"`. Pass `attribute_type: \"resource\"` to search resource-level attributes.\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-attributes-list` and `logs-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
+        "category": "Logs",
+        "feature": "logs",
+        "scopes": ["logs:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": ["query"]
+        }
+    },
+    "logs-attributes-list": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/logs/attributes/",
+        "title": "List log attributes",
+        "description": "List available log attribute names for filtering. Defaults to attribute_type \"log\" (log-level attributes). To search resource-level attributes (e.g. k8s.pod.name, k8s.namespace.name), you MUST explicitly pass attribute_type: \"resource\" — it will NOT return resource attributes unless you do. Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
+        "category": "Logs",
+        "feature": "logs",
+        "scopes": ["logs:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["attribute_type", "dateRange", "filterGroup", "limit", "offset", "search", "serviceNames"],
+            "body": []
+        }
+    },
+    "logs-attribute-values-list": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/logs/values/",
+        "title": "List log attribute values",
+        "description": "List values for a specific log attribute key. Use to discover what values exist before building filters. Defaults to attribute_type \"log\" (log-level attributes). To get values for resource-level attributes (e.g. service.name, k8s.pod.name), you MUST explicitly pass attribute_type: \"resource\". Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
+        "category": "Logs",
+        "feature": "logs",
+        "scopes": ["logs:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["attribute_type", "dateRange", "filterGroup", "key", "serviceNames", "value"],
+            "body": []
+        }
+    },
+    "logs-sparkline-query": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/logs/sparkline/",
+        "title": "Query logs sparkline",
+        "description": "Get a time-bucketed sparkline of log volume, broken down by severity or service. Use this to understand log volume patterns before querying individual log entries — it is much cheaper than a full log query.\n\nAll parameters must be nested inside a `query` object.\n\n# Parameters\n\n## query.dateRange\n\nDate range for the sparkline. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nFilter by service names.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.searchTerm\n\nFull-text search across log bodies.\n\n## query.filterGroup\n\nProperty filters to narrow results. Same format as `query-logs` filters.\n\n## query.sparklineBreakdownBy\n\nBreak down the sparkline by `\"severity\"` (default) or `\"service\"`. Use `\"service\"` to see which services are producing the most logs.\n\n# Examples\n\n## Error volume over the last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Log volume by service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"sparklineBreakdownBy\": \"service\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Log volume by severity\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"sparklineBreakdownBy\": \"severity\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```",
+        "category": "Logs",
+        "feature": "logs",
+        "scopes": ["logs:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": ["query"]
         }
     },
     "notebooks-list": {
@@ -1892,11 +2866,445 @@
             "body": []
         }
     },
+    "change-requests-list": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/change_requests/",
+        "title": "List pending and resolved approval requests.",
+        "description": "List approval requests (change requests) for the current project. Returns pending, approved, rejected, and expired requests with vote status and staleness info. Useful for understanding what governance actions are waiting for review.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["approvals:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["action_key", "limit", "offset", "requester", "resource_id", "resource_type", "state"],
+            "body": []
+        }
+    },
+    "change-request-get": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/change_requests/{id}/",
+        "title": "Get details of a specific approval request.",
+        "description": "Get a specific change request by ID, including the full intent, policy snapshot, approval votes, and current state.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["approvals:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "approval-policies-list": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/approval_policies/",
+        "title": "List approval policies for the project.",
+        "description": "List all approval policies configured for this project. Shows which actions require approval, who can approve, and bypass rules.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["approvals:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["limit", "offset"],
+            "body": []
+        }
+    },
+    "approval-policy-get": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/approval_policies/{id}/",
+        "title": "Get a specific approval policy.",
+        "description": "Get details of an approval policy including conditions, approver configuration, quorum requirements, and bypass rules.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["approvals:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "comments-list": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/comments/",
+        "title": "List comments and discussion threads.",
+        "description": "List comments across the project. Filter by scope (Dashboard, FeatureFlag, Insight, etc.) and item_id to find discussions on specific resources. Returns comment content, author, and threading info.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["comment:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["cursor", "item_id", "scope", "search", "source_comment"],
+            "body": []
+        }
+    },
+    "comment-get": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/comments/{id}/",
+        "title": "Get a specific comment.",
+        "description": "Get a specific comment by ID including its content, rich content with mentions, and metadata.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["comment:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "comment-thread": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/comments/{id}/thread/",
+        "title": "Get all replies in a comment thread.",
+        "description": "Get the full thread of replies for a parent comment. Useful for reading complete discussions on a resource.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["comment:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "comment-count": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/comments/count/",
+        "title": "Get comment counts.",
+        "description": "Get the count of comments, optionally filtered by scope and item_id.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["comment:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": []
+        }
+    },
+    "activity-log-list": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/activity_log/",
+        "title": "List recent activity in the project.",
+        "description": "List recent activity log entries for the project. Shows who did what and when — feature flag changes, dashboard edits, experiment launches, etc. Supports filtering by scope, user, and date range.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["activity_log:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["item_id", "page", "page_size", "scope", "scopes", "user"],
+            "body": []
+        }
+    },
+    "advanced-activity-logs-list": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/advanced_activity_logs/",
+        "title": "List activity logs with advanced filtering.",
+        "description": "List activity log entries with advanced filtering, sorting, and field-level diffs. Supports filtering by scope, activity type, user, date range, and search text.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["activity_log:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [
+                "activities",
+                "clients",
+                "detail_filters",
+                "end_date",
+                "hogql_filter",
+                "is_system",
+                "item_ids",
+                "page",
+                "page_size",
+                "scopes",
+                "search_text",
+                "start_date",
+                "users",
+                "was_impersonated"
+            ],
+            "body": []
+        }
+    },
+    "advanced-activity-logs-filters": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/advanced_activity_logs/available_filters/",
+        "title": "Get available activity log filter options.",
+        "description": "Get the available filter options for activity logs — scopes, activity types, and users that have logged activity. Useful for building filter UIs or understanding what kinds of activity are tracked.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["activity_log:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": []
+        }
+    },
+    "org-members-list": {
+        "method": "GET",
+        "path": "/api/organizations/{organization_id}/members/",
+        "title": "List organization members.",
+        "description": "List all members of the current organization with their names, emails, membership levels (member, admin, owner), and last login times.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["organization_member:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["limit", "offset", "order"],
+            "body": []
+        }
+    },
+    "roles-list": {
+        "method": "GET",
+        "path": "/api/organizations/{organization_id}/roles/",
+        "title": "List organization roles.",
+        "description": "List all roles defined in the organization. Roles group members and can be used in approval policies and access control rules.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["organization:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["limit", "offset"],
+            "body": []
+        }
+    },
+    "role-get": {
+        "method": "GET",
+        "path": "/api/organizations/{organization_id}/roles/{id}/",
+        "title": "Get a specific role.",
+        "description": "Get details of a specific role including its name, creation date, and creator.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["organization:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "role-members-list": {
+        "method": "GET",
+        "path": "/api/organizations/{organization_id}/roles/{role_id}/role_memberships/",
+        "title": "List members of a role.",
+        "description": "List all members assigned to a specific role. Shows who has which role in the organization.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["organization:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["role_id"],
+            "query": ["limit", "offset"],
+            "body": []
+        }
+    },
+    "organizations-list": {
+        "method": "GET",
+        "path": "/api/organizations/",
+        "title": "List organizations.",
+        "description": "List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID with organization-get for details or switch-organization to change context.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["organization:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["limit", "offset"],
+            "body": []
+        }
+    },
+    "organization-get": {
+        "method": "GET",
+        "path": "/api/organizations/{id}/",
+        "title": "Get organization details.",
+        "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "scopes": ["organization:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "insights-list": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/insights/",
+        "title": "Get all insights",
+        "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "scopes": ["insight:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["limit", "offset", "short_id"],
+            "body": []
+        }
+    },
+    "insight-get": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/insights/{id}/",
+        "title": "Get insight",
+        "description": "Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the same identifier.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "scopes": ["insight:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "insight-create": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/insights/",
+        "title": "Create insight",
+        "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "scopes": ["insight:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": ["name", "dashboards", "description", "tags", "favorited", "query"]
+        }
+    },
+    "insight-update": {
+        "method": "PATCH",
+        "path": "/api/projects/{project_id}/insights/{id}/",
+        "title": "Update insight",
+        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "scopes": ["insight:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": ["name", "dashboards", "description", "tags", "favorited", "query"]
+        }
+    },
+    "insight-delete": {
+        "method": "PATCH",
+        "path": "/api/projects/{project_id}/insights/{id}/",
+        "title": "Delete insight",
+        "description": "Soft-delete an insight by ID. The insight will be marked as deleted and no longer appear in lists.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "scopes": ["insight:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": true,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        },
+        "soft_delete": true
+    },
     "prompt-list": {
         "method": "GET",
         "path": "/api/environments/{project_id}/llm_prompts/",
         "title": "List prompts",
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries.",
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
         "category": "Prompts",
         "feature": "prompts",
         "scopes": ["llm_prompt:read"],
@@ -1907,7 +3315,7 @@
         },
         "params": {
             "path": [],
-            "query": ["search"],
+            "query": ["content", "created_by_id", "limit", "offset", "search"],
             "body": []
         }
     },
@@ -1915,7 +3323,7 @@
         "method": "GET",
         "path": "/api/environments/{project_id}/llm_prompts/name/{prompt_name}/",
         "title": "Get prompt",
-        "description": "Get a specific LLM prompt by name, including its full content. Uses the cached endpoint for fast retrieval.",
+        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
         "category": "Prompts",
         "feature": "prompts",
         "scopes": ["llm_prompt:read"],
@@ -1926,7 +3334,7 @@
         },
         "params": {
             "path": ["prompt_name"],
-            "query": ["version"],
+            "query": ["content", "version"],
             "body": []
         }
     },
@@ -1953,7 +3361,7 @@
         "method": "PATCH",
         "path": "/api/environments/{project_id}/llm_prompts/name/{prompt_name}/",
         "title": "Update prompt",
-        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.",
+        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided.",
         "category": "Prompts",
         "feature": "prompts",
         "scopes": ["llm_prompt:write"],
@@ -1965,7 +3373,7 @@
         "params": {
             "path": ["prompt_name"],
             "query": [],
-            "body": ["prompt", "base_version"]
+            "body": ["prompt", "edits", "base_version"]
         }
     },
     "prompt-duplicate": {
@@ -2079,6 +3487,319 @@
         "params": {
             "path": ["id"],
             "query": [],
+            "body": []
+        }
+    },
+    "session-recording-get": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/session_recordings/{id}/",
+        "title": "Get session recording",
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status.",
+        "category": "Session replays",
+        "feature": "replay",
+        "scopes": ["session_recording:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "session-recording-delete": {
+        "method": "DELETE",
+        "path": "/api/projects/{project_id}/session_recordings/{id}/",
+        "title": "Delete session recording",
+        "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows.",
+        "category": "Session replays",
+        "feature": "replay",
+        "scopes": ["session_recording:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": true,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "session-recording-playlists-list": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/session_recording_playlists/",
+        "title": "List session recording playlists",
+        "description": "List session recording playlists in the project. Returns both user-created and synthetic (system-generated) playlists with their metadata and recording counts.",
+        "category": "Session replays",
+        "feature": "replay",
+        "scopes": ["session_recording_playlist:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["created_by", "limit", "offset", "short_id"],
+            "body": []
+        }
+    },
+    "session-recording-playlist-get": {
+        "method": "GET",
+        "path": "/api/projects/{project_id}/session_recording_playlists/{short_id}/",
+        "title": "Get session recording playlist",
+        "description": "Get a specific session recording playlist by short_id. Returns full playlist metadata including name, description, filters, type, and recording counts.",
+        "category": "Session replays",
+        "feature": "replay",
+        "scopes": ["session_recording_playlist:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["short_id"],
+            "query": [],
+            "body": []
+        }
+    },
+    "session-recording-playlist-create": {
+        "method": "POST",
+        "path": "/api/projects/{project_id}/session_recording_playlists/",
+        "title": "Create session recording playlist",
+        "description": "Create a new session recording playlist. Set type to 'collection' for a manually curated list or 'filters' for a saved filter view. Collections cannot have filters, and filter playlists must include at least one filter criterion.",
+        "category": "Session replays",
+        "feature": "replay",
+        "scopes": ["session_recording_playlist:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": ["name", "derived_name", "description", "pinned", "deleted", "filters", "type"]
+        }
+    },
+    "session-recording-playlist-update": {
+        "method": "PATCH",
+        "path": "/api/projects/{project_id}/session_recording_playlists/{short_id}/",
+        "title": "Update session recording playlist",
+        "description": "Update an existing session recording playlist by short_id. Can update name, description, pinned status, and filters. Set deleted to true to soft-delete. The type field cannot be changed after creation. When updating a filters-type playlist, you must include the existing filters alongside other field changes, otherwise the update will fail.",
+        "category": "Session replays",
+        "feature": "replay",
+        "scopes": ["session_recording_playlist:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["short_id"],
+            "query": [],
+            "body": ["name", "derived_name", "description", "pinned", "deleted", "filters"]
+        }
+    },
+    "query-session-recordings-list": {
+        "method": "POST",
+        "path": "/api/environments/{project_id}/query/",
+        "title": "List session recordings",
+        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.",
+        "category": "Session replays",
+        "feature": "replay",
+        "scopes": ["session_recording:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": []
+        },
+        "query_kind": "RecordingsQuery",
+        "query_schema": [
+            {
+                "name": "after",
+                "type": "string",
+                "required": false,
+                "description": "Cursor for pagination from a previous response's next_cursor field."
+            },
+            {
+                "name": "date_from",
+                "type": "string | null",
+                "required": false,
+                "description": "Start of the date range. Supports relative dates like \"-7d\", \"-24h\" or ISO 8601 format. Default: \"-3d\"."
+            },
+            {
+                "name": "date_to",
+                "type": "string | null",
+                "required": false,
+                "description": "End of the date range. Supports relative dates or ISO 8601 format. Default: now."
+            },
+            {
+                "name": "filter_test_accounts",
+                "type": "boolean",
+                "required": false,
+                "description": "Exclude internal and test users. Default: false."
+            },
+            {
+                "name": "limit",
+                "type": "integer",
+                "required": false,
+                "description": "Maximum number of recordings to return."
+            },
+            {
+                "name": "order",
+                "type": "RecordingOrder",
+                "required": false,
+                "description": "Sort field. Options: \"start_time\", \"duration\", \"activity_score\", \"console_error_count\", \"click_count\". Default: \"start_time\"."
+            },
+            {
+                "name": "order_direction",
+                "type": "RecordingOrderDirection",
+                "required": false,
+                "description": "Sort direction: \"ASC\" or \"DESC\". Default: \"DESC\"."
+            },
+            {
+                "name": "person_uuid",
+                "type": "string",
+                "required": false,
+                "description": "Filter recordings to a specific person by their UUID."
+            },
+            {
+                "name": "properties",
+                "type": "AssistantRecordingsQueryPropertyFilter[]",
+                "required": false,
+                "description": "Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by se"
+            }
+        ]
+    },
+    "skill-list": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/llm_skills/",
+        "title": "List skills",
+        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use skill-get to fetch full content).",
+        "category": "Skills",
+        "feature": "skills",
+        "scopes": ["llm_skill:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": ["limit", "offset", "search"],
+            "body": []
+        }
+    },
+    "skill-get": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/llm_skills/name/{skill_name}/",
+        "title": "Get skill",
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io).",
+        "category": "Skills",
+        "feature": "skills",
+        "scopes": ["llm_skill:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["skill_name"],
+            "query": ["version"],
+            "body": []
+        }
+    },
+    "skill-create": {
+        "method": "POST",
+        "path": "/api/environments/{project_id}/llm_skills/",
+        "title": "Create skill",
+        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
+        "category": "Skills",
+        "feature": "skills",
+        "scopes": ["llm_skill:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": ["name", "description", "body", "license", "compatibility", "allowed_tools", "metadata", "files"]
+        }
+    },
+    "skill-update": {
+        "method": "PATCH",
+        "path": "/api/environments/{project_id}/llm_skills/name/{skill_name}/",
+        "title": "Update skill",
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided is carried forward from the current latest version. Requires base_version for optimistic concurrency. If files are provided, they replace all files from the previous version; if omitted, files are carried forward.",
+        "category": "Skills",
+        "feature": "skills",
+        "scopes": ["llm_skill:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["skill_name"],
+            "query": [],
+            "body": [
+                "body",
+                "description",
+                "license",
+                "compatibility",
+                "allowed_tools",
+                "metadata",
+                "files",
+                "base_version"
+            ]
+        }
+    },
+    "skill-duplicate": {
+        "method": "POST",
+        "path": "/api/environments/{project_id}/llm_skills/name/{skill_name}/duplicate/",
+        "title": "Duplicate skill",
+        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
+        "category": "Skills",
+        "feature": "skills",
+        "scopes": ["llm_skill:write"],
+        "annotations": {
+            "readOnly": false,
+            "destructive": false,
+            "idempotent": false
+        },
+        "params": {
+            "path": ["skill_name"],
+            "query": [],
+            "body": ["new_name"]
+        }
+    },
+    "skill-file-get": {
+        "method": "GET",
+        "path": "/api/environments/{project_id}/llm_skills/name/{skill_name}/files/{file_path}/",
+        "title": "Get skill file",
+        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+        "category": "Skills",
+        "feature": "skills",
+        "scopes": ["llm_skill:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": ["file_path", "skill_name"],
+            "query": ["version"],
             "body": []
         }
     },
@@ -3407,5 +5128,128 @@
                 "description": "The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results)."
             }
         ]
+    },
+    "query-trends-actors": {
+        "method": "POST",
+        "path": "/api/environments/{project_id}/query/",
+        "title": "List persons behind a trends data point",
+        "description": "List the persons behind a specific data point in a trends insight. Use this to answer \"who were the users that did X on day Y?\" or \"which users are in this breakdown bucket?\".\n\nPair this with `query-trends`: first run the trends query to identify the data point of interest, then call this tool with the same trends query as `source` plus selectors that narrow to one cell.\n\nSelectors:\n\n- `day`: the bucket date (ISO) or integer offset from the range start. Omit to get actors across the entire range.\n- `series`: 0-based index of the series to drill into when the trends query has multiple series.\n- `breakdown`: always an array, one value per `breakdownFilter.breakdowns` dimension, in the same order. Single dimension: `breakdown: [\"Opera\"]`. Multiple dimensions: `breakdown: [\"Opera\", \"en-US\"]`.\n- `compare`: `current` (default) or `previous` when the source has `compareFilter` enabled.\n\nResponse:\n\nEach returned row contains `distinct_id`, `name`, `email`, and `count` (number of matching events for that actor). Results are limited to the top 100 actors ordered by event count; pagination will be added later.\n\nGuidance:\n\n- Keep the `source` trends query minimal — only include the filters/breakdowns needed to identify the cell.\n- If the user wants \"all users who did X\", omit `day`/`series`/`breakdown` to broaden the drill-down.\n- For large result sets, tighten the trends query (filters, date range) rather than expecting more rows.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "scopes": ["query:read", "person:read"],
+        "annotations": {
+            "readOnly": true,
+            "destructive": false,
+            "idempotent": true
+        },
+        "params": {
+            "path": [],
+            "query": [],
+            "body": []
+        },
+        "query_kind": "InsightActorsQuery",
+        "query_schema": [
+            {
+                "name": "breakdown",
+                "type": "string[]",
+                "required": false,
+                "description": "Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions."
+            },
+            {
+                "name": "compare",
+                "type": "current | previous",
+                "required": false,
+                "description": "Whether to pull from the previous period when `compare` is enabled in the source."
+            },
+            {
+                "name": "day",
+                "type": "string | integer",
+                "required": false,
+                "description": "Bucket date for the data point. Accepts ISO date or integer offset."
+            },
+            {
+                "name": "series",
+                "type": "integer",
+                "required": false,
+                "description": "Series index (0-based) when the source has multiple series."
+            },
+            {
+                "name": "source",
+                "type": "AssistantTrendsQuery",
+                "required": true,
+                "description": "The source insight query whose data point we are drilling into."
+            }
+        ],
+        "types": {
+            "AssistantTrendsQuery": {
+                "properties": [
+                    {
+                        "name": "aggregation_group_type_index",
+                        "type": "integer | null",
+                        "required": false,
+                        "description": "Groups aggregation"
+                    },
+                    {
+                        "name": "breakdownFilter",
+                        "type": "AssistantTrendsBreakdownFilter",
+                        "required": false,
+                        "description": "Breakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns "
+                    },
+                    {
+                        "name": "compareFilter",
+                        "type": "CompareFilter",
+                        "required": false,
+                        "description": "Compare to date range"
+                    },
+                    {
+                        "name": "dateRange",
+                        "type": "AssistantDateRangeFilter",
+                        "required": false,
+                        "description": "Date range for the query"
+                    },
+                    {
+                        "name": "filterTestAccounts",
+                        "type": "boolean",
+                        "required": false,
+                        "description": "Exclude internal and test users by applying the respective filters"
+                    },
+                    {
+                        "name": "interval",
+                        "type": "IntervalType",
+                        "required": false,
+                        "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                    },
+                    {
+                        "name": "kind",
+                        "type": "\"TrendsQuery\"",
+                        "required": true
+                    },
+                    {
+                        "name": "properties",
+                        "type": "AssistantPropertyFilter[]",
+                        "required": false,
+                        "description": "Property filters for all series"
+                    },
+                    {
+                        "name": "samplingFactor",
+                        "type": "number | null",
+                        "required": false,
+                        "description": "Sampling rate from 0 to 1 where 1 is 100% of the data."
+                    },
+                    {
+                        "name": "series",
+                        "type": "AssistantTrendsEventsNode | AssistantTrendsActionsNode[]",
+                        "required": true,
+                        "description": "Events or actions to include. Prioritize the more popular and fresh events and actions."
+                    },
+                    {
+                        "name": "trendsFilter",
+                        "type": "AssistantTrendsFilter",
+                        "required": false,
+                        "description": "Properties specific to the trends insight"
+                    }
+                ]
+            }
+        }
     }
 }

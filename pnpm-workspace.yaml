@@ -18,7 +18,7 @@ packages:
     - products/*
     - docs/onboarding
     - services/oauth-proxy
-    - services/cli
+    - services/agent-cli
     - services/mcp
     - services/stripe-app
     - tools/*

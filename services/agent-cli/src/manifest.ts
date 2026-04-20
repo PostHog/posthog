@@ -8,6 +8,9 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export interface CliParamSchema {
     name: string
@@ -44,9 +47,9 @@ export interface CliToolManifest {
 }
 
 const MANIFEST_LOCATIONS = [
-    // Running from services/cli/src/ (dev with tsx)
+    // Running from services/agent-cli/src/ (dev with tsx)
     path.resolve(__dirname, '../../mcp/schema/cli-manifest.json'),
-    // Running from services/cli/dist/ (built)
+    // Running from services/agent-cli/dist/ (built)
     path.resolve(__dirname, '../../../mcp/schema/cli-manifest.json'),
 ]
 
