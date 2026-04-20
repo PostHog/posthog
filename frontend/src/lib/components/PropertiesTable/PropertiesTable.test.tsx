@@ -42,19 +42,13 @@ const valueCell = (container: HTMLElement): HTMLElement => {
     return cell
 }
 
-const renderedValueText = (container: HTMLElement): string => {
-    // The clickable value text lives inside the .editable wrapper, which holds an inner span with the value.
-    const editable = valueCell(container).querySelector('.editable')
-    return editable?.querySelector('span')?.textContent?.trim() ?? ''
-}
+const renderedValueText = (container: HTMLElement): string =>
+    valueCell(container).querySelector('.editable')?.querySelector('span')?.textContent?.trim() ?? ''
 
-const renderedTypeTag = (container: HTMLElement): string => {
-    return valueCell(container).querySelector('.LemonTag')?.textContent?.trim() ?? ''
-}
+const renderedTypeTag = (container: HTMLElement): string =>
+    valueCell(container).querySelector('.LemonTag')?.textContent?.trim() ?? ''
 
-const trigger = (container: HTMLElement): HTMLElement => {
-    return valueCell(container).querySelector('.editable') as HTMLElement
-}
+const trigger = (container: HTMLElement): HTMLElement => valueCell(container).querySelector('.editable') as HTMLElement
 
 const openTextEditor = (container: HTMLElement): HTMLInputElement => {
     fireEvent.click(trigger(container))
@@ -66,12 +60,16 @@ const openMenu = async (container: HTMLElement): Promise<void> => {
     await waitFor(() => expect(screen.getByText('Type as text…')).toBeInTheDocument())
 }
 
+const clickMenuItem = (label: string): void => {
+    fireEvent.click(screen.getByRole('menuitem', { name: label }))
+}
+
 const typeAndSave = (input: HTMLInputElement, newText: string): void => {
     fireEvent.change(input, { target: { value: newText } })
     fireEvent.keyDown(input, { key: 'Enter' })
 }
 
-describe('PropertiesTable inline editor — full transition matrix', () => {
+describe('PropertiesTable inline editor', () => {
     beforeEach(() => {
         initKeaTests()
     })
@@ -80,116 +78,97 @@ describe('PropertiesTable inline editor — full transition matrix', () => {
         cleanup()
     })
 
-    describe('starting from string "hello"', () => {
-        it('text edit → "world" renders as string "world"', () => {
-            const { container, onEditSpy } = renderStateful('hello')
-            typeAndSave(openTextEditor(container), 'world')
-            expect(onEditSpy).toHaveBeenCalledWith('custom_field', 'world', 'hello')
-            expect(renderedValueText(container)).toBe('world')
-            expect(renderedTypeTag(container)).toBe('string')
+    describe('text editor', () => {
+        it.each<[AnyValue, string, AnyValue, string]>([
+            ['hello', 'world', 'world', 'string'],
+            ['hello', '42', '42', 'string'],
+            [42, '43', 43, 'number'],
+            [42, 'hello', 'hello', 'string'],
+        ])('%s → typing "%s" saves %s with type %s', (initial, typed, expectedValue, expectedTag) => {
+            const { container, onEditSpy } = renderStateful(initial)
+            typeAndSave(openTextEditor(container), typed)
+            expect(onEditSpy).toHaveBeenCalledWith('custom_field', expectedValue, initial)
+            expect(renderedValueText(container)).toBe(String(expectedValue))
+            expect(renderedTypeTag(container)).toBe(expectedTag)
         })
 
-        it('text edit → "42" renders as string "42" (does NOT become number)', () => {
+        it.each<[AnyValue]>([['hello'], [42]])('blurring without changes does not save (%s)', (initial) => {
+            const { container, onEditSpy } = renderStateful(initial)
+            const input = openTextEditor(container)
+            fireEvent.change(input, { target: { value: 'something else' } })
+            fireEvent.blur(input)
+            expect(onEditSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('bool/null menu', () => {
+        it.each<[AnyValue, string, AnyValue, string]>([
+            [null, 'true', true, 'boolean'],
+            [null, 'false', false, 'boolean'],
+            [true, 'false', false, 'boolean'],
+            [true, 'null', null, 'null'],
+            [false, 'true', true, 'boolean'],
+            [false, 'null', null, 'null'],
+        ])('%s → choosing %s saves %s with type %s', async (initial, label, expectedValue, expectedTag) => {
+            const { container, onEditSpy } = renderStateful(initial)
+            await openMenu(container)
+            clickMenuItem(label)
+            expect(onEditSpy).toHaveBeenCalledWith('custom_field', expectedValue, initial)
+            expect(renderedValueText(container)).toBe(label)
+            expect(renderedTypeTag(container)).toBe(expectedTag)
+        })
+
+        it.each<[AnyValue, string]>([
+            [null, 'null'],
+            [true, 'true'],
+            [false, 'false'],
+        ])('choosing the same value (%s) does not save', async (initial, label) => {
+            const { container, onEditSpy } = renderStateful(initial)
+            await openMenu(container)
+            clickMenuItem(label)
+            expect(onEditSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('Type as text… from bool/null', () => {
+        it.each<[AnyValue]>([[null], [true], [false]])('input starts empty when initial is %s', async (initial) => {
+            const { container } = renderStateful(initial)
+            await openMenu(container)
+            clickMenuItem('Type as text…')
+            expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('')
+        })
+
+        it.each<[AnyValue, string, string, string]>([
+            [null, 'world', 'world', 'string'],
+            [true, 'world', 'world', 'string'],
+            [false, 'world', 'world', 'string'],
+            [null, 'true', 'true', 'string'],
+            [true, 'true', 'true', 'string'],
+            [null, '42', '42', 'string'],
+        ])('%s → typing "%s" saves "%s" with type %s', async (initial, typed, expectedValue, expectedTag) => {
+            const { container, onEditSpy } = renderStateful(initial)
+            await openMenu(container)
+            clickMenuItem('Type as text…')
+            typeAndSave(screen.getByRole('textbox') as HTMLInputElement, typed)
+            expect(onEditSpy).toHaveBeenCalledWith('custom_field', expectedValue, initial)
+            expect(renderedValueText(container)).toBe(expectedValue)
+            expect(renderedTypeTag(container)).toBe(expectedTag)
+        })
+    })
+
+    describe('editor mode follows the value type after a save', () => {
+        it('string value → click → text editor (no menu)', () => {
             const { container } = renderStateful('hello')
-            typeAndSave(openTextEditor(container), '42')
-            expect(renderedValueText(container)).toBe('42')
-            expect(renderedTypeTag(container)).toBe('string')
-        })
-    })
-
-    describe('starting from number 42', () => {
-        it('text edit → "43" preserves number type', () => {
-            const { container, onEditSpy } = renderStateful(42)
-            typeAndSave(openTextEditor(container), '43')
-            expect(onEditSpy).toHaveBeenCalledWith('custom_field', 43, 42)
-            expect(renderedValueText(container)).toBe('43')
-            expect(renderedTypeTag(container)).toBe('number')
-        })
-
-        it('text edit → "hello" falls back to string (input is not numeric)', () => {
-            const { container, onEditSpy } = renderStateful(42)
-            typeAndSave(openTextEditor(container), 'hello')
-            expect(onEditSpy).toHaveBeenCalledWith('custom_field', 'hello', 42)
-            expect(renderedValueText(container)).toBe('hello')
-            expect(renderedTypeTag(container)).toBe('string')
-        })
-    })
-
-    describe.each([
-        ['null', null],
-        ['true', true],
-        ['false', false],
-    ])('starting from %s', (_label, initial) => {
-        it.each([
-            ['true', true],
-            ['false', false],
-            ['null', null],
-        ])('menu → %s renders correctly', async (toLabel, toValue) => {
-            const { container, onEditSpy } = renderStateful(initial as AnyValue)
-            await openMenu(container)
-            fireEvent.click(screen.getByRole('menuitem', { name: toLabel }))
-
-            if (initial === toValue) {
-                // No-op selection — onEdit is skipped because newValue == value
-                expect(onEditSpy).not.toHaveBeenCalled()
-            } else {
-                expect(onEditSpy).toHaveBeenCalledWith('custom_field', toValue, initial)
-            }
-            expect(renderedValueText(container)).toBe(toLabel)
-            expect(renderedTypeTag(container)).toBe(toValue === null ? 'null' : 'boolean')
-        })
-
-        it('menu → Type as text… → "world" renders as string "world"', async () => {
-            const { container, onEditSpy } = renderStateful(initial as AnyValue)
-            await openMenu(container)
-            fireEvent.click(screen.getByRole('menuitem', { name: 'Type as text…' }))
-            const input = screen.getByRole('textbox') as HTMLInputElement
-            typeAndSave(input, 'world')
-            expect(onEditSpy).toHaveBeenCalledWith('custom_field', 'world', initial)
-            expect(renderedValueText(container)).toBe('world')
-            expect(renderedTypeTag(container)).toBe('string')
-        })
-
-        it('menu → Type as text… → input starts empty (does not pre-fill with literal)', async () => {
-            const { container } = renderStateful(initial as AnyValue)
-            await openMenu(container)
-            fireEvent.click(screen.getByRole('menuitem', { name: 'Type as text…' }))
-            const input = screen.getByRole('textbox') as HTMLInputElement
-            expect(input.value).toBe('')
-        })
-
-        it('menu → Type as text… → typing "true" saves the STRING "true" (not boolean true)', async () => {
-            const { container, onEditSpy } = renderStateful(initial as AnyValue)
-            await openMenu(container)
-            fireEvent.click(screen.getByRole('menuitem', { name: 'Type as text…' }))
-            const input = screen.getByRole('textbox') as HTMLInputElement
-            typeAndSave(input, 'true')
-            // User explicitly chose "Type as text…" — typed "true" stays a string.
-            expect(onEditSpy).toHaveBeenCalledWith('custom_field', 'true', initial)
-            expect(renderedValueText(container)).toBe('true')
-            expect(renderedTypeTag(container)).toBe('string')
-        })
-    })
-
-    describe('after saving, the editor mode follows the new type', () => {
-        it('null → save string via Type as text → next click opens text editor (not menu)', async () => {
-            const { container } = renderStateful(null)
-            await openMenu(container)
-            fireEvent.click(screen.getByRole('menuitem', { name: 'Type as text…' }))
-            typeAndSave(screen.getByRole('textbox') as HTMLInputElement, 'hello')
-            // Re-edit: clicking the value should open the text editor directly (no menu)
             fireEvent.click(trigger(container))
             expect(screen.queryByText('Type as text…')).not.toBeInTheDocument()
             expect(screen.getByRole('textbox')).toBeInTheDocument()
         })
 
-        it('string → menu choice "null" → next click opens menu (not text editor)', async () => {
-            const { container } = renderStateful('hello')
-            // From string, only text editor is reachable. Type "X" then save to leave a string.
-            // To get to menu mode we need the value to become null/bool, which only happens via the menu —
-            // and the menu only appears for null/bool. So the only path string → menu is: edit string,
-            // and then have something else write null. Skip — covered by null/bool starting cases.
-            // But we can verify: starting from string, clicking opens text editor, NOT a menu.
+        it('null value → save string via Type as text → next click opens text editor', async () => {
+            const { container } = renderStateful(null)
+            await openMenu(container)
+            clickMenuItem('Type as text…')
+            typeAndSave(screen.getByRole('textbox') as HTMLInputElement, 'hello')
             fireEvent.click(trigger(container))
             expect(screen.queryByText('Type as text…')).not.toBeInTheDocument()
             expect(screen.getByRole('textbox')).toBeInTheDocument()
