@@ -19586,6 +19586,17 @@ export namespace Schemas {
       content_type?: string;
     }
 
+    export interface LLMSkillOutlineEntry {
+      /**
+       * Markdown heading level (1-6).
+       * @minimum 1
+       * @maximum 6
+       */
+      level: number;
+      /** Heading text. */
+      text: string;
+    }
+
     export interface LLMSkill {
       readonly id: string;
       /**
@@ -19616,6 +19627,8 @@ export namespace Schemas {
       metadata?: LLMSkillMetadata;
       /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
+      /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+      readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -19680,6 +19693,8 @@ export namespace Schemas {
       metadata?: LLMSkillCreateMetadata;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
+      /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+      readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -19741,6 +19756,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
+      /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+      readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
       readonly created_by: UserBasic;
       readonly created_at: string;

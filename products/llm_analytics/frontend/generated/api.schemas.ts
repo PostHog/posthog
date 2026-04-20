@@ -1327,6 +1327,17 @@ export interface LLMPromptResolveResponseApi {
     has_more: boolean
 }
 
+export interface LLMSkillOutlineEntryApi {
+    /**
+     * Markdown heading level (1-6).
+     * @minimum 1
+     * @maximum 6
+     */
+    level: number
+    /** Heading text. */
+    text: string
+}
+
 /**
  * Arbitrary key-value metadata.
  */
@@ -1361,6 +1372,8 @@ export interface LLMSkillListApi {
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillListApiMetadata
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -1434,6 +1447,8 @@ export interface LLMSkillCreateApi {
     metadata?: LLMSkillCreateApiMetadata
     /** Bundled files to include with the initial version (scripts, references, assets). */
     files?: LLMSkillFileInputApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -1487,6 +1502,8 @@ export interface LLMSkillApi {
     metadata?: LLMSkillApiMetadata
     /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
     readonly files: readonly LLMSkillFileManifestApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
     readonly version: number
     readonly created_by: UserBasicApi
     readonly created_at: string
