@@ -65,6 +65,16 @@ export function VisualReviewRunsScene(): JSX.Element {
             render: (_, run) => <BranchCell run={run} repoFullName={repoFullName} />,
         },
         {
+            title: 'Type',
+            key: 'run_type',
+            width: 90,
+            render: (_, run) => (
+                <LemonTag type="muted" size="small" className="uppercase">
+                    {run.run_type}
+                </LemonTag>
+            ),
+        },
+        {
             title: 'Commit',
             key: 'commit',
             width: 90,

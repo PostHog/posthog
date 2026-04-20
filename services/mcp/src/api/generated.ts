@@ -5789,6 +5789,8 @@ export namespace Schemas {
       /** @nullable */
       completed_at: string | null;
       is_stale?: boolean;
+      /** @nullable */
+      superseded_by_id?: string | null;
       metadata?: RunMetadata;
     }
 
@@ -17327,6 +17329,7 @@ export namespace Schemas {
     * `native_email` - native_email
     * `posthog_assignee` - posthog_assignee
     * `posthog_ticket_tags` - posthog_ticket_tags
+    * `posthog_business_hours` - posthog_business_hours
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -17344,6 +17347,7 @@ export namespace Schemas {
       NativeEmail: 'native_email',
       PosthogAssignee: 'posthog_assignee',
       PosthogTicketTags: 'posthog_ticket_tags',
+      PosthogBusinessHours: 'posthog_business_hours',
     } as const;
 
     /**
