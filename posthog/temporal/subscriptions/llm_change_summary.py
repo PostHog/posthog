@@ -237,6 +237,7 @@ def generate_change_summary(
     subscription_title: str | None = None,
     prompt_guide: str = "",
     team: Team | None = None,
+    delivery_id: str | None = None,
 ) -> str:
     team_id = team.id if team else 0
 
@@ -244,6 +245,16 @@ def generate_change_summary(
         messages = build_prompt_messages(previous_states, current_states, subscription_title, prompt_guide, team=team)
     else:
         messages = build_initial_prompt_messages(current_states, subscription_title, prompt_guide, team=team)
+
+    user_message_content = next((m["content"] for m in messages if m["role"] == "user"), "")
+    logger.info(
+        "change_summary_prompt_ready",
+        team_id=team_id,
+        delivery_id=delivery_id,
+        has_previous=bool(previous_states),
+        insight_count=len(current_states),
+        user_message_length=len(user_message_content),
+    )
 
     client = get_llm_client(product="product_analytics")
 

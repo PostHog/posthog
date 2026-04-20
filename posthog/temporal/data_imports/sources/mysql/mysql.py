@@ -193,6 +193,27 @@ def _build_query(
     }
 
 
+def _explain_query(cursor: Cursor, query: str, query_args: dict[str, Any], logger: FilteringBoundLogger) -> None:
+    """Log the MySQL EXPLAIN output for `query` at debug level.
+
+    Useful for diagnosing sync failures on large tables: reveals whether the
+    optimizer chose a full table scan + filesort (the failure mode where
+    nothing streams back before middlebox/query timeouts) vs. a range scan
+    on the incremental index.
+    """
+    try:
+        explain_query = f"EXPLAIN {query}"
+        logger.debug(f"Running EXPLAIN on: {query}")
+        cursor.execute(explain_query, query_args)
+        rows = cursor.fetchall()
+        column_names = [col[0] for col in cursor.description or []]
+        explain_lines = [str(dict(zip(column_names, row))) for row in rows]
+        logger.debug(f"EXPLAIN result: {' | '.join(explain_lines) if explain_lines else '(empty)'}")
+    except Exception as e:
+        logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
+        capture_exception(e)
+
+
 def _get_rows_to_sync(
     cursor: Cursor, inner_query: str, inner_query_args: dict[str, Any], logger: FilteringBoundLogger
 ) -> int:
@@ -719,6 +740,13 @@ def mysql_source(
                         db_incremental_field_last_value,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
+
+                    # EXPLAIN before the streaming query to help diagnose
+                    # failures where MySQL picks full scan + filesort over
+                    # the incremental index. _explain_query consumes its
+                    # rows via fetchall(), leaving the cursor in a clean
+                    # state for the streaming execute() below.
+                    _explain_query(cursor, query, args, logger)
 
                     cursor.execute(query, args)
 

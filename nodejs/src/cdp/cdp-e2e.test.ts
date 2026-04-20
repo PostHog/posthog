@@ -165,7 +165,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 eventsConsumer?.stop().then(() => console.log('Stopped eventsConsumer')),
                 cyclotronWorkerKafka?.stop().then(() => console.log('Stopped cyclotronWorkerKafka')),
                 cyclotronWorkerPostgres?.stop().then(() => console.log('Stopped cyclotronWorkerPostgres')),
-            ]
+            ].filter((s): s is Promise<void> => s !== undefined)
 
             await Promise.all(stoppers)
             await closeHub(hub)

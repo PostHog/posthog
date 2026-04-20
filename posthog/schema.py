@@ -6906,6 +6906,14 @@ class HogQLQueryModifiers(BaseModel):
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
     s3TableUseInvalidColumns: bool | None = None
+    sessionIdPushdown: bool | None = Field(
+        default=None,
+        description=(
+            "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into"
+            " the raw_sessions subquery to limit aggregation to sessions that"
+            " participate in the outer events filter."
+        ),
+    )
     sessionTableVersion: SessionTableVersion | None = None
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None

@@ -274,6 +274,26 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") -> None:
+    user = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"provisioning-welcome-{user.uuid}-{timezone.now().timestamp()}",
+        subject="Welcome to PostHog - set your password",
+        template_name="provisioning_welcome",
+        template_context={
+            "preheader": "Your PostHog account is ready. Set your password to log in.",
+            "link": f"/reset/{user.uuid}/{token}",
+            "cloud": is_cloud(),
+            "site_url": settings.SITE_URL,
+            "partner_name": partner_name,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_password_reset(user_id: int, token: str) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
