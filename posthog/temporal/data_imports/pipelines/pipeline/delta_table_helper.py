@@ -17,10 +17,30 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.utils import conditional_lru_cache_async, normalize_column_name
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    conditional_lru_cache_async,
+    normalize_column_name,
+    pyarrow_schema_from_arrow_exportable,
+)
 
 from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
+
+
+def _write_deltalake(
+    table_or_uri: str | deltalake.DeltaTable,
+    table_data: pa.Table,
+    partition_by: str | None,
+    mode: Literal["error", "append", "overwrite", "ignore"],
+    schema_mode: Literal["merge", "overwrite"] | None,
+) -> None:
+    deltalake.write_deltalake(
+        table_or_uri=table_or_uri,
+        data=table_data,
+        partition_by=partition_by,
+        mode=mode,
+        schema_mode=schema_mode,
+    )
 
 
 def _first_per_pk_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
@@ -114,7 +134,7 @@ class DeltaTableHelper:
         if delta_table is None:
             raise Exception("Deltalake table not found")
 
-        delta_table_schema = pa.schema(delta_table.schema().to_arrow())
+        delta_table_schema = pyarrow_schema_from_arrow_exportable(delta_table.schema())
 
         new_fields = [
             deltalake.Field.from_arrow(field)
@@ -199,6 +219,8 @@ class DeltaTableHelper:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
+            existing_delta_table = delta_table
+
             await self._logger.adebug(f"write_to_deltalake: merging...")
 
             # Normalize keys and check the keys actually exist in the dataset
@@ -229,7 +251,7 @@ class DeltaTableHelper:
 
                     def _do_merge(filtered_table: pa.Table, predicate: str):
                         return (
-                            delta_table.merge(
+                            existing_delta_table.merge(
                                 source=filtered_table,
                                 source_alias="source",
                                 target_alias="target",
@@ -251,7 +273,7 @@ class DeltaTableHelper:
 
                 def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
                     return (
-                        delta_table.merge(
+                        existing_delta_table.merge(
                             source=data,
                             source_alias="source",
                             target_alias="target",
@@ -290,22 +312,6 @@ class DeltaTableHelper:
                 )
 
             try:
-
-                def _write_deltalake(
-                    table_or_uri: str | deltalake.DeltaTable,
-                    table_data: pa.Table,
-                    partition_by: str | None,
-                    mode: Literal["error", "append", "overwrite", "ignore"],
-                    schema_mode: Literal["merge", "overwrite"] | None,
-                ) -> None:
-                    deltalake.write_deltalake(
-                        table_or_uri=table_or_uri,
-                        data=table_data,
-                        partition_by=partition_by,
-                        mode=mode,
-                        schema_mode=schema_mode,
-                    )
-
                 await asyncio.to_thread(
                     _write_deltalake,
                     delta_table,
@@ -318,23 +324,8 @@ class DeltaTableHelper:
                 await self._logger.adebug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
                 capture_exception(e)
 
-                def _overwrite_schema(
-                    table_or_uri: str | deltalake.DeltaTable,
-                    table_data: pa.Table,
-                    partition_by: None,
-                    mode: Literal["error", "append", "overwrite", "ignore"],
-                    schema_mode: Literal["overwrite"],
-                ) -> None:
-                    deltalake.write_deltalake(
-                        table_or_uri=table_or_uri,
-                        data=table_data,
-                        partition_by=partition_by,
-                        mode=mode,
-                        schema_mode=schema_mode,
-                    )
-
                 await asyncio.to_thread(
-                    _overwrite_schema,
+                    _write_deltalake,
                     delta_table,
                     data,
                     partition_by=None,
@@ -356,9 +347,9 @@ class DeltaTableHelper:
             await self._logger.adebug(f"write_to_deltalake: write_type = append")
 
             await asyncio.to_thread(
-                deltalake.write_deltalake,
-                table_or_uri=delta_table,
-                data=data,
+                _write_deltalake,
+                delta_table,
+                data,
                 partition_by=PARTITION_KEY if use_partitioning else None,
                 mode="append",
                 schema_mode="merge",
@@ -392,6 +383,7 @@ class DeltaTableHelper:
 
         # Step 1: Close existing current rows for PKs in this batch
         if delta_table is not None and primary_keys and "valid_from" in data.column_names:
+            existing_delta_table = delta_table
             py_column_names = data.column_names
             normalized_pks: list[str] = []
             for x in primary_keys:
@@ -409,7 +401,7 @@ class DeltaTableHelper:
 
                 def _do_scd2_close(first_per_pk: pa.Table, predicate: str) -> dict:
                     return (
-                        delta_table.merge(
+                        existing_delta_table.merge(
                             source=first_per_pk,
                             source_alias="source",
                             target_alias="target",

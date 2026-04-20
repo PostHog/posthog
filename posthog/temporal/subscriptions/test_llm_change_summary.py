@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import patch
 
 from posthog.temporal.subscriptions.llm_change_summary import (
@@ -14,6 +15,7 @@ def _make_state(
     query_kind: str = "TrendsQuery",
     timestamp: str = "2025-04-14T10:00:00Z",
     description: str = "",
+    comparison_enabled: bool = False,
 ) -> dict:
     return {
         "insight_id": insight_id,
@@ -22,6 +24,7 @@ def _make_state(
         "query_kind": query_kind,
         "results_summary": summary,
         "timestamp": timestamp,
+        "comparison_enabled": comparison_enabled,
     }
 
 
@@ -121,6 +124,63 @@ class TestBuildPromptMessages:
         user_content = messages[-1]["content"]
         assert "Description:" not in user_content
 
+    @pytest.mark.parametrize(
+        "query_kind,comparison_enabled,expected,forbidden",
+        [
+            ("TrendsQuery", True, "Compare to previous period: enabled", "Compare to previous period: not configured"),
+            (
+                "TrendsQuery",
+                False,
+                "Compare to previous period: not configured",
+                "Compare to previous period: enabled",
+            ),
+            (
+                "LifecycleQuery",
+                False,
+                "Compare to previous period: not configured",
+                "Compare to previous period: enabled",
+            ),
+            (
+                "StickinessQuery",
+                True,
+                "Compare to previous period: enabled",
+                "Compare to previous period: not configured",
+            ),
+        ],
+    )
+    def test_surfaces_comparison_state_for_supported_kinds(self, query_kind, comparison_enabled, expected, forbidden):
+        previous = [
+            _make_state(1, "pv", "- pv: latest=100", query_kind=query_kind, comparison_enabled=comparison_enabled)
+        ]
+        current = [
+            _make_state(
+                1,
+                "pv",
+                "- pv: latest=120",
+                query_kind=query_kind,
+                timestamp="2025-04-15T10:00:00Z",
+                comparison_enabled=comparison_enabled,
+            )
+        ]
+
+        messages = build_prompt_messages(previous, current)
+
+        user_content = messages[-1]["content"]
+        assert expected in user_content
+        assert forbidden not in user_content
+
+    @pytest.mark.parametrize("query_kind", ["FunnelsQuery", "RetentionQuery", "PathsQuery"])
+    def test_omits_comparison_line_for_query_kinds_without_compare(self, query_kind):
+        # FunnelsQuery / RetentionQuery / PathsQuery have no compareFilter concept,
+        # so emitting "not configured" would imply a feature that doesn't exist.
+        previous = [_make_state(1, "thing", "- thing: 100", query_kind=query_kind)]
+        current = [_make_state(1, "thing", "- thing: 120", query_kind=query_kind, timestamp="2025-04-15T10:00:00Z")]
+
+        messages = build_prompt_messages(previous, current)
+
+        user_content = messages[-1]["content"]
+        assert "Compare to previous period" not in user_content
+
 
 class TestBuildInitialPromptMessages:
     def test_single_insight(self):
@@ -158,6 +218,17 @@ class TestBuildInitialPromptMessages:
 
         user_content = messages[1]["content"]
         assert "conversion" in user_content.lower()
+
+    def test_funnel_hint_warns_against_superlatives_for_two_step_funnels(self):
+        # Regression: a two-step funnel was being described as having "the largest
+        # bottleneck" — clumsy because there's only one transition to describe.
+        current = [_make_state(1, "Signup", "step 1: 100, step 2: 12", query_kind="FunnelsQuery")]
+
+        messages = build_initial_prompt_messages(current)
+
+        user_content = messages[1]["content"]
+        assert "only two steps" in user_content
+        assert "without superlatives" in user_content
 
     def test_includes_subscription_title(self):
         current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]

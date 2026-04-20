@@ -4,7 +4,7 @@ import { Histogram } from 'prom-client'
 import { Readable } from 'stream'
 
 import type { LogsSettings } from '../types'
-import { parseJSON } from '../utils/json-parse'
+import { type LogBodyParseResult, parseLogBodyForIngestion } from './log-body-parse'
 import { scrubLogRecord } from './log-pii-scrub'
 
 const MAX_JSON_ATTRIBUTES = 50
@@ -159,27 +159,12 @@ export function flattenJson(obj: unknown, prefix = '', result: Record<string, an
     return result
 }
 
-/**
- * Parses the log body as JSON (if valid) and extracts flattened attributes.
- * Returns up to MAX_JSON_ATTRIBUTES attributes, without overwriting existing attributes.
- */
-export function extractJsonAttributesFromBody(body: string | null): Record<string, string> {
-    if (!body) {
+function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult): Record<string, string> {
+    if (bodyParse.kind !== 'json_object_or_array') {
         return {}
     }
 
-    let parsed: unknown
-    try {
-        parsed = parseJSON(body)
-    } catch {
-        return {}
-    }
-
-    if (typeof parsed !== 'object' || parsed === null) {
-        return {}
-    }
-
-    const flattened = flattenJson(parsed)
+    const flattened = flattenJson(bodyParse.value)
     const newAttributes: Record<string, string> = {}
     let count = 0
 
@@ -195,16 +180,28 @@ export function extractJsonAttributesFromBody(body: string | null): Record<strin
 }
 
 /**
+ * Parses the log body as JSON (if valid) and extracts flattened attributes.
+ * Returns up to MAX_JSON_ATTRIBUTES attributes, without overwriting existing attributes.
+ */
+export function extractJsonAttributesFromBody(body: string | null): Record<string, string> {
+    return jsonAttributesFromBodyParse(parseLogBodyForIngestion(body))
+}
+
+/**
  * Processes a LogRecord by parsing its body as JSON and adding flattened attributes.
  * Modifies the record in place and returns it.
+ *
+ * When `bodyParse` is omitted, parses once internally. When provided (e.g. from `processLogMessageBuffer`),
+ * avoids a second parse of the same body string.
  */
-export function enrichLogRecordWithJsonAttributes(record: LogRecord): LogRecord {
+export function enrichLogRecordWithJsonAttributes(record: LogRecord, bodyParse?: LogBodyParseResult): LogRecord {
     if (!record.body) {
         return record
     }
 
+    const parse = bodyParse ?? parseLogBodyForIngestion(record.body)
     const existingAttributes = record.attributes || {}
-    const jsonAttributes = extractJsonAttributesFromBody(record.body)
+    const jsonAttributes = jsonAttributesFromBodyParse(parse)
 
     if (Object.keys(jsonAttributes).length > 0) {
         record.attributes = {
@@ -240,15 +237,13 @@ export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSett
             throw new Error('avro schema metadata not found')
         }
 
-        if (jsonParse) {
-            for (const record of records) {
-                enrichLogRecordWithJsonAttributes(record)
+        for (const record of records) {
+            const bodyParse = parseLogBodyForIngestion(record.body)
+            if (jsonParse) {
+                enrichLogRecordWithJsonAttributes(record, bodyParse)
             }
-        }
-
-        if (piiScrub) {
-            for (const record of records) {
-                scrubLogRecord(record)
+            if (piiScrub) {
+                scrubLogRecord(record, { bodyParse })
             }
         }
 
