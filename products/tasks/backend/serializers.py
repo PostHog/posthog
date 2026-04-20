@@ -260,7 +260,7 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     id = serializers.CharField(required=False, help_text="Stable identifier for the artifact within this run")
     name = serializers.CharField(help_text="Artifact file name")
     type = serializers.CharField(help_text="Artifact classification (plan, context, etc.)")
-    source = serializers.CharField(  # type: ignore[assignment]
+    source = serializers.CharField(
         required=False,
         allow_blank=True,
         help_text="Source of the artifact, such as agent_output or user_attachment",
@@ -447,7 +447,7 @@ class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, help_text="File name to associate with the artifact")
     type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
-    source = serializers.CharField(  # type: ignore[assignment]
+    source = serializers.CharField(
         max_length=64,
         required=False,
         allow_blank=True,
@@ -509,7 +509,7 @@ class TaskRunArtifactsUploadResponseSerializer(serializers.Serializer):
 class TaskRunArtifactPrepareUploadSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, help_text="File name to associate with the artifact")
     type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
-    source = serializers.CharField(  # type: ignore[assignment]
+    source = serializers.CharField(
         max_length=64,
         required=False,
         allow_blank=True,
@@ -552,7 +552,7 @@ class TaskRunArtifactsPrepareUploadRequestSerializer(serializers.Serializer):
 
 class S3PresignedPostSerializer(serializers.Serializer):
     url = serializers.URLField(help_text="Presigned S3 POST URL")
-    fields = serializers.DictField(  # type: ignore[assignment]
+    fields = serializers.DictField(
         child=serializers.CharField(),
         help_text="Form fields that must be submitted verbatim with the file upload",
     )
@@ -562,7 +562,7 @@ class TaskRunArtifactPrepareUploadResponseSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable identifier for the prepared artifact within this run")
     name = serializers.CharField(help_text="Artifact file name")
     type = serializers.CharField(help_text="Artifact classification (plan, context, etc.)")
-    source = serializers.CharField(  # type: ignore[assignment]
+    source = serializers.CharField(
         required=False,
         allow_blank=True,
         help_text="Source of the artifact, such as agent_output or user_attachment",
@@ -584,7 +584,7 @@ class TaskRunArtifactFinalizeUploadSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable identifier returned by the prepare upload endpoint")
     name = serializers.CharField(max_length=255, help_text="File name associated with the artifact")
     type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
-    source = serializers.CharField(  # type: ignore[assignment]
+    source = serializers.CharField(
         max_length=64,
         required=False,
         allow_blank=True,
@@ -616,7 +616,7 @@ class TaskRunArtifactsFinalizeUploadResponseSerializer(serializers.Serializer):
 class TaskStagedArtifactPrepareUploadSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, help_text="File name to associate with the staged artifact")
     type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
-    source = serializers.CharField(  # type: ignore[assignment]
+    source = serializers.CharField(
         max_length=64,
         required=False,
         allow_blank=True,
@@ -663,7 +663,7 @@ class TaskStagedArtifactPrepareUploadResponseSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable identifier for the prepared staged artifact within this task")
     name = serializers.CharField(help_text="Artifact file name")
     type = serializers.CharField(help_text="Artifact classification (plan, context, etc.)")
-    source = serializers.CharField(  # type: ignore[assignment]
+    source = serializers.CharField(
         required=False,
         allow_blank=True,
         help_text="Source of the artifact, such as agent_output or user_attachment",
@@ -685,7 +685,7 @@ class TaskStagedArtifactFinalizeUploadSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable identifier returned by the staged prepare upload endpoint")
     name = serializers.CharField(max_length=255, help_text="File name associated with the staged artifact")
     type = serializers.ChoiceField(choices=TASK_RUN_ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
-    source = serializers.CharField(  # type: ignore[assignment]
+    source = serializers.CharField(
         max_length=64,
         required=False,
         allow_blank=True,

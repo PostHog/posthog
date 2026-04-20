@@ -2,14 +2,12 @@ import os
 import json
 import uuid
 import logging
-import builtins
 import traceback
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Any, cast
+from typing import cast
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import F
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
@@ -89,12 +87,10 @@ from .services.staged_artifacts import (
     STAGED_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
     build_task_run_artifact_storage_path,
-    build_task_staged_artifact_cache_key,
     build_task_staged_artifact_storage_path,
     cache_task_staged_artifact,
-    get_safe_artifact_name,
+    consume_task_staged_artifacts,
     get_task_run_artifacts_by_id,
-    get_task_staged_artifacts,
     tag_task_artifact,
 )
 from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
@@ -270,6 +266,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
 
+    @staticmethod
+    def _get_safe_artifact_name(name: str) -> str:
+        return os.path.basename(name).strip() or "artifact"
+
     @validated_request(
         request_serializer=TaskStagedArtifactsPrepareUploadRequestSerializer,
         responses={
@@ -297,7 +297,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prepared_artifacts: list[dict] = []
         for artifact in artifacts:
             artifact_id = uuid.uuid4().hex
-            safe_name = get_safe_artifact_name(artifact["name"])
+            safe_name = self._get_safe_artifact_name(artifact["name"])
             storage_path = build_task_staged_artifact_storage_path(task, artifact_id, safe_name)
             presigned_post = object_storage.get_presigned_post(
                 storage_path,
@@ -381,7 +381,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            safe_name = get_safe_artifact_name(artifact["name"])
+            safe_name = self._get_safe_artifact_name(artifact["name"])
             content_type = artifact.get("content_type") or s3_object.get("ContentType") or ""
             max_size_bytes = get_task_run_artifact_max_size_bytes(
                 safe_name,
@@ -404,15 +404,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 content_type=content_type,
                 storage_path=storage_path,
             )
-            finalized_artifacts.append(finalized_artifact)
-
-        for finalized_artifact in finalized_artifacts:
             cache_task_staged_artifact(task, finalized_artifact)
-            tag_task_artifact(
-                finalized_artifact["storage_path"],
-                ttl_days=STAGED_ARTIFACT_TTL_DAYS,
-                team_id=task.team_id,
-            )
+            tag_task_artifact(storage_path, ttl_days=STAGED_ARTIFACT_TTL_DAYS, team_id=task.team_id)
+            finalized_artifacts.append(finalized_artifact)
 
         serializer = TaskStagedArtifactsFinalizeUploadResponseSerializer(
             {"artifacts": finalized_artifacts},
@@ -558,10 +552,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
             )
 
-        staged_artifacts: list[dict[str, Any]] = []
+        logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
+
+        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+
         if pending_user_artifact_ids:
-            staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, pending_user_artifact_ids)
+            staged_artifacts, missing_artifact_ids = consume_task_staged_artifacts(task, pending_user_artifact_ids)
             if missing_artifact_ids:
+                task_run.delete()
                 return Response(
                     {
                         "detail": "Some pending_user_artifact_ids are invalid or expired",
@@ -570,11 +568,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
-
-        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
-
-        if pending_user_artifact_ids:
             run_artifacts: list[dict] = []
             for staged_artifact in staged_artifacts:
                 run_storage_path = build_task_run_artifact_storage_path(
@@ -595,9 +588,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             task_run.artifacts = run_artifacts
             task_run.save(update_fields=["artifacts", "updated_at"])
-
-            for artifact_id in pending_user_artifact_ids:
-                cache.delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
 
         if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
             cache_github_user_token(str(task_run.id), github_user_token)
@@ -883,8 +873,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task = Task.objects.get(id=task_id, team=self.team)
         serializer.save(team=self.team, task=task)
 
+    @staticmethod
+    def _get_safe_artifact_name(name: str) -> str:
+        return os.path.basename(name).strip() or "artifact"
+
     def _build_artifact_storage_path(self, task_run: TaskRun, artifact_id: str, name: str) -> tuple[str, str]:
-        safe_name = get_safe_artifact_name(name)
+        safe_name = self._get_safe_artifact_name(name)
         prefix = task_run.get_artifact_s3_prefix()
         return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
 
@@ -932,9 +926,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
     @staticmethod
-    def _find_artifact_manifest_entry(
-        manifest: builtins.list[dict[str, Any]], artifact_id: str, storage_path: str
-    ) -> dict[str, Any] | None:
+    def _find_artifact_manifest_entry(manifest: "list[dict]", artifact_id: str, storage_path: str) -> dict | None:
         return next(
             (
                 entry
@@ -945,7 +937,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     @staticmethod
-    def _save_artifact_manifest(task_run: TaskRun, manifest: builtins.list[dict[str, Any]]) -> None:
+    def _save_artifact_manifest(task_run: TaskRun, manifest: "list[dict]") -> None:
         task_run.artifacts = manifest
         task_run.save(update_fields=["artifacts", "updated_at"])
 
@@ -1230,7 +1222,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         manifest = list(task_run.artifacts or [])
         artifact_prefix = f"{task_run.get_artifact_s3_prefix()}/"
         finalized_entries: list[dict] = []
-        new_storage_paths: list[str] = []
 
         for artifact in artifacts:
             artifact_id = artifact["id"]
@@ -1259,7 +1250,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            safe_name = get_safe_artifact_name(artifact["name"])
+            safe_name = self._get_safe_artifact_name(artifact["name"])
             content_type = artifact.get("content_type") or s3_object.get("ContentType") or ""
             content_length = s3_object.get("ContentLength")
             if not isinstance(content_length, int):
@@ -1281,6 +1272,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            self._tag_artifact_object(task_run, storage_path)
+
             entry = self._build_artifact_manifest_entry(
                 artifact_id=artifact_id,
                 name=safe_name,
@@ -1293,12 +1286,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             manifest.append(entry)
             finalized_entries.append(entry)
-            new_storage_paths.append(storage_path)
 
         self._save_artifact_manifest(task_run, manifest)
-
-        for storage_path in new_storage_paths:
-            self._tag_artifact_object(task_run, storage_path)
 
         serializer = TaskRunArtifactsFinalizeUploadResponseSerializer(
             {"artifacts": finalized_entries},

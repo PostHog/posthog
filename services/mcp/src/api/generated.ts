@@ -13568,18 +13568,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `slack` - slack
-    * `webhook` - webhook
-     */
-    export type DestinationTypesEnum = typeof DestinationTypesEnum[keyof typeof DestinationTypesEnum];
-
-
-    export const DestinationTypesEnum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-    } as const;
-
-    /**
      * * `Desktop` - Desktop
     * `Mobile` - Mobile
     * `Tablet` - Tablet
@@ -20302,8 +20290,6 @@ export namespace Schemas {
       readonly last_error_message: string | null;
       /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
       readonly sparkline: readonly LogsAlertSparklineBucket[];
-      /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types: readonly DestinationTypesEnum[];
       /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -20318,10 +20304,10 @@ export namespace Schemas {
      * * `slack` - slack
     * `webhook` - webhook
      */
-    export type TypeC34Enum = typeof TypeC34Enum[keyof typeof TypeC34Enum];
+    export type LogsAlertCreateDestinationTypeEnum = typeof LogsAlertCreateDestinationTypeEnum[keyof typeof LogsAlertCreateDestinationTypeEnum];
 
 
-    export const TypeC34Enum = {
+    export const LogsAlertCreateDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
     } as const;
@@ -20331,7 +20317,7 @@ export namespace Schemas {
 
     * `slack` - slack
     * `webhook` - webhook */
-      type: TypeC34Enum;
+      type: LogsAlertCreateDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -26551,8 +26537,6 @@ export namespace Schemas {
       readonly last_error_message?: string | null;
       /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
       readonly sparkline?: readonly LogsAlertSparklineBucket[];
-      /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types?: readonly DestinationTypesEnum[];
       /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -34357,10 +34341,10 @@ export namespace Schemas {
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment
      */
-    export type TypeE8eEnum = typeof TypeE8eEnum[keyof typeof TypeE8eEnum];
+    export type Type46fEnum = typeof Type46fEnum[keyof typeof Type46fEnum];
 
 
-    export const TypeE8eEnum = {
+    export const Type46fEnum = {
       Plan: 'plan',
       Context: 'context',
       Reference: 'reference',
@@ -34387,7 +34371,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: TypeE8eEnum;
+      type: Type46fEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34420,16 +34404,15 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: TypeE8eEnum;
+      type: Type46fEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
        */
       source?: string;
       /**
-       * Expected upload size in bytes (max 31457280 bytes)
+       * Expected upload size in bytes
        * @minimum 1
-       * @maximum 31457280
        */
       size: number;
       /**
@@ -34490,7 +34473,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: TypeE8eEnum;
+      type: Type46fEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34656,7 +34639,7 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: TypeE8eEnum;
+      type: Type46fEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
@@ -34689,16 +34672,15 @@ export namespace Schemas {
     * `artifact` - artifact
     * `tree_snapshot` - tree_snapshot
     * `user_attachment` - user_attachment */
-      type: TypeE8eEnum;
+      type: Type46fEnum;
       /**
        * Optional source label for the artifact, such as agent_output or user_attachment
        * @maxLength 64
        */
       source?: string;
       /**
-       * Expected upload size in bytes (max 31457280 bytes)
+       * Expected upload size in bytes
        * @minimum 1
-       * @maximum 31457280
        */
       size: number;
       /**

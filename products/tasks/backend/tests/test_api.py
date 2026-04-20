@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.http import StreamingHttpResponse
 from django.test import TestCase, override_settings
-from django.utils import timezone
 
 import jwt
 from parameterized import parameterized
@@ -22,7 +21,6 @@ from posthog.models import Integration, Organization, OrganizationMembership, Pe
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.models import (
     CodeInvite,
@@ -445,41 +443,6 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(remaining_staged_artifacts, [])
         self.assertEqual(missing_artifact_ids, ["artifact-123"])
         mock_workflow.assert_called_once()
-
-    @patch("posthog.storage.object_storage.copy")
-    @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_preserves_staged_artifacts_when_copy_fails(self, mock_workflow, mock_copy):
-        mock_copy.side_effect = ObjectStorageError("copy failed")
-        task = self.create_task()
-        staged_artifact = build_task_artifact_entry(
-            artifact_id="artifact-123",
-            name="spec.pdf",
-            artifact_type="user_attachment",
-            source="user_attachment",
-            size=4096,
-            content_type="application/pdf",
-            storage_path=f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/artifact-123/spec.pdf",
-        )
-        cache_task_staged_artifact(task, staged_artifact)
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/run/",
-            {
-                "pending_user_message": "Read the file first",
-                "pending_user_artifact_ids": ["artifact-123"],
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        self.assertEqual(TaskRun.objects.filter(task=task).count(), 1)
-        task_run = TaskRun.objects.get(task=task)
-        self.assertEqual(task_run.artifacts, [])
-        remaining_staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, ["artifact-123"])
-        self.assertEqual(remaining_staged_artifacts, [staged_artifact])
-        self.assertEqual(missing_artifact_ids, [])
-        mock_workflow.assert_not_called()
 
     @parameterized.expand(
         [
@@ -2190,78 +2153,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(cached_artifacts, [finalized_artifact])
 
     @patch("posthog.storage.object_storage.head_object")
-    def test_finalize_staged_artifact_uploads_rejects_invalid_storage_path(self, mock_head_object):
-        task = self.create_task()
-        artifact_id = uuid.uuid4().hex
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/staged_artifacts/finalize_upload/",
-            {
-                "artifacts": [
-                    {
-                        "id": artifact_id,
-                        "name": "spec.pdf",
-                        "type": "user_attachment",
-                        "source": "user_attachment",
-                        "storage_path": f"tasks/artifacts/team_{self.team.id}/task_other/staged/{artifact_id}/spec.pdf",
-                        "content_type": "application/pdf",
-                    }
-                ]
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "Artifact storage path is invalid for this task")
-        mock_head_object.assert_not_called()
-
-    @patch("posthog.storage.object_storage.head_object")
-    @patch("posthog.storage.object_storage.tag")
-    def test_finalize_staged_artifact_uploads_is_atomic_for_partial_failures(self, mock_tag, mock_head_object):
-        mock_head_object.side_effect = [
-            {"ContentLength": 4096, "ContentType": "application/pdf"},
-            None,
-        ]
-        task = self.create_task()
-        artifact_id_1 = uuid.uuid4().hex
-        artifact_id_2 = uuid.uuid4().hex
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/staged_artifacts/finalize_upload/",
-            {
-                "artifacts": [
-                    {
-                        "id": artifact_id_1,
-                        "name": "one.pdf",
-                        "type": "user_attachment",
-                        "source": "user_attachment",
-                        "storage_path": (
-                            f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/{artifact_id_1}/one.pdf"
-                        ),
-                        "content_type": "application/pdf",
-                    },
-                    {
-                        "id": artifact_id_2,
-                        "name": "two.pdf",
-                        "type": "user_attachment",
-                        "source": "user_attachment",
-                        "storage_path": (
-                            f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/{artifact_id_2}/two.pdf"
-                        ),
-                        "content_type": "application/pdf",
-                    },
-                ]
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        cached_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, [artifact_id_1, artifact_id_2])
-        self.assertEqual(cached_artifacts, [])
-        self.assertEqual(sorted(missing_artifact_ids), sorted([artifact_id_1, artifact_id_2]))
-        mock_tag.assert_not_called()
-
-    @patch("posthog.storage.object_storage.head_object")
     @patch("posthog.storage.object_storage.tag")
     def test_finalize_artifact_uploads(self, mock_tag, mock_head_object):
         mock_head_object.return_value = {"ContentLength": 4096, "ContentType": "application/pdf"}
@@ -2301,33 +2192,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["size"], 4096)
         self.assertEqual(artifact["content_type"], "application/pdf")
         self.assertEqual(artifact["storage_path"], storage_path)
-
-    @patch("posthog.storage.object_storage.head_object")
-    def test_finalize_artifact_uploads_rejects_invalid_storage_path(self, mock_head_object):
-        task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        artifact_id = uuid.uuid4().hex
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
-            {
-                "artifacts": [
-                    {
-                        "id": artifact_id,
-                        "name": "spec.pdf",
-                        "type": "user_attachment",
-                        "source": "user_attachment",
-                        "storage_path": f"{run.get_artifact_s3_prefix()}/wrong-prefix_spec.pdf",
-                        "content_type": "application/pdf",
-                    }
-                ]
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "Artifact storage path is invalid for this run")
-        mock_head_object.assert_not_called()
 
     @patch("posthog.storage.object_storage.head_object")
     @patch("products.tasks.backend.api.tag_task_artifact")
@@ -2378,49 +2242,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         stored_ids = [artifact["id"] for artifact in run.artifacts]
         self.assertEqual(sorted(stored_ids), sorted([existing_artifact_id, new_artifact_id]))
-
-    @patch("posthog.storage.object_storage.head_object")
-    @patch("products.tasks.backend.api.tag_task_artifact")
-    def test_finalize_artifact_uploads_is_idempotent_for_existing_entry(self, mock_tag, mock_head_object):
-        task = self.create_task()
-        artifact_id = uuid.uuid4().hex
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        storage_path = f"{run.get_artifact_s3_prefix()}/{artifact_id[:8]}_spec.pdf"
-        run.artifacts = [
-            {
-                "id": artifact_id,
-                "name": "spec.pdf",
-                "type": "user_attachment",
-                "source": "user_attachment",
-                "size": 4096,
-                "content_type": "application/pdf",
-                "storage_path": storage_path,
-                "uploaded_at": timezone.now().isoformat(),
-            }
-        ]
-        run.save(update_fields=["artifacts", "updated_at"])
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
-            {
-                "artifacts": [
-                    {
-                        "id": artifact_id,
-                        "name": "spec.pdf",
-                        "type": "user_attachment",
-                        "source": "user_attachment",
-                        "storage_path": storage_path,
-                        "content_type": "application/pdf",
-                    }
-                ]
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["artifacts"], run.artifacts)
-        mock_head_object.assert_not_called()
-        mock_tag.assert_not_called()
 
     @patch("posthog.storage.object_storage.head_object")
     def test_finalize_artifact_uploads_rejects_missing_object(self, mock_head_object):
@@ -2478,48 +2299,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("10MB attachment limit for PDFs", response.json()["error"])
-
-    @patch("posthog.storage.object_storage.head_object")
-    @patch("products.tasks.backend.api.tag_task_artifact")
-    def test_finalize_artifact_uploads_is_atomic_for_partial_failures(self, mock_tag, mock_head_object):
-        mock_head_object.side_effect = [
-            {"ContentLength": 4096, "ContentType": "application/pdf"},
-            None,
-        ]
-        task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, artifacts=[])
-        artifact_id_1 = uuid.uuid4().hex
-        artifact_id_2 = uuid.uuid4().hex
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
-            {
-                "artifacts": [
-                    {
-                        "id": artifact_id_1,
-                        "name": "one.pdf",
-                        "type": "user_attachment",
-                        "source": "user_attachment",
-                        "storage_path": f"{run.get_artifact_s3_prefix()}/{artifact_id_1[:8]}_one.pdf",
-                        "content_type": "application/pdf",
-                    },
-                    {
-                        "id": artifact_id_2,
-                        "name": "two.pdf",
-                        "type": "user_attachment",
-                        "source": "user_attachment",
-                        "storage_path": f"{run.get_artifact_s3_prefix()}/{artifact_id_2[:8]}_two.pdf",
-                        "content_type": "application/pdf",
-                    },
-                ]
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        run.refresh_from_db()
-        self.assertEqual(run.artifacts, [])
-        mock_tag.assert_not_called()
 
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_presign_artifact_url(self, mock_presign):
