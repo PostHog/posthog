@@ -491,8 +491,8 @@ def get_accelerated_presigned_post(file_key: str, conditions: list[Any], expirat
     return get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration)
 
 
-def head_object(file_key: str, bucket: str = settings.OBJECT_STORAGE_BUCKET) -> Optional[dict]:
-    return object_storage_client().head_object(file_key=file_key, bucket=bucket)
+def head_object(file_key: str, bucket: str | None = None) -> Optional[dict]:
+    return object_storage_client().head_object(file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET)
 
 
 def health_check() -> bool:
