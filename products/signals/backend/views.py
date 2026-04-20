@@ -355,8 +355,6 @@ class SignalReportViewSet(
         "signal_count": "signal_count",
         "total_weight": "total_weight",
         "priority": "priority_rank",
-        # Ready + actionable before ready + not_actionable; see _annotate_actionability_ready_rank
-        "actionability_ready_rank": "actionability_ready_rank",
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
@@ -370,10 +368,9 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
+        qs = self._annotate_latest_actionability_value(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
-        qs = self._annotate_latest_actionability_value(qs)
-        qs = self._annotate_actionability_ready_rank(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
         return qs
@@ -456,16 +453,22 @@ class SignalReportViewSet(
 
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
+        # `status=ready` splits into two virtual stages (requires `latest_actionability_value`):
+        # 0 = ready + actionable (or no judgment yet), 1 = ready + not_actionable; then other stages.
         return queryset.annotate(
             pipeline_status_rank=Case(
+                When(
+                    Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable"),
+                    then=Value(1),
+                ),
                 When(status=SignalReport.Status.READY, then=Value(0)),
-                When(status=SignalReport.Status.PENDING_INPUT, then=Value(1)),
-                When(status=SignalReport.Status.IN_PROGRESS, then=Value(2)),
-                When(status=SignalReport.Status.CANDIDATE, then=Value(3)),
-                When(status=SignalReport.Status.POTENTIAL, then=Value(4)),
-                When(status=SignalReport.Status.FAILED, then=Value(5)),
-                When(status=SignalReport.Status.SUPPRESSED, then=Value(6)),
-                When(status=SignalReport.Status.DELETED, then=Value(7)),
+                When(status=SignalReport.Status.PENDING_INPUT, then=Value(2)),
+                When(status=SignalReport.Status.IN_PROGRESS, then=Value(3)),
+                When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
+                When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
+                When(status=SignalReport.Status.FAILED, then=Value(6)),
+                When(status=SignalReport.Status.SUPPRESSED, then=Value(7)),
+                When(status=SignalReport.Status.DELETED, then=Value(8)),
                 default=Value(50),
                 output_field=IntegerField(),
             )
@@ -498,7 +501,7 @@ class SignalReportViewSet(
         )
 
     def _annotate_latest_actionability_value(self, queryset):
-        # Latest actionability_judgment: coalesce json "actionability" and legacy "choice" (matches serializer).
+        # Latest actionability_judgment: json "actionability" only (no legacy "choice").
         latest_actionability = Subquery(
             SignalReportArtefact.objects.filter(
                 report_id=OuterRef("id"),
@@ -507,19 +510,10 @@ class SignalReportViewSet(
             )
             .order_by("-created_at")
             .annotate(
-                _actionability_val=Coalesce(
-                    Func(
-                        Cast(F("content"), output_field=JSONField()),
-                        Value("actionability"),
-                        function="jsonb_extract_path_text",
-                        output_field=CharField(),
-                    ),
-                    Func(
-                        Cast(F("content"), output_field=JSONField()),
-                        Value("choice"),
-                        function="jsonb_extract_path_text",
-                        output_field=CharField(),
-                    ),
+                _actionability_val=Func(
+                    Cast(F("content"), output_field=JSONField()),
+                    Value("actionability"),
+                    function="jsonb_extract_path_text",
                     output_field=CharField(),
                 ),
             )
@@ -527,19 +521,6 @@ class SignalReportViewSet(
             output_field=CharField(),
         )
         return queryset.annotate(latest_actionability_value=latest_actionability)
-
-    def _annotate_actionability_ready_rank(self, queryset):
-        # Within status=ready, sort actionable (0) before not_actionable (1) for priority-style lists.
-        return queryset.annotate(
-            actionability_ready_rank=Case(
-                When(
-                    Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable"),
-                    then=Value(1),
-                ),
-                default=Value(0),
-                output_field=IntegerField(),
-            )
-        )
 
     def _prefetch_signal_report_priority_artefacts(self, queryset):
         return queryset.prefetch_related(
