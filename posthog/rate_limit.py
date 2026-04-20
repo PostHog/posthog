@@ -789,7 +789,7 @@ class MaterializationRateThrottle(PersonalApiKeyRateThrottle):
         return super().get_cache_key(request, view)
 
 
-class SubscriptionTestDeliveryThrottle(PersonalApiKeyRateThrottle):
+class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit manual test deliveries of subscriptions.
     #
     # The viewset already returns 409 for concurrent deliveries on the same
@@ -804,11 +804,13 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyRateThrottle):
     # (RunSavedQueryRateThrottle, MaterializationRateThrottle) use "{team_id}_{pk}",
     # but we want a single team-wide bucket, so we drop pk.
     #
-    # Only applies to personal-API-key callers (inherited from
-    # PersonalApiKeyRateThrottle._allow_request_internal). Session-cookie UI
-    # users fall through unthrottled — matches sibling precedent and is
-    # defensible since the UI already gates with per-subscription 409 and
-    # human click cadence.
+    # Extends PersonalApiKeyOrUserRateThrottle (not PersonalApiKeyRateThrottle)
+    # so the limit applies to every authenticated caller — personal API keys,
+    # OAuth access tokens (the MCP OAuth flow forwards bearer tokens that are
+    # not personal API keys), and session-cookie UI users. The sibling
+    # throttles only target PATs because they gate expensive read work; for
+    # this endpoint the real-world side-effect blast radius means we want
+    # every auth method covered.
     scope = "subscription_test_delivery"
     rate = "10/minute"
 

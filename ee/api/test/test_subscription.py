@@ -587,6 +587,9 @@ class TestSubscriptionTemporal(APILicensedTest):
             )
             assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
+        session_response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_a}/test-delivery/")
+        assert session_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
         assert mock_client.start_workflow.call_count == 3
 
     def test_backfill_picks_same_integration_as_delivery(self):
