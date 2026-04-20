@@ -322,8 +322,15 @@ SELECT
     sum(toInt(properties.$ai_cache_read_input_tokens)) AS cache_read_tokens,
     sum(toInt(properties.$ai_cache_creation_input_tokens)) AS cache_write_tokens,
     round(
-        sum(toInt(properties.$ai_cache_read_input_tokens)) /
-        nullIf(sum(toInt(properties.$ai_input_tokens)), 0), 3
+        if(
+            any(properties.$ai_cache_reporting_exclusive) = 'true',
+            sum(toInt(properties.$ai_cache_read_input_tokens))
+                / nullIf(sum(toInt(properties.$ai_input_tokens))
+                       + sum(toInt(properties.$ai_cache_read_input_tokens))
+                       + sum(toInt(properties.$ai_cache_creation_input_tokens)), 0),
+            sum(toInt(properties.$ai_cache_read_input_tokens))
+                / nullIf(sum(toInt(properties.$ai_input_tokens)), 0)
+        ), 3
     ) AS cache_hit_rate
 FROM events
 WHERE event = '$ai_generation'
@@ -331,6 +338,12 @@ WHERE event = '$ai_generation'
 GROUP BY model
 ORDER BY total_cost DESC
 ```
+
+The `cache_hit_rate` uses the provider-aware formula from the "Cache token
+accounting" section above — Anthropic reports cache tokens exclusively of
+`$ai_input_tokens`, so the denominator must include them. If a single model
+mixes both reporting styles (unusual), split by `$ai_cache_reporting_exclusive`
+in the GROUP BY instead.
 
 Rank and roll up on `total_cost` — summing only the input/output components
 drops request and web-search fees and can diverge from the `/llm-analytics`
