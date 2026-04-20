@@ -8,6 +8,7 @@ from .model_configuration import LLMModelConfiguration
 from .provider_keys import LLMProvider, LLMProviderKey
 from .review_queues import ReviewQueue, ReviewQueueItem
 from .score_definitions import ScoreDefinition, ScoreDefinitionVersion
+from .skills import LLMSkill, LLMSkillFile
 from .trace_reviews import TraceReview, TraceReviewScore
 
 __all__ = [
@@ -22,6 +23,8 @@ __all__ = [
     "LLMModelConfiguration",
     "LLMProvider",
     "LLMProviderKey",
+    "LLMSkill",
+    "LLMSkillFile",
     "ReviewQueue",
     "ReviewQueueItem",
     "ScoreDefinition",

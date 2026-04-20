@@ -61,6 +61,7 @@ Check:
 3. The agent must not declare a winner when results are not statistically significant.
 4. Variant names must match the tool output.
 5. When a metric's goal is "Decrease", a reduction in the metric is a positive outcome. The agent must frame lower values as good and not treat them as a regression.
+6. When multiple metrics are present (primary and secondary), the agent must mention results from both. It must not ignore a significant secondary metric that contradicts the primary.
 
 Choose: pass (all facts accurate, no hallucinations) or fail (any factual error, hallucinated number, or wrong conclusion)
 """.strip()
@@ -236,10 +237,68 @@ MOCK_BAYESIAN_GOAL_DECREASE = MaxExperimentSummaryContext(
 )
 
 
+# Mixed metrics: primary says ship (test wins on conversion), but a secondary
+# guardrail metric shows a significant regression (revenue per user dropped).
+# Checks that Claude surfaces both signals and doesn't cherry-pick the winner.
+MOCK_BAYESIAN_MIXED_METRICS = MaxExperimentSummaryContext(
+    experiment_id=0,  # replaced at runtime
+    experiment_name="Simplified Pricing Page Test",
+    description="Testing whether a simplified pricing page increases plan upgrades",
+    variants=["control", "test"],
+    exposures={"control": 5210.0, "test": 5185.0},
+    primary_metrics_results=[
+        MaxExperimentMetricResult(
+            name="1. Plan upgrade conversion",
+            goal=Goal.INCREASE,
+            variant_results=[
+                MaxExperimentVariantResultBayesian(
+                    key="control",
+                    chance_to_win=0.09,
+                    credible_interval=[-0.041, 0.008],
+                    delta=-0.0165,
+                    significant=False,
+                ),
+                MaxExperimentVariantResultBayesian(
+                    key="test",
+                    chance_to_win=0.91,
+                    credible_interval=[0.015, 0.058],
+                    delta=0.0365,
+                    significant=True,
+                ),
+            ],
+        ),
+    ],
+    secondary_metrics_results=[
+        MaxExperimentMetricResult(
+            name="1. Revenue per user",
+            goal=Goal.INCREASE,
+            variant_results=[
+                MaxExperimentVariantResultBayesian(
+                    key="control",
+                    chance_to_win=0.86,
+                    credible_interval=[0.012, 0.049],
+                    delta=0.0305,
+                    significant=True,
+                ),
+                MaxExperimentVariantResultBayesian(
+                    key="test",
+                    chance_to_win=0.14,
+                    credible_interval=[-0.049, -0.012],
+                    delta=-0.0305,
+                    significant=False,
+                ),
+            ],
+        ),
+    ],
+    stats_method=ExperimentStatsMethod.BAYESIAN,
+)
+
+
 MOCK_CONTEXTS: dict[str, MaxExperimentSummaryContext] = {
     "bayesian_significant": MOCK_BAYESIAN_SIGNIFICANT,
     "bayesian_non_significant": MOCK_BAYESIAN_NON_SIGNIFICANT,
     "bayesian_goal_decrease": MOCK_BAYESIAN_GOAL_DECREASE,
+    "bayesian_mixed_metrics": MOCK_BAYESIAN_MIXED_METRICS,
 }
 
 
@@ -370,6 +429,13 @@ async def eval_experiment_summary(call_agent_for_summary, pytestconfig):
                     mock_key="bayesian_goal_decrease",
                 ),
                 metadata={"test_type": "bayesian_goal_decrease"},
+            ),
+            EvalCase(
+                input=EvalInput(
+                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    mock_key="bayesian_mixed_metrics",
+                ),
+                metadata={"test_type": "bayesian_mixed_metrics"},
             ),
         ],
         pytestconfig=pytestconfig,

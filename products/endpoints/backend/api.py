@@ -46,7 +46,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.utils import print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
 

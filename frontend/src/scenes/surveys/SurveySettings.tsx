@@ -7,11 +7,11 @@ import { LemonBanner, LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
 import { SurveyAppearance } from '~/types'
 
 import { NEW_SURVEY, defaultSurveyAppearance } from './constants'
@@ -137,9 +137,32 @@ export function SurveyDefaultAppearance(): JSX.Element {
     )
 }
 
+// Keep SurveySettings for modal usage
+export function SurveySettings({ isModal = false }: { isModal?: boolean }): JSX.Element {
+    if (isModal) {
+        return <SurveyEnableToggle />
+    }
+    return (
+        <div className="flex flex-col gap-4">
+            <SurveyEnableToggle />
+            <SurveyDefaultAppearance />
+        </div>
+    )
+}
+
+function openSurveysSettingsDialog(): void {
+    LemonDialog.open({
+        title: 'Surveys settings',
+        content: <SurveySettings isModal />,
+        width: 600,
+        primaryButton: {
+            children: 'Done',
+        },
+    })
+}
+
 export function SurveysDisabledBanner(): JSX.Element | null {
     const { showSurveysDisabledBanner } = useValues(surveysLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     if (!showSurveysDisabledBanner) {
         return null
@@ -151,7 +174,7 @@ export function SurveysDisabledBanner(): JSX.Element | null {
             action={{
                 type: 'secondary',
                 icon: <IconGear />,
-                onClick: () => openSettingsPanel({ sectionId: 'environment-surveys' }),
+                onClick: () => openSurveysSettingsDialog(),
                 children: 'Configure',
             }}
             className="mb-2"
