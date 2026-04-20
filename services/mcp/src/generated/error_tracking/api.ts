@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2000,45 +2000,18 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     external_issues: zod
         .array(
             zod.object({
-                external_url: zod.string(),
-                id: zod.string(),
-                integration: zod.object({
-                    display_name: zod.string(),
-                    id: zod.number(),
-                    kind: zod.enum([
-                        'slack',
-                        'slack-posthog-code',
-                        'salesforce',
-                        'hubspot',
-                        'google-pubsub',
-                        'google-cloud-service-account',
-                        'google-cloud-storage',
-                        'google-ads',
-                        'google-sheets',
-                        'linkedin-ads',
-                        'snapchat',
-                        'intercom',
-                        'email',
-                        'twilio',
-                        'linear',
-                        'github',
-                        'gitlab',
-                        'meta-ads',
-                        'clickup',
-                        'reddit-ads',
-                        'databricks',
-                        'tiktok-ads',
-                        'bing-ads',
-                        'vercel',
-                        'azure-blob',
-                        'firebase',
-                        'jira',
-                        'pinterest-ads',
-                        'customerio-app',
-                        'customerio-webhook',
-                        'customerio-track',
-                    ]),
-                }),
+                id: zod.string().optional(),
+                integration: zod
+                    .object({
+                        id: zod.number().optional(),
+                        kind: zod.string().optional(),
+                        display_name: zod.string().optional(),
+                    })
+                    .optional(),
+                integration_id: zod.number(),
+                config: zod.unknown(),
+                issue: zod.string(),
+                external_url: zod.string().optional(),
             })
         )
         .optional(),
@@ -2083,4 +2056,17 @@ export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
+})
+
+export const ErrorTrackingSuppressionRulesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ErrorTrackingSuppressionRulesListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })

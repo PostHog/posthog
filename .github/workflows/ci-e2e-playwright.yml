@@ -303,11 +303,32 @@ jobs:
                   # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
                   cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
             - name: Create test database
+              shell: bash
               run: |
                   createdb posthog_e2e_test || echo "Database already exists"
-                  # Drop and recreate clickhouse test database
-                  echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
-                  echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+
+                  run_clickhouse_query() {
+                      local query="$1"
+
+                      for attempt in {1..10}; do
+                          if printf '%s' "$query" | curl --silent --show-error --fail 'http://localhost:8123/' --data-binary @-; then
+                              echo
+                              return 0
+                          fi
+
+                          echo "ClickHouse query failed on attempt ${attempt}/10, retrying in 3s..."
+                          sleep 3
+                      done
+
+                      echo "ClickHouse query failed after 10 attempts: $query" >&2
+                      return 1
+                  }
+
+                  # Drop and recreate clickhouse test database. The HTTP endpoint can briefly
+                  # reset connections while the container is still settling after startup.
+                  run_clickhouse_query 'SELECT 1'
+                  run_clickhouse_query 'DROP DATABASE IF EXISTS posthog_test SYNC'
+                  run_clickhouse_query 'CREATE DATABASE posthog_test'
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2

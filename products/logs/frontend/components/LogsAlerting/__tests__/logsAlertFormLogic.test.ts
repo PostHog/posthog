@@ -47,7 +47,7 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
     datapoints_to_alarm: 1,
     cooldown_minutes: 10,
     state: LogsAlertConfigurationStateEnumApi.NotFiring,
-    check_interval_minutes: 1,
+    check_interval_minutes: 5,
     next_check_at: null,
     last_notified_at: null,
     last_checked_at: null,

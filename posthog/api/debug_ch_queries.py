@@ -287,6 +287,33 @@ class DebugCHQueries(viewsets.ViewSet):
 
         return Response(self._serialize_precomputation_team(team, enabled))
 
+    def _fetch_org_mrr(self, org_ids: set[str]) -> dict[str, int]:
+        """Fetch current confirmed MRR per organization from billing tables.
+
+        Returns empty dict if billing tables are unavailable (e.g. local dev).
+        """
+        try:
+            rows = sync_execute(
+                """
+                SELECT
+                    cus.organization_id,
+                    round(sum(iwa.mrr)) AS current_mrr
+                FROM prod_postgres_invoice_with_annual iwa
+                JOIN prod_postgres_billing_customer cus ON iwa.customer_id = cus.id
+                WHERE
+                    cus.organization_id IN %(org_ids)s
+                    AND iwa.type NOT LIKE '%%upcoming%%'
+                    AND iwa.mrr > 0
+                    AND toStartOfMonth(toTimeZone(iwa.period_end, 'UTC')) = toStartOfMonth(now())
+                GROUP BY cus.organization_id
+                """,
+                {"org_ids": list(org_ids)},
+            )
+            return {str(row[0]): round(float(row[1])) for row in rows}
+        except Exception:
+            logger.warning("Failed to fetch org MRR from billing tables, skipping")
+            return {}
+
     @action(detail=False, methods=["GET"], url_path="slowest_queries")
     def slowest_queries(self, request):
         if not request.user.is_staff:
@@ -338,13 +365,20 @@ class DebugCHQueries(viewsets.ViewSet):
 
         # Batch-fetch team and org names from Postgres
         team_ids = {row[6] for row in response if row[6]}
-        teams_by_id = {}
+        teams_by_id: dict = {}
         if team_ids:
             for team in Team.objects.filter(id__in=team_ids).select_related("organization"):
                 teams_by_id[team.id] = {
                     "team_name": team.name,
+                    "organization_id": str(team.organization.id) if team.organization else None,
                     "organization_name": team.organization.name if team.organization else None,
                 }
+
+        # Batch-fetch current MRR per organization from billing tables
+        org_ids = {t["organization_id"] for t in teams_by_id.values() if t.get("organization_id")}
+        mrr_by_org: dict[str, int] = {}
+        if org_ids:
+            mrr_by_org = self._fetch_org_mrr(org_ids)
 
         return Response(
             [
@@ -358,6 +392,7 @@ class DebugCHQueries(viewsets.ViewSet):
                     "team_id": row[6],
                     "team_name": teams_by_id.get(row[6], {}).get("team_name"),
                     "organization_name": teams_by_id.get(row[6], {}).get("organization_name"),
+                    "organization_mrr": mrr_by_org.get(teams_by_id.get(row[6], {}).get("organization_id", ""), None),
                     "query_type": row[7],
                     "experiment_name": row[8],
                     "experiment_metric_name": row[9],
