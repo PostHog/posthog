@@ -2207,10 +2207,16 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
+        # date range is overriden
         assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2024-07-07"
         assert query_runner.query.dateRange.date_to == "2024-07-14"
-        assert query_runner.query.properties is None
+
+        # but properties are not
+        assert query_runner.query.properties == []
+
+        # validations pass
+        query_runner.validate()
 
     @parameterized.expand(
         [

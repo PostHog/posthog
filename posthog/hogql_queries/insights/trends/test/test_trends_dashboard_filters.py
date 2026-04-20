@@ -33,7 +33,7 @@ class TestTrendsDashboardFilters(BaseTest):
         date_from: str,
         date_to: Optional[str],
         interval: IntervalType,
-        series: Optional[list[EventsNode | ActionsNode]],
+        series: Optional[list[EventsNode | ActionsNode | DataWarehouseNode]],
         properties: Optional[list[EventPropertyFilter] | PropertyGroupFilter] = None,
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
@@ -43,7 +43,9 @@ class TestTrendsDashboardFilters(BaseTest):
         explicit_date: Optional[bool] = None,
         compare_filters: Optional[CompareFilter] = None,
     ) -> TrendsQueryRunner:
-        query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
+        query_series: list[EventsNode | ActionsNode | DataWarehouseNode] = (
+            [EventsNode(event="$pageview")] if series is None else series
+        )
         query = TrendsQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
@@ -491,7 +493,13 @@ class TestTrendsDashboardFilters(BaseTest):
             )
         )
 
+        # date range is overriden
         assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2024-07-07"
         assert query_runner.query.dateRange.date_to == "2024-07-14"
-        assert query_runner.query.properties is None
+
+        # but properties are not
+        assert query_runner.query.properties == []
+
+        # validations pass
+        query_runner.validate()
