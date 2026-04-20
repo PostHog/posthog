@@ -443,6 +443,7 @@ export interface AssistantTrendsFilter {
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
      * `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.
+     * `BoxPlot` - box-and-whisker plot of a numeric property's distribution per interval; use when the user asks about the spread, quartiles, median, or outliers of a property value (e.g., latency or duration). Requires a math aggregation over a numeric property.
      * @default ActionsLineGraph
      */
     display?: AssistantTrendsDisplayType

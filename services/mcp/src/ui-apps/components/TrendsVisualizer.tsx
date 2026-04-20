@@ -2,9 +2,9 @@ import { type ReactElement, useState } from 'react'
 
 import { EmptyState } from '@posthog/mosaic'
 
-import { BarChart, BigNumber, LineChart, Select, type Series } from './charts'
-import type { TrendsResultItem, TrendsVisualizerProps } from './types'
-import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
+import { BarChart, BigNumber, BoxPlotChart, type BoxPlotSeries, LineChart, Select, type Series } from './charts'
+import type { BoxPlotDatum, TrendsResult, TrendsResultItem, TrendsVisualizerProps } from './types'
+import { getDisplayType, getSeriesLabel, isBarChart, isBoxPlotResult } from './utils'
 
 type ChartMode = 'line' | 'bar'
 
@@ -44,6 +44,75 @@ function prepareChartData(results: TrendsResultItem[]): {
     return { series, labels, maxValue: maxValue || 1 }
 }
 
+function prepareBoxPlotData(results: BoxPlotDatum[]): {
+    series: BoxPlotSeries[]
+    labels: string[]
+    minValue: number
+    maxValue: number
+} {
+    if (!results || results.length === 0) {
+        return { series: [], labels: [], minValue: 0, maxValue: 0 }
+    }
+
+    const labelByDay = new Map<string, string>()
+    const orderedDays: string[] = []
+    const grouped = new Map<number, { label: string; seriesIndex: number; byDay: Map<string, BoxPlotDatum> }>()
+
+    let minValue = Infinity
+    let maxValue = -Infinity
+
+    for (const datum of results) {
+        if (!labelByDay.has(datum.day)) {
+            labelByDay.set(datum.day, datum.label)
+            orderedDays.push(datum.day)
+        }
+        const seriesIndex = datum.series_index ?? 0
+        if (!grouped.has(seriesIndex)) {
+            grouped.set(seriesIndex, {
+                label: datum.series_label || `Series ${seriesIndex + 1}`,
+                seriesIndex,
+                byDay: new Map(),
+            })
+        }
+        grouped.get(seriesIndex)!.byDay.set(datum.day, datum)
+        minValue = Math.min(minValue, datum.min)
+        maxValue = Math.max(maxValue, datum.max)
+    }
+
+    const labels = orderedDays.map((day) => labelByDay.get(day) || day)
+
+    const series: BoxPlotSeries[] = Array.from(grouped.values())
+        .sort((a, b) => a.seriesIndex - b.seriesIndex)
+        .map(({ label, seriesIndex, byDay }) => ({
+            label,
+            seriesIndex,
+            data: orderedDays.map(
+                (day) =>
+                    byDay.get(day) ?? {
+                        day,
+                        label: labelByDay.get(day) || day,
+                        min: 0,
+                        p25: 0,
+                        median: 0,
+                        p75: 0,
+                        max: 0,
+                        mean: 0,
+                        series_index: seriesIndex,
+                        series_label: label,
+                    }
+            ),
+        }))
+
+    if (!Number.isFinite(minValue)) {
+        minValue = 0
+    }
+    if (!Number.isFinite(maxValue) || maxValue === minValue) {
+        maxValue = minValue + 1
+    }
+
+    return { series, labels, minValue, maxValue }
+}
+
 function calculateTotal(results: TrendsResultItem[]): number {
     return results.reduce((sum, item) => {
         if (typeof item.aggregated_value === 'number') {
@@ -59,18 +128,45 @@ function calculateTotal(results: TrendsResultItem[]): number {
     }, 0)
 }
 
+function isEmptyResults(results: TrendsResult): boolean {
+    return !results || results.length === 0
+}
+
 export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
+    const boxPlotIntent = displayType === 'BoxPlot' || isBoxPlotResult(results)
     const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
-    const { series, labels, maxValue } = prepareChartData(results)
 
-    if (!results || results.length === 0 || series.length === 0) {
+    if (isEmptyResults(results)) {
+        return <EmptyState icon="chart" description="No data available" />
+    }
+
+    if (boxPlotIntent) {
+        const boxData = prepareBoxPlotData(results as BoxPlotDatum[])
+        if (boxData.series.length === 0) {
+            return <EmptyState icon="chart" description="No data available" />
+        }
+        return (
+            <BoxPlotChart
+                series={boxData.series}
+                labels={boxData.labels}
+                minValue={boxData.minValue}
+                maxValue={boxData.maxValue}
+                yAxisLabel={boxData.series.length === 1 ? boxData.series[0]?.label : undefined}
+            />
+        )
+    }
+
+    const trendResults = results as TrendsResultItem[]
+    const { series, labels, maxValue } = prepareChartData(trendResults)
+
+    if (series.length === 0) {
         return <EmptyState icon="chart" description="No data available" />
     }
 
     if (displayType === 'BoldNumber') {
-        const total = calculateTotal(results)
-        const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
+        const total = calculateTotal(trendResults)
+        const label = trendResults[0] ? getSeriesLabel(trendResults[0], 0) : 'Total'
         return <BigNumber value={total} label={label} />
     }
 

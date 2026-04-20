@@ -243,6 +243,23 @@ Examples of using breakdowns:
 }
 ```
 
+## Distribution of "refreshAge" per day on "viewed dashboard" events as a box plot
+
+Use `display: "BoxPlot"` when the user wants to see the spread, quartiles, median, or outliers of a numeric property over time, rather than a single aggregate.
+The series must use a math aggregation over a numeric property (`math_property`). Each interval renders a box-and-whisker (min, p25, median, p75, max).
+
+```json
+{
+  "kind": "TrendsQuery",
+  "series": [
+    { "kind": "EventsNode", "event": "viewed dashboard", "math": "median", "math_property": "refreshAge" }
+  ],
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day",
+  "trendsFilter": { "display": "BoxPlot", "aggregationAxisFormat": "duration" }
+}
+```
+
 ## P99, P95, and median of a "refreshAge" property on "viewed dashboard" events
 
 ```json

@@ -1,4 +1,4 @@
-import type { ChartDisplayType, FunnelResult, TrendsQuery } from './types'
+import type { BoxPlotDatum, ChartDisplayType, FunnelResult, TrendsQuery, TrendsResult } from './types'
 
 export function getDisplayType(query: TrendsQuery): ChartDisplayType {
     return query.trendsFilter?.display || 'ActionsLineGraph'
@@ -6,6 +6,25 @@ export function getDisplayType(query: TrendsQuery): ChartDisplayType {
 
 export function isBarChart(displayType: ChartDisplayType): boolean {
     return displayType === 'ActionsBar' || displayType === 'ActionsBarValue'
+}
+
+export function isBoxPlotDatum(value: unknown): value is BoxPlotDatum {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const v = value as Record<string, unknown>
+    return (
+        typeof v.day === 'string' &&
+        typeof v.min === 'number' &&
+        typeof v.max === 'number' &&
+        typeof v.median === 'number' &&
+        typeof v.p25 === 'number' &&
+        typeof v.p75 === 'number'
+    )
+}
+
+export function isBoxPlotResult(results: TrendsResult | unknown): results is BoxPlotDatum[] {
+    return Array.isArray(results) && results.length > 0 && isBoxPlotDatum(results[0])
 }
 
 export function formatNumber(value: number): string {

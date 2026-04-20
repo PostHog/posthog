@@ -21,6 +21,7 @@ export type ChartDisplayType =
     | 'ActionsPie'
     | 'ActionsTable'
     | 'WorldMap'
+    | 'BoxPlot'
 
 export interface TrendsFilter {
     display?: ChartDisplayType
@@ -65,7 +66,20 @@ export interface TrendsResultItem {
     }
 }
 
-export type TrendsResult = TrendsResultItem[]
+export interface BoxPlotDatum {
+    day: string
+    label: string
+    min: number
+    p25: number
+    median: number
+    p75: number
+    max: number
+    mean: number
+    series_index?: number
+    series_label?: string
+}
+
+export type TrendsResult = TrendsResultItem[] | BoxPlotDatum[]
 
 export interface FunnelStep {
     name?: string

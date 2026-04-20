@@ -10,20 +10,26 @@ import type { FunnelResult, FunnelsQuery, HogQLResult, TrendsQuery, TrendsResult
 type VisualizationType = 'trends' | 'funnel' | 'table'
 
 /**
- * Check if results look like TrendsResult (array of items with data/labels arrays).
+ * Check if results look like TrendsResult (array of items with data/labels arrays
+ * or BoxPlot datums with min/max/median fields).
  */
 function isTrendsResult(results: unknown): results is TrendsResult {
     if (!Array.isArray(results) || results.length === 0) {
         return false
     }
 
-    // TrendsResult items have: data (number[]), labels or days (string[])
     const first = results[0] as Record<string, unknown>
-    return (
-        typeof first === 'object' &&
-        first !== null &&
-        (Array.isArray(first.data) || Array.isArray(first.labels) || Array.isArray(first.days))
-    )
+    if (typeof first !== 'object' || first === null) {
+        return false
+    }
+    const hasSeriesShape = Array.isArray(first.data) || Array.isArray(first.labels) || Array.isArray(first.days)
+    const hasBoxPlotShape =
+        typeof first.min === 'number' &&
+        typeof first.max === 'number' &&
+        typeof first.median === 'number' &&
+        typeof first.p25 === 'number' &&
+        typeof first.p75 === 'number'
+    return hasSeriesShape || hasBoxPlotShape
 }
 
 /**
