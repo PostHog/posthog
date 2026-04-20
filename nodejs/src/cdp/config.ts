@@ -41,6 +41,10 @@ export type CdpConfig = {
     // Disabled by default (0). Example: bucket=500, refill=500 → max 500 emails/sec sustained.
     CDP_EMAIL_GLOBAL_RATE_LIMIT_BUCKET_SIZE: number
     CDP_EMAIL_GLOBAL_RATE_LIMIT_REFILL_RATE: number
+    // Per-team email rate limiter. Prevents one team's batch from monopolizing global send capacity.
+    // Disabled by default (0). Example: bucket=50, refill=10 → each team can burst 50, sustain 10/sec.
+    CDP_EMAIL_PER_TEAM_RATE_LIMIT_BUCKET_SIZE: number
+    CDP_EMAIL_PER_TEAM_RATE_LIMIT_REFILL_RATE: number
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
@@ -138,6 +142,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_QUEUE_ROUTING: '',
         CDP_EMAIL_GLOBAL_RATE_LIMIT_BUCKET_SIZE: 0,
         CDP_EMAIL_GLOBAL_RATE_LIMIT_REFILL_RATE: 0,
+        CDP_EMAIL_PER_TEAM_RATE_LIMIT_BUCKET_SIZE: 0,
+        CDP_EMAIL_PER_TEAM_RATE_LIMIT_REFILL_RATE: 0,
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,

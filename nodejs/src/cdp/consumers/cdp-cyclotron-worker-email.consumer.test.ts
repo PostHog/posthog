@@ -63,7 +63,7 @@ describe('CdpCyclotronWorkerEmail', () => {
     describe('rate limiting', () => {
         it('should not create rate limiter when config is 0', () => {
             const worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub))
-            expect(worker['emailRateLimiter']).toBeNull()
+            expect(worker['globalRateLimiter']).toBeNull()
         })
 
         it('should create rate limiter when config is set', () => {
@@ -75,7 +75,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 },
                 createCdpConsumerDeps(hub)
             )
-            expect(worker['emailRateLimiter']).not.toBeNull()
+            expect(worker['globalRateLimiter']).not.toBeNull()
         })
 
         it('should defer invocations when rate limit is exceeded', async () => {
@@ -200,7 +200,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 },
                 createCdpConsumerDeps(hub)
             )
-            expect(worker1['emailRateLimiter']).toBeNull()
+            expect(worker1['globalRateLimiter']).toBeNull()
 
             const worker2 = new CdpCyclotronWorkerEmail(
                 {
@@ -210,7 +210,86 @@ describe('CdpCyclotronWorkerEmail', () => {
                 },
                 createCdpConsumerDeps(hub)
             )
-            expect(worker2['emailRateLimiter']).toBeNull()
+            expect(worker2['globalRateLimiter']).toBeNull()
+        })
+    })
+
+    describe('per-team rate limiting', () => {
+        it('should create per-team rate limiter when config is set', () => {
+            const worker = new CdpCyclotronWorkerEmail(
+                {
+                    ...hub,
+                    CDP_EMAIL_PER_TEAM_RATE_LIMIT_BUCKET_SIZE: 50,
+                    CDP_EMAIL_PER_TEAM_RATE_LIMIT_REFILL_RATE: 10,
+                },
+                createCdpConsumerDeps(hub)
+            )
+            expect(worker['perTeamRateLimiter']).not.toBeNull()
+        })
+
+        it('should not create per-team rate limiter when config is 0', () => {
+            const worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub))
+            expect(worker['perTeamRateLimiter']).toBeNull()
+        })
+
+        it('should defer emails from teams that exceed their per-team limit', async () => {
+            const worker = new CdpCyclotronWorkerEmail(
+                {
+                    ...hub,
+                    CDP_EMAIL_PER_TEAM_RATE_LIMIT_BUCKET_SIZE: 2,
+                    CDP_EMAIL_PER_TEAM_RATE_LIMIT_REFILL_RATE: 0.001,
+                },
+                createCdpConsumerDeps(hub)
+            )
+
+            jest.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations').mockResolvedValue([])
+
+            // Team 1 sends 3 emails (over limit of 2), Team 2 sends 1 (under limit)
+            const invocations = [
+                createEmailInvocation('t1-email-1', 1),
+                createEmailInvocation('t1-email-2', 1),
+                createEmailInvocation('t1-email-3', 1),
+                createEmailInvocation('t2-email-1', 2),
+            ]
+
+            const results = await worker.processInvocations(invocations)
+
+            const deferred = results.filter((r) => !r.finished && r.invocation.queueScheduledAt)
+            // Team 1 should have 1 deferred (3 sent, bucket 2)
+            expect(deferred.length).toBeGreaterThanOrEqual(1)
+
+            // Team 2's email should not be deferred
+            const team2Deferred = deferred.filter((r) => r.invocation.teamId === 2)
+            expect(team2Deferred).toHaveLength(0)
+        })
+
+        it('should apply both global and per-team limits', async () => {
+            const worker = new CdpCyclotronWorkerEmail(
+                {
+                    ...hub,
+                    CDP_EMAIL_GLOBAL_RATE_LIMIT_BUCKET_SIZE: 10,
+                    CDP_EMAIL_GLOBAL_RATE_LIMIT_REFILL_RATE: 10,
+                    CDP_EMAIL_PER_TEAM_RATE_LIMIT_BUCKET_SIZE: 1,
+                    CDP_EMAIL_PER_TEAM_RATE_LIMIT_REFILL_RATE: 0.001,
+                },
+                createCdpConsumerDeps(hub)
+            )
+
+            jest.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations').mockResolvedValue([])
+
+            // Global allows 10, but per-team allows only 1 each
+            const invocations = [
+                createEmailInvocation('t1-email-1', 1),
+                createEmailInvocation('t1-email-2', 1),
+                createEmailInvocation('t2-email-1', 2),
+                createEmailInvocation('t2-email-2', 2),
+            ]
+
+            const results = await worker.processInvocations(invocations)
+
+            const deferred = results.filter((r) => !r.finished && r.invocation.queueScheduledAt)
+            // Each team should have 1 deferred (2 sent per team, bucket 1 per team)
+            expect(deferred.length).toBeGreaterThanOrEqual(2)
         })
     })
 })

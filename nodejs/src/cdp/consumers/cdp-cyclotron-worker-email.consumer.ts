@@ -12,12 +12,14 @@ import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consum
 
 const emailRateLimitedTotal = new Counter({
     name: 'cdp_email_rate_limited_total',
-    help: 'Total emails deferred by global rate limiting',
+    help: 'Total emails deferred by rate limiting',
+    labelNames: ['scope'],
 })
 
 const emailRateLimitTokensAvailable = new Gauge({
     name: 'cdp_email_rate_limit_tokens_available',
-    help: 'Available tokens in the global email rate limit bucket',
+    help: 'Available tokens in rate limit buckets',
+    labelNames: ['scope'],
 })
 
 const RATE_LIMIT_RETRY_BASE_MS = 500
@@ -25,17 +27,32 @@ const RATE_LIMIT_JITTER_MS = 200
 
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     protected override name = 'CdpCyclotronWorkerEmail'
-    private emailRateLimiter: HogRateLimiterService | null = null
+    private globalRateLimiter: HogRateLimiterService | null = null
+    private perTeamRateLimiter: HogRateLimiterService | null = null
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         this.queue = 'email'
 
         if (config.CDP_EMAIL_GLOBAL_RATE_LIMIT_BUCKET_SIZE > 0 && config.CDP_EMAIL_GLOBAL_RATE_LIMIT_REFILL_RATE > 0) {
-            this.emailRateLimiter = new HogRateLimiterService(
+            this.globalRateLimiter = new HogRateLimiterService(
                 {
                     bucketSize: config.CDP_EMAIL_GLOBAL_RATE_LIMIT_BUCKET_SIZE,
                     refillRate: config.CDP_EMAIL_GLOBAL_RATE_LIMIT_REFILL_RATE,
+                    ttl: 60 * 60 * 24,
+                },
+                this.redis
+            )
+        }
+
+        if (
+            config.CDP_EMAIL_PER_TEAM_RATE_LIMIT_BUCKET_SIZE > 0 &&
+            config.CDP_EMAIL_PER_TEAM_RATE_LIMIT_REFILL_RATE > 0
+        ) {
+            this.perTeamRateLimiter = new HogRateLimiterService(
+                {
+                    bucketSize: config.CDP_EMAIL_PER_TEAM_RATE_LIMIT_BUCKET_SIZE,
+                    refillRate: config.CDP_EMAIL_PER_TEAM_RATE_LIMIT_REFILL_RATE,
                     ttl: 60 * 60 * 24,
                 },
                 this.redis
@@ -51,26 +68,73 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     public override async processInvocations(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationResult[]> {
-        if (!this.emailRateLimiter || invocations.length === 0) {
+        if (invocations.length === 0) {
             return super.processInvocations(invocations)
         }
 
-        // Atomic consume: request all tokens in one call, then check how many we over-consumed.
-        // This eliminates the race window where multiple workers peek the same token count.
-        // Fail open: if Redis is down, process the full batch without rate limiting.
-        let rateLimit: { tokens: number; isRateLimited: boolean }
+        if (!this.globalRateLimiter && !this.perTeamRateLimiter) {
+            return super.processInvocations(invocations)
+        }
+
+        let toProcess = invocations
+        let toDefer: CyclotronJobInvocation[] = []
+
         try {
-            ;[[, rateLimit]] = await this.emailRateLimiter.rateLimitMany([['global-email', invocations.length]])
+            // Step 1: Global rate limit
+            if (this.globalRateLimiter) {
+                const [[, rateLimit]] = await this.globalRateLimiter.rateLimitMany([
+                    ['global-email', toProcess.length],
+                ])
+                const overConsumed = Math.max(0, -Math.floor(rateLimit.tokens))
+                emailRateLimitTokensAvailable.labels({ scope: 'global' }).set(Math.max(0, Math.floor(rateLimit.tokens)))
+
+                if (overConsumed > 0) {
+                    toDefer = toProcess.slice(toProcess.length - overConsumed)
+                    toProcess = toProcess.slice(0, toProcess.length - overConsumed)
+                }
+            }
+
+            // Step 2: Per-team rate limit on the remaining invocations
+            if (this.perTeamRateLimiter && toProcess.length > 0) {
+                const byTeam = new Map<number, CyclotronJobInvocation[]>()
+                for (const inv of toProcess) {
+                    const list = byTeam.get(inv.teamId) ?? []
+                    list.push(inv)
+                    byTeam.set(inv.teamId, list)
+                }
+
+                const teamCosts: [string, number][] = Array.from(byTeam.entries()).map(([teamId, invs]) => [
+                    `team-email:${teamId}`,
+                    invs.length,
+                ])
+
+                const teamResults = await this.perTeamRateLimiter.rateLimitMany(teamCosts)
+
+                const teamProcessed: CyclotronJobInvocation[] = []
+                let teamIdx = 0
+                for (const [teamId, teamInvocations] of byTeam.entries()) {
+                    const [, teamRateLimit] = teamResults[teamIdx]
+                    const teamOverConsumed = Math.max(0, -Math.floor(teamRateLimit.tokens))
+
+                    emailRateLimitTokensAvailable
+                        .labels({ scope: `team:${teamId}` })
+                        .set(Math.max(0, Math.floor(teamRateLimit.tokens)))
+
+                    if (teamOverConsumed > 0) {
+                        teamProcessed.push(...teamInvocations.slice(0, teamInvocations.length - teamOverConsumed))
+                        toDefer.push(...teamInvocations.slice(teamInvocations.length - teamOverConsumed))
+                    } else {
+                        teamProcessed.push(...teamInvocations)
+                    }
+                    teamIdx++
+                }
+
+                toProcess = teamProcessed
+            }
         } catch (err) {
             logger.error('Email rate limiter failed, processing batch without rate limiting', { error: String(err) })
             return super.processInvocations(invocations)
         }
-
-        const overConsumed = Math.max(0, -Math.floor(rateLimit.tokens))
-        const toProcess = invocations.slice(0, invocations.length - overConsumed)
-        const toDefer = invocations.slice(toProcess.length)
-
-        emailRateLimitTokensAvailable.set(Math.max(0, Math.floor(rateLimit.tokens)))
 
         if (toDefer.length === 0) {
             return super.processInvocations(invocations)
@@ -82,10 +146,8 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
             deferred: toDefer.length,
         })
 
-        // Process what we can
         const results = toProcess.length > 0 ? await super.processInvocations(toProcess) : []
 
-        // Defer the rest with staggered delays
         for (let i = 0; i < toDefer.length; i++) {
             const jitterMs = Math.floor(Math.random() * RATE_LIMIT_JITTER_MS)
             const delayMs = RATE_LIMIT_RETRY_BASE_MS + jitterMs
@@ -96,7 +158,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                     { finished: false }
                 )
             )
-            emailRateLimitedTotal.inc()
+            emailRateLimitedTotal.labels({ scope: toDefer[i].teamId === invocations[0]?.teamId ? 'team' : 'global' }).inc()
         }
 
         return results
