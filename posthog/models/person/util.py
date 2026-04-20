@@ -36,6 +36,7 @@ from posthog.personhog_client.metrics import (
     get_client_name,
 )
 from posthog.personhog_client.proto import (
+    DeletePersonsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
     GetPersonByDistinctIdRequest,
@@ -609,6 +610,37 @@ def validate_person_uuids_exist(team_id: int, uuids: list[str]) -> list[str]:
             .filter(team_id=team_id, uuid__in=uuids)
             .values_list("uuid", flat=True)
         ],
+        team_id=team_id,
+    )
+
+
+def delete_persons_from_postgres(team_id: int, persons: list[Person]) -> None:
+    """Delete Person rows (and associated PersonDistinctId rows) from Postgres.
+
+    Uses the personhog RPC when available, falling back to ORM-based deletion.
+    Processes in batches of 1000 (the RPC maximum).
+    """
+
+    def personhog_fn() -> None:
+        from posthog.personhog_client.client import get_personhog_client
+
+        client = get_personhog_client()
+        if client is None:
+            raise RuntimeError("personhog client not configured")
+
+        uuids = [str(p.uuid) for p in persons]
+        for i in range(0, len(uuids), 1000):
+            batch = uuids[i : i + 1000]
+            client.delete_persons(DeletePersonsRequest(team_id=team_id, person_uuids=batch))
+
+    def orm_fn() -> None:
+        for person in persons:
+            person.delete()
+
+    _personhog_routed(
+        "delete_persons",
+        personhog_fn,
+        orm_fn,
         team_id=team_id,
     )
 
