@@ -8316,6 +8316,25 @@ export interface NonIntegratedConversionsTableQueryApi {
     version?: number | null
 }
 
+export interface ErrorTrackingPhantomFingerprintIssueStateApi {
+    /** @nullable */
+    assigned_role_id: string | null
+    /** @nullable */
+    assigned_user_id: number | null
+    fingerprint: string
+    /** ISO 8601 datetime string. */
+    first_seen: string
+    is_deleted: number
+    /** @nullable */
+    issue_description: string | null
+    issue_id: string
+    /** @nullable */
+    issue_name: string | null
+    issue_status: string
+    /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+    version: number
+}
+
 export type ErrorTrackingQueryApiKind = (typeof ErrorTrackingQueryApiKind)[keyof typeof ErrorTrackingQueryApiKind]
 
 export const ErrorTrackingQueryApiKind = {
@@ -8382,6 +8401,11 @@ export interface ErrorTrackingQueryApi {
      * @nullable
      */
     filterTestAccounts?: boolean | null
+    /**
+     * Client-side phantom rows to UNION into the denormalized fingerprint issue state subquery (V3 only). Used to hide Kafka→ClickHouse sync lag after mutations.
+     * @nullable
+     */
+    phantomFingerprintIssueStates?: ErrorTrackingPhantomFingerprintIssueStateApi[] | null
     /** @nullable */
     groupKey?: string | null
     /** @nullable */
