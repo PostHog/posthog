@@ -396,7 +396,9 @@ def send_fatal_plugin_error(
         return
     plugin_config: PluginConfig = PluginConfig.objects.prefetch_related("plugin", "team").get(id=plugin_config_id)
     plugin: Plugin = plugin_config.plugin
-    team: Team = plugin_config.team
+    team = plugin_config.team
+    if team is None:
+        return
 
     memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:

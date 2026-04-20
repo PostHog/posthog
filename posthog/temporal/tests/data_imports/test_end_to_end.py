@@ -240,6 +240,7 @@ async def _run(
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
+        mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_app_metrics_producer_cls,
     ):
         await _execute_run(workflow_id, inputs, mock_data_response)
 
@@ -266,6 +267,26 @@ async def _run(
         mock_get_data_import_finished_metric.assert_called_with(
             source_type=source_type, status=ExternalDataJob.Status.COMPLETED.lower()
         )
+
+        # Assert that app_metrics2 rows were emitted for the successful job — both
+        # the success row and the rows_synced row (since a successful e2e run writes
+        # at least one row).
+        produce_calls = mock_app_metrics_producer_cls.return_value.produce.call_args_list
+        emitted_payloads = [call.kwargs["data"] for call in produce_calls]
+        status_rows = [
+            p for p in emitted_payloads if p["app_source_id"] == str(source.pk) and p["metric_kind"] == "success"
+        ]
+        rows_rows = [p for p in emitted_payloads if p["app_source_id"] == str(source.pk) and p["metric_kind"] == "rows"]
+        assert len(status_rows) == 1, f"expected one success row, got {emitted_payloads}"
+        assert status_rows[0]["app_source"] == "warehouse_source_sync"
+        assert status_rows[0]["metric_name"] == "succeeded"
+        assert status_rows[0]["count"] == 1
+        assert status_rows[0]["instance_id"] == str(schema.id)
+        assert status_rows[0]["team_id"] == team.pk
+        assert len(rows_rows) == 1, f"expected one rows_synced row, got {emitted_payloads}"
+        assert rows_rows[0]["metric_name"] == "rows_synced"
+        assert rows_rows[0]["count"] == run.rows_synced
+        assert rows_rows[0]["instance_id"] == str(schema.id)
 
         await sync_to_async(schema.refresh_from_db)()
 

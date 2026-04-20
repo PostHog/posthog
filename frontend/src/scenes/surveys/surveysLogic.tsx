@@ -34,6 +34,7 @@ export enum SurveysTabs {
     Archived = 'archived',
     Notifications = 'notifications',
     History = 'history',
+    Settings = 'settings',
 }
 
 export function isSurveyDraft(survey: Pick<Survey, 'start_date'>): boolean {
