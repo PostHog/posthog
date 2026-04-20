@@ -32,17 +32,8 @@ CSRF_TRUSTED_ORIGINS = (
     if raw_site_url
     else ["http://localhost:8000", "http://localhost:8010"]  # 8000 is just Django, 8010 is Django + Capture via Caddy
 )
-# Extra entries for dev reverse proxies (ngrok, Tailscale Funnel, Cloudflare tunnel,
-# etc.). Django 4+ supports wildcard patterns like `https://*.your-proxy.example.com`
-# in CSRF_TRUSTED_ORIGINS.
 CSRF_TRUSTED_ORIGINS += get_list(os.getenv("EXTRA_CSRF_TRUSTED_ORIGINS", ""))
-# Proxy settings. When running behind a dev reverse proxy (ngrok, Tailscale Funnel,
-# Cloudflare tunnel, etc.), set:
-#   IS_BEHIND_PROXY=true
-#   TRUSTED_PROXIES=*   (or a CIDR list — "*" is fine for dev)
-#   EXTRA_CSRF_TRUSTED_ORIGINS=https://*.your-proxy.example.com
-# Without TRUSTED_PROXIES, IS_BEHIND_PROXY emits a startup warning and client IP
-# detection strips to the proxy hop (wrong IPs captured on events).
+# Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
 TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
