@@ -149,13 +149,16 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)")
     def quarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
         """Quarantine a snapshot identifier for a specific run type."""
-        entry = api.quarantine_identifier(
-            repo_id=UUID(pk),
-            run_type=run_type,
-            input=request.validated_data,
-            user_id=request.user.id,
-            team_id=self.team_id,
-        )
+        try:
+            entry = api.quarantine_identifier(
+                repo_id=UUID(pk),
+                run_type=run_type,
+                input=request.validated_data,
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+            )
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(QuarantinedIdentifierEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(

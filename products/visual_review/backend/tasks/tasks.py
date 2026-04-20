@@ -35,5 +35,5 @@ def process_run_diffs(run_id: str) -> None:
         logger.info("visual_review.diff_processing_completed", run_id=run_id)
     except Exception as e:
         logger.exception("visual_review.diff_processing_failed", run_id=run_id, error=str(e))
-        logic.mark_run_completed(run_uuid, error_message=str(e))
+        logic.finalize_run(run_uuid, error_message=str(e))
         raise

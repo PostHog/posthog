@@ -328,6 +328,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                 quarantinedIdentifiers.find(
                                     (q) =>
                                         q.identifier === selectedSnapshot.identifier &&
+                                        q.run_type === run.run_type &&
                                         (!q.expires_at || new Date(q.expires_at) > new Date())
                                 ) ?? null
                             }

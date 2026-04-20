@@ -163,12 +163,15 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 changedSnapshots.filter((s) => s.review_state !== 'approved' && s.review_state !== 'tolerated').length,
         ],
         quarantinedIdentifierSet: [
-            (s) => [s.quarantinedIdentifiers],
-            (quarantinedIdentifiers): Set<string> =>
+            (s) => [s.quarantinedIdentifiers, s.run],
+            (quarantinedIdentifiers: QuarantinedIdentifierEntryApi[], run: RunApi | null): Set<string> =>
                 new Set(
                     quarantinedIdentifiers
-                        .filter((q) => !q.expires_at || new Date(q.expires_at) > new Date())
-                        .map((q) => q.identifier)
+                        .filter(
+                            (q: QuarantinedIdentifierEntryApi) =>
+                                q.run_type === run?.run_type && (!q.expires_at || new Date(q.expires_at) > new Date())
+                        )
+                        .map((q: QuarantinedIdentifierEntryApi) => q.identifier)
                 ),
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],

@@ -18,14 +18,14 @@ import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
 function getThemeSibling(identifier: string): string | null {
     const parts = identifier.split('--')
-    const theme = parts[parts.length - 1]
-    if (theme === 'dark') {
-        return [...parts.slice(0, -1), 'light'].join('--')
+    const themeIndex = [...parts].reverse().findIndex((part) => part === 'dark' || part === 'light')
+    if (themeIndex === -1) {
+        return null
     }
-    if (theme === 'light') {
-        return [...parts.slice(0, -1), 'dark'].join('--')
-    }
-    return null
+    const actualIndex = parts.length - 1 - themeIndex
+    const siblingParts = [...parts]
+    siblingParts[actualIndex] = siblingParts[actualIndex] === 'dark' ? 'light' : 'dark'
+    return siblingParts.join('--')
 }
 
 const SUGGESTED_REASONS = [

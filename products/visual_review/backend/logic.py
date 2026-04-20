@@ -755,14 +755,14 @@ def _stamp_quarantine(run: Run) -> None:
     """Evaluate quarantine policy and freeze it on each snapshot."""
     now = timezone.now()
     quarantined_ids = set(
-        QuarantinedIdentifier.objects.filter(repo_id=run.repo_id, run_type=run.run_type)
+        QuarantinedIdentifier.objects.filter(repo_id=run.repo_id, run_type=run.run_type, team_id=run.team_id)
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
         .values_list("identifier", flat=True)
     )
-    if not quarantined_ids:
-        return
-    run.snapshots.using(WRITER_DB).filter(identifier__in=quarantined_ids).update(is_quarantined=True)
-    run.snapshots.using(WRITER_DB).exclude(identifier__in=quarantined_ids).update(is_quarantined=False)
+    snapshots = run.snapshots.using(WRITER_DB)
+    if quarantined_ids:
+        snapshots.filter(identifier__in=quarantined_ids, is_quarantined=False).update(is_quarantined=True)
+    snapshots.filter(is_quarantined=True).exclude(identifier__in=quarantined_ids).update(is_quarantined=False)
 
 
 def finalize_run(run_id: UUID, error_message: str = "") -> Run:
@@ -1553,6 +1553,7 @@ def quarantine_identifier(
     team_id: int,
     expires_at: datetime | None = None,
 ) -> QuarantinedIdentifier:
+    get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     return QuarantinedIdentifier.objects.using(WRITER_DB).create(
         repo_id=repo_id,
         identifier=identifier,
