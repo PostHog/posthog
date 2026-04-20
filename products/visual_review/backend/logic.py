@@ -593,14 +593,6 @@ def complete_run(run_id: UUID) -> Run:
     # Fetch baseline once — used for classification and removal detection
     baseline = _resolve_baselines(repo, run.run_type, run.branch)
 
-    # Pre-load quarantined identifiers for this run type (respecting expiry)
-    now = timezone.now()
-    quarantined_ids = set(
-        QuarantinedIdentifier.objects.filter(repo=repo, run_type=run.run_type)
-        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
-        .values_list("identifier", flat=True)
-    )
-
     # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
     run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
     baseline_hashes_in_use = set(baseline.values())
@@ -645,7 +637,6 @@ def complete_run(run_id: UUID) -> Run:
         snapshot.classification_reason = classification_reason
         snapshot.review_state = review_state
         snapshot.tolerated_hash_match = tolerated_match
-        snapshot.is_quarantined = snapshot.identifier in quarantined_ids
         snapshot.baseline_hash = baseline_hash or ""
         snapshot.baseline_artifact = baseline_artifact
         snapshot.current_artifact = get_artifact(repo.id, snapshot.current_hash)
@@ -656,7 +647,6 @@ def complete_run(run_id: UUID) -> Run:
                 "classification_reason",
                 "review_state",
                 "tolerated_hash_match",
-                "is_quarantined",
                 "baseline_hash",
                 "baseline_artifact",
                 "current_artifact",
@@ -695,7 +685,7 @@ def complete_run(run_id: UUID) -> Run:
 
     # Optimization: if no changes, skip diff processing entirely
     if run.changed_count == 0 and run.new_count == 0:
-        mark_run_completed(run_id)
+        finalize_run(run_id)
         return get_run(run_id)
 
     # Mark as processing and trigger diff task
@@ -761,8 +751,25 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     return created_count
 
 
-def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
+def _stamp_quarantine(run: Run) -> None:
+    """Evaluate quarantine policy and freeze it on each snapshot."""
+    now = timezone.now()
+    quarantined_ids = set(
+        QuarantinedIdentifier.objects.filter(repo_id=run.repo_id, run_type=run.run_type)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+        .values_list("identifier", flat=True)
+    )
+    if not quarantined_ids:
+        return
+    run.snapshots.using(WRITER_DB).filter(identifier__in=quarantined_ids).update(is_quarantined=True)
+    run.snapshots.using(WRITER_DB).exclude(identifier__in=quarantined_ids).update(is_quarantined=False)
+
+
+def finalize_run(run_id: UUID, error_message: str = "") -> Run:
     run = get_run_with_snapshots(run_id)
+
+    # Stamp quarantine state — evaluated now and frozen on each snapshot
+    _stamp_quarantine(run)
 
     snapshots = list(run.snapshots.select_related("tolerated_hash_match").all())
 
@@ -1388,6 +1395,9 @@ def approve_run(
         reviewed_at=now,
         reviewed_by_id=user_id,
     )
+
+    # Re-evaluate quarantine at approval time
+    _stamp_quarantine(run)
 
     # Finalize run
     run.approved = True

@@ -26,10 +26,12 @@ export const scene: SceneExport = {
 function SnapshotThumbnail({
     snapshot,
     isSelected,
+    isQuarantined,
     onClick,
 }: {
     snapshot: SnapshotApi
     isSelected: boolean
+    isQuarantined: boolean
     onClick: () => void
 }): JSX.Element {
     const parts = snapshot.identifier.split('--')
@@ -38,7 +40,6 @@ function SnapshotThumbnail({
     const shortName = parts.length > 1 ? parts.slice(1, isTheme ? -1 : undefined).join(' · ') : snapshot.identifier
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
-    const isQuarantined = snapshot.is_quarantined === true
 
     return (
         <button
@@ -106,6 +107,7 @@ export function VisualReviewRunScene(): JSX.Element {
         snapshotHistoryLoading,
         toleratedHashes,
         toleratedHashesLoading,
+        quarantinedIdentifierSet,
         repoFullName,
         isApproving,
     } = useValues(visualReviewRunSceneLogic)
@@ -264,6 +266,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                     key={snapshot.id}
                                     snapshot={snapshot}
                                     isSelected={selectedSnapshot?.id === snapshot.id}
+                                    isQuarantined={quarantinedIdentifierSet.has(snapshot.identifier)}
                                     onClick={() => setSelectedSnapshotId(snapshot.id)}
                                 />
                             ))}
@@ -309,6 +312,7 @@ export function VisualReviewRunScene(): JSX.Element {
                             toleratedHashesLoading={toleratedHashesLoading}
                             onApprove={handleApproveSnapshot}
                             onMarkTolerated={() => markAsTolerated(selectedSnapshot)}
+                            isQuarantined={quarantinedIdentifierSet.has(selectedSnapshot.identifier)}
                             onQuarantine={() => quarantineSnapshot(selectedSnapshot)}
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
                             commitSha={run.commit_sha}

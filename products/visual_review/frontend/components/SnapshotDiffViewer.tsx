@@ -15,6 +15,7 @@ interface SnapshotDiffViewerProps {
     toleratedHashesLoading?: boolean
     onApprove?: () => void
     onMarkTolerated?: () => void
+    isQuarantined?: boolean
     onQuarantine?: () => void
     onUnquarantine?: () => void
     commitSha?: string
@@ -31,6 +32,7 @@ export function SnapshotDiffViewer({
     toleratedHashesLoading,
     onApprove,
     onMarkTolerated,
+    isQuarantined = false,
     onQuarantine,
     onUnquarantine,
     commitSha,
@@ -46,7 +48,6 @@ export function SnapshotDiffViewer({
 
     const isApproved = snapshot.review_state === 'approved'
     const isTolerated = snapshot.review_state === 'tolerated'
-    const isQuarantined = snapshot.is_quarantined === true
     const hasChanges = snapshot.result === 'changed' || snapshot.result === 'new' || snapshot.result === 'removed'
     const needsAction = hasChanges && !isApproved && !isTolerated && !isQuarantined
 

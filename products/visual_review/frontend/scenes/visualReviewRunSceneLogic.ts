@@ -10,6 +10,7 @@ import { Breadcrumb } from '~/types'
 import {
     visualReviewReposQuarantineCreate,
     visualReviewReposQuarantineDestroy,
+    visualReviewReposQuarantineList,
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
     visualReviewRunsTolerateCreate,
@@ -19,6 +20,7 @@ import {
     visualReviewRunsToleratedHashesList,
 } from '../generated/api'
 import type {
+    QuarantinedIdentifierEntryApi,
     RepoApi,
     RunApi,
     SnapshotApi,
@@ -122,6 +124,19 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 },
             },
         ],
+        quarantinedIdentifiers: [
+            [] as QuarantinedIdentifierEntryApi[],
+            {
+                loadQuarantinedIdentifiers: async () => {
+                    const run = values.run
+                    if (!run) {
+                        return []
+                    }
+                    const response = await visualReviewReposQuarantineList(String(values.currentProjectId), run.repo_id)
+                    return response.results
+                },
+            },
+        ],
     })),
     selectors({
         selectedSnapshot: [
@@ -142,6 +157,15 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             (s) => [s.changedSnapshots],
             (changedSnapshots): number =>
                 changedSnapshots.filter((s) => s.review_state !== 'approved' && s.review_state !== 'tolerated').length,
+        ],
+        quarantinedIdentifierSet: [
+            (s) => [s.quarantinedIdentifiers],
+            (quarantinedIdentifiers): Set<string> =>
+                new Set(
+                    quarantinedIdentifiers
+                        .filter((q) => !q.expires_at || new Date(q.expires_at) > new Date())
+                        .map((q) => q.identifier)
+                ),
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
         breadcrumbs: [
@@ -169,6 +193,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         },
         loadRunSuccess: () => {
             actions.loadRepo()
+            actions.loadQuarantinedIdentifiers()
         },
         loadSnapshotsSuccess: () => {
             const snapshot = values.selectedSnapshot
@@ -243,7 +268,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     reason: 'Quarantined from run review UI',
                 })
                 lemonToast.success('Identifier quarantined — future runs will skip gating')
-                actions.loadSnapshots()
+                actions.loadQuarantinedIdentifiers()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Failed to quarantine')
             }
@@ -261,7 +286,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     snapshot.identifier
                 )
                 lemonToast.success('Identifier unquarantined — future runs will gate on it again')
-                actions.loadSnapshots()
+                actions.loadQuarantinedIdentifiers()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Failed to unquarantine')
             }

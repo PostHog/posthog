@@ -16,7 +16,18 @@ class Migration(migrations.Migration):
                 ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
                 ("team_id", models.BigIntegerField(db_index=True)),
                 ("identifier", models.CharField(max_length=512)),
-                ("run_type", models.CharField(max_length=20)),
+                (
+                    "run_type",
+                    models.CharField(
+                        choices=[
+                            ("storybook", "storybook"),
+                            ("playwright", "playwright"),
+                            ("cypress", "cypress"),
+                            ("other", "other"),
+                        ],
+                        max_length=20,
+                    ),
+                ),
                 ("reason", models.CharField(max_length=255)),
                 ("expires_at", models.DateTimeField(blank=True, null=True)),
                 ("created_by_id", models.BigIntegerField(blank=True, null=True)),

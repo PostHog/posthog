@@ -315,7 +315,7 @@ class TestRunOperations:
             pr_number=None,
             snapshots=[],
         )
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         with pytest.raises(ValueError, match="pending"):
             logic.add_snapshots_to_run(
@@ -371,7 +371,7 @@ class TestRunOperations:
             snapshots=[{"identifier": "btn", "content_hash": "h1"}],
             purpose="observe",
         )
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         with pytest.raises(ValueError, match="Observational"):
             logic.approve_run(
@@ -418,7 +418,7 @@ class TestRunOperations:
 
         assert updated.status == RunStatus.PROCESSING
 
-    def test_mark_run_completed_success(self, repo, mocker):
+    def test_finalize_run_success(self, repo, mocker):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -442,8 +442,8 @@ class TestRunOperations:
         logic.complete_run(run.id)
 
         # complete_run leaves the run in PROCESSING when there are changes;
-        # mark_run_completed finalizes it
-        updated = logic.mark_run_completed(run.id)
+        # finalize_run finalizes it
+        updated = logic.finalize_run(run.id)
 
         assert updated.status == RunStatus.COMPLETED
         assert updated.completed_at is not None
@@ -451,7 +451,7 @@ class TestRunOperations:
         assert updated.new_count == 1
         assert updated.error_message == ""
 
-    def test_mark_run_completed_with_error(self, repo):
+    def test_finalize_run_with_error(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -463,7 +463,7 @@ class TestRunOperations:
             baseline_hashes={},
         )
 
-        updated = logic.mark_run_completed(run.id, error_message="Something failed")
+        updated = logic.finalize_run(run.id, error_message="Something failed")
 
         assert updated.status == RunStatus.FAILED
         assert updated.error_message == "Something failed"
@@ -531,7 +531,7 @@ class TestApproveRun:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         updated = logic.approve_run(
             run_id=run.id,
@@ -574,7 +574,7 @@ class TestApproveSnapshots:
         mocker.patch("products.visual_review.backend.logic._resolve_baselines", return_value={"Button": "old_hash"})
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         updated = logic.approve_snapshots(
             run_id=run.id,
@@ -617,7 +617,7 @@ class TestToleratedHashes:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
         return run
 
     def test_mark_snapshot_as_tolerated(self, repo, user, mocker):
@@ -650,7 +650,7 @@ class TestToleratedHashes:
         mocker.patch("products.visual_review.backend.logic._resolve_baselines", return_value={"Button": "same"})
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         snapshot = run.snapshots.first()
         assert snapshot is not None
@@ -838,7 +838,7 @@ class TestCommitStatusChecks:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         statuses = mock_github_api.status_checks
         # VR is the gate — unapproved changes post failure
@@ -868,7 +868,7 @@ class TestCommitStatusChecks:
             snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
             baseline_hashes={"changed": "old_h"},
         )
-        logic.mark_run_completed(run1.id)
+        logic.finalize_run(run1.id)
 
         run2, _ = logic.create_run(
             repo_id=github_repo.id,
@@ -880,7 +880,7 @@ class TestCommitStatusChecks:
             snapshots=[{"identifier": "changed", "content_hash": "newer_h"}],
             baseline_hashes={"changed": "old_h"},
         )
-        logic.mark_run_completed(run2.id)
+        logic.finalize_run(run2.id)
 
         created = [c for c in mock_github_api.issue_comments if c["action"] == "created"]
         updated = [c for c in mock_github_api.issue_comments if c["action"] == "updated"]
@@ -903,8 +903,8 @@ class TestCommitStatusChecks:
             baseline_hashes={"changed": "old_h"},
         )
 
-        logic.mark_run_completed(run.id)
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
+        logic.finalize_run(run.id)
 
         assert len(mock_github_api.issue_comments) == 1
 
@@ -959,7 +959,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.mark_run_completed(run.id, error_message="Diff processing failed")
+        logic.finalize_run(run.id, error_message="Diff processing failed")
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "error"
@@ -1005,7 +1005,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
     def test_no_status_without_repo_full_name(self, team, mock_github_integration, mock_github_api):
         """Status checks are silently skipped when repo has no repo_full_name."""
@@ -1026,7 +1026,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
 
         assert len(mock_github_api.status_checks) == 0
 
@@ -1050,7 +1050,7 @@ class TestRunSupersession:
             snapshots=[{"identifier": "snap", "content_hash": commit_sha}],
             baseline_hashes={},
         )
-        logic.mark_run_completed(run.id)
+        logic.finalize_run(run.id)
         run.refresh_from_db()
         return run
 
