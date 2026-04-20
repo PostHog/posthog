@@ -437,3 +437,32 @@ def get_application_by_client_id(client_id: str) -> OAuthApplication:
     if is_cimd_client_id(client_id):
         return OAuthApplication.objects.get(cimd_metadata_url=client_id)
     return OAuthApplication.objects.get(client_id=client_id)
+
+
+# Defaults applied when a CIMD app is first used for provisioning. A self-serve
+# partner can hit /account_requests immediately without manual admin setup; the
+# app is opted into provisioning at the same trust level as other PKCE partners.
+CIMD_PROVISIONING_DEFAULTS = {
+    "provisioning_auth_method": "pkce",
+    "provisioning_active": True,
+    "provisioning_can_create_accounts": True,
+    "provisioning_can_provision_resources": True,
+}
+
+
+def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication:
+    """
+    Resolve a CIMD URL to an OAuthApplication configured as a provisioning partner.
+
+    Creates the CIMD app via the normal fetch+upsert path if it doesn't exist,
+    then backfills provisioning defaults if they haven't been set. Existing apps
+    that already have provisioning fields configured (e.g. via admin) are left alone.
+
+    Raises CIMDFetchError / CIMDValidationError on fetch failures.
+    """
+    app = get_or_create_cimd_application(url)
+    if not app.is_provisioning_partner:
+        for field, value in CIMD_PROVISIONING_DEFAULTS.items():
+            setattr(app, field, value)
+        app.save(update_fields=list(CIMD_PROVISIONING_DEFAULTS.keys()))
+    return app

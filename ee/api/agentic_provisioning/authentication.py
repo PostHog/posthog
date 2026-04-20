@@ -13,7 +13,13 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
-from posthog.api.oauth.cimd import get_application_by_client_id
+from posthog.api.oauth.cimd import (
+    CIMDFetchError,
+    CIMDValidationError,
+    get_application_by_client_id,
+    get_or_create_cimd_provisioning_application,
+    is_cimd_client_id,
+)
 from posthog.models.oauth import OAuthApplication, find_oauth_access_token
 
 from .signature import _compute_hmac, _get_raw_body, _parse_signature_header
@@ -130,6 +136,17 @@ class ProvisioningAuthentication(BaseAuthentication):
         return app if app.provisioning_active else None
 
     def _identify_pkce_partner(self, client_id: str) -> OAuthApplication | None:
+        # CIMD URLs: fetch metadata and auto-register the partner on first use, so
+        # a new partner hosting a valid metadata document can provision without
+        # any manual admin setup.
+        if is_cimd_client_id(client_id):
+            try:
+                app = get_or_create_cimd_provisioning_application(client_id)
+            except (CIMDFetchError, CIMDValidationError) as e:
+                logger.warning("provisioning_cimd_resolution_failed", client_id=client_id, error=str(e))
+                return None
+            return app if app.provisioning_active else None
+
         try:
             app = get_application_by_client_id(client_id)
             if not app.is_provisioning_partner or not app.provisioning_active:

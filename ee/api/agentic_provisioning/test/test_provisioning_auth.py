@@ -7,10 +7,13 @@ from urllib.parse import urlencode
 
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.cache import cache as real_cache
 from django.test import override_settings
 
+import requests as requests_lib
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
@@ -614,3 +617,154 @@ class TestProvisioningAuthentication(APIBaseTest):
         )
         assert res.status_code == 400
         assert "S256" in res.json()["error"]["message"]
+
+
+CIMD_PROV_URL = "https://partner.example.com/.well-known/oauth-client-metadata.json"
+
+
+def _make_cimd_metadata(url: str = CIMD_PROV_URL, **overrides) -> dict:
+    metadata = {
+        "client_id": url,
+        "client_name": "Partner App",
+        "redirect_uris": ["http://127.0.0.1:3000/callback"],
+        "grant_types": ["authorization_code"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+    }
+    metadata.update(overrides)
+    return metadata
+
+
+def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.headers = {}
+    resp.is_redirect = False
+    resp.is_permanent_redirect = False
+    resp.close = MagicMock()
+    body = json.dumps(metadata).encode() if metadata is not None else b""
+    resp.iter_content = MagicMock(return_value=iter([body]))
+    return resp
+
+
+@pytest.mark.requires_secrets
+@patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
+@override_settings(
+    STRIPE_APP_SECRET_KEY=HMAC_SECRET,
+    STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
+    STRIPE_ORCHESTRATOR_CALLBACK_URL="https://stripe.com/callback",
+    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
+    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
+)
+class TestCimdProvisioningAutoRegistration(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        OAuthApplication.objects.filter(cimd_metadata_url=CIMD_PROV_URL).delete()
+        real_cache.clear()
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_new_cimd_partner_auto_registers_on_account_request(self, mock_get, _url_mock):
+        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata())
+
+        _, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_cimd_auto",
+                "email": "cimd-auto@example.com",
+                "client_id": CIMD_PROV_URL,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+
+        assert res.status_code == 200, res.json()
+        assert res.json()["type"] == "oauth"
+
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        assert app.is_cimd_client
+        assert app.provisioning_auth_method == "pkce"
+        assert app.provisioning_active
+        assert app.provisioning_can_create_accounts
+        assert app.provisioning_can_provision_resources
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_existing_cimd_app_gets_provisioning_backfilled(self, mock_get, _url_mock):
+        OAuthApplication.objects.create(
+            name="Pre-existing CIMD",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://127.0.0.1:3000/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=CIMD_PROV_URL,
+        )
+        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata())
+
+        _, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_cimd_backfill",
+                "email": "cimd-backfill@example.com",
+                "client_id": CIMD_PROV_URL,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 200
+
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        assert app.provisioning_auth_method == "pkce"
+        assert app.provisioning_active
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_cimd_fetch_failure_returns_unauthorized(self, mock_get, _url_mock):
+        mock_get.side_effect = requests_lib.ConnectionError("DNS resolution failed")
+
+        _, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_cimd_fail",
+                "email": "cimd-fail@example.com",
+                "client_id": CIMD_PROV_URL,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 401
+        assert not OAuthApplication.objects.filter(cimd_metadata_url=CIMD_PROV_URL).exists()
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_self_serve_org_named_after_client_name(self, mock_get, _url_mock):
+        from posthog.models.user import User
+
+        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata(client_name="Partner App"))
+
+        email = "cimd-org-name@example.com"
+        _, challenge = _pkce_pair()
+        self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_cimd_org",
+                "email": email,
+                "client_id": CIMD_PROV_URL,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+
+        user = User.objects.get(email=email)
+        org = user.organization_memberships.first().organization
+        assert org.name == f"Partner App ({email})"
