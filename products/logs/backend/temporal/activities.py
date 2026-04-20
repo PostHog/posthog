@@ -26,7 +26,7 @@ from products.logs.backend.alert_state_machine import (
 )
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.logs_url_params import build_logs_url_params
-from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.metrics import increment_checks_total, record_check_duration, record_scheduler_lag
 
 logger = structlog.get_logger(__name__)
@@ -200,7 +200,7 @@ def _evaluate_single_alert(
 
     state_before = alert.state
     with transaction.atomic():
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert,
             result_count=check_result.result_count,
             threshold_breached=check_result.threshold_breached,
@@ -233,7 +233,7 @@ def _evaluate_single_alert(
     # ticks finish the job.
     try:
         prunable_ids = list(
-            LogsAlertCheck.objects.filter(
+            LogsAlertEvent.objects.filter(
                 alert=alert,
                 error_message__isnull=True,
                 state_before=F("state_after"),
@@ -242,9 +242,9 @@ def _evaluate_single_alert(
             .values_list("id", flat=True)[MAX_EVALUATION_PERIODS : MAX_EVALUATION_PERIODS + 500]
         )
         if prunable_ids:
-            LogsAlertCheck.objects.filter(id__in=prunable_ids).delete()
+            LogsAlertEvent.objects.filter(id__in=prunable_ids).delete()
     except Exception:
-        logger.exception("Failed to prune non-event check rows", alert_id=str(alert.id))
+        logger.exception("Failed to prune non-event rows", alert_id=str(alert.id))
 
     transitioned_to_broken = committed_state == AlertState.BROKEN and state_before != AlertState.BROKEN.value
     if transitioned_to_broken:

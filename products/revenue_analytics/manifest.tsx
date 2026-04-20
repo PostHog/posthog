@@ -13,7 +13,6 @@ export const manifest: ProductManifest = {
             projectBased: true,
             iconType: 'revenue_analytics',
             description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
-            settingsSection: 'environment-revenue-analytics',
         },
     },
     routes: {

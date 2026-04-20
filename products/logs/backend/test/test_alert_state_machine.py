@@ -40,7 +40,7 @@ def _snapshot(
     last_notified_at: datetime | None = None,
     snooze_until: datetime | None = None,
     consecutive_failures: int = 0,
-    recent_checks_breached: tuple[bool, ...] | None = None,
+    recent_events_breached: tuple[bool, ...] | None = None,
 ) -> AlertSnapshot:
     return AlertSnapshot(
         state=state,
@@ -50,7 +50,7 @@ def _snapshot(
         last_notified_at=last_notified_at,
         snooze_until=snooze_until,
         consecutive_failures=consecutive_failures,
-        recent_checks_breached=recent_checks_breached or (),
+        recent_events_breached=recent_events_breached or (),
     )
 
 
@@ -90,7 +90,7 @@ class TestNotFiringTransitions(TestCase):
             state=NOT_FIRING,
             datapoints_to_alarm=n,
             evaluation_periods=m,
-            recent_checks_breached=recent,
+            recent_events_breached=recent,
         )
         outcome = evaluate_alert_check(snapshot, _check(breached=breached), NOW)
         assert outcome.new_state == expected_state
@@ -121,7 +121,7 @@ class TestFiringTransitions(TestCase):
             state=FIRING,
             datapoints_to_alarm=n,
             evaluation_periods=m,
-            recent_checks_breached=recent,
+            recent_events_breached=recent,
         )
         outcome = evaluate_alert_check(snapshot, _check(breached=breached), NOW)
         assert outcome.new_state == expected_state
@@ -153,7 +153,7 @@ class TestPendingResolveTransitions(TestCase):
             state=PENDING_RESOLVE,
             datapoints_to_alarm=n,
             evaluation_periods=m,
-            recent_checks_breached=recent,
+            recent_events_breached=recent,
         )
         outcome = evaluate_alert_check(snapshot, _check(breached=breached), NOW)
         assert outcome.new_state == expected_state
@@ -335,7 +335,7 @@ class TestEdgeCases(TestCase):
             state=NOT_FIRING,
             datapoints_to_alarm=2,
             evaluation_periods=3,
-            recent_checks_breached=(True, True, True, True, True),
+            recent_events_breached=(True, True, True, True, True),
         )
         outcome = evaluate_alert_check(snapshot, _check(breached=True), NOW)
         # Window is [True, True, True] (truncated to M=3), 3 breaches >= N=2
