@@ -203,4 +203,4 @@ class TestOrganizationInviteGuestFlow(APIBaseTest):
         grant = GuestResourceGrant.objects.get(organization_membership=membership)
         self.assertFalse(grant.is_pending)
         self.assertIsNone(grant.invite)
-        self.assertEqual(grant.resource_id, dashboard.id)
+        self.assertEqual(grant.resource_id, str(dashboard.id))

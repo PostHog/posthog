@@ -140,9 +140,27 @@ def _validate_grant_shapes(*, organization: Organization, grants: list[dict[str,
             raise exceptions.ValidationError(
                 f"Invalid resource type '{resource}'. Must be one of: {', '.join(sorted(valid_resources))}."
             )
-        model = resource_model_map[resource]
-        if not model.objects.filter(id=resource_id, team_id=team_id).exists():
+        if not _resource_exists(resource_model_map[resource], resource, team_id, resource_id):
             raise exceptions.ValidationError(f"{resource.capitalize()} {resource_id} does not exist in team {team_id}.")
+
+
+def _resource_exists(model: Any, resource: str, team_id: int, resource_id: str | int | None) -> bool:
+    """Resolve a resource by its URL identifier. Dashboards use numeric PKs (stored as stringified int);
+    insights and notebooks use short_ids primarily but are legacy-addressable by PK as well.
+    Mirrors the dual-lookup convention in `InsightViewSet.safely_get_object`.
+    """
+    if resource_id is None:
+        return False
+    lookup_value = str(resource_id)
+    if resource == "dashboard":
+        if not lookup_value.isdigit():
+            return False
+        return model.objects.filter(id=int(lookup_value), team_id=team_id).exists()
+    # insight / notebook: try pk first (legacy numeric addressing), then short_id
+    if lookup_value.isdigit():
+        if model.objects.filter(id=int(lookup_value), team_id=team_id).exists():
+            return True
+    return model.objects.filter(short_id=lookup_value, team_id=team_id).exists()
 
 
 def create_pending_grants(*, invite, grants: list[dict[str, Any]], created_by: User) -> list[GuestResourceGrant]:
@@ -187,16 +205,24 @@ def guest_access_level_for_object(
     team,
     resource: str,
     obj_id: int,
+    obj_short_id: str | None = None,
 ) -> str | None:
     """Return the access level a guest has for a specific object.
+    Grants store URL identifiers as strings — for dashboards that's the numeric PK as string,
+    for insights and notebooks that's the short_id. Callers pass `obj_id` (numeric PK, always)
+    and optionally `obj_short_id` for insights/notebooks; we check both candidates.
     Returns "viewer" if the guest has a direct grant or the object is a tile of a granted dashboard.
     Returns None otherwise.
     """
+    candidates = {str(obj_id)}
+    if obj_short_id:
+        candidates.add(obj_short_id)
+
     direct = GuestResourceGrant.objects.filter(
         organization_membership=org_membership,
         team=team,
         resource=resource,
-        resource_id=obj_id,
+        resource_id__in=list(candidates),
         is_pending=False,
     ).exists()
     if direct:
@@ -205,14 +231,14 @@ def guest_access_level_for_object(
     if resource == "insight":
         from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
-        dashboard_ids = DashboardTile.objects.filter(insight_id=obj_id).values_list("dashboard_id", flat=True)
+        dashboard_ids = list(DashboardTile.objects.filter(insight_id=obj_id).values_list("dashboard_id", flat=True))
         if (
             dashboard_ids
             and GuestResourceGrant.objects.filter(
                 organization_membership=org_membership,
                 team=team,
                 resource="dashboard",
-                resource_id__in=list(dashboard_ids),
+                resource_id__in=[str(d) for d in dashboard_ids],
                 is_pending=False,
             ).exists()
         ):

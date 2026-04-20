@@ -351,7 +351,7 @@ class TestAcceptGuestInvite(BaseTest):
         self.assertFalse(grant.is_pending)
         self.assertIsNone(grant.invite)
         self.assertEqual(grant.resource, "dashboard")
-        self.assertEqual(grant.resource_id, self.dashboard.id)
+        self.assertEqual(grant.resource_id, str(self.dashboard.id))
 
     def test_handles_multiple_grants(self):
         insight = Insight.objects.create(team=self.team, name="i", created_by=self.user)

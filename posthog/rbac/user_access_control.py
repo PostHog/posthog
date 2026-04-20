@@ -527,6 +527,7 @@ class UserAccessControl:
                 team=self._team,
                 resource=resource,
                 obj_id=obj.id,  # type: ignore[attr-defined]
+                obj_short_id=getattr(obj, "short_id", None),
             )
 
         # Creators always have highest access

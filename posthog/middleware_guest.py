@@ -80,6 +80,9 @@ class GuestDeflectionMiddleware:
         return any(p.match(path) for p in ALWAYS_ALLOWED_PATTERNS)
 
     def _is_grant_bound_allowed(self, request: HttpRequest) -> bool:
+        # Grants store the URL identifier as a string (e.g., "42" for dashboards, "abc123"
+        # for notebooks) mirroring AccessControl.resource_id — so we can compare the URL
+        # segment directly without casts or short_id→numeric lookups.
         from posthog.models import GuestResourceGrant
 
         for pattern, resource in RESOURCE_PATH_PATTERNS:
@@ -87,13 +90,7 @@ class GuestDeflectionMiddleware:
             if not match:
                 continue
             team_id = int(match.group("team_id"))
-            resource_id_str = match.group("resource_id")
-            if resource == "notebook":
-                return self._notebook_granted(request, team_id, resource_id_str)
-            try:
-                resource_id = int(resource_id_str)
-            except ValueError:
-                return False
+            resource_id = match.group("resource_id")
             user = cast(User, request.user)
             return GuestResourceGrant.objects.filter(
                 organization_membership__user=user,
@@ -104,23 +101,6 @@ class GuestDeflectionMiddleware:
                 is_pending=False,
             ).exists()
         return False
-
-    def _notebook_granted(self, request: HttpRequest, team_id: int, short_id: str) -> bool:
-        from posthog.models import GuestResourceGrant
-        from posthog.models.notebook.notebook import Notebook
-
-        notebook_id = Notebook.objects.filter(team_id=team_id, short_id=short_id).values_list("id", flat=True).first()
-        if notebook_id is None:
-            return False
-        user = cast(User, request.user)
-        return GuestResourceGrant.objects.filter(
-            organization_membership__user=user,
-            organization_membership__is_guest=True,
-            team_id=team_id,
-            resource="notebook",
-            resource_id=notebook_id,
-            is_pending=False,
-        ).exists()
 
     def _is_query_bound_to_grant(self, request: HttpRequest) -> bool:
         match = QUERY_PATH_PATTERN.match(request.path)
@@ -142,7 +122,10 @@ class GuestDeflectionMiddleware:
         if insight_id is None and dashboard_id is None:
             return False
 
+        # Grants store URL identifiers (short_id for insights, stringified PK for dashboards).
+        # Query payload uses numeric PKs — we resolve short_ids via lookup.
         from posthog.models import GuestResourceGrant
+        from posthog.models.insight import Insight
 
         user = cast(User, request.user)
         qs = GuestResourceGrant.objects.filter(
@@ -152,14 +135,25 @@ class GuestDeflectionMiddleware:
             is_pending=False,
         )
         if insight_id is not None:
-            if qs.filter(resource="insight", resource_id=insight_id).exists():
+            insight_short_id = (
+                Insight.objects.filter(team_id=team_id, id=insight_id).values_list("short_id", flat=True).first()
+            )
+            candidates = {str(insight_id)}
+            if insight_short_id:
+                candidates.add(insight_short_id)
+            if qs.filter(resource="insight", resource_id__in=list(candidates)).exists():
                 return True
             from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
-            dashboard_ids = DashboardTile.objects.filter(insight_id=insight_id).values_list("dashboard_id", flat=True)
-            if dashboard_ids and qs.filter(resource="dashboard", resource_id__in=list(dashboard_ids)).exists():
+            dashboard_ids = list(
+                DashboardTile.objects.filter(insight_id=insight_id).values_list("dashboard_id", flat=True)
+            )
+            if (
+                dashboard_ids
+                and qs.filter(resource="dashboard", resource_id__in=[str(d) for d in dashboard_ids]).exists()
+            ):
                 return True
-        if dashboard_id is not None and qs.filter(resource="dashboard", resource_id=dashboard_id).exists():
+        if dashboard_id is not None and qs.filter(resource="dashboard", resource_id=str(dashboard_id)).exists():
             return True
         return False
 
