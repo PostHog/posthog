@@ -274,6 +274,75 @@ function useDebouncedGroupedItems(
     return enabled ? stable : groupedItems
 }
 
+function useReRankedGroupedItems(
+    groupedItems: GroupedItemsEntry[],
+    searchValue: string,
+    enabled: boolean
+): GroupedItemsEntry[] {
+    const incumbentRef = useRef<string | null>(null)
+    const prevSearchRef = useRef(searchValue)
+
+    if (searchValue !== prevSearchRef.current) {
+        prevSearchRef.current = searchValue
+        incumbentRef.current = null
+    }
+
+    return useMemo(() => {
+        const firstGroup = groupedItems.find((g) => g.items.length > 0)
+        const firstItem = firstGroup?.items[0]
+
+        if (!enabled || !firstItem) {
+            incumbentRef.current = firstItem?.id ?? null
+            return groupedItems
+        }
+
+        if (!incumbentRef.current) {
+            incumbentRef.current = firstItem.id
+            return groupedItems
+        }
+
+        if (firstItem.id === incumbentRef.current) {
+            return groupedItems
+        }
+
+        // Incumbent isn't first anymore — find it
+        const incumbentId = incumbentRef.current
+        let found: { groupIdx: number; itemIdx: number; item: SearchItem } | null = null
+
+        for (let gi = 0; gi < groupedItems.length; gi++) {
+            for (let ii = 0; ii < groupedItems[gi].items.length; ii++) {
+                if (groupedItems[gi].items[ii].id === incumbentId) {
+                    found = { groupIdx: gi, itemIdx: ii, item: groupedItems[gi].items[ii] }
+                    break
+                }
+            }
+            if (found) {
+                break
+            }
+        }
+
+        if (!found) {
+            incumbentRef.current = firstItem.id
+            return groupedItems
+        }
+
+        // Promote: move incumbent to front of its group, move group to front
+        const result = [...groupedItems]
+        const group = { ...result[found.groupIdx], items: [...result[found.groupIdx].items] }
+        group.items.splice(found.itemIdx, 1)
+        group.items.unshift(found.item)
+
+        if (found.groupIdx > 0) {
+            result.splice(found.groupIdx, 1)
+            result.unshift(group)
+        } else {
+            result[0] = group
+        }
+
+        return result
+    }, [groupedItems, enabled])
+}
+
 // ============================================================================
 // Search.Root
 // ============================================================================
@@ -315,6 +384,7 @@ function SearchRoot({
     const { toggleTheme } = useActions(themeLogic)
     const { updateUser } = useActions(userLogic)
     const debounceEnabled = useFeatureFlag('SEARCH_DEBOUNCE_ALL')
+    const reRankEnabled = useFeatureFlag('SEARCH_RE_RANK')
 
     const [searchValue, setSearchValue] = useState(defaultSearchValue)
 
@@ -489,7 +559,11 @@ function SearchRoot({
 
     // Debounce grouped items so async results don't shift the highlighted item mid-keystroke.
     // When searchValue changes, items update immediately; async result arrivals are batched.
-    const stableGroupedItems = useDebouncedGroupedItems(groupedItems, searchValue, debounceEnabled)
+    const debouncedGroupedItems = useDebouncedGroupedItems(groupedItems, searchValue, debounceEnabled)
+
+    // Re-rank: pin the incumbent first item so async results don't shift what's highlighted.
+    // Promotes the incumbent's group to the front if needed.
+    const stableGroupedItems = useReRankedGroupedItems(debouncedGroupedItems, searchValue, reRankEnabled)
 
     // Derive a flat item list from groupedItems so the order passed to Autocomplete.Root
     // exactly matches the DOM render order. Without this, Base UI's keyboard navigation
