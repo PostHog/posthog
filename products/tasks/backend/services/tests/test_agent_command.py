@@ -283,14 +283,31 @@ class TestSendAgentCommand:
 
 class TestSendUserMessage:
     @patch("products.tasks.backend.services.agent_command.send_agent_command")
-    def test_sends_user_message_method(self, mock_send):
+    @pytest.mark.parametrize(
+        "message,artifacts,expected_params",
+        [
+            ("hello world", None, {"content": "hello world"}),
+            (
+                None,
+                [{"id": "artifact-1", "name": "notes.txt"}],
+                {"artifacts": [{"id": "artifact-1", "name": "notes.txt"}]},
+            ),
+            (
+                "hello world",
+                [{"id": "artifact-1", "name": "notes.txt"}],
+                {"content": "hello world", "artifacts": [{"id": "artifact-1", "name": "notes.txt"}]},
+            ),
+        ],
+        ids=["message_only", "artifacts_only", "message_and_artifacts"],
+    )
+    def test_sends_user_message_method(self, mock_send, message, artifacts, expected_params):
         mock_send.return_value = CommandResult(success=True, status_code=200)
         task_run = MagicMock()
-        result = send_user_message(task_run, "hello world")
+        result = send_user_message(task_run, message, artifacts=artifacts)
         mock_send.assert_called_once_with(
             task_run,
             method="user_message",
-            params={"content": "hello world"},
+            params=expected_params,
             auth_token=None,
             timeout=15,
         )

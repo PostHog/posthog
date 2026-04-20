@@ -9,6 +9,10 @@ from posthog.temporal.common.logger import get_logger
 logger = get_logger(__name__)
 
 
+class _RelayAlreadyRecorded(Exception):
+    """Raised when a relay was already recorded while holding the row lock."""
+
+
 def _markdown_to_slack_mrkdwn(text: str) -> str:
     """Convert markdown to Slack mrkdwn format.
 
@@ -157,10 +161,13 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     def _record_sent_relay(state: dict[str, Any]) -> None:
         sent_relay_ids = state.get("slack_sent_relay_ids") or []
         if input.relay_id in sent_relay_ids:
-            return
+            raise _RelayAlreadyRecorded
 
         sent_relay_ids.append(input.relay_id)
         # Keep a rolling window to bound state size while preserving idempotency for recent relays.
         state["slack_sent_relay_ids"] = sent_relay_ids[-30:]
 
-    TaskRun.mutate_state_atomic(input.run_id, _record_sent_relay)
+    try:
+        TaskRun.mutate_state_atomic(input.run_id, _record_sent_relay)
+    except _RelayAlreadyRecorded:
+        logger.info("slack_relay_duplicate_skipped", run_id=input.run_id, relay_id=input.relay_id)

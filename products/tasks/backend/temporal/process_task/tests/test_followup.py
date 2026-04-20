@@ -189,7 +189,8 @@ def _mock_get_context_configurable(_input) -> TaskProcessingContext:
 
 @activity.defn(name="send_followup_to_sandbox")
 def _mock_send_followup_records(input: SendFollowupToSandboxInput) -> None:
-    _ci_followup_calls.append(input.message)
+    if input.message is not None:
+        _ci_followup_calls.append(input.message)
 
 
 def _make_worker(env, task_queue: str) -> Worker:

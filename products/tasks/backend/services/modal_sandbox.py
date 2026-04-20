@@ -460,7 +460,7 @@ class ModalSandbox(SandboxBase):
 
         temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
         try:
-            self._sandbox.filesystem.write_bytes(temp_path, payload)
+            self._sandbox.filesystem.write_bytes(payload, temp_path)
             mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
             result = self.execute(mv_command, timeout_seconds=self.config.default_execution_timeout_seconds)
             if result.exit_code != 0:

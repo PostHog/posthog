@@ -1,3 +1,5 @@
+from typing import Any
+
 from unittest.mock import Mock
 
 from django.test import TestCase, override_settings
@@ -231,17 +233,19 @@ class TestModalSandboxAgentShWrapping(TestCase):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"
         sandbox.config = SandboxConfig(name="test-sandbox")
-        sandbox.is_running = Mock(return_value=True)
-        sandbox.execute = Mock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None))
-        sandbox._sandbox = Mock()
-        sandbox._sandbox.filesystem = Mock()
+        sandbox_any = sandbox  # Help mypy treat test doubles as dynamic attributes.
+        cast_sandbox: Any = sandbox_any
+        cast_sandbox.is_running = Mock(return_value=True)
+        cast_sandbox.execute = Mock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None))
+        cast_sandbox._sandbox = Mock()
+        cast_sandbox._sandbox.filesystem = Mock()
 
         result = sandbox.write_file("/tmp/workspace/config.yaml", b"payload")
 
-        sandbox._sandbox.filesystem.write_bytes.assert_called_once()
-        write_path, write_payload = sandbox._sandbox.filesystem.write_bytes.call_args.args
+        cast_sandbox._sandbox.filesystem.write_bytes.assert_called_once()
+        write_payload, write_path = cast_sandbox._sandbox.filesystem.write_bytes.call_args.args
         self.assertTrue(write_path.startswith("/tmp/workspace/config.yaml.tmp-"))
         self.assertEqual(write_payload, b"payload")
-        sandbox.execute.assert_called_once()
-        self.assertIn("mv", sandbox.execute.call_args.args[0])
+        cast_sandbox.execute.assert_called_once()
+        self.assertIn("mv", cast_sandbox.execute.call_args.args[0])
         self.assertEqual(result.exit_code, 0)
