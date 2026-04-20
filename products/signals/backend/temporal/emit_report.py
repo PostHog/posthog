@@ -6,8 +6,8 @@ Flow:
 3. Run enrichment agent to gather commit hashes, code paths, data context
 4. Persist artefacts (repo_selection, findings, actionability, priority, suggested_reviewers)
    — which also triggers conditional auto-start of coding tasks
-5. Apply the caller-provided actionability decision (ready / pending_input / not_actionable)
-6. Publish Kafka report-completed message (for ready reports)
+5. Mark report ready (always immediately actionable)
+6. Publish Kafka report-completed message
 """
 
 from __future__ import annotations
@@ -39,12 +39,10 @@ from products.signals.backend.temporal.summary import (
     MarkReportPendingInput,
     MarkReportReadyInput,
     PublishReportCompletedInput,
-    ResetReportToPotentialInput,
     mark_report_failed_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     publish_report_completed_activity,
-    reset_report_to_potential_activity,
 )
 
 if TYPE_CHECKING:
@@ -70,8 +68,6 @@ class EmitReportWorkflowInput:
     report_id: str  # Pre-generated UUID, used for workflow ID and report row creation
     title: str
     summary: str
-    actionability: str  # ActionabilityChoice.value
-    actionability_explanation: str
     priority: str  # Priority.value
     priority_explanation: str
 
@@ -84,8 +80,6 @@ class EnrichAndPersistEmitReportInput:
     summary: str
     repository: str
     repo_reason: str
-    actionability: str  # ActionabilityChoice.value
-    actionability_explanation: str
     priority: str  # Priority.value
     priority_explanation: str
 
@@ -209,8 +203,8 @@ async def enrich_and_persist_emit_report_activity(
 
         # 4. Build the full ReportResearchOutput with caller-provided judgments
         actionability = ActionabilityAssessment(
-            explanation=input.actionability_explanation,
-            actionability=ActionabilityChoice(input.actionability),
+            explanation="report created directly from product",
+            actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
             already_addressed=False,
         )
         priority = PriorityAssessment(
@@ -272,8 +266,8 @@ class EmitReportWorkflow:
     2. Select repository from team's GitHub integrations (reuses select_repository_activity)
     3. Run enrichment agent to gather commit hashes and code paths
     4. Persist artefacts + check auto-start
-    5. Apply caller-provided actionability decision
-    6. Publish Kafka report-completed message (ready reports only)
+    5. Mark report ready (always immediately actionable)
+    6. Publish Kafka report-completed message
     """
 
     @staticmethod
@@ -334,8 +328,6 @@ class EmitReportWorkflow:
                     summary=inputs.summary,
                     repository=repo_result.repository,
                     repo_reason=repo_result.reason,
-                    actionability=inputs.actionability,
-                    actionability_explanation=inputs.actionability_explanation,
                     priority=inputs.priority,
                     priority_explanation=inputs.priority_explanation,
                 ),
@@ -347,38 +339,7 @@ class EmitReportWorkflow:
             # Use the enriched summary (original + further context) for the final report
             final_summary = enrich_result.enriched_summary
 
-            # 4. Apply the caller-provided actionability decision
-            choice = ActionabilityChoice(inputs.actionability)
-
-            if choice == ActionabilityChoice.NOT_ACTIONABLE:
-                await workflow.execute_activity(
-                    reset_report_to_potential_activity,
-                    ResetReportToPotentialInput(
-                        team_id=inputs.team_id,
-                        report_id=inputs.report_id,
-                        reason=f"Not actionable: {inputs.actionability_explanation}",
-                    ),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                return
-
-            if choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT:
-                await workflow.execute_activity(
-                    mark_report_pending_input_activity,
-                    MarkReportPendingInput(
-                        team_id=inputs.team_id,
-                        report_id=inputs.report_id,
-                        title=inputs.title,
-                        summary=final_summary,
-                        reason=f"Requires human input: {inputs.actionability_explanation}",
-                    ),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                return
-
-            # IMMEDIATELY_ACTIONABLE → mark ready
+            # 4. Always immediately actionable — mark ready
             await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(

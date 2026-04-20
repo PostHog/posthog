@@ -1,9 +1,10 @@
 """Local dev tool: ingest a saved SignalReport research output via emit_report().
 
-Parses the fixture, extracts the title, summary, actionability, and priority from the
+Parses the fixture, extracts the title, summary, and priority from the
 ReportResearchOutput, then calls emit_report() which starts the EmitReportWorkflow.
 The workflow handles report creation, repo selection, enrichment, artefact persistence,
-auto-start checks, and final state transitions.
+auto-start checks, and final state transitions (actionability is always marked as
+immediately actionable by the workflow).
 
 The fixture shape matches `report_generation/fixtures/analyze_report_funnel_research_output.json`:
 
@@ -26,7 +27,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import Team
 
-from products.signals.backend.report_generation.research import ActionabilityChoice, Priority, ReportResearchOutput
+from products.signals.backend.report_generation.research import Priority, ReportResearchOutput
 
 
 class Command(BaseCommand):
@@ -78,30 +79,20 @@ class Command(BaseCommand):
         except Team.DoesNotExist:
             raise CommandError(f"Team {options['team_id']} not found")
 
-        actionability = result.actionability.actionability
-        actionability_explanation = result.actionability.explanation
-
         # emit_report requires a priority — fall back to P4 for not-actionable fixtures
         # that omit it, since the workflow will reset them to potential anyway.
         if result.priority:
             priority = result.priority.priority
             priority_explanation = result.priority.explanation
         else:
-            self.stdout.write(
-                self.style.WARNING(
-                    f"Fixture has no priority assessment — defaulting to P4. (actionability: {actionability.value})"
-                )
-            )
+            self.stdout.write(self.style.WARNING("Fixture has no priority assessment — defaulting to P4."))
             priority = Priority.P4
             priority_explanation = "Default P4: fixture did not include a priority assessment."
 
         self.stdout.write(f"Title: {result.title}")
-        self.stdout.write(f"Actionability: {actionability.value}")
         self.stdout.write(f"Priority: {priority.value}")
 
-        report_id = asyncio.run(
-            self._emit(team, result, actionability, actionability_explanation, priority, priority_explanation)
-        )
+        report_id = asyncio.run(self._emit(team, result, priority, priority_explanation))
 
         self.stdout.write(
             self.style.SUCCESS(
@@ -114,8 +105,6 @@ class Command(BaseCommand):
         self,
         team: Team,
         result: ReportResearchOutput,
-        actionability: ActionabilityChoice,
-        actionability_explanation: str,
         priority: Priority,
         priority_explanation: str,
     ) -> str:
@@ -125,8 +114,6 @@ class Command(BaseCommand):
             team=team,
             title=result.title,
             summary=result.summary,
-            actionability=actionability,
-            actionability_explanation=actionability_explanation,
             priority=priority,
             priority_explanation=priority_explanation,
         )

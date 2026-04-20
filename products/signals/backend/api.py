@@ -13,7 +13,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.models import SignalSourceConfig
-from products.signals.backend.report_generation.research import ActionabilityChoice, Priority
+from products.signals.backend.report_generation.research import Priority
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emit_report import EmitReportWorkflow, EmitReportWorkflowInput
 from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
@@ -127,8 +127,6 @@ async def emit_report(
     team: Team,
     title: str,
     summary: str,
-    actionability: ActionabilityChoice,
-    actionability_explanation: str,
     priority: Priority,
     priority_explanation: str,
 ) -> str:
@@ -140,7 +138,7 @@ async def emit_report(
     2. Runs an enrichment agent to gather commit hashes, code paths, and data context
     3. Persists artefacts and resolves suggested reviewers
     4. Checks auto-start conditions for an implementation task
-    5. Applies the caller-provided actionability decision
+    5. Always marks reports as immediately actionable
 
     No signals are attached to the report.
 
@@ -148,8 +146,6 @@ async def emit_report(
         team: The team object (org must have is_ai_data_processing_approved)
         title: PR-style report title
         summary: Axios-style report summary
-        actionability: Caller-provided actionability judgment
-        actionability_explanation: Evidence-grounded explanation for the judgment
         priority: Priority level (P0-P4)
         priority_explanation: Justification for priority level
 
@@ -161,8 +157,6 @@ async def emit_report(
             team=team,
             title="fix(dashboard): Timezone mismatch in date filter",
             summary="**What's happening:** ...",
-            actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
-            actionability_explanation="The date filter applies UTC offsets incorrectly...",
             priority=Priority.P2,
             priority_explanation="Affects all users filtering by date in non-UTC timezones.",
         )
@@ -181,8 +175,6 @@ async def emit_report(
         report_id=report_id,
         title=title,
         summary=summary,
-        actionability=actionability.value,
-        actionability_explanation=actionability_explanation,
         priority=priority.value,
         priority_explanation=priority_explanation,
     )
