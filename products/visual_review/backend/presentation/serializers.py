@@ -17,6 +17,8 @@ from ..facade.contracts import (
     CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
+    QuarantinedIdentifierEntry,
+    QuarantineInput,
     Repo,
     Run,
     RunSummary,
@@ -133,6 +135,16 @@ class ToleratedHashEntrySerializer(DataclassSerializer):
 
 class MarkToleratedInputSerializer(serializers.Serializer):
     snapshot_id = serializers.UUIDField()
+
+
+class QuarantinedIdentifierEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = QuarantinedIdentifierEntry
+
+
+class QuarantineInputSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = QuarantineInput
 
 
 class CreateRepoInputSerializer(DataclassSerializer):

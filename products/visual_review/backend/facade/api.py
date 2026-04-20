@@ -65,6 +65,7 @@ def _to_snapshot(snapshot, repo_id: UUID) -> contracts.Snapshot:
         reviewed_at=snapshot.reviewed_at,
         approved_hash=snapshot.approved_hash,
         tolerated_hash_id=snapshot.tolerated_hash_match_id,
+        is_quarantined=snapshot.is_quarantined,
         metadata=snapshot.metadata or {},
     )
 
@@ -306,3 +307,42 @@ def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) ->
         team_id=team_id,
     )
     return _to_run(run)
+
+
+# --- Quarantine ---
+
+
+def _to_quarantined_entry(q) -> contracts.QuarantinedIdentifierEntry:
+    return contracts.QuarantinedIdentifierEntry(
+        id=q.id,
+        identifier=q.identifier,
+        run_type=q.run_type,
+        reason=q.reason,
+        expires_at=q.expires_at,
+        created_at=q.created_at,
+        updated_at=q.updated_at,
+    )
+
+
+def list_quarantined(repo_id: UUID, team_id: int) -> list[contracts.QuarantinedIdentifierEntry]:
+    entries = logic.list_quarantined_identifiers(repo_id, team_id)
+    return [_to_quarantined_entry(q) for q in entries]
+
+
+def quarantine_identifier(
+    repo_id: UUID, input: contracts.QuarantineInput, user_id: int, team_id: int
+) -> contracts.QuarantinedIdentifierEntry:
+    entry = logic.quarantine_identifier(
+        repo_id=repo_id,
+        identifier=input.identifier,
+        run_type=input.run_type,
+        reason=input.reason,
+        expires_at=input.expires_at,
+        user_id=user_id,
+        team_id=team_id,
+    )
+    return _to_quarantined_entry(entry)
+
+
+def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
+    logic.unquarantine_identifier(repo_id=repo_id, identifier=identifier, run_type=run_type, team_id=team_id)

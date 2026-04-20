@@ -231,6 +231,9 @@ class RunSnapshot(models.Model):
         "ToleratedHash", on_delete=models.SET_NULL, null=True, blank=True, related_name="matched_snapshots"
     )
 
+    # Frozen at run finalization — reflects quarantine policy at that point in time
+    is_quarantined = models.BooleanField(default=False)
+
     # Diff metrics
     diff_percentage = models.FloatField(null=True, blank=True)
     diff_pixel_count = models.PositiveIntegerField(null=True, blank=True)
@@ -317,3 +320,42 @@ class ToleratedHash(models.Model):
 
     def __str__(self) -> str:
         return f"{self.identifier} {self.alternate_hash[:12]}... ({self.reason})"
+
+
+class QuarantinedIdentifier(models.Model):
+    """
+    Marks a snapshot identifier as known-flaky within a repo.
+
+    Quarantined snapshots are still captured, classified, and diffed (for metrics),
+    but excluded from the gate — they don't block PRs or affect commit status.
+
+    Evaluated at run finalization and frozen on RunSnapshot.is_quarantined so
+    historical runs remain stable even if quarantine policy changes later.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="quarantined_identifiers")
+    team_id = models.BigIntegerField(db_index=True)
+
+    identifier = models.CharField(max_length=512)
+    run_type = models.CharField(max_length=20, choices=[(t.value, t.value) for t in RunType])
+    reason = models.CharField(max_length=255)
+
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_by_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["repo", "identifier", "run_type"],
+                name="unique_quarantined_identifier",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["repo", "run_type", "identifier"], name="quarantine_lookup"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.identifier} ({self.reason[:40]})"

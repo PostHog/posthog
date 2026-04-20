@@ -5,6 +5,7 @@ ORM queries, validation, calculations, business rules.
 Called by api/api.py facade. Do not call from outside this module.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from django.conf import settings
@@ -26,7 +27,7 @@ from .facade.enums import (
     SnapshotResult,
     ToleratedReason,
 )
-from .models import Artifact, Repo, Run, RunSnapshot, ToleratedHash
+from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
@@ -592,6 +593,14 @@ def complete_run(run_id: UUID) -> Run:
     # Fetch baseline once — used for classification and removal detection
     baseline = _resolve_baselines(repo, run.run_type, run.branch)
 
+    # Pre-load quarantined identifiers for this run type (respecting expiry)
+    now = timezone.now()
+    quarantined_ids = set(
+        QuarantinedIdentifier.objects.filter(repo=repo, run_type=run.run_type)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+        .values_list("identifier", flat=True)
+    )
+
     # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
     run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
     baseline_hashes_in_use = set(baseline.values())
@@ -636,6 +645,7 @@ def complete_run(run_id: UUID) -> Run:
         snapshot.classification_reason = classification_reason
         snapshot.review_state = review_state
         snapshot.tolerated_hash_match = tolerated_match
+        snapshot.is_quarantined = snapshot.identifier in quarantined_ids
         snapshot.baseline_hash = baseline_hash or ""
         snapshot.baseline_artifact = baseline_artifact
         snapshot.current_artifact = get_artifact(repo.id, snapshot.current_hash)
@@ -646,6 +656,7 @@ def complete_run(run_id: UUID) -> Run:
                 "classification_reason",
                 "review_state",
                 "tolerated_hash_match",
+                "is_quarantined",
                 "baseline_hash",
                 "baseline_artifact",
                 "current_artifact",
@@ -755,9 +766,10 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
 
     snapshots = list(run.snapshots.select_related("tolerated_hash_match").all())
 
-    changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED)
-    new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW)
-    removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED)
+    # Gating counts exclude quarantined identifiers — they don't block PRs
+    changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
+    new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
+    removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
     tolerated_match_count = sum(
         1
         for s in snapshots
@@ -1505,6 +1517,42 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
 def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[ToleratedHash]:
     """List all tolerated hashes for a snapshot identifier, most recent first."""
     return list(ToleratedHash.objects.filter(repo_id=repo_id, identifier=identifier).order_by("-created_at"))
+
+
+# --- Quarantine ---
+
+
+def list_quarantined_identifiers(repo_id: UUID, team_id: int) -> list[QuarantinedIdentifier]:
+    return list(QuarantinedIdentifier.objects.filter(repo_id=repo_id, team_id=team_id).order_by("-created_at"))
+
+
+def quarantine_identifier(
+    repo_id: UUID,
+    identifier: str,
+    run_type: str,
+    reason: str,
+    user_id: int,
+    team_id: int,
+    expires_at: datetime | None = None,
+) -> QuarantinedIdentifier:
+    entry, created = QuarantinedIdentifier.objects.update_or_create(
+        repo_id=repo_id,
+        identifier=identifier,
+        run_type=run_type,
+        defaults={
+            "team_id": team_id,
+            "reason": reason,
+            "expires_at": expires_at,
+            "created_by_id": user_id,
+        },
+    )
+    return entry
+
+
+def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
+    QuarantinedIdentifier.objects.filter(
+        repo_id=repo_id, identifier=identifier, run_type=run_type, team_id=team_id
+    ).delete()
 
 
 def update_snapshot_diff(
