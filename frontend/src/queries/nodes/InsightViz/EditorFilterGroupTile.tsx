@@ -30,28 +30,32 @@ export function EditorFilterGroupTile({
         <div className="border rounded bg-surface-primary min-w-0">
             {isExpandable ? (
                 <div className={clsx('flex items-center gap-2 px-1 py-1 rounded-b-none', isRowExpanded && 'border-b')}>
-                    <LemonButton
-                        fullWidth
-                        onClick={() => {
-                            const newState = !isRowExpanded
-                            setIsRowExpanded(newState)
-                            posthog.capture('editor panel section toggled', {
-                                section: title,
-                                action: newState ? 'opened' : 'closed',
-                                query_kind: queryKind,
-                            })
-                        }}
-                        sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
-                        title={isRowExpanded ? 'Show less' : 'Show more'}
-                        data-attr={'editor-filter-group-collapse-' + slugify(title)}
-                    >
-                        <div className="flex items-center gap-2 font-semibold min-w-0">
-                            <span className="shrink-0">{title}</span>
-                            {!isRowExpanded && collapsedSummary && (
-                                <span className="text-xs font-normal text-secondary truncate">{collapsedSummary}</span>
-                            )}
-                        </div>
-                    </LemonButton>
+                    <div className="flex-1 min-w-0">
+                        <LemonButton
+                            fullWidth
+                            onClick={() => {
+                                const newState = !isRowExpanded
+                                setIsRowExpanded(newState)
+                                posthog.capture('editor panel section toggled', {
+                                    section: title,
+                                    action: newState ? 'opened' : 'closed',
+                                    query_kind: queryKind,
+                                })
+                            }}
+                            sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
+                            title={isRowExpanded ? 'Show less' : 'Show more'}
+                            data-attr={'editor-filter-group-collapse-' + slugify(title)}
+                        >
+                            <div className="flex items-center gap-2 font-semibold min-w-0">
+                                <span className="shrink-0">{title}</span>
+                                {!isRowExpanded && collapsedSummary && (
+                                    <span className="text-xs font-normal text-secondary truncate">
+                                        {collapsedSummary}
+                                    </span>
+                                )}
+                            </div>
+                        </LemonButton>
+                    </div>
                     {headerExtra && <div className="shrink-0 pr-2">{headerExtra}</div>}
                 </div>
             ) : (

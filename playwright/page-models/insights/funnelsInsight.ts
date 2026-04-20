@@ -44,6 +44,14 @@ export class FunnelsInsight {
         }
     }
 
+    private async expandBreakdownPanel(): Promise<void> {
+        const toggle = this.page.getByTestId('editor-filter-group-collapse-breakdown')
+        await toggle.waitFor({ state: 'visible' })
+        if ((await toggle.getAttribute('title')) === 'Show more') {
+            await toggle.click()
+        }
+    }
+
     async waitForHistogram(): Promise<void> {
         await expect(this.histogram).toBeVisible()
     }
@@ -68,6 +76,7 @@ export class FunnelsInsight {
     }
 
     async addBreakdown(property: string): Promise<void> {
+        await this.expandBreakdownPanel()
         await this.page.getByTestId('add-breakdown-button').click()
         await this.taxonomicFilter.selectItem(property)
     }
