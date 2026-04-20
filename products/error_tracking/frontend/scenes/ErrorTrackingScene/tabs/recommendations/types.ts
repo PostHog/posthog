@@ -6,6 +6,7 @@ export interface ErrorTrackingRecommendation<TMeta extends Record<string, unknow
     id: string
     type: ErrorTrackingRecommendationType
     meta: TMeta
+    completion_progress: number
     computed_at: string | null
     dismissed_at: string | null
     next_refresh_at: string | null

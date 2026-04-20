@@ -26,3 +26,9 @@ class CrossSellRecommendation(Recommendation):
                 },
             ]
         }
+
+    def completion_progress(self, meta: dict[str, Any]) -> float:
+        products = meta.get("products") or []
+        if not products:
+            return 0.0
+        return sum(1 for p in products if p.get("enabled")) / len(products)

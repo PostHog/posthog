@@ -28,10 +28,21 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
     next_refresh_at = serializers.SerializerMethodField()
+    completion_progress = serializers.SerializerMethodField()
 
     class Meta:
         model = ErrorTrackingRecommendation
-        fields = ["id", "type", "meta", "computed_at", "dismissed_at", "next_refresh_at", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "type",
+            "meta",
+            "completion_progress",
+            "computed_at",
+            "dismissed_at",
+            "next_refresh_at",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = fields
 
     def get_next_refresh_at(self, obj: ErrorTrackingRecommendation) -> str | None:
@@ -39,6 +50,14 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
         if not rec or not obj.computed_at:
             return None
         return (obj.computed_at + rec.refresh_interval).isoformat()
+
+    def get_completion_progress(self, obj: ErrorTrackingRecommendation) -> float:
+        # Derived dynamically from the stored `meta` so we don't need a column +
+        # backfill every time a recommendation's completion definition changes.
+        rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
+        if not rec:
+            return 0.0
+        return rec.completion_progress(obj.meta or {})
 
 
 def _compute_if_stale(team_id: int, team: Team, user: User) -> None:

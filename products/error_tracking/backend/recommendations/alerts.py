@@ -56,3 +56,9 @@ class AlertsRecommendation(Recommendation):
                 for trigger in ALERT_TRIGGERS
             ]
         }
+
+    def completion_progress(self, meta: dict[str, Any]) -> float:
+        alerts = meta.get("alerts") or []
+        if not alerts:
+            return 0.0
+        return sum(1 for a in alerts if a.get("enabled")) / len(alerts)
