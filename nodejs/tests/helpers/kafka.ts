@@ -13,7 +13,6 @@ import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_COHORT_MEMBERSHIP_CHANGED,
-    KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
     KAFKA_EVENTS_DEAD_LETTER_QUEUE,
     KAFKA_EVENTS_JSON,
@@ -35,14 +34,40 @@ import {
 } from '../../src/config/kafka-topics'
 import { PluginsServerConfig } from '../../src/types'
 
-export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
+function buildKafkaConfig(extraServerConfig?: Partial<PluginsServerConfig>) {
     const config = { ...overrideWithEnv(defaultConfig, process.env), ...extraServerConfig }
-
-    const kafkaConfig = {
+    return {
         'client.id': 'nodejs-test',
         'metadata.broker.list': (config.KAFKA_HOSTS || '').split(',').join(','),
     }
+}
 
+async function createTopicsWithClient(client: ReturnType<typeof AdminClient.create>, topics: string[]): Promise<void> {
+    const timeout = 10000
+    for (const topic of topics) {
+        await new Promise<void>((resolve, reject) => {
+            client.createTopic(
+                { topic, num_partitions: 1, replication_factor: 1 },
+                timeout,
+                (error: LibrdKafkaError) => {
+                    if (error) {
+                        if (error.code === CODES.ERRORS.ERR_TOPIC_ALREADY_EXISTS) {
+                            resolve()
+                        } else {
+                            console.error(`Failed to create topic ${topic}:`, error)
+                            reject(error)
+                        }
+                    } else {
+                        resolve()
+                    }
+                }
+            )
+        })
+    }
+}
+
+export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
+    const kafkaConfig = buildKafkaConfig(extraServerConfig)
     await createTopics(kafkaConfig, [
         KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
         KAFKA_EVENTS_JSON,
@@ -73,38 +98,29 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES,
         KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
         KAFKA_COHORT_MEMBERSHIP_CHANGED,
-        KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER,
         KAFKA_CLICKHOUSE_TOPHOG,
     ])
 }
 
 export async function createTopics(kafkaConfig: any, topics: string[]): Promise<void> {
     const client = AdminClient.create(kafkaConfig)
-    const timeout = 10000
-
     await deleteAllTopics(kafkaConfig)
+    await createTopicsWithClient(client, topics)
+    client.disconnect()
+}
 
-    for (const topic of topics) {
-        await new Promise<void>((resolve, reject) => {
-            client.createTopic(
-                { topic, num_partitions: 1, replication_factor: 1 },
-                timeout,
-                (error: LibrdKafkaError) => {
-                    if (error) {
-                        if (error.code === CODES.ERRORS.ERR_TOPIC_ALREADY_EXISTS) {
-                            resolve()
-                        } else {
-                            console.error(`Failed to create topic ${topic}:`, error)
-                            reject(error)
-                        }
-                    } else {
-                        resolve()
-                    }
-                }
-            )
-        })
-    }
-
+/**
+ * Create Kafka topics if they don't already exist, without deleting existing topics.
+ * Unlike resetKafka, this preserves ClickHouse Kafka engine consumer connections,
+ * avoiding the slow reconnection cycle that causes flaky tests.
+ */
+export async function ensureKafkaTopics(
+    topics: string[],
+    extraServerConfig?: Partial<PluginsServerConfig>
+): Promise<void> {
+    const kafkaConfig = buildKafkaConfig(extraServerConfig)
+    const client = AdminClient.create(kafkaConfig)
+    await createTopicsWithClient(client, topics)
     client.disconnect()
 }
 

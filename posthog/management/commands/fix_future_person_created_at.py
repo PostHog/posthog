@@ -59,7 +59,7 @@ def run(options):
                 is_identified=person.is_identified,
                 is_deleted=False,
                 created_at=person.created_at,
-                version=person.version,
+                version=person.version or 0,
                 sync=True,
             )
 

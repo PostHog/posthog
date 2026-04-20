@@ -278,6 +278,18 @@ DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelCo
         "column_alias": MarketingAnalyticsBaseColumns.CAMPAIGN,
         "excluded_base_columns": frozenset(),
     },
+    MarketingAnalyticsDrillDownLevel.MEDIUM: {
+        "column_alias": "Medium",
+        "excluded_base_columns": frozenset(MarketingAnalyticsBaseColumns),
+    },
+    MarketingAnalyticsDrillDownLevel.CONTENT: {
+        "column_alias": "Content",
+        "excluded_base_columns": frozenset(MarketingAnalyticsBaseColumns),
+    },
+    MarketingAnalyticsDrillDownLevel.TERM: {
+        "column_alias": "Term",
+        "excluded_base_columns": frozenset(MarketingAnalyticsBaseColumns),
+    },
 }
 
 # All possible grouping column aliases (used to identify string columns)

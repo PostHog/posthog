@@ -76,6 +76,7 @@ PERMISSIONS = [
     "rak_transfer_read",
     "rak_connected_account_read",
     "rak_payment_method_read",
+    "rak_webhook_endpoint_write",
 ]
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
 
@@ -139,6 +140,7 @@ class StripeSource(
             - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
             - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
             - Under the **Connect** resource type, select *read* for the **entire resource**
+            - Under the **Webhooks** resource type, select *write* for **Webhook endpoints** (required for automatic webhook creation)
             These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
             """,
             iconPath="/static/services/stripe.png",
@@ -150,23 +152,8 @@ class StripeSource(
                         name="auth_method",
                         label="Authentication type",
                         required=True,
-                        defaultValue="oauth",
+                        defaultValue="api_key",
                         options=[
-                            SourceFieldSelectConfigOption(
-                                label="OAuth connection",
-                                value="oauth",
-                                fields=cast(
-                                    list[FieldType],
-                                    [
-                                        SourceFieldOauthConfig(
-                                            name="stripe_integration_id",
-                                            label="Stripe account",
-                                            required=False,
-                                            kind="stripe",
-                                        ),
-                                    ],
-                                ),
-                            ),
                             SourceFieldSelectConfigOption(
                                 label="Restricted API key",
                                 value="api_key",
@@ -179,6 +166,22 @@ class StripeSource(
                                             type=SourceFieldInputConfigType.PASSWORD,
                                             required=False,
                                             placeholder="rk_live_...",
+                                            caption=f"Create a [restricted API key]({STRIPE_API_KEYS_URL}) with the pre-defined permissions",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="OAuth connection",
+                                value="oauth",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldOauthConfig(
+                                            name="stripe_integration_id",
+                                            label="Stripe account",
+                                            required=False,
+                                            kind="stripe",
                                         ),
                                     ],
                                 ),
@@ -225,7 +228,9 @@ class StripeSource(
 4. Under **Events to send**, select **All events** (or choose specific events matching your synced tables)
 5. Click **Add endpoint**
 
-Once created, copy the **Signing secret** from the webhook details page and add it to your source configuration for signature verification.""",
+Once created, copy the **Signing secret** from the webhook details page and add it to your source configuration for signature verification.
+
+If automatic creation failed due to a permissions error and you're using a restricted API key (not OAuth), your key needs **Write** access on **Webhook endpoints**. You can update this in your [Stripe API keys settings](https://dashboard.stripe.com/apikeys).""",
             webhookFields=cast(
                 list[FieldType],
                 [

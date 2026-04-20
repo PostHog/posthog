@@ -16,7 +16,7 @@ use crate::{
     app_context::AppContext,
     error::UnhandledError,
     metric_consts::{
-        PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT, PROCESS_REQUESTS_TOTAL,
+        ERRORS, PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT, PROCESS_REQUESTS_TOTAL,
         PROCESS_REQUEST_DURATION_SECONDS,
     },
     stages::http_pipeline::HttpEventPipeline,
@@ -47,16 +47,37 @@ fn get_request_id(headers: &HeaderMap) -> String {
         .unwrap_or_else(|| Uuid::now_v7().to_string())
 }
 
-impl IntoResponse for UnhandledError {
+pub enum ProcessEventsError {
+    Unhandled(UnhandledError),
+    Backpressure,
+}
+
+impl From<UnhandledError> for ProcessEventsError {
+    fn from(value: UnhandledError) -> Self {
+        Self::Unhandled(value)
+    }
+}
+
+impl IntoResponse for ProcessEventsError {
     fn into_response(self) -> axum::response::Response {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": "An unexpected error occurred while processing the events",
-                "details": self.to_string(),
-            })),
-        )
-            .into_response()
+        match self {
+            ProcessEventsError::Unhandled(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "An unexpected error occurred while processing the events",
+                    "details": err.to_string(),
+                })),
+            )
+                .into_response(),
+            ProcessEventsError::Backpressure => (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({
+                    "error": "Too many in-flight /process requests",
+                    "details": "Backpressure limit reached, retry later",
+                })),
+            )
+                .into_response(),
+        }
     }
 }
 
@@ -84,7 +105,7 @@ pub async fn process_events(
     State(ctx): State<Arc<AppContext>>,
     headers: HeaderMap,
     Json(events): Json<Vec<AnyEvent>>,
-) -> Result<Batch<Option<AnyEvent>>, UnhandledError> {
+) -> Result<Batch<Option<AnyEvent>>, ProcessEventsError> {
     let _in_flight = ProcessInFlightGuard::start();
     let request_id = get_request_id(&headers);
     let started_at = Instant::now();
@@ -104,6 +125,27 @@ pub async fn process_events(
         team_count,
         "Started /process request"
     );
+
+    let _permit = ctx
+        .process_request_limiter
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| {
+            metrics::counter!(ERRORS, "cause" => "process_backpressure").increment(1);
+            metrics::counter!(
+                PROCESS_REQUESTS_TOTAL,
+                "outcome" => "error",
+                "status_class" => "4xx"
+            )
+            .increment(1);
+            warn!(
+                request_id = %request_id,
+                batch_event_count,
+                team_count,
+                "Rejected /process request due to backpressure"
+            );
+            ProcessEventsError::Backpressure
+        })?;
 
     let slow_log_threshold_ms = ctx.config.process_slow_log_threshold_ms;
     let pipeline = HttpEventPipeline::new(ctx.clone());
@@ -174,5 +216,5 @@ pub async fn process_events(
         }
     }
 
-    output
+    output.map_err(ProcessEventsError::from)
 }

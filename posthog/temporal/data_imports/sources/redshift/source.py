@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+import structlog
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -20,6 +21,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 from posthog.temporal.data_imports.sources.redshift.redshift import (
     filter_redshift_incremental_fields,
+    get_primary_keys_for_schemas as get_redshift_primary_keys_for_schemas,
     get_redshift_row_count,
     get_schemas as get_redshift_schemas,
     redshift_source,
@@ -150,6 +152,19 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                 schema=config.schema,
                 names=names,
             )
+            try:
+                detected_pks = get_redshift_primary_keys_for_schemas(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                    table_names=list(db_schemas.keys()),
+                )
+            except Exception as e:
+                structlog.get_logger().warning("Failed to detect primary keys for Redshift schemas", exc_info=e)
+                detected_pks = {}
 
             if with_counts:
                 row_counts = get_redshift_row_count(
@@ -184,6 +199,9 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                     supports_append=len(incremental_fields) > 0,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
+                    columns=columns,
+                    detected_primary_keys=detected_pks.get(table_name)
+                    or (["id"] if any(col[0] == "id" for col in columns) else None),
                 )
             )
 

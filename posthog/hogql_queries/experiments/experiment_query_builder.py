@@ -103,6 +103,7 @@ class ExperimentQueryBuilder:
         self.breakdowns = breakdowns or []
         self.breakdown_injector = BreakdownInjector(self.breakdowns, metric) if metric else None
         self.preaggregation_job_ids: list[str] | None = None
+        self.metric_events_preaggregation_job_ids: list[str] | None = None
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
     # bounded by num_variants × num_breakdown_values.  The HogQL executor injects
@@ -303,8 +304,10 @@ class ExperimentQueryBuilder:
 
     def _build_funnel_query_legacy(self) -> ast.SelectQuery:
         """
-        Legacy funnel query: 3 CTEs (exposures, metric_events, entity_metrics).
-        Used when precomputed exposures are available.
+        3-CTE funnel query: exposures, metric_events, entity_metrics.
+        Called "legacy" because it predates the single-scan optimized path,
+        but this is the primary path for precomputed queries — both exposures
+        and metric_events CTEs can read from precomputed tables here.
 
         Supports two patterns:
         1. Events-only: Single query with boolean step columns
@@ -317,7 +320,43 @@ class ExperimentQueryBuilder:
         # Determine which query pattern to use
         has_dw_steps = self._has_datawarehouse_steps()
 
-        if has_dw_steps:
+        # Track whether step columns need to be injected after parsing.
+        # Precomputed metric events already have steps extracted from the array.
+        inject_step_columns = True
+
+        if self.metric_events_preaggregation_job_ids and not has_dw_steps:
+            # Read from precomputed table instead of scanning events
+            inject_step_columns = False
+            step_extracts = ", ".join(f"arrayElement(t.steps, {i + 1}) AS step_{i}" for i in range(num_steps))
+            entity_id_cast = "toUUID(t.entity_id)" if self.entity_key == "person_id" else "t.entity_id"
+            session_id_col = "t.session_id AS session_id," if not self.funnel_steps_data_disabled else ""
+
+            # Filter by experiment date range: jobs can cover broader time ranges
+            # than the experiment for cache reusability, so we must filter on read.
+            # Upper bound includes conversion window since funnel step events can
+            # occur after experiment end.
+            conversion_window_seconds = self._get_conversion_window_seconds()
+            if conversion_window_seconds > 0:
+                upper_bound = f"{{metric_events_date_to}} + toIntervalSecond({conversion_window_seconds})"
+            else:
+                upper_bound = "{metric_events_date_to}"
+
+            metric_events_cte_str = f"""
+                    metric_events AS (
+                        SELECT
+                            {entity_id_cast} AS entity_id,
+                            t.timestamp AS timestamp,
+                            t.event_uuid AS uuid,
+                            {session_id_col}
+                            {step_extracts}
+                        FROM experiment_metric_events_preaggregated AS t
+                        WHERE t.job_id IN {{metric_events_job_ids}}
+                            AND t.team_id = {{metric_events_team_id}}
+                            AND t.timestamp >= {{metric_events_date_from}}
+                            AND t.timestamp <= {upper_bound}
+                    )
+            """
+        elif has_dw_steps:
             # UNION ALL pattern for heterogeneous sources
             metric_events_cte_str = self._build_funnel_metric_events_cte_with_union()
         else:
@@ -409,6 +448,12 @@ class ExperimentQueryBuilder:
             placeholders["uuid_to_session_map"] = self._build_uuid_to_session_map()
             placeholders["uuid_to_timestamp_map"] = self._build_uuid_to_timestamp_map()
 
+        if self.metric_events_preaggregation_job_ids:
+            placeholders["metric_events_job_ids"] = ast.Constant(value=self.metric_events_preaggregation_job_ids)
+            placeholders["metric_events_team_id"] = ast.Constant(value=self.team.id)
+            placeholders["metric_events_date_from"] = self.date_range_query.date_from_as_hogql()
+            placeholders["metric_events_date_to"] = self.date_range_query.date_to_as_hogql()
+
         query = parse_select(
             f"""
             WITH
@@ -439,12 +484,10 @@ class ExperimentQueryBuilder:
         if self.breakdown_injector:
             self.breakdown_injector.inject_funnel_breakdown_columns(query)
 
-        # Inject step columns into the metric_events CTE
-        # Find the metric_events CTE in the query
-        if query.ctes and "metric_events" in query.ctes:
+        # Inject step columns into the metric_events CTE (skip when precomputed — already extracted)
+        if inject_step_columns and query.ctes and "metric_events" in query.ctes:
             metric_events_cte = query.ctes["metric_events"]
             if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
-                # Add step columns to the SELECT
                 step_columns = self._build_funnel_step_columns()
                 metric_events_cte.expr.select.extend(step_columns)
 
@@ -1620,6 +1663,65 @@ class ExperimentQueryBuilder:
             "variants": ast.Constant(value=self.variants),
             "experiment_date_from": self.date_range_query.date_from_as_hogql(),
             "experiment_date_to": self.date_range_query.date_to_as_hogql(),
+        }
+
+        return query_string, placeholders
+
+    def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+        """
+        Returns the SELECT query that the lazy computation system wraps in an
+        INSERT INTO experiment_metric_events_preaggregated. This is the write
+        path — it scans the events table and stores one row per matching event
+        with step indicators packed into an Array(UInt8).
+
+        The query uses {time_window_min} and {time_window_max} placeholders filled
+        by the lazy computation system for each daily bucket.
+
+        Returns:
+            Tuple of (query_string, placeholders_dict)
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+
+        # Build step indicator expressions for the steps array.
+        # step_0 = exposure predicate, step_1..N = funnel step filters.
+        # These are the same expressions used in build_boolean_columns().
+        exposure_filter = self._build_exposure_predicate()
+        step_exprs: list[ast.Expr] = [exposure_filter]
+
+        step_builder = FunnelStepBuilder(self.metric.series, self.team)
+        for _step_index, step_source in enumerate(self.metric.series, start=1):
+            step_filter = step_builder._build_step_filter(step_source)
+            step_exprs.append(step_filter)
+
+        # Pack into Array(UInt8): [toUInt8(if(step_0, 1, 0)), toUInt8(if(step_1, 1, 0)), ...]
+        steps_array = ast.Array(
+            exprs=[
+                ast.Call(
+                    name="toUInt8",
+                    args=[ast.Call(name="if", args=[expr, ast.Constant(value=1), ast.Constant(value=0)])],
+                )
+                for expr in step_exprs
+            ]
+        )
+
+        query_string = """
+            SELECT
+                {entity_key} AS entity_id,
+                timestamp AS timestamp,
+                uuid AS event_uuid,
+                `$session_id` AS session_id,
+                {steps_array} AS steps
+            FROM events
+            WHERE timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+                AND ({exposure_predicate} OR {funnel_steps_filter})
+        """
+
+        placeholders: dict[str, ast.Expr] = {
+            "entity_key": parse_expr(self.entity_key),
+            "steps_array": steps_array,
+            "exposure_predicate": exposure_filter,
+            "funnel_steps_filter": self._build_funnel_steps_filter(),
         }
 
         return query_string, placeholders

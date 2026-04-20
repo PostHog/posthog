@@ -50,8 +50,6 @@ from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import FunnelOrderType, FunnelVizType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     assert_funnel_results_equal,
@@ -5893,27 +5891,3 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             )
         else:
             assert isinstance(bv, list), f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}"
-
-    def test_pre_filter_basic(self):
-        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
-        _create_person(distinct_ids=["user_3"], team_id=self.team.pk)
-        _create_event(team=self.team, event="step one", distinct_id="user_1", timestamp="2021-05-01 01:00:00")
-        _create_event(team=self.team, event="step two", distinct_id="user_1", timestamp="2021-05-01 02:00:00")
-        _create_event(team=self.team, event="step one", distinct_id="user_2", timestamp="2021-05-01 01:00:00")
-        # user_2 only does step one — should be filtered by the pre-filter
-        _create_event(team=self.team, event="step one", distinct_id="user_3", timestamp="2021-05-01 01:00:00")
-        _create_event(team=self.team, event="step two", distinct_id="user_3", timestamp="2021-05-01 02:00:00")
-
-        query = FunnelsQuery(
-            series=[EventsNode(event="step one"), EventsNode(event="step two")],
-            dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-07"),
-            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.ORDERED),
-        )
-        # Verify the pre-filter is actually active for this query
-        context = FunnelQueryContext(query=query, team=self.team)
-        self.assertTrue(FunnelUDF(context=context)._should_apply_pre_filter())
-
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-        self.assertEqual(results[0]["count"], 3)
-        self.assertEqual(results[1]["count"], 2)

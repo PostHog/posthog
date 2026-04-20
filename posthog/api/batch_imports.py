@@ -327,6 +327,10 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                     "Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods."
                 )
 
+            source_type = data.get("source_type")
+            if source_type == "amplitude" and (end_date - start_date) < timedelta(hours=1):
+                raise serializers.ValidationError("Date range must be at least 1 hour for Amplitude migrations.")
+
         # For Amplitude, ensure at least one of import_events or generate_identify_events is enabled
         source_type = data.get("source_type")
         if source_type == "amplitude":

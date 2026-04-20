@@ -1046,6 +1046,47 @@ class TestOAuthAPI(APIBaseTest):
         db_token = OAuthAccessToken.objects.get(token=new_access_token)
         self.assertEqual(db_token.scoped_teams, [self.team.id])
 
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_succeeds_when_only_scoped_teams_is_set(self):
+        """scoped_teams and scoped_organizations are both nullable ArrayFields. Historically
+        they could be set independently — a token scoped to a team often had
+        scoped_organizations=None. Refresh should still succeed: the downstream permission
+        checks (posthog/permissions.py, team_access_cache.py, Rust flag service) already
+        treat None and [] as equivalent, so we only raise when BOTH are missing."""
+        access_token = OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="test_legacy_access_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid",
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+        OAuthRefreshToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="test_legacy_refresh_token",
+            access_token=access_token,
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+
+        refresh_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": "test_legacy_refresh_token",
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+
+        new_access_token_value = refresh_response.json()["access_token"]
+        new_access_token = OAuthAccessToken.objects.get(token=new_access_token_value)
+        self.assertEqual(new_access_token.scoped_teams, [self.team.id])
+        self.assertIsNone(new_access_token.scoped_organizations)
+
     def test_revoked_refresh_token_invalidates_access_tokens(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]

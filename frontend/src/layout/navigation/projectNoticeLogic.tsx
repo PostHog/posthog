@@ -64,6 +64,14 @@ function storeNoticeDismissal(key: string): void {
     }
 }
 
+/**
+ * Whether the missing-reverse-proxy notice could be eligible to show (and its data should be fetched).
+ * Limited to the first 7 days of each month so the nudge stays noticeable without causing fatigue.
+ */
+function shouldFetchProxyRecords(): boolean {
+    return new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
+}
+
 function buildBillingAlertNotice(
     billingAlert: BillingAlertConfig,
     canAccessBilling: boolean,
@@ -144,6 +152,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 organizationLogic.selectors.currentOrganization,
                 teamLogic.selectors.currentTeam,
                 preflightLogic.selectors.preflight,
+                preflightLogic.selectors.isCloudOrDev,
                 userLogic.selectors.user,
                 s.memberCount,
                 apiStatusLogic.selectors.internetConnectionIssue,
@@ -157,6 +166,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 organization,
                 currentTeam,
                 preflight,
+                isCloudOrDev,
                 user,
                 memberCount,
                 internetConnectionIssue,
@@ -201,11 +211,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 } else if (hasEventIngestionRestriction) {
                     return 'event_ingestion_restriction'
                 } else if (
-                    // Only show the reverse proxy nudge during the first 7 days of each month.
-                    // Showing it all the time causes people to ignore it — surfacing it periodically
-                    // keeps it noticeable and drives more adoption.
-                    new Date().getDate() <= 7 &&
-                    !isNoticeDismissed('missing_reverse_proxy') &&
+                    // Only show the reverse proxy nudge on Cloud (or dev) — self-hosted users
+                    // control their own infrastructure and don't need managed proxies.
+                    isCloudOrDev &&
+                    shouldFetchProxyRecords() &&
                     proxyRecords !== null &&
                     proxyRecords.length === 0
                 ) {
@@ -420,6 +429,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadRecords()
+        if (shouldFetchProxyRecords()) {
+            actions.loadRecords()
+        }
     }),
 ])

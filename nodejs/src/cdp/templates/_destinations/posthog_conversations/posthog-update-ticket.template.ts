@@ -29,13 +29,20 @@ if (inputs.sla_amount == 'clear') {
   updates.sla_due_at := null
 } else if (not empty(inputs.sla_amount)) {
   let amount := toFloat(inputs.sla_amount)
-  let unit := inputs.sla_unit ?? 'hour'
 
   if (amount == null or amount <= 0) {
     throw Error(f'Invalid SLA amount: {inputs.sla_amount}. Must be a positive number or "clear".')
   }
-  let deadline := dateAdd(unit, amount, now())
-  updates.sla_due_at := formatDateTime(deadline, '%Y-%m-%dT%H:%i:%SZ')
+  let unit := inputs.sla_unit ?? 'hour'
+
+  if (empty(inputs.sla_business_hours)) {
+    let deadline := dateAdd(unit, amount, now())
+    updates.sla_due_at := formatDateTime(deadline, '%Y-%m-%dT%H:%i:%SZ')
+  } else {
+    updates.sla_amount := amount
+    updates.sla_unit := unit
+    updates.sla_business_hours := inputs.sla_business_hours
+  }
 }
 
 if (not empty(inputs.assignee)) {
@@ -116,6 +123,15 @@ return response.body
                 { label: 'Day(s)', value: 'day' },
             ],
             description: 'Time unit for the SLA deadline.',
+        },
+        {
+            key: 'sla_business_hours',
+            type: 'posthog_business_hours',
+            label: 'Working hours',
+            secret: false,
+            required: false,
+            description:
+                'Days, time of day, and timezone the SLA clock runs during. Defaults to all days / any time (calendar hours).',
         },
         {
             key: 'assignee',

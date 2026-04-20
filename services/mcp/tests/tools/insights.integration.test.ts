@@ -91,7 +91,7 @@ describe('Insights', { concurrent: false }, () => {
 
             const result = await queryTool.handler(context, {
                 insightId: String(insight.id),
-                format: 'optimized',
+                output_format: 'optimized',
             })
             const response = parseToolResponse(result)
 
@@ -107,7 +107,7 @@ describe('Insights', { concurrent: false }, () => {
 
             const result = await queryTool.handler(context, {
                 insightId: String(insight.id),
-                format: 'json',
+                output_format: 'json',
             })
             const response = parseToolResponse(result)
 
@@ -129,12 +129,12 @@ describe('Insights', { concurrent: false }, () => {
         })
 
         describe('result shapes by format and query type', () => {
-            it('HogQL query with format=json returns table shape with columns and results arrays', async () => {
+            it('HogQL query with output_format=json returns table shape with columns and results arrays', async () => {
                 const insight = await createTestInsight(generateUniqueKey('HogQL JSON Shape'))
 
                 const result = await queryTool.handler(context, {
                     insightId: String(insight.id),
-                    format: 'json',
+                    output_format: 'json',
                 })
                 const response = parseToolResponse(result)
 
@@ -145,14 +145,14 @@ describe('Insights', { concurrent: false }, () => {
                 expect(Array.isArray(response.results.results)).toBe(true)
             })
 
-            it('HogQL query with format=optimized returns a formatted string', async () => {
+            it('HogQL query with output_format=optimized returns a formatted string', async () => {
                 // The API client always sends X-PostHog-Client: mcp, so the backend
                 // runs the SQLResultsFormatter and returns formatted_results as a string.
                 const insight = await createTestInsight(generateUniqueKey('HogQL Optimized Shape'))
 
                 const result = await queryTool.handler(context, {
                     insightId: String(insight.id),
-                    format: 'optimized',
+                    output_format: 'optimized',
                 })
                 const response = parseToolResponse(result)
 
@@ -160,12 +160,12 @@ describe('Insights', { concurrent: false }, () => {
                 expect(typeof response.results).toBe('string')
             })
 
-            it('TrendsQuery with format=json returns an array of series', async () => {
+            it('TrendsQuery with output_format=json returns an array of series', async () => {
                 const insight = await createTestTrendsInsight(generateUniqueKey('Trends JSON Shape'))
 
                 const result = await queryTool.handler(context, {
                     insightId: String(insight.id),
-                    format: 'json',
+                    output_format: 'json',
                 })
                 const response = parseToolResponse(result)
 
@@ -173,14 +173,14 @@ describe('Insights', { concurrent: false }, () => {
                 expect(Array.isArray(response.results)).toBe(true)
             })
 
-            it('TrendsQuery with format=optimized returns a formatted string', async () => {
+            it('TrendsQuery with output_format=optimized returns a formatted string', async () => {
                 // The API client always sends X-PostHog-Client: mcp, so the backend
                 // runs the TrendsResultsFormatter and returns formatted_results as a string.
                 const insight = await createTestTrendsInsight(generateUniqueKey('Trends Optimized Shape'))
 
                 const result = await queryTool.handler(context, {
                     insightId: String(insight.id),
-                    format: 'optimized',
+                    output_format: 'optimized',
                 })
                 const response = parseToolResponse(result)
 

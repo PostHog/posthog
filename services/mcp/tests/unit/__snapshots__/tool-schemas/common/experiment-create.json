@@ -8,7 +8,7 @@
         "description": {
             "anyOf": [
                 {
-                    "maxLength": 400,
+                    "maxLength": 3000,
                     "type": "string"
                 },
                 {
