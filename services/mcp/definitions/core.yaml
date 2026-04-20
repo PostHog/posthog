@@ -626,6 +626,3 @@ tools:
     subscriptions-deliveries-retrieve:
         operation: subscriptions_deliveries_retrieve
         enabled: false
-    users-welcome-screen-dismiss-create:
-        operation: users_welcome_screen_dismiss_create
-        enabled: false
