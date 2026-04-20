@@ -965,9 +965,9 @@ def clickhouse_source(
     Streams the data via Arrow batches so we never materialize the whole
     table in memory. Each yielded `pa.Table` is one Arrow record batch.
     """
-    table_name = table_names[0]
-    if not table_name:
+    if not table_names or not table_names[0]:
         raise ValueError("Table name is missing")
+    table_name = table_names[0]
 
     chunk_size = chunk_size_override if chunk_size_override is not None else DEFAULT_CHUNK_SIZE
 
