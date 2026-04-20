@@ -7,7 +7,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -258,6 +258,98 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "conversations_settings",
             "logs_settings",
             "proactive_tasks_enabled",
+        }
+
+        # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
+        # Prioritized for the fields agents most commonly update via the settings endpoint.
+        extra_kwargs = {
+            "name": {"help_text": "Human-readable project name."},
+            "product_description": {"help_text": "Short description of what the project tracks."},
+            "app_urls": {
+                "help_text": (
+                    "Allowed origins for posthog-js (toolbar, local evaluation, etc.). List of fully-qualified URLs."
+                )
+            },
+            "recording_domains": {
+                "help_text": (
+                    "Origins permitted to record session replays and heatmaps. Empty list allows all origins."
+                )
+            },
+            "anonymize_ips": {"help_text": "When true, PostHog drops the IP address from every ingested event."},
+            "timezone": {
+                "help_text": "IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`)."
+            },
+            "week_start_day": {"help_text": "First day of the week for date range filters. 0 = Sunday, 1 = Monday."},
+            "autocapture_opt_out": {"help_text": "Disables posthog-js autocapture (clicks, page views) when true."},
+            "autocapture_exceptions_opt_in": {
+                "help_text": "Enables automatic capture of JavaScript exceptions via the SDK."
+            },
+            "autocapture_web_vitals_opt_in": {
+                "help_text": "Enables automatic capture of Core Web Vitals performance metrics."
+            },
+            "capture_console_log_opt_in": {
+                "help_text": "Enables capturing browser console logs alongside session replays."
+            },
+            "capture_performance_opt_in": {"help_text": "Enables capturing performance timing and network requests."},
+            "capture_dead_clicks": {"help_text": "Enables capturing clicks that had no effect (rage-click detection)."},
+            "heatmaps_opt_in": {"help_text": "Enables heatmap recording on pages that host posthog-js."},
+            "surveys_opt_in": {"help_text": "Enables displaying surveys via posthog-js on allowed origins."},
+            "session_recording_opt_in": {"help_text": "Enables session replay recording for this project."},
+            "session_recording_sample_rate": {
+                "help_text": (
+                    "Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%)."
+                )
+            },
+            "session_recording_minimum_duration_milliseconds": {
+                "help_text": "Skip saving sessions shorter than this many milliseconds."
+            },
+            "session_recording_retention_period": {
+                "help_text": (
+                    "How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan)."
+                )
+            },
+            "data_attributes": {
+                "help_text": (
+                    "Element attributes that posthog-js should capture as action identifiers (e.g. `['data-attr']`)."
+                )
+            },
+            "person_display_name_properties": {
+                "help_text": (
+                    "Ordered list of person properties used to render a human-friendly display name in the UI."
+                )
+            },
+            "test_account_filters": {
+                "help_text": "Filter groups that identify internal/test traffic to be excluded from insights."
+            },
+            "test_account_filters_default_checked": {
+                "help_text": "When true, new insights default to excluding internal/test users."
+            },
+            "path_cleaning_filters": {
+                "help_text": (
+                    "Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths."
+                )
+            },
+            "flags_persistence_default": {
+                "help_text": "Default value for the `persist` option on newly created feature flags."
+            },
+            "primary_dashboard": {"help_text": "ID of the dashboard shown as the project's default landing dashboard."},
+            "access_control": {
+                "help_text": (
+                    "Legacy project-wide access control toggle. Prefer per-resource access controls for new configurations."
+                )
+            },
+            "business_model": {
+                "help_text": "Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.",
+            },
+            "inject_web_apps": {
+                "help_text": "Allow web app plugins to inject content onto pages that load posthog-js."
+            },
+            "conversations_enabled": {
+                "help_text": "Enables the customer conversations / live chat product for this project."
+            },
+            "proactive_tasks_enabled": {
+                "help_text": "Enables PostHog-generated proactive tasks surfaced on the project homepage."
+            },
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -557,6 +649,38 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
 
 @extend_schema(tags=["core"])
+@extend_schema_view(
+    retrieve=extend_schema(
+        description=(
+            "Retrieve a project and its settings. Returns all ingestion, autocapture, session replay, heatmap, survey, "
+            "access control, and analytics configuration associated with the project (and its primary environment)."
+        ),
+    ),
+    update=extend_schema(
+        description=(
+            "Replace a project and its settings. Prefer the PATCH endpoint for partial updates — PUT requires every writable "
+            "field to be provided. Requires the `project:write` scope."
+        ),
+    ),
+    partial_update=extend_schema(
+        description=(
+            "Update a project's settings. Writable fields include basic metadata (name, product_description, timezone, "
+            "week_start_day, business_model, base_currency), ingestion controls (app_urls, recording_domains, anonymize_ips, "
+            "autocapture_opt_out, autocapture_exceptions_opt_in, autocapture_web_vitals_opt_in, capture_console_log_opt_in, "
+            "capture_performance_opt_in, capture_dead_clicks, heatmaps_opt_in, surveys_opt_in, session_recording_opt_in), "
+            "session replay configuration (session_recording_sample_rate, session_recording_minimum_duration_milliseconds, "
+            "session_recording_linked_flag, session_recording_network_payload_capture_config, session_recording_masking_config, "
+            "session_recording_url_trigger_config, session_recording_url_blocklist_config, session_recording_event_trigger_config, "
+            "session_recording_trigger_match_type_config, session_recording_trigger_groups, session_recording_retention_period, "
+            "session_replay_config), taxonomy defaults (test_account_filters, test_account_filters_default_checked, "
+            "path_cleaning_filters, data_attributes, person_display_name_properties, correlation_config), feature flag defaults "
+            "(flags_persistence_default, feature_flag_confirmation_enabled, feature_flag_confirmation_message, "
+            "default_evaluation_contexts_enabled, require_evaluation_contexts), and analytics settings "
+            "(revenue_analytics_config, marketing_analytics_config, customer_analytics_config, "
+            "web_analytics_pre_aggregated_tables_enabled). Requires the `project:write` scope for API/OAuth clients."
+        ),
+    ),
+)
 class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.

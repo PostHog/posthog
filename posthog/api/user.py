@@ -27,7 +27,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -125,13 +125,49 @@ class UserSerializer(serializers.ModelSerializer):
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
-    set_current_organization = serializers.CharField(write_only=True, required=False)
-    set_current_team = serializers.CharField(write_only=True, required=False)
-    current_password = serializers.CharField(write_only=True, required=False)
-    notification_settings = serializers.DictField(required=False)
+    set_current_organization = serializers.CharField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "ID of the organization to switch to for this user. The user must already be a member of the organization. "
+            "When provided without `set_current_team`, the first available team in the organization becomes the active team."
+        ),
+    )
+    set_current_team = serializers.CharField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "ID of the team (project environment) to switch to for this user. The team must belong to the user's current "
+            "organization (or the organization specified in `set_current_organization`)."
+        ),
+    )
+    current_password = serializers.CharField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
+        ),
+    )
+    notification_settings = serializers.DictField(
+        required=False,
+        help_text=(
+            "Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, "
+            "`project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, "
+            "`web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, "
+            "`data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. "
+            "Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. "
+            "Only the keys you send are updated — other preferences stay as-is."
+        ),
+    )
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
-    anonymize_data = ClassicBehaviorBooleanFieldSerializer()
-    role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
+    anonymize_data = ClassicBehaviorBooleanFieldSerializer(
+        help_text="Whether PostHog should anonymize events captured for this user when identified."
+    )
+    role_at_organization = serializers.ChoiceField(
+        choices=ROLE_CHOICES,
+        required=False,
+        help_text="The user's self-reported role within their organization (used for onboarding segmentation).",
+    )
 
     class Meta:
         model = User
@@ -528,6 +564,32 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(tags=["core"])
+@extend_schema_view(
+    retrieve=extend_schema(
+        description=(
+            "Retrieve a user. Pass `@me` as the UUID to fetch the authenticated user. "
+            "Returns the user's profile, notification preferences, UI settings, current organization and team, and the list of "
+            "organizations and projects the user belongs to."
+        ),
+    ),
+    update=extend_schema(
+        description=(
+            "Replace the authenticated user's profile and settings. Use `@me` as the UUID to update the authenticated user. "
+            "Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided. Requires the "
+            "`user:write` scope."
+        ),
+    ),
+    partial_update=extend_schema(
+        description=(
+            "Update the authenticated user's profile and settings. Use `@me` as the UUID to update the authenticated user. "
+            "Supports updating profile fields (first_name, last_name, email), UI preferences (theme_mode, shortcut_position, "
+            "toolbar_mode, allow_sidebar_suggestions, events_column_config), privacy settings (anonymize_data, "
+            "allow_impersonation), 2FA preferences (passkeys_enabled_for_2fa), onboarding tracking (has_seen_product_intro_for), "
+            "and notification preferences (notification_settings). To switch the active workspace, set `set_current_organization` "
+            "and/or `set_current_team`. Password changes also require `current_password`. Requires the `user:write` scope."
+        ),
+    ),
+)
 class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
