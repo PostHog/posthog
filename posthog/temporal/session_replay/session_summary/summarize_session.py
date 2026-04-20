@@ -779,7 +779,6 @@ def _prepare_execution(
     user: User,
     team: Team,
     model_to_use: str,
-    stream: bool = False,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
@@ -817,7 +816,7 @@ def _prepare_execution(
         video_based=video_based,
         trigger_session_id=trigger_session_id,
     )
-    workflow_id = SummarizeSingleSessionWorkflow.workflow_id_for(team.id, session_id, stream=stream)
+    workflow_id = SummarizeSingleSessionWorkflow.workflow_id_for(team.id, session_id)
     return redis_client, redis_input_key, redis_output_key, session_input, workflow_id
 
 
@@ -849,7 +848,6 @@ async def execute_summarize_session(
         session_id=session_id,
         user=user,
         team=team,
-        stream=False,
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
@@ -955,7 +953,6 @@ async def execute_summarize_session_video_stream(
         session_id=session_id,
         user=user,
         team=team,
-        stream=False,
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,

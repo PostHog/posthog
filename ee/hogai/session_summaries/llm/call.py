@@ -4,9 +4,7 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
-from openai import AsyncStream
 from openai.types.chat.chat_completion import ChatCompletion
-from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from openai.types.responses import Response as OpenAIResponse
 from posthoganalytics.ai.openai import AsyncOpenAI, OpenAI
 from posthoganalytics.client import Client
@@ -89,45 +87,6 @@ def _prepare_user_param(user_key: int) -> str:
     instance_region = get_instance_region() or "HOBBY"
     user_param = f"{instance_region}/{user_key}"
     return user_param
-
-
-async def stream_llm(
-    input_prompt: str,
-    *,
-    session_id: str,
-    model: str,
-    assistant_start_text: str | None = None,
-    system_prompt: str | None = None,
-    trace_id: str | None = None,
-    user_id: int,
-    user_distinct_id: str | None = None,
-    trigger_session_id: str | None = None,
-) -> AsyncStream[ChatCompletionChunk]:
-    """
-    LLM streaming call.
-    """
-    messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
-    user_param = _prepare_user_param(user_id)
-    client = get_async_openai_client()
-    if model not in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
-        msg = (
-            f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
-            f"{SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS}"
-        )
-        logger.error(msg, session_id=session_id, signals_type="session-summaries")
-        raise ValueError(msg)
-    posthog_props = _build_posthog_props(trigger_session_id)
-    stream: AsyncStream = await client.chat.completions.create(  # type: ignore[call-overload]
-        messages=messages,
-        model=model,
-        temperature=SESSION_SUMMARIES_TEMPERATURE,
-        user=user_param,
-        stream=True,
-        posthog_trace_id=trace_id,
-        posthog_distinct_id=user_distinct_id,
-        posthog_properties=posthog_props,
-    )
-    return stream
 
 
 async def call_llm(
