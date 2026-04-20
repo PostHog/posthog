@@ -131,6 +131,46 @@ describe('CdpCyclotronWorkerEmail', () => {
             expect(deferred.length).toBeGreaterThanOrEqual(1)
         })
 
+        it('should add jitter to deferred invocation delays', async () => {
+            const worker = new CdpCyclotronWorkerEmail(
+                {
+                    ...hub,
+                    CDP_EMAIL_GLOBAL_RATE_LIMIT_BUCKET_SIZE: 1,
+                    CDP_EMAIL_GLOBAL_RATE_LIMIT_REFILL_RATE: 0.001,
+                },
+                createCdpConsumerDeps(hub)
+            )
+
+            jest.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations').mockResolvedValue([])
+
+            // Exhaust the bucket
+            await worker.processInvocations([createEmailInvocation('setup-1', 1)])
+
+            // Mock Math.random to return different values for each deferred invocation
+            let callCount = 0
+            jest.spyOn(Math, 'random').mockImplementation(() => {
+                callCount++
+                return (callCount * 0.3) % 1
+            })
+
+            // Defer multiple — their delays should not all be identical
+            const results = await worker.processInvocations([
+                createEmailInvocation('email-1', 1),
+                createEmailInvocation('email-2', 1),
+                createEmailInvocation('email-3', 1),
+            ])
+
+            const deferred = results.filter((r) => !r.finished && r.invocation.queueScheduledAt)
+            expect(deferred.length).toBeGreaterThanOrEqual(1)
+
+            // When multiple are deferred, their delays should vary due to jitter
+            if (deferred.length >= 2) {
+                const delays = deferred.map((r) => r.invocation.queueScheduledAt!.toMillis())
+                const allSame = delays.every((d) => d === delays[0])
+                expect(allSame).toBe(false)
+            }
+        })
+
         it('should process all invocations when rate limiting is disabled', async () => {
             const worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub))
 
