@@ -3,16 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    ExternalDataSchemasCancelCreateBody,
-    ExternalDataSchemasCancelCreateParams,
     ExternalDataSchemasListQueryParams,
-    ExternalDataSchemasPartialUpdateBody,
-    ExternalDataSchemasPartialUpdateParams,
-    ExternalDataSchemasReloadCreateBody,
-    ExternalDataSchemasReloadCreateParams,
-    ExternalDataSchemasResyncCreateBody,
-    ExternalDataSchemasResyncCreateParams,
-    ExternalDataSchemasRetrieveParams,
     ExternalDataSourcesCreateBody,
     ExternalDataSourcesDatabaseSchemaCreateBody,
     ExternalDataSourcesDestroyParams,
@@ -62,115 +53,6 @@ const externalDataSchemasList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/sql')
-    },
-})
-
-const ExternalDataSchemasRetrieveSchema = ExternalDataSchemasRetrieveParams.omit({ project_id: true })
-
-const externalDataSchemasRetrieve = (): ToolBase<
-    typeof ExternalDataSchemasRetrieveSchema,
-    Schemas.ExternalDataSchema
-> => ({
-    name: 'external-data-schemas-retrieve',
-    schema: ExternalDataSchemasRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExternalDataSchema>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const ExternalDataSchemasPartialUpdateSchema = ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
-    ExternalDataSchemasPartialUpdateBody.shape
-)
-
-const externalDataSchemasPartialUpdate = (): ToolBase<
-    typeof ExternalDataSchemasPartialUpdateSchema,
-    Schemas.ExternalDataSchema
-> => ({
-    name: 'external-data-schemas-partial-update',
-    schema: ExternalDataSchemasPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasPartialUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.should_sync !== undefined) {
-            body['should_sync'] = params.should_sync
-        }
-        const result = await context.api.request<Schemas.ExternalDataSchema>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/`,
-            body,
-        })
-        return result
-    },
-})
-
-const ExternalDataSchemasCancelSchema = ExternalDataSchemasCancelCreateParams.omit({ project_id: true }).extend(
-    ExternalDataSchemasCancelCreateBody.shape
-)
-
-const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelSchema, unknown> => ({
-    name: 'external-data-schemas-cancel',
-    schema: ExternalDataSchemasCancelSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasCancelSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.should_sync !== undefined) {
-            body['should_sync'] = params.should_sync
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/cancel/`,
-            body,
-        })
-        return result
-    },
-})
-
-const ExternalDataSchemasResyncSchema = ExternalDataSchemasResyncCreateParams.omit({ project_id: true }).extend(
-    ExternalDataSchemasResyncCreateBody.shape
-)
-
-const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncSchema, unknown> => ({
-    name: 'external-data-schemas-resync',
-    schema: ExternalDataSchemasResyncSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasResyncSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.should_sync !== undefined) {
-            body['should_sync'] = params.should_sync
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/resync/`,
-            body,
-        })
-        return result
-    },
-})
-
-const ExternalDataSchemasReloadSchema = ExternalDataSchemasReloadCreateParams.omit({ project_id: true }).extend(
-    ExternalDataSchemasReloadCreateBody.shape
-)
-
-const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadSchema, unknown> => ({
-    name: 'external-data-schemas-reload',
-    schema: ExternalDataSchemasReloadSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasReloadSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.should_sync !== undefined) {
-            body['should_sync'] = params.should_sync
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/reload/`,
-            body,
-        })
-        return result
     },
 })
 
@@ -702,11 +584,6 @@ const viewRunHistory = (): ToolBase<typeof ViewRunHistorySchema, WithPostHogUrl<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-list': externalDataSchemasList,
-    'external-data-schemas-retrieve': externalDataSchemasRetrieve,
-    'external-data-schemas-partial-update': externalDataSchemasPartialUpdate,
-    'external-data-schemas-cancel': externalDataSchemasCancel,
-    'external-data-schemas-resync': externalDataSchemasResync,
-    'external-data-schemas-reload': externalDataSchemasReload,
     'external-data-sources-list': externalDataSourcesList,
     'external-data-sources-create': externalDataSourcesCreate,
     'external-data-sources-retrieve': externalDataSourcesRetrieve,
