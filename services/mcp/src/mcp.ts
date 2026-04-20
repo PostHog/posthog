@@ -14,7 +14,7 @@ import {
     getBaseUrlForRegion,
     toCloudRegion,
 } from '@/lib/constants'
-import { handleToolError } from '@/lib/errors'
+import { handleToolError, wrapError } from '@/lib/errors'
 import { buildInstructionsV2 } from '@/lib/instructions'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { formatResponse } from '@/lib/response'
@@ -248,7 +248,7 @@ export class MCP extends McpAgent<Env> {
         if (!_distinctId) {
             const userResult = await (await this.api()).users().me()
             if (!userResult.success) {
-                throw new Error(`Failed to get user: ${userResult.error.message}`)
+                throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
             }
             await this.cache.set('distinctId', userResult.data.distinct_id)
             _distinctId = userResult.data.distinct_id as string

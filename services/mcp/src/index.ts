@@ -1,5 +1,5 @@
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
-import { ErrorCode } from '@/lib/errors'
+import { ErrorCode, findPostHogPermissionError, formatPermissionErrorMessage } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, sanitizeHeaderValue } from '@/lib/utils'
@@ -68,7 +68,7 @@ function getRegionFromRequest(request: Request): CloudRegion | null {
 const onThenErrorHandler = async (response: Response): Promise<Response> => {
     if (!response.ok) {
         const body = await response.clone().text()
-        const errorResponse = generateErrorResponse(body)
+        const errorResponse = generateErrorResponseFromMessage(body)
         if (errorResponse) {
             return errorResponse
         }
@@ -78,10 +78,22 @@ const onThenErrorHandler = async (response: Response): Promise<Response> => {
 }
 
 const onCatchErrorHandler = async (error: Error): Promise<Response> => {
-    return generateErrorResponse(error.message) || new Response('Internal server error', { status: 500 })
+    const permissionError = findPostHogPermissionError(error)
+    if (permissionError) {
+        return new Response(formatPermissionErrorMessage(permissionError), {
+            status: 403,
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                ...(permissionError.missingScope
+                    ? { 'x-posthog-mcp-missing-scope': permissionError.missingScope }
+                    : {}),
+            },
+        })
+    }
+    return generateErrorResponseFromMessage(error.message) || new Response('Internal server error', { status: 500 })
 }
 
-const generateErrorResponse = (message: string): Response | null => {
+const generateErrorResponseFromMessage = (message: string): Response | null => {
     if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
         return new Response('OAuth token is inactive', { status: 401 })
     } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
