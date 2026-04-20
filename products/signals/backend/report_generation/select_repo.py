@@ -52,23 +52,27 @@ def _list_candidate_repos(team_id: int) -> list[str]:
     return sorted(repos)
 
 
-def _build_repo_selection_prompt(signals: list[SignalData], candidate_repos: list[str]) -> str:
-    """Build the prompt for the sandbox agent to select the most relevant repository."""
-    signals_text = render_signals_to_text(signals)
+def _build_repo_selection_prompt(context_text: str, candidate_repos: list[str]) -> str:
+    """Build the prompt for the sandbox agent to select the most relevant repository.
+
+    Args:
+        context_text: Pre-rendered text describing what the report/signals are about.
+        candidate_repos: List of candidate repositories in 'owner/repo' format.
+    """
     schema_json = json.dumps(RepoSelectionResult.model_json_schema(), indent=2)
 
     repo_list = "\n".join(f"{i + 1}. `{repo}`" for i, repo in enumerate(candidate_repos))
 
     return f"""You are a repository selection agent. Your job is to determine which GitHub repository
-is most relevant to a set of signals from PostHog's Signals product.
+is most relevant to the context below from PostHog's Signals product.
 
-The signals below describe issues, feature requests, bugs, or observations reported by users.
-You need to figure out which repository's codebase these signals are about — i.e., which repo
+The context describes issues, feature requests, bugs, or observations.
+You need to figure out which repository's codebase this is about — i.e., which repo
 a developer would look at to investigate or fix the issues described.
 
-## Signals
+## Context
 
-{signals_text}
+{context_text}
 
 ## Candidate repositories
 
@@ -78,32 +82,43 @@ a developer would look at to investigate or fix the issues described.
 
 1. For each candidate repository, run `gh repo view <repo> --json description,name,url` to understand
    what it contains.
-2. If the signals mention specific code paths, files, features, or libraries, use
+2. If the context mentions specific code paths, files, features, or libraries, use
    `gh search code "<keyword>" --repo <repo> --limit 10` to check which repos contain matching code.
-3. Pick the single repository whose codebase is most likely the **subject** of these signals —
+3. Pick the single repository whose codebase is most likely the **subject** of this context —
    the repo where a developer would go to investigate or fix the issues described.
-4. If none of the repositories are clearly relevant to the signals, return `repository: null`.
+4. If none of the repositories are clearly relevant, return `repository: null`.
 5. Do not guess — if you cannot determine relevance with reasonable confidence, return null.
 
 ## Output format
 
-Respond with a JSON object matching this schema:
+You have a `set_output` tool available. Once you have determined the correct repository,
+call `set_output` with a JSON object matching this schema:
 
 <jsonschema>
 {schema_json}
-</jsonschema>"""
+</jsonschema>
+
+Do NOT just print the JSON — you MUST call the `set_output` tool with your result."""
 
 
 async def select_repository_for_report(
     team_id: int,
     user_id: int,
-    signals: list[SignalData],
+    signals: list[SignalData] | None = None,
     *,
+    context_text: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
 ) -> RepoSelectionResult:
-    """Select the most relevant repository for a set of signals."""
+    """Select the most relevant repository for a set of signals or a free-text context.
+
+    Provide either ``signals`` (rendered via ``render_signals_to_text``) or
+    ``context_text`` (pre-rendered text). At least one must be given.
+    """
+    if not signals and not context_text:
+        raise ValueError("Either signals or context_text must be provided")
+
     candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(team_id)
     if len(candidate_repos) == 0:
         return RepoSelectionResult(
@@ -117,8 +132,9 @@ async def select_repository_for_report(
         )
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")
-    prompt = _build_repo_selection_prompt(signals, candidate_repos)
-    context = CustomPromptSandboxContext(
+    rendered_context = context_text if context_text else render_signals_to_text(signals)  # type: ignore[arg-type]
+    prompt = _build_repo_selection_prompt(rendered_context, candidate_repos)
+    sandbox_context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
         repository=REPO_SELECTION_DUMMY_REPOSITORY,
@@ -127,7 +143,7 @@ async def select_repository_for_report(
     )
     result = await run_sandbox_agent_get_structured_output(
         prompt=prompt,
-        context=context,
+        context=sandbox_context,
         model_to_validate=RepoSelectionResult,
         step_name="repo_selection",
         verbose=verbose,

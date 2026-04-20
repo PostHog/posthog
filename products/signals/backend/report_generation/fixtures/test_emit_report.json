@@ -1,0 +1,21 @@
+{
+  "name": "test_emit_report: enrichment agent timeout handling",
+  "report_id": "ignored",
+  "generated_at": "2025-01-15T12:00:00Z",
+  "repository": "posthog/posthog",
+  "signal_ids": [],
+  "result": {
+    "title": "fix(signals): Handle sandbox timeout in report enrichment agent",
+    "summary": "**What's happening:** The `run_report_enrichment` function in `products/signals/backend/report_generation/enrichment.py` runs a multi-turn sandbox session but does not enforce a per-turn timeout. If the enrichment agent hangs during code investigation or data investigation, the entire `enrich_and_persist_emit_report_activity` can block until the Temporal heartbeat timeout (5 minutes) kills it, leaving no partial results.\n\n**Root cause:** The `MultiTurnSession.send_followup` call in the enrichment flow relies solely on the Temporal activity-level heartbeat timeout for liveness. There is no application-level timeout on individual turns, so a stuck sandbox process (e.g. an infinite `git blame` on a massive file) will waste the full heartbeat window before failing.\n\n**How to resolve:** Add an `asyncio.wait_for` wrapper around each `MultiTurnSession.send_followup` call in `run_report_enrichment` with a per-turn timeout (e.g. 3 minutes). On timeout, log the partial results from earlier turns and return a `ReportEnrichmentFinding` with whatever code paths and commit hashes were gathered in the code investigation turn, rather than failing the entire activity.",
+    "findings": [],
+    "actionability": {
+      "explanation": "The enrichment flow has a clear gap in timeout handling that can be fixed by adding asyncio.wait_for wrappers around the multi-turn session calls. The code paths are well-defined in enrichment.py and emit_report.py.",
+      "actionability": "immediately_actionable",
+      "already_addressed": false
+    },
+    "priority": {
+      "explanation": "Medium priority — the heartbeat timeout provides a safety net, but wasting 5 minutes per stuck turn degrades the emit_report workflow latency. Not blocking production traffic since emit_report is a new code path.",
+      "priority": "P2"
+    }
+  }
+}

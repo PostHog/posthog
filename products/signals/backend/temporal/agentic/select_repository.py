@@ -34,7 +34,8 @@ logger = structlog.get_logger(__name__)
 class SelectRepositoryInput:
     team_id: int
     report_id: str
-    signals: list[SignalData]
+    signals: list[SignalData] | None = None
+    context_text: str | None = None
 
 
 def _resolve_team_repo_context(team_id: int) -> int:
@@ -88,6 +89,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
         team_id=input.team_id,
         user_id=user_id,
         signals=input.signals,
+        context_text=input.context_text,
         sandbox_environment_id=sandbox_env_id,
     )
     logger.info(

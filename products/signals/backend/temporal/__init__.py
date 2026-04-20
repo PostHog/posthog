@@ -13,6 +13,11 @@ from products.signals.backend.temporal.buffer import (
 )
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
 from products.signals.backend.temporal.emit_eval_signal import EmitEvalSignalWorkflow, emit_eval_signal_activity
+from products.signals.backend.temporal.emit_report import (
+    EmitReportWorkflow,
+    create_emit_report_activity,
+    enrich_and_persist_emit_report_activity,
+)
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 from products.signals.backend.temporal.grouping import (
     TeamSignalGroupingWorkflow,
@@ -65,6 +70,7 @@ WORKFLOWS = [
     TeamSignalReingestionWorkflow,
     SignalReportDeletionWorkflow,
     EmitEvalSignalWorkflow,
+    EmitReportWorkflow,
 ]
 
 ACTIVITIES = [
@@ -73,6 +79,8 @@ ACTIVITIES = [
     assign_and_emit_signal_activity,
     delete_report_activity,
     emit_eval_signal_activity,
+    create_emit_report_activity,
+    enrich_and_persist_emit_report_activity,
     fetch_report_contexts_activity,
     flush_signals_to_s3_activity,
     signal_with_start_grouping_v2_activity,

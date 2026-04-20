@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
@@ -12,7 +13,9 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.report_generation.research import ActionabilityChoice, Priority
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
+from products.signals.backend.temporal.emit_report import EmitReportWorkflow, EmitReportWorkflowInput
 from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
 
@@ -118,3 +121,78 @@ async def emit_signal(
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         run_timeout=timedelta(minutes=10),
     )
+
+
+async def emit_report(
+    team: Team,
+    title: str,
+    summary: str,
+    actionability: ActionabilityChoice,
+    actionability_explanation: str,
+    priority: Priority,
+    priority_explanation: str,
+) -> str:
+    """
+    Emit a fully-formed report for enrichment and potential auto-start, fire-and-forget.
+
+    Creates a SignalReport and starts an EmitReportWorkflow that:
+    1. Selects a repository from the team's GitHub integrations
+    2. Runs an enrichment agent to gather commit hashes, code paths, and data context
+    3. Persists artefacts and resolves suggested reviewers
+    4. Checks auto-start conditions for an implementation task
+    5. Applies the caller-provided actionability decision
+
+    No signals are attached to the report.
+
+    Args:
+        team: The team object (org must have is_ai_data_processing_approved)
+        title: PR-style report title
+        summary: Axios-style report summary
+        actionability: Caller-provided actionability judgment
+        actionability_explanation: Evidence-grounded explanation for the judgment
+        priority: Priority level (P0-P4)
+        priority_explanation: Justification for priority level
+
+    Returns:
+        The report ID (UUID string). The workflow runs asynchronously.
+
+    Example:
+        report_id = await emit_report(
+            team=team,
+            title="fix(dashboard): Timezone mismatch in date filter",
+            summary="**What's happening:** ...",
+            actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+            actionability_explanation="The date filter applies UTC offsets incorrectly...",
+            priority=Priority.P2,
+            priority_explanation="Affects all users filtering by date in non-UTC timezones.",
+        )
+    """
+
+    organization = await database_sync_to_async(lambda: team.organization)()
+    if not organization.is_ai_data_processing_approved:
+        raise ValueError("Organization has not approved AI data processing")
+
+    report_id = str(uuid.uuid4())
+
+    client = await async_connect()
+
+    workflow_input = EmitReportWorkflowInput(
+        team_id=team.id,
+        report_id=report_id,
+        title=title,
+        summary=summary,
+        actionability=actionability.value,
+        actionability_explanation=actionability_explanation,
+        priority=priority.value,
+        priority_explanation=priority_explanation,
+    )
+
+    await client.start_workflow(
+        EmitReportWorkflow.run,
+        workflow_input,
+        id=EmitReportWorkflow.workflow_id_for(team.id, report_id),
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        run_timeout=timedelta(hours=2),
+    )
+
+    return report_id
