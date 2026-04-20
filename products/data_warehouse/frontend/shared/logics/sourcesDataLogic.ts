@@ -34,7 +34,16 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                         return res
                     } catch (error: any) {
                         // On 403, return empty result instead of failing - user doesn't have access
-                        if (error.status === 403) {
+                        if (error?.status === 403) {
+                            cache.abortController = null
+                            return { results: [], count: 0, next: null, previous: null }
+                        }
+                        // Transient failures (offline, DNS, CORS, aborted mid-flight) surface as
+                        // either a DOMException AbortError or an ApiError with no HTTP status.
+                        // Swallow these so the UI degrades gracefully instead of reporting an exception.
+                        const isAbort = error?.name === 'AbortError'
+                        const isNetworkError = error?.status === undefined
+                        if (isAbort || isNetworkError) {
                             cache.abortController = null
                             return { results: [], count: 0, next: null, previous: null }
                         }

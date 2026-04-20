@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api, { ApiError, PaginatedResponse } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSource } from '~/types'
@@ -8,6 +8,13 @@ import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, E
 import { sourcesDataLogic } from '../sourcesDataLogic'
 
 jest.mock('lib/api')
+
+const emptyResponse: PaginatedResponse<ExternalDataSource> = {
+    results: [],
+    count: 0,
+    next: null,
+    previous: null,
+} as PaginatedResponse<ExternalDataSource>
 
 describe('sourcesDataLogic', () => {
     let logic: ReturnType<typeof sourcesDataLogic.build>
@@ -61,5 +68,25 @@ describe('sourcesDataLogic', () => {
             })
 
         expect(api.externalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
+    })
+
+    it.each([
+        ['403 access denied', new ApiError('forbidden', 403)],
+        ['network failure (no HTTP status)', new ApiError('TypeError: Failed to fetch', undefined)],
+        ['aborted request', Object.assign(new Error('aborted'), { name: 'AbortError' })],
+    ])('returns an empty paginated result on %s without surfacing loader failure', async (_label, error) => {
+        jest.spyOn(api.externalDataSources, 'list').mockRejectedValue(error)
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSources()
+        })
+            .toDispatchActions(['loadSources', 'loadSourcesSuccess'])
+            .toNotHaveDispatchedActions(['loadSourcesFailure'])
+            .toMatchValues({
+                dataWarehouseSources: emptyResponse,
+                dataWarehouseSourcesLoading: false,
+            })
     })
 })
