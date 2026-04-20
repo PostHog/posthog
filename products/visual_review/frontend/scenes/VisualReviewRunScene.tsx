@@ -53,7 +53,6 @@ function SnapshotThumbnail({
                 border: '1.5px solid',
                 borderColor: isSelected ? 'var(--primary-3000-button-border)' : 'var(--border)',
                 boxShadow: isSelected ? '0 3px 0 -1px var(--primary-3000-frame-bg)' : 'none',
-                opacity: isQuarantined ? 0.5 : 1,
             }}
         >
             {showBadge && (
@@ -79,12 +78,17 @@ function SnapshotThumbnail({
                     <img
                         src={snapshot.current_artifact.download_url}
                         alt=""
-                        className={`w-full h-full object-contain ${isQuarantined ? 'grayscale' : ''}`}
+                        className={`w-full h-full object-contain ${isQuarantined ? 'grayscale opacity-40' : ''}`}
                     />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
                         <span className="text-[10px] text-muted">No image</span>
                     </div>
+                )}
+                {isQuarantined && (
+                    <span className="absolute inset-0 flex items-center justify-center z-10 text-[10px] font-semibold text-warning-dark bg-warning/20 uppercase tracking-wide">
+                        Quarantined
+                    </span>
                 )}
             </div>
             <div className="flex items-center gap-1 max-w-[108px]">
