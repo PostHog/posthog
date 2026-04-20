@@ -145,7 +145,9 @@ jobs:
                   node-version-file: .nvmrc
 
             - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: |
+                  cd products/visual_review/cli && npm ci && npm run build && npm link
+                  echo "$(npm prefix -g)/bin" >> $GITHUB_PATH
 
             - name: Create VR run
               id: create
@@ -339,7 +341,9 @@ jobs:
             # Upload snapshots to Visual Review (runs in parallel across shards)
             - name: Install VR CLI
               if: always() && needs.vr-setup.outputs.run_id != ''
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: |
+                  cd products/visual_review/cli && npm ci && npm run build && npm link
+                  echo "$(npm prefix -g)/bin" >> $GITHUB_PATH
 
             - name: Upload snapshots to Visual Review
               if: always() && needs.vr-setup.outputs.run_id != ''
@@ -484,7 +488,9 @@ jobs:
                   node-version-file: .nvmrc
 
             - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: |
+                  cd products/visual_review/cli && npm ci && npm run build && npm link
+                  echo "$(npm prefix -g)/bin" >> $GITHUB_PATH
 
             - name: Complete Visual Review run
               env:
