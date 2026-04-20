@@ -18,7 +18,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
@@ -44,6 +43,12 @@ import { draftsLogic } from '../draftsLogic'
 import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
+
+export interface FuseSearchMatch {
+    // kea-typegen has a problem importing Fuse itself, so we have to duplicate this type
+    indices: readonly [number, number][]
+    key: string
+}
 
 const isLazyNodeId = (id: string): boolean => {
     return id.startsWith('lazy-') || id.includes('-lazy-')

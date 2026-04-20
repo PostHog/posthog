@@ -3,6 +3,8 @@ import { LogicWrapper } from 'kea'
 import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
+import type { SettingSectionId } from '../scenes/settings/types'
+
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
@@ -279,18 +281,14 @@ export interface SceneConfig {
     projectBased?: boolean
     /** Set the scope of the activity (affects activity and discussion panel) */
     activityScope?: ActivityScope | string
-    /** Default docs path - what the docs side panel will open by default when this scene is active  */
-    defaultDocsPath?: string | (() => string) | (() => Promise<string>)
-    /** Team slug for changelog - appended as ?team= to the changelog URL in the side panel */
-    changelogTeamSlug?: string
-    /** Category for changelog - appended as ?category= to the changelog URL in the side panel */
-    changelogCategory?: string
-    /** Component import, used only in manifests */
-    import?: () => Promise<any>
+    /** Settings section to surface in the context panel when this scene is active */
+    settingsSection?: SettingSectionId
     /** Custom icon for the tabs */
     iconType?: FileSystemIconType
     /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
     canvasBackground?: boolean
+    /** Component import, used only in manifests */
+    import?: () => Promise<any>
 }
 
 // Map scenes to their access control resource types

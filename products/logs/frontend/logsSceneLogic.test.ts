@@ -98,7 +98,8 @@ describe('logsSceneLogic', () => {
 
         it.each([
             ['viewer', 'viewer'],
-            ['configuration', 'configuration'],
+            ['services', 'services'],
+            ['alerts', 'alerts'],
         ])('parses valid activeTab "%s" from URL', async (urlValue, expected) => {
             await expectLogic(logic, () => {
                 router.actions.push('/logs', { activeTab: urlValue })
@@ -122,17 +123,17 @@ describe('logsSceneLogic', () => {
 
         it('syncs activeTab to URL on setActiveTab', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setActiveTab('configuration')
+                logic.actions.setActiveTab('alerts')
             }).toFinishAllListeners()
 
-            expect(logic.values.activeTab).toEqual('configuration')
-            expect(router.values.searchParams).toHaveProperty('activeTab', 'configuration')
+            expect(logic.values.activeTab).toEqual('alerts')
+            expect(router.values.searchParams).toHaveProperty('activeTab', 'alerts')
         })
 
         it('removes activeTab from URL when set to default', async () => {
             // First set to non-default
             await expectLogic(logic, () => {
-                logic.actions.setActiveTab('configuration')
+                logic.actions.setActiveTab('alerts')
             }).toFinishAllListeners()
 
             // Then set back to default

@@ -1,5 +1,6 @@
 import re
 import uuid
+from typing import Any
 
 import temporalio.activity
 from prometheus_client import Counter
@@ -28,6 +29,8 @@ SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT = Counter(
     "AI summary skipped because the organization has not approved AI data processing",
 )
 
+_MAX_LOGGED_KEYS = 15
+
 
 def _get_query_kind_from_insight(insight: Insight) -> str:
     query = insight.query
@@ -41,6 +44,7 @@ def _build_states_from_content_snapshot(
     content_snapshot: dict,
     insight_query_kinds: dict[int, str] | None = None,
     timestamp: str = "unknown",
+    snapshot_role: str = "current",
 ) -> list[dict]:
     states: list[dict] = []
     for insight_snap in content_snapshot.get("insights", []):
@@ -48,13 +52,34 @@ def _build_states_from_content_snapshot(
         insight_name = insight_snap.get("name", f"Insight {insight_id}")
         query_results = insight_snap.get("query_results")
 
-        query_kind = (insight_query_kinds or {}).get(insight_id, "Unknown")
+        raw_query_error = insight_snap.get("query_error")
+        query_error: dict | None = raw_query_error if isinstance(raw_query_error, dict) and raw_query_error else None
+        malformed_query_error = raw_query_error is not None and not isinstance(raw_query_error, dict)
 
-        if query_results and query_results.get("result"):
-            results_summary = build_results_summary(query_kind, query_results["result"])
+        query_kind = (insight_query_kinds or {}).get(insight_id, "Unknown")
+        result_payload = query_results.get("result") if query_results else None
+
+        if query_results and result_payload:
+            results_summary = build_results_summary(query_kind, result_payload)
+            fallback_reason: str | None = None
+        elif query_error:
+            results_summary = "Query failed"
+            fallback_reason = "query_error"
         else:
-            error = insight_snap.get("query_error", {})
-            results_summary = "Query failed" if error else "No results"
+            results_summary = "No results"
+            fallback_reason = "no_query_results"
+
+        _log_insight_state(
+            insight_id=insight_id,
+            snapshot_role=snapshot_role,
+            query_kind=query_kind,
+            result_payload=result_payload,
+            query_error=query_error,
+            malformed_query_error=malformed_query_error,
+            fallback_reason=fallback_reason,
+            results_summary_length=len(results_summary),
+            timestamp=timestamp,
+        )
 
         states.append(
             {
@@ -66,6 +91,59 @@ def _build_states_from_content_snapshot(
             }
         )
     return states
+
+
+def _log_insight_state(
+    *,
+    insight_id: int | None,
+    snapshot_role: str,
+    query_kind: str,
+    result_payload: Any,
+    query_error: dict | None,
+    malformed_query_error: bool,
+    fallback_reason: str | None,
+    results_summary_length: int,
+    timestamp: str,
+) -> None:
+    if malformed_query_error:
+        query_error_type: str | None = "non_dict"
+    elif query_error:
+        query_error_type = query_error.get("type")
+    else:
+        query_error_type = None
+
+    LOGGER.info(
+        "subscription_summary.insight_state_built",
+        insight_id=insight_id,
+        snapshot_role=snapshot_role,
+        query_kind=query_kind,
+        result_shape=_describe_result_shape(result_payload),
+        query_error_type=query_error_type,
+        fallback_reason=fallback_reason,
+        results_summary_length=results_summary_length,
+        timestamp=timestamp,
+    )
+
+
+def _describe_result_shape(result: Any) -> dict[str, Any]:
+    if result is None:
+        return {"type": "none"}
+    if isinstance(result, list):
+        first_item_type: str | None = None
+        first_item_keys: list[str] | None = None
+        if result:
+            first_item_type = type(result[0]).__name__
+            if isinstance(result[0], dict):
+                first_item_keys = sorted(result[0].keys())[:_MAX_LOGGED_KEYS]
+        return {
+            "type": "list",
+            "length": len(result),
+            "first_item_type": first_item_type,
+            "first_item_keys": first_item_keys,
+        }
+    if isinstance(result, dict):
+        return {"type": "dict", "keys": sorted(result.keys())[:_MAX_LOGGED_KEYS]}
+    return {"type": type(result).__name__}
 
 
 def _get_delivery_by_id(delivery_id: str) -> SubscriptionDelivery | None:
@@ -148,6 +226,7 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
         content_snapshot,
         insight_query_kinds=insight_query_kinds,
         timestamp=current_delivery.created_at.isoformat() if current_delivery.created_at else "unknown",
+        snapshot_role="current",
     )
     if not current_states:
         return SnapshotInsightsResult()
@@ -163,6 +242,7 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
             previous_delivery.content_snapshot,
             insight_query_kinds=insight_query_kinds,
             timestamp=previous_delivery.created_at.isoformat() if previous_delivery.created_at else "unknown",
+            snapshot_role="previous",
         )
 
     summary_text: str | None = None
@@ -175,6 +255,7 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
             subscription_title=subscription.title,
             prompt_guide=prompt_guide,
             team=subscription.team,
+            delivery_id=inputs.delivery_id,
         )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:

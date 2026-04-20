@@ -96,10 +96,6 @@ export const SettingsEnvironmentFeatureFlags: Story = { args: { sectionId: 'envi
 
 export const SettingsEnvironmentErrorTracking: Story = { args: { sectionId: 'environment-error-tracking' } }
 
-export const SettingsEnvironmentErrorTrackingConfiguration: Story = {
-    args: { sectionId: 'environment-error-tracking-configuration' },
-}
-
 export const SettingsEnvironmentCSPReporting: Story = { args: { sectionId: 'environment-csp-reporting' } }
 
 export const SettingsEnvironmentPrivacy: Story = { args: { sectionId: 'environment-privacy' } }

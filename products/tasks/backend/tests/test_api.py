@@ -21,7 +21,15 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    CodeInvite,
+    CodeInviteRedemption,
+    SandboxEnvironment,
+    Task,
+    TaskAutomation,
+    TaskRun,
+)
+from products.tasks.backend.serializers import TaskAutomationSerializer
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.stream.redis_stream import (
     TaskRunRedisStream,
@@ -111,6 +119,29 @@ class BaseTaskAPITest(TestCase):
             title=title,
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+    def create_automation(
+        self,
+        name="Daily PRs",
+        prompt="Check my GitHub PRs",
+        repository="posthog/posthog",
+        team=None,
+        user=None,
+    ):
+        task = Task.objects.create(
+            team=team or self.team,
+            created_by=user or self.user,
+            title=name,
+            description=prompt,
+            origin_product=Task.OriginProduct.AUTOMATION,
+            repository=repository,
+        )
+        return TaskAutomation.objects.create(
+            task=task,
+            cron_expression="0 9 * * *",
+            timezone="Europe/London",
+            enabled=True,
         )
 
 
@@ -961,6 +992,194 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["internal"])
+
+
+class TestTaskAutomationAPI(BaseTaskAPITest):
+    @patch("products.tasks.backend.api.sync_automation_schedule")
+    def test_create_automation(self, mock_sync_schedule):
+        response = self.client.post(
+            "/api/projects/@current/task_automations/",
+            {
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "Europe/London",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        payload = response.json()
+        self.assertEqual(payload["name"], "Daily PRs")
+        self.assertEqual(payload["repository"], "posthog/posthog")
+        self.assertEqual(payload["cron_expression"], "0 9 * * *")
+        self.assertEqual(payload["timezone"], "Europe/London")
+        self.assertTrue(payload["enabled"])
+
+        automation = TaskAutomation.objects.get(id=payload["id"])
+        self.assertEqual(automation.task.title, "Daily PRs")
+        self.assertEqual(automation.task.description, "Check my GitHub PRs")
+        self.assertEqual(automation.task.repository, "posthog/posthog")
+        self.assertEqual(automation.cron_expression, "0 9 * * *")
+        mock_sync_schedule.assert_called_once_with(automation)
+
+    def test_list_automations(self):
+        automation = self.create_automation()
+
+        response = self.client.get("/api/projects/@current/task_automations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(payload["results"][0]["id"], str(automation.id))
+        self.assertEqual(payload["results"][0]["cron_expression"], "0 9 * * *")
+
+    def test_create_automation_rejects_invalid_timezone(self):
+        response = self.client.post(
+            "/api/projects/@current/task_automations/",
+            {
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "UTC+99",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "'UTC+99' is not a valid IANA timezone.",
+                "attr": "timezone",
+            },
+        )
+
+    def test_create_automation_rejects_invalid_cron_expression(self):
+        response = self.client.post(
+            "/api/projects/@current/task_automations/",
+            {
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "not a cron",
+                "timezone": "Europe/London",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Only standard 5-field cron expressions are supported "
+                "(minute hour day month weekday). Example: '0 9 * * 1-5'.",
+                "attr": "cron_expression",
+            },
+        )
+
+    def test_create_automation_rolls_back_task_when_automation_create_fails(self):
+        serializer = TaskAutomationSerializer(
+            data={
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "Europe/London",
+            },
+            context={"team": self.team, "request": MagicMock(user=self.user)},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with patch(
+            "products.tasks.backend.serializers.TaskAutomation.objects.create",
+            side_effect=RuntimeError("automation create failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                serializer.save()
+
+        self.assertFalse(
+            Task.objects.filter(
+                team=self.team,
+                title="Daily PRs",
+                origin_product=Task.OriginProduct.AUTOMATION,
+            ).exists()
+        )
+
+    @patch("products.tasks.backend.api.sync_automation_schedule")
+    def test_update_automation(self, mock_sync_schedule):
+        automation = self.create_automation()
+
+        response = self.client.patch(
+            f"/api/projects/@current/task_automations/{automation.id}/",
+            {
+                "name": "Updated PR check",
+                "cron_expression": "30 14 * * *",
+                "enabled": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["name"], "Updated PR check")
+        self.assertEqual(payload["cron_expression"], "30 14 * * *")
+        self.assertFalse(payload["enabled"])
+
+        automation.refresh_from_db()
+        automation.task.refresh_from_db()
+        self.assertEqual(automation.task.title, "Updated PR check")
+        self.assertEqual(automation.cron_expression, "30 14 * * *")
+        self.assertFalse(automation.enabled)
+        mock_sync_schedule.assert_called_once_with(automation)
+
+    def test_update_automation_rolls_back_automation_when_task_update_fails(self):
+        automation = self.create_automation()
+
+        serializer = TaskAutomationSerializer(
+            automation,
+            data={
+                "name": "Updated PR check",
+                "cron_expression": "30 14 * * *",
+            },
+            partial=True,
+            context={"team": self.team, "request": MagicMock(user=self.user)},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        with patch.object(Task, "save", side_effect=RuntimeError("task update failed")):
+            with self.assertRaises(RuntimeError):
+                serializer.save()
+
+        automation.refresh_from_db()
+        automation.task.refresh_from_db()
+        self.assertEqual(automation.cron_expression, "0 9 * * *")
+        self.assertEqual(automation.task.title, "Daily PRs")
+
+    @patch("products.tasks.backend.api.delete_automation_schedule")
+    def test_delete_automation(self, mock_delete_schedule):
+        automation = self.create_automation()
+
+        response = self.client.delete(f"/api/projects/@current/task_automations/{automation.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_delete_schedule.assert_called_once()
+        self.assertFalse(TaskAutomation.objects.filter(id=automation.id).exists())
+
+    @patch("products.tasks.backend.api.run_task_automation")
+    def test_run(self, mock_run_task_automation):
+        automation = self.create_automation()
+
+        response = self.client.post(f"/api/projects/@current/task_automations/{automation.id}/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_run_task_automation.assert_called_once_with(str(automation.id))
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
@@ -2094,6 +2313,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
     def test_tasks_feature_flag_required(self):
         self.set_tasks_feature_flag(False)
         task = self.create_task()
+        automation = self.create_automation(name="Daily PRs", prompt="Check my PRs")
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
         endpoints = [
@@ -2104,6 +2324,13 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             (f"/api/projects/@current/tasks/{task.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/", "DELETE"),
             (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
+            # TaskAutomationViewSet endpoints
+            ("/api/projects/@current/task_automations/", "GET"),
+            (f"/api/projects/@current/task_automations/{automation.id}/", "GET"),
+            ("/api/projects/@current/task_automations/", "POST"),
+            (f"/api/projects/@current/task_automations/{automation.id}/", "PATCH"),
+            (f"/api/projects/@current/task_automations/{automation.id}/", "DELETE"),
+            (f"/api/projects/@current/task_automations/{automation.id}/run/", "POST"),
             # TaskRunViewSet endpoints
             (f"/api/projects/@current/tasks/{task.id}/runs/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
@@ -2135,12 +2362,16 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
     def test_authentication_required(self):
         task = self.create_task()
+        automation = self.create_automation(name="Daily PRs", prompt="Check my PRs")
 
         self.client.force_authenticate(None)
 
         endpoints = [
             ("/api/projects/@current/tasks/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/", "GET"),
+            ("/api/projects/@current/task_automations/", "GET"),
+            (f"/api/projects/@current/task_automations/{automation.id}/", "GET"),
+            (f"/api/projects/@current/task_automations/{automation.id}/run/", "POST"),
         ]
 
         for url, method in endpoints:
@@ -2170,16 +2401,44 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         response = self.client.delete(f"/api/projects/@current/tasks/{other_task.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_cross_team_automation_access_forbidden(self):
+        other_automation = self.create_automation(
+            name="Other Team Automation",
+            prompt="Description",
+            team=self.other_team,
+            user=self.other_user,
+        )
+
+        response = self.client.get(f"/api/projects/@current/task_automations/{other_automation.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.patch(
+            f"/api/projects/@current/task_automations/{other_automation.id}/",
+            {"name": "Hacked Automation"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.delete(f"/api/projects/@current/task_automations/{other_automation.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_list_endpoints_only_return_team_resources(self):
         # Create resources in both teams
 
         my_task = self.create_task("My Task")
+        my_automation = self.create_automation(name="My automation", prompt="Mine")
 
         other_task = Task.objects.create(
             team=self.other_team,
             title="Other Task",
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        other_automation = self.create_automation(
+            name="Other automation",
+            prompt="Other",
+            team=self.other_team,
+            user=self.other_user,
         )
 
         # List tasks should only return my team's tasks
@@ -2189,16 +2448,25 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         self.assertIn(str(my_task.id), task_ids)
         self.assertNotIn(str(other_task.id), task_ids)
 
+        response = self.client.get("/api/projects/@current/task_automations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        automation_ids = [a["id"] for a in response.json()["results"]]
+        self.assertIn(str(my_automation.id), automation_ids)
+        self.assertNotIn(str(other_automation.id), automation_ids)
+
     @parameterized.expand(
         [
             ("task:read", "GET", "/api/projects/@current/tasks/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("task:read", "GET", "/api/projects/@current/task_automations/", True),
+            ("task:read", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
             ("task:read", "POST", "/api/projects/@current/tasks/", False),
             ("task:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", False),
+            ("task:read", "POST", "/api/projects/@current/task_automations/", False),
             ("task:write", "GET", "/api/projects/@current/tasks/", True),
             ("task:write", "POST", "/api/projects/@current/tasks/", True),
             ("task:write", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", True),
@@ -2206,6 +2474,12 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("task:write", "GET", "/api/projects/@current/task_automations/", True),
+            ("task:write", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
+            ("task:write", "POST", "/api/projects/@current/task_automations/", True),
+            ("task:write", "PATCH", "/api/projects/@current/task_automations/{automation_id}/", True),
+            ("task:write", "DELETE", "/api/projects/@current/task_automations/{automation_id}/", True),
+            ("task:write", "POST", "/api/projects/@current/task_automations/{automation_id}/run/", True),
             ("other_scope:read", "GET", "/api/projects/@current/tasks/", False),
             ("other_scope:write", "POST", "/api/projects/@current/tasks/", False),
             ("*", "GET", "/api/projects/@current/tasks/", True),
@@ -2213,10 +2487,15 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("*", "GET", "/api/projects/@current/task_automations/", True),
+            ("*", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
+            ("*", "POST", "/api/projects/@current/task_automations/", True),
+            ("*", "POST", "/api/projects/@current/task_automations/{automation_id}/run/", True),
         ]
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
         task = self.create_task()
+        automation = self.create_automation(name="Scoped automation", prompt="Check my PRs")
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
         api_key_value = generate_random_token_personal()
@@ -2228,7 +2507,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             scopes=[scope],
         )
 
-        url = url_template.format(task_id=task.id, run_id=run.id)
+        url = url_template.format(task_id=task.id, run_id=run.id, automation_id=automation.id)
 
         self.client.force_authenticate(None)
 
@@ -2239,7 +2518,17 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
                 "description": "Description",
                 "origin_product": Task.OriginProduct.USER_CREATED,
             }
-        elif method == "PATCH" and "tasks" in url:
+        elif method == "POST" and url == "/api/projects/@current/task_automations/":
+            data = {
+                "name": "New Automation",
+                "prompt": "Check my PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "Europe/London",
+            }
+        elif method == "PATCH" and "/task_automations/" in url:
+            data = {"name": "Updated Automation"}
+        elif method == "PATCH" and "/tasks/" in url:
             data = {"title": "Updated Task"}
 
         if method == "GET":
