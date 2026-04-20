@@ -60,7 +60,9 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
-SANDBOX_TTL_SECONDS = 60 * 120  # 2 hours (safety net; workflow inactivity timeout handles cleanup)
+# Keep TTL under 1 hour so GitHub and OAuth tokens minted at sandbox creation
+# don't expire mid-run (workflow inactivity timeout still handles cleanup).
+SANDBOX_TTL_SECONDS = 60 * 55  # 55 minutes
 
 
 class SandboxConfig(BaseModel):
