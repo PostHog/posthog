@@ -28517,7 +28517,6 @@ export namespace Schemas {
 
     export interface QuarantineInput {
       identifier: string;
-      run_type: string;
       reason: string;
       /** @nullable */
       expires_at?: string | null;

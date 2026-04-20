@@ -68,7 +68,6 @@ export interface PaginatedQuarantinedIdentifierEntryListApi {
 
 export interface QuarantineInputApi {
     identifier: string
-    run_type: string
     reason: string
     /** @nullable */
     expires_at?: string | null

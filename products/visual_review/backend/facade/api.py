@@ -330,12 +330,12 @@ def list_quarantined(repo_id: UUID, team_id: int) -> list[contracts.QuarantinedI
 
 
 def quarantine_identifier(
-    repo_id: UUID, input: contracts.QuarantineInput, user_id: int, team_id: int
+    repo_id: UUID, run_type: str, input: contracts.QuarantineInput, user_id: int, team_id: int
 ) -> contracts.QuarantinedIdentifierEntry:
     entry = logic.quarantine_identifier(
         repo_id=repo_id,
         identifier=input.identifier,
-        run_type=input.run_type,
+        run_type=run_type,
         reason=input.reason,
         expires_at=input.expires_at,
         user_id=user_id,

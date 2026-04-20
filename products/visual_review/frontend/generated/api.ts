@@ -166,19 +166,20 @@ export const visualReviewReposQuarantineList = async (
 }
 
 /**
- * Quarantine a snapshot identifier.
+ * Quarantine a snapshot identifier for a specific run type.
  */
-export const getVisualReviewReposQuarantineCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/`
+export const getVisualReviewReposQuarantineCreateUrl = (projectId: string, id: string, runType: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/`
 }
 
 export const visualReviewReposQuarantineCreate = async (
     projectId: string,
     id: string,
+    runType: string,
     quarantineInputApi: QuarantineInputApi,
     options?: RequestInit
 ): Promise<QuarantinedIdentifierEntryApi> => {
-    return apiMutator<QuarantinedIdentifierEntryApi>(getVisualReviewReposQuarantineCreateUrl(projectId, id), {
+    return apiMutator<QuarantinedIdentifierEntryApi>(getVisualReviewReposQuarantineCreateUrl(projectId, id, runType), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -189,17 +190,23 @@ export const visualReviewReposQuarantineCreate = async (
 /**
  * Remove an identifier from quarantine.
  */
-export const getVisualReviewReposQuarantineDestroyUrl = (projectId: string, id: string, identifier: string) => {
-    return `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${identifier}/`
+export const getVisualReviewReposQuarantineDestroyUrl = (
+    projectId: string,
+    id: string,
+    runType: string,
+    identifier: string
+) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/${identifier}/`
 }
 
 export const visualReviewReposQuarantineDestroy = async (
     projectId: string,
     id: string,
+    runType: string,
     identifier: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getVisualReviewReposQuarantineDestroyUrl(projectId, id, identifier), {
+    return apiMutator<void>(getVisualReviewReposQuarantineDestroyUrl(projectId, id, runType, identifier), {
         ...options,
         method: 'DELETE',
     })

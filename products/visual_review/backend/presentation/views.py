@@ -134,33 +134,22 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=QuarantineInputSerializer,
         responses={201: OpenApiResponse(response=QuarantinedIdentifierEntrySerializer)},
     )
-    @action(detail=True, methods=["post"], url_path="quarantine")
-    def quarantine(self, request: TypedRequest[QuarantineInput], pk: str, **kwargs) -> Response:
-        """Quarantine a snapshot identifier."""
+    @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)")
+    def quarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
+        """Quarantine a snapshot identifier for a specific run type."""
         entry = api.quarantine_identifier(
             repo_id=UUID(pk),
+            run_type=run_type,
             input=request.validated_data,
             user_id=request.user.id,
             team_id=self.team_id,
         )
         return Response(QuarantinedIdentifierEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {"run_type": {"type": "string"}},
-                "required": ["run_type"],
-            }
-        },
-        responses={204: None},
-    )
-    @action(detail=True, methods=["delete"], url_path=r"quarantine/(?P<identifier>.+)")
-    def unquarantine(self, request: Request, pk: str, identifier: str, **kwargs) -> Response:
+    @extend_schema(responses={204: None})
+    @action(detail=True, methods=["delete"], url_path=r"quarantine/(?P<run_type>[^/]+)/(?P<identifier>.+)")
+    def unquarantine(self, request: Request, pk: str, run_type: str, identifier: str, **kwargs) -> Response:
         """Remove an identifier from quarantine."""
-        run_type = request.data.get("run_type", "")
-        if not run_type:
-            return Response({"detail": "run_type is required"}, status=status.HTTP_400_BAD_REQUEST)
         api.unquarantine_identifier(repo_id=UUID(pk), identifier=identifier, run_type=run_type, team_id=self.team_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -219,10 +219,9 @@ class QuarantinedIdentifierEntry:
 
 @dataclass(frozen=True)
 class QuarantineInput:
-    """Input for quarantining an identifier."""
+    """Input for quarantining an identifier. run_type comes from URL path."""
 
     identifier: str
-    run_type: str
     reason: str
     expires_at: datetime | None = None
 

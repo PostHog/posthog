@@ -238,9 +238,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 return
             }
             try {
-                await visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, {
+                await visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, run.run_type, {
                     identifier: snapshot.identifier,
-                    run_type: run.run_type,
                     reason: 'Quarantined from run review UI',
                 })
                 lemonToast.success('Identifier quarantined — future runs will skip gating')
@@ -258,12 +257,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 await visualReviewReposQuarantineDestroy(
                     String(values.currentProjectId),
                     run.repo_id,
-                    snapshot.identifier,
-                    {
-                        method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ run_type: run.run_type }),
-                    }
+                    run.run_type,
+                    snapshot.identifier
                 )
                 lemonToast.success('Identifier unquarantined — future runs will gate on it again')
                 actions.loadSnapshots()
