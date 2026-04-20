@@ -171,10 +171,13 @@ class ExperimentService:
                     # ExperimentMetric is a RootModel wrapping a union, so access .root to get the actual type
                     actual_metric = validated_metric.root
                     if isinstance(actual_metric, ExperimentFunnelMetric):
-                        if len(actual_metric.series) < 2:
+                        # The experiment exposure event is prepended as step_0 at query time,
+                        # so series must contain at least one user-supplied step for the funnel
+                        # to yield a meaningful conversion metric.
+                        if not actual_metric.series:
                             raise ValidationError(
-                                f"Invalid metric at index {i}: funnel metrics require at least 2 steps. "
-                                "For tracking a single event, use 'mean' metric type instead."
+                                f"Invalid metric at index {i}: funnel metrics require at least one step. "
+                                "The experiment exposure event is added as the initial step automatically."
                             )
                         # Additional validation for funnel metrics with DW steps
                         FunnelDWValidator.validate_funnel_metric(actual_metric)

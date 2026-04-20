@@ -3136,38 +3136,32 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
-    @parameterized.expand(
-        [
-            ("single_step", [{"kind": "EventsNode", "event": "$pageview"}]),
-            ("empty_series", []),
-        ]
-    )
-    def test_funnel_metric_insufficient_series_raises(self, name, series):
+    def test_funnel_metric_with_empty_series_raises(self):
+        # The experiment exposure event is prepended as step_0 at query time, so an
+        # empty series would produce a degenerate single-step funnel with no conversion event.
         service = self._service()
         with self.assertRaises(ValidationError) as ctx:
             service.create_experiment(
-                name=f"Insufficient Funnel {name}",
-                feature_flag_key=f"insufficient-funnel-flag-{name.replace('_', '-')}",
+                name="Empty Funnel",
+                feature_flag_key="empty-funnel-flag",
                 allow_unknown_events=True,
                 metrics=[
                     {
                         "kind": "ExperimentMetric",
                         "metric_type": "funnel",
-                        "series": series,
+                        "series": [],
                     },
                 ],
             )
-        assert "at least 2 steps" in str(ctx.exception)
+        assert "at least one step" in str(ctx.exception)
 
     @parameterized.expand(
         [
-            ("primary_single_step", "metrics", [{"kind": "EventsNode", "event": "$pageview"}]),
-            ("primary_empty", "metrics", []),
-            ("secondary_single_step", "metrics_secondary", [{"kind": "EventsNode", "event": "$pageview"}]),
-            ("secondary_empty", "metrics_secondary", []),
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
         ]
     )
-    def test_update_experiment_rejects_insufficient_funnel(self, _name, field, series):
+    def test_update_experiment_rejects_empty_funnel_series(self, _name, field):
         experiment = self._create_draft_experiment()
         service = self._service()
         with self.assertRaises(ValidationError):
@@ -3178,28 +3172,43 @@ class TestExperimentService(APIBaseTest):
                         {
                             "kind": "ExperimentMetric",
                             "metric_type": "funnel",
-                            "series": series,
+                            "series": [],
                         }
                     ],
                 },
                 allow_unknown_events=True,
             )
 
-    def test_funnel_metric_with_two_steps_succeeds(self):
-        self._create_flag(key="valid-funnel-flag")
+    @parameterized.expand(
+        [
+            (
+                "single_step",
+                [{"kind": "EventsNode", "event": "$pageview"}],
+            ),
+            (
+                "two_steps",
+                [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": "$pageleave"},
+                ],
+            ),
+        ]
+    )
+    def test_funnel_metric_with_valid_series_succeeds(self, name, series):
+        # Single-step series is valid: the exposure event is prepended as step_0 at query
+        # time, yielding a standard conversion-rate funnel (exposure → event).
+        flag_key = f"valid-funnel-flag-{name.replace('_', '-')}"
+        self._create_flag(key=flag_key)
         service = self._service()
         experiment = service.create_experiment(
-            name="Valid Funnel",
-            feature_flag_key="valid-funnel-flag",
+            name=f"Valid Funnel {name}",
+            feature_flag_key=flag_key,
             allow_unknown_events=True,
             metrics=[
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "series": [
-                        {"kind": "EventsNode", "event": "$pageview"},
-                        {"kind": "EventsNode", "event": "$pageleave"},
-                    ],
+                    "series": series,
                 },
             ],
         )
