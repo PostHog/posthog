@@ -530,7 +530,8 @@ class TestProvisioningAuthentication(APIBaseTest):
 
     # --- CIMD URL-based PKCE identification ---
 
-    def test_pkce_partner_identified_by_cimd_url(self):
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_pkce_partner_identified_by_cimd_url(self, mock_refresh):
         cimd_url = "https://example.com/api/oauth/wizard/client-metadata"
         cimd_app = OAuthApplication.objects.create(
             name="CIMD Wizard",
@@ -566,7 +567,8 @@ class TestProvisioningAuthentication(APIBaseTest):
 
         cimd_app.delete()
 
-    def test_cimd_url_inactive_partner_rejected(self):
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_cimd_url_inactive_partner_rejected(self, mock_refresh):
         cimd_url = "https://example.com/api/oauth/wizard/client-metadata-inactive"
         cimd_app = OAuthApplication.objects.create(
             name="Inactive CIMD Wizard",
