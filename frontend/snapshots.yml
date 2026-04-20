@@ -3841,7 +3841,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--dark:
         hash: v1.k794b7964.9ba7fcf5dcc39c1368f8cc46c48c195766defccb02fb24ea5d3e847605a88d84.2YCvOaXT4SLaL1BNyjYQdIvFnha8LOiUa0dCGHVgcqU
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--light:
-        hash: v1.k794b7964.65970ea7ad8ff4e351b52e293e090e27aba26239605f21207be8e692194b7a42.rZf5M9cfx8vx3iGVBTI6-voi7GnuEq5Tp-3QvSs35ts
+        hash: v1.k794b7964.bb896900f144cf51b34c7465015b89f65f423450dd388903c6a7a752edb87775.NUnCmtFDx1M_mw3RXn6VVD2OG5MpuKjPz29OuxfZoSw
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--superwide--dark:
         hash: v1.k794b7964.b34a0284b5abb2b075f38602ce63fe4b5f1d37b90d17ad0eb72b4e980c7a3347.5ENySY-SjTma5z9TbbXbajNsp53DXEdPbIymf_8ZfXk
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--superwide--light:
@@ -4933,7 +4933,7 @@ snapshots:
     scenes-app-sidepanels--side-panel-settings--dark:
         hash: v1.k794b7964.1cc119e307548d160d0d6c31e7dffd6e2d3f03325671ef5d9ec1df16cffedf54.oCBu0ZrRUmGWkaLg9nKuA1L_8ZaV5TEiHrNeIQ28Uk0
     scenes-app-sidepanels--side-panel-settings--light:
-        hash: v1.k794b7964.e85ae5d7ec7e873e9f816247265e11c2e878c7612355e9bbbdbec342bfecff21.gABoOSabdWXkO96byKWjAwv2oUmvKk5QUU3TZFX-fmQ
+        hash: v1.k794b7964.f929dbdbccf1b8ef2c2e25fc405add6af0f03a8746b9df291b9339451a65b89b.p3cfXRX2O-U0nb8hsbh1uixA4ZQ_uGILG_pwUOhFtDg
     scenes-app-sidepanels--side-panel-support--dark:
         hash: v1.k794b7964.a28385e1f31c16c26936447105351f034aea2beb39cc4c6b60ccba90d6211805.PqziDUp29yBUQFRGvUkP12MEWP0wcHLMzPd1pyYYChU
     scenes-app-sidepanels--side-panel-support--light:

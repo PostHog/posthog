@@ -450,7 +450,7 @@ def _find_resource_with_transfer_record(
 
     model = visitor.get_model()
     try:
-        previously_duplicated_resource = model.objects.get(pk=transfer_record.duplicated_resource_id)
+        previously_duplicated_resource = cast(Any, model).objects.get(pk=transfer_record.duplicated_resource_id)
 
         return previously_duplicated_resource
     except ObjectDoesNotExist:
@@ -467,7 +467,7 @@ def _find_resource_with_same_name(
     if not hasattr(resource, "name") or not resource.name or not hasattr(resource, "team"):
         return None
 
-    matching_resource = model.objects.filter(name=resource.name, team=new_team).first()
+    matching_resource = cast(Any, model).objects.filter(name=resource.name, team=new_team).first()
 
     return matching_resource
 
@@ -485,10 +485,12 @@ def _deduplicate_name(model: type[models.Model], name: str, team: Team) -> str:
     ``"<name> (Copy 3)"`` … until a free slot is found.
     """
     taken_names: set[str] = set(
-        model.objects.filter(
+        cast(Any, model)
+        .objects.filter(
             Q(name=name) | Q(name=f"{name} (Copy)") | Q(name__regex=rf"^{re.escape(name)} \(Copy \d+\)$"),
             team=team,
-        ).values_list("name", flat=True)
+        )
+        .values_list("name", flat=True)
     )
 
     if name not in taken_names:
@@ -507,13 +509,13 @@ def _deduplicate_name(model: type[models.Model], name: str, team: Team) -> str:
 
 def _deduplicate_feature_flag_key(model: type[models.Model], key: str, team: Team) -> str:
     """Return a unique ``key`` for a feature flag being copied into *team*."""
-    if not model.objects.filter(team=team, key=key).exists():
+    if not cast(Any, model).objects.filter(team=team, key=key).exists():
         return key
     candidate = f"{key}-copy"
-    if not model.objects.filter(team=team, key=candidate).exists():
+    if not cast(Any, model).objects.filter(team=team, key=candidate).exists():
         return candidate
     counter = 2
-    while model.objects.filter(team=team, key=f"{key}-copy-{counter}").exists():
+    while cast(Any, model).objects.filter(team=team, key=f"{key}-copy-{counter}").exists():
         counter += 1
     return f"{key}-copy-{counter}"
 

@@ -18,11 +18,7 @@ discovery → research ×N (up to 10) → actionability → priority? → presen
 
 ## Output shape
 
-4-tuple, types imported from Signals:
-
-```python
-(list[SignalFinding], ActionabilityAssessment, PriorityAssessment | None, ReportPresentationOutput)
-```
+Returns `ReportResearchOutput` from `products.signals.backend.report_generation.research` — consumed as-is by the Signals pipeline.
 
 ## Run it
 
