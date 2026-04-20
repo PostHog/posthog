@@ -140,6 +140,15 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
         model = SignalUserAutonomyConfig
         fields = ["id", "user", "autostart_priority", "created_at", "updated_at"]
         read_only_fields = ["id", "user", "created_at", "updated_at"]
+        extra_kwargs = {
+            "autostart_priority": {
+                "help_text": (
+                    "User's personal autostart priority threshold (P0–P4). Null means the user inherits "
+                    "the team default. Reports at or above this priority assigned to the user are started "
+                    "automatically."
+                )
+            }
+        }
 
 
 class SignalReportTaskSerializer(serializers.ModelSerializer):
@@ -150,7 +159,16 @@ class SignalReportTaskSerializer(serializers.ModelSerializer):
 
 
 class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
-    autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
+    autostart_priority = serializers.ChoiceField(
+        choices=AutonomyPriority.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Minimum priority at which PostHog Code will autostart work on signal reports assigned "
+            "to this user. One of P0, P1, P2, P3, P4. Set to null to inherit the team default. "
+            "P0 is the broadest (autostart on any priority), P4 is the narrowest (only highest priority)."
+        ),
+    )
 
 
 class SignalReportSerializer(serializers.ModelSerializer):

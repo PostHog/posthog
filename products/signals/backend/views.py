@@ -26,7 +26,7 @@ from django.db.models.functions import Cast, Coalesce
 import structlog
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -69,6 +69,7 @@ from products.signals.backend.serializers import (
     SignalReportTaskSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
+    SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -755,6 +756,71 @@ class SignalReportTaskViewSet(
         return queryset.filter(report_id=self.parents_query_dict["report_id"], team=self.team)
 
 
+_USER_ID_PARAMETER = OpenApiParameter(
+    name="user_id",
+    type=str,
+    location=OpenApiParameter.PATH,
+    description=(
+        "PostHog user identifier. Pass `@me` to target the currently authenticated user. "
+        "Staff users may pass another user's primary key."
+    ),
+)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="users_signal_autonomy_retrieve",
+        tags=["signals"],
+        parameters=[_USER_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=SignalUserAutonomyConfigSerializer,
+                description=(
+                    "The user's signal autonomy config. `autostart_priority` is the user's override "
+                    "for the team default (one of P0, P1, P2, P3, P4) or null to inherit the team default."
+                ),
+            ),
+            404: OpenApiResponse(description="The user has not opted in to signal autonomy."),
+        },
+        summary="Get a user's signal autostart config",
+        description=(
+            "Retrieve the current signal autostart autonomy config for a user. Returns the user's "
+            "personal `autostart_priority` override (P0–P4) if set, or null when the user inherits "
+            "the team default. Returns 404 when the user has not opted in."
+        ),
+    ),
+    post=extend_schema(
+        operation_id="users_signal_autonomy_update",
+        tags=["signals"],
+        parameters=[_USER_ID_PARAMETER],
+        request=SignalUserAutonomyConfigCreateSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalUserAutonomyConfigSerializer,
+                description="The updated signal autonomy config.",
+            ),
+        },
+        summary="Opt in or update signal autostart config",
+        description=(
+            "Opt the user in to signal autonomy, or update their `autostart_priority` threshold. "
+            "`autostart_priority` accepts P0, P1, P2, P3, P4, or null (inherit team default). "
+            "P0 starts autonomous work for the broadest set of reports, P4 only for the highest priority. "
+            "Setting a priority means PostHog Code will start automatically on reports at or above that priority "
+            "that are assigned to this user."
+        ),
+    ),
+    delete=extend_schema(
+        operation_id="users_signal_autonomy_destroy",
+        tags=["signals"],
+        parameters=[_USER_ID_PARAMETER],
+        responses={204: OpenApiResponse(description="The user has been opted out.")},
+        summary="Opt out of signal autostart",
+        description=(
+            "Remove the user's signal autonomy config, opting them out of autostart entirely. "
+            "Unassigned tasks can still be picked up manually."
+        ),
+    ),
+)
 class SignalUserAutonomyConfigView(APIView):
     """Per-user signal autonomy config (singleton keyed by user).
 
@@ -766,7 +832,17 @@ class SignalUserAutonomyConfigView(APIView):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "user"
-    required_scopes = ["user:write"]
+
+    # drf-spectacular reads these attributes to render request/response schemas for plain APIView classes.
+    serializer_class = SignalUserAutonomyConfigSerializer
+
+    def get_serializer(self, *args, **kwargs):
+        return SignalUserAutonomyConfigSerializer(*args, **kwargs)
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return ["user:read"]
+        return ["user:write"]
 
     def _resolve_user(self, request, user_id):
         if str(user_id) == "@me":
@@ -788,8 +864,6 @@ class SignalUserAutonomyConfigView(APIView):
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
     def post(self, request, user_id, **kwargs):
-        from products.signals.backend.serializers import SignalUserAutonomyConfigCreateSerializer
-
         user = self._resolve_user(request, user_id)
         serializer = SignalUserAutonomyConfigCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

@@ -1,0 +1,76 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Signals
+feature: signals
+url_prefix: /signals
+tools:
+    signals-autostart-get:
+        operation: users_signal_autonomy_retrieve
+        enabled: true
+        scopes:
+            - user:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get my signal autostart threshold
+        description: >
+            Retrieve the current signal autostart threshold for a user. The threshold controls
+            the minimum report priority (P0–P4) at which PostHog Code will automatically start
+            work on signal reports assigned to the user. Pass `@me` as `user_id` to target the
+            currently authenticated user. Returns 404 when the user has not opted in — treat
+            that as "autostart is off for this user". Options are P0 (broadest), P1, P2, P3,
+            P4 (narrowest), or null (inherit the team default).
+        param_overrides:
+            user_id:
+                description: >
+                    PostHog user identifier. Use `@me` to target the currently authenticated user;
+                    staff users can pass another user's primary key.
+                default: '@me'
+    signals-autostart-set:
+        operation: users_signal_autonomy_update
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set my signal autostart threshold
+        description: >
+            Opt in to signal autostart or update the existing threshold. `autostart_priority`
+            selects the minimum report priority at which PostHog Code will automatically start
+            assigned work — one of P0, P1, P2, P3, P4, or null to inherit the team default.
+            P0 is the broadest (autostart on any priority), P4 is the narrowest (only the
+            highest-priority reports). Pass `@me` as `user_id` to target the currently
+            authenticated user.
+        param_overrides:
+            user_id:
+                description: >
+                    PostHog user identifier. Use `@me` to target the currently authenticated user;
+                    staff users can pass another user's primary key.
+                default: '@me'
+    signals-autostart-remove:
+        operation: users_signal_autonomy_destroy
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Opt out of signal autostart
+        description: >
+            Remove the user's signal autostart config, opting them out of autostart entirely.
+            Unassigned reports can still be picked up manually. Pass `@me` as `user_id` to
+            target the currently authenticated user.
+        param_overrides:
+            user_id:
+                description: >
+                    PostHog user identifier. Use `@me` to target the currently authenticated user;
+                    staff users can pass another user's primary key.
+                default: '@me'
