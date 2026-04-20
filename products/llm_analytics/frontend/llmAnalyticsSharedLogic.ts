@@ -9,6 +9,7 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { hasRecentAIEvents } from 'lib/utils/aiEventsUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -63,8 +64,17 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
     props({} as LLMAnalyticsSharedLogicProps),
     key((props: LLMAnalyticsSharedLogicProps) => `${props?.personId || 'llmAnalyticsScene'}::${props?.tabId || ''}`),
     connect(() => ({
-        values: [sceneLogic, ['sceneKey'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
-        actions: [teamLogic, ['addProductIntent']],
+        values: [
+            sceneLogic,
+            ['sceneKey'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
+        ],
+        actions: [teamLogic, ['addProductIntent'], filterTestAccountsDefaultsLogic, ['setLocalDefault']],
     })),
 
     actions({
@@ -141,10 +151,16 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         },
     })),
 
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
             if (hasSentAiEvent) {
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+            }
+        },
+        setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => {
+            const divergesFromEffectiveDefault = shouldFilterTestAccounts !== values.filterTestAccountsDefault
+            if (divergesFromEffectiveDefault) {
+                actions.setLocalDefault(shouldFilterTestAccounts)
             }
         },
     })),
@@ -321,6 +337,11 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                 product_type: ProductKey.LLM_ANALYTICS,
                 intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
             })
+        }
+
+        const urlHasTestAccountsParam = 'filter_test_accounts' in router.values.searchParams
+        if (!urlHasTestAccountsParam && values.filterTestAccountsDefault !== values.shouldFilterTestAccounts) {
+            actions.setShouldFilterTestAccounts(values.filterTestAccountsDefault)
         }
     }),
 ])
