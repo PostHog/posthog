@@ -24,7 +24,11 @@ from django.views.decorators.http import require_http_methods
 
 import structlog
 
-from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
+from posthog.auth import (
+    AUTH_BRAND_COOKIE,
+    apply_auth_brand_cookie,
+    normalize_auth_brand,
+)
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
@@ -57,7 +61,10 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
-from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
+from products.messaging.backend.services.customerio_sync_service import (
+    sync_preferences_to_customerio,
+)
+from posthog.models.proxy_record import ProxyRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -85,12 +92,18 @@ def login_required(view):
         response = base_handler(request, *args, **kwargs)
 
         # Don't include next=/ in the login redirect URL since "/" is the default destination
-        if hasattr(response, "url") and response.status_code == 302 and response.url.startswith(settings.LOGIN_URL):
+        if (
+            hasattr(response, "url")
+            and response.status_code == 302
+            and response.url.startswith(settings.LOGIN_URL)
+        ):
             parsed_url = urlparse(response.url)
             search_params = parse_qs(parsed_url.query)
             if search_params.get("next") == ["/"]:
                 del search_params["next"]
-                response["Location"] = urlunparse(parsed_url._replace(query=urlencode(search_params)))
+                response["Location"] = urlunparse(
+                    parsed_url._replace(query=urlencode(search_params))
+                )
 
         return apply_auth_brand_cookie(request, response)
 
@@ -102,9 +115,13 @@ def health(request):
     plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
     status = 503 if plan else 200
     if status == 503:
-        err = Exception("Migrations are not up to date. If this continues migrations have failed")
+        err = Exception(
+            "Migrations are not up to date. If this continues migrations have failed"
+        )
         capture_exception(err)
-        return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
+        return HttpResponse(
+            "Migrations are not up to date", status=status, content_type="text/plain"
+        )
     if status == 200:
         return HttpResponse("ok", status=status, content_type="text/plain")
 
@@ -116,9 +133,18 @@ def stats(request):
 
 
 def robots_txt(request):
+    DISALLOW_ALL = "User-agent: *\nDisallow: /"
+
     # Block all on self-hosted instances
     if not is_cloud():
-        return HttpResponse("User-agent: *\nDisallow: /", content_type="text/plain")
+        return HttpResponse(DISALLOW_ALL, content_type="text/plain")
+
+    # Block all on managed reverse proxy domains
+    host = request.get_host().partition(":")[0]
+    if ProxyRecord.objects.filter(
+        domain=host, status=ProxyRecord.Status.VALID
+    ).exists():
+        return HttpResponse(DISALLOW_ALL, content_type="text/plain")
 
     ROBOTS_TXT_CONTENT = """User-agent: *
 
@@ -164,16 +190,28 @@ def render_query(request: HttpRequest) -> HttpResponse:
     """Render a lightweight container for third parties to display PostHog visualizations."""
     from posthog.api.sharing import get_global_themes
 
-    payload = {"query": None, "cachedResults": None, "context": None, "insight": None, "themes": get_global_themes()}
-    return render_template("render_query.html", request, context={"render_query_payload": payload})
+    payload = {
+        "query": None,
+        "cachedResults": None,
+        "context": None,
+        "insight": None,
+        "themes": get_global_themes(),
+    }
+    return render_template(
+        "render_query.html", request, context={"render_query_payload": payload}
+    )
 
 
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
     posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
-    posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
-    posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")
+    posthog_code_slack_client_id = posthog_code_slack_config.get(
+        "SLACK_POSTHOG_CODE_CLIENT_ID"
+    )
+    posthog_code_slack_signing_secret = posthog_code_slack_config.get(
+        "SLACK_POSTHOG_CODE_SIGNING_SECRET"
+    )
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
@@ -192,7 +230,8 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "region": get_instance_region(),
         "available_social_auth_providers": get_instance_available_sso_providers(),
         "can_create_org": get_can_create_org(request.user),
-        "email_service_available": is_cloud() or is_email_available(with_absolute_urls=True),
+        "email_service_available": is_cloud()
+        or is_email_available(with_absolute_urls=True),
         "slack_service": {
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
@@ -228,7 +267,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             **response,
             "available_timezones": get_available_timezones_with_offsets(),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
-            "licensed_users_available": get_licensed_users_available() if not is_cloud() else None,
+            "licensed_users_available": (
+                get_licensed_users_available() if not is_cloud() else None
+            ),
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
@@ -321,7 +362,9 @@ def redis_values_view(request: HttpRequest):
     cursor = int(request.GET.get("c", 0))
 
     redis_client = get_client()
-    next_cursor, key_list = redis_client.scan(cursor=cursor, count=keys_per_page, match=query)
+    next_cursor, key_list = redis_client.scan(
+        cursor=cursor, count=keys_per_page, match=query
+    )
 
     redis_keys = [get_redis_key_info(key, redis_client) for key in key_list]
 
@@ -337,7 +380,9 @@ def redis_values_view(request: HttpRequest):
         },
     }
 
-    return render(request, template_name="redis/values.html", context=context, status=200)
+    return render(
+        request, template_name="redis/values.html", context=context, status=200
+    )
 
 
 @csrf_protect
@@ -378,7 +423,9 @@ def redis_edit_ttl_view(request: HttpRequest):
             detail_name = f"Set TTL to {ttl_seconds}s on Redis key {redis_key}"
 
         user = request.user if request.user.is_authenticated else None
-        organization_id = user.current_organization.id if user and user.current_organization else None
+        organization_id = (
+            user.current_organization.id if user and user.current_organization else None
+        )
 
         log_activity(
             organization_id=organization_id,
@@ -416,7 +463,9 @@ def redis_edit_ttl_view(request: HttpRequest):
         },
     }
 
-    return render(request, template_name="redis/edit_ttl.html", context=context, status=200)
+    return render(
+        request, template_name="redis/edit_ttl.html", context=context, status=200
+    )
 
 
 @staff_member_required
@@ -445,8 +494,12 @@ def api_key_search_view(request: HttpRequest):
 
         try:
             # don't use the cache so that we can differentiate btwn the primary and the backup key
-            team_object = Team.objects.get(Q(secret_api_token=query) | Q(secret_api_token_backup=query))
-            team_object_key_type = "primary" if team_object.secret_api_token == query else "backup"
+            team_object = Team.objects.get(
+                Q(secret_api_token=query) | Q(secret_api_token_backup=query)
+            )
+            team_object_key_type = (
+                "primary" if team_object.secret_api_token == query else "backup"
+            )
 
         except Team.DoesNotExist:
             pass
@@ -473,7 +526,9 @@ def api_key_search_view(request: HttpRequest):
         },
     }
 
-    return render(request, template_name="api_key_search/values.html", context=context, status=200)
+    return render(
+        request, template_name="api_key_search/values.html", context=context, status=200
+    )
 
 
 @csrf_exempt
@@ -483,29 +538,50 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     response = validate_messaging_preferences_token(token)
     if response.status_code != 200:
         error_msg = response.json().get("error", "Invalid recipient token")
-        return render(request, "message_preferences/error.html", {"error": error_msg}, status=400)
+        return render(
+            request, "message_preferences/error.html", {"error": error_msg}, status=400
+        )
 
     data = response.json()
     if not data.get("valid"):
-        return render(request, "message_preferences/error.html", {"error": "Invalid recipient token"}, status=400)
+        return render(
+            request,
+            "message_preferences/error.html",
+            {"error": "Invalid recipient token"},
+            status=400,
+        )
 
     team_id = data.get("team_id")
     identifier = data.get("identifier")
     if not team_id or not identifier:
-        return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
+        return render(
+            request,
+            "message_preferences/error.html",
+            {"error": "Invalid recipient"},
+            status=400,
+        )
 
-    recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
-    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
+    recipient, _ = MessageRecipientPreference.objects.get_or_create(
+        team_id=team_id, identifier=identifier
+    )
+    categories = MessageCategory.objects.filter(
+        deleted=False, team=team_id, category_type="marketing"
+    ).order_by("name")
 
     is_one_click_unsubscribe = (
-        request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
+        request.GET.get("one_click_unsubscribe") == "1"
+        or request.POST.get("one_click_unsubscribe") == "1"
     )
     if is_one_click_unsubscribe:
         # If one-click unsubscribe, set all preferences to opted out
-        preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
+        preferences_dict = {
+            str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories
+        }
 
         # Also set the "$all" preference
-        preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+        preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = (
+            PreferenceStatus.OPTED_OUT.value
+        )
 
         recipient.preferences = preferences_dict
         recipient.save(update_fields=["preferences"])
@@ -536,7 +612,9 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
                 "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
                 "name": "All marketing communications",
                 "description": "Unsubscribing here overrides individual preferences.",
-                "status": preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE),
+                "status": preferences.get(
+                    ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE
+                ),
             },
         ],
         "token": token,
@@ -544,9 +622,11 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
 
     return render(
         request,
-        "message_preferences/one_click_unsubscribe_success.html"
-        if is_one_click_unsubscribe
-        else "message_preferences/preferences.html",
+        (
+            "message_preferences/one_click_unsubscribe_success.html"
+            if is_one_click_unsubscribe
+            else "message_preferences/preferences.html"
+        ),
         context,
     )
 
@@ -575,7 +655,9 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     recipient = None
 
     try:
-        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
+        recipient = MessageRecipientPreference.objects.get(
+            team_id=team_id, identifier=identifier
+        )
     except MessageRecipientPreference.DoesNotExist:
         recipient = MessageRecipientPreference(team_id=team_id, identifier=identifier)
 
@@ -589,9 +671,15 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
             category_id, opted_in = pref.split(":")
 
             if opted_in not in ["true", "false"]:
-                return JsonResponse({"error": "Preference values must be 'true' or 'false'"}, status=400)
+                return JsonResponse(
+                    {"error": "Preference values must be 'true' or 'false'"}, status=400
+                )
 
-            status = PreferenceStatus.OPTED_IN if opted_in == "true" else PreferenceStatus.OPTED_OUT
+            status = (
+                PreferenceStatus.OPTED_IN
+                if opted_in == "true"
+                else PreferenceStatus.OPTED_OUT
+            )
             preferences_dict[category_id] = status.value
 
             if status == PreferenceStatus.OPTED_IN:
@@ -599,7 +687,9 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
 
         # If all preferences are opted out, add the "$all" preference
         if all_opted_out and preferences_dict:
-            preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+            preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = (
+                PreferenceStatus.OPTED_OUT.value
+            )
 
         # Update all preferences with a single DB write
         recipient.preferences = preferences_dict
