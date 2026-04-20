@@ -4,7 +4,7 @@ export type Fuse<T> = FuseClass<T>
 export type { IFuseOptions }
 
 const FUSE_DEFAULTS = {
-    threshold: 0.3,
+    threshold: 0.2,
     useTokenSearch: true,
     ignoreDiacritics: true,
 }
