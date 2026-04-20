@@ -15796,6 +15796,47 @@ export namespace Schemas {
       readonly cdc_table_mode: CdcTableModeEnum;
     }
 
+    export interface ExternalDataSourceBulkUpdateSchema {
+      /** Schema identifier to update. */
+      id: string;
+      /** Whether the schema should be queryable/synced. */
+      should_sync?: boolean;
+      /** Requested sync mode for the schema.
+
+    * `full_refresh` - full_refresh
+    * `incremental` - incremental
+    * `append` - append
+    * `webhook` - webhook
+    * `cdc` - cdc */
+      sync_type?: SyncTypeEnum | NullEnum | null;
+      /**
+       * Incremental cursor field for incremental or append syncs.
+       * @nullable
+       */
+      incremental_field?: string | null;
+      /**
+       * Type of the incremental cursor field.
+       * @nullable
+       */
+      incremental_field_type?: string | null;
+      /**
+       * Human-readable sync frequency value.
+       * @nullable
+       */
+      sync_frequency?: string | null;
+      /**
+       * UTC anchor time for scheduled syncs.
+       * @nullable
+       */
+      sync_time_of_day?: string | null;
+      /** How CDC-backed tables should be exposed.
+
+    * `consolidated` - consolidated
+    * `cdc_only` - cdc_only
+    * `both` - both */
+      cdc_table_mode?: CdcTableModeEnum | NullEnum | null;
+    }
+
     export interface ExternalDataSourceConnectionOption {
       readonly id: string;
       /** @nullable */
@@ -25267,6 +25308,11 @@ export namespace Schemas {
       readonly cdc_table_mode?: CdcTableModeEnum;
     }
 
+    export interface PatchedExternalDataSourceBulkUpdateSchemas {
+      /** Schema updates to apply in a single batch. */
+      schemas?: ExternalDataSourceBulkUpdateSchema[];
+    }
+
     export type PatchedExternalDataSourceSerializersSchemasItem = {[key: string]: unknown};
 
     /**
@@ -33520,6 +33566,21 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
       valid?: boolean;
       errors?: string[];
@@ -36920,6 +36981,21 @@ export namespace Schemas {
     };
 
     export type ExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
     /**
      * Number of results to return per page.
      */
