@@ -96,9 +96,9 @@ export function ApiSection(): JSX.Element {
                         </p>
                         <pre className="bg-surface-secondary rounded p-3 text-xs overflow-x-auto mb-2">
                             {`posthog.init('<ph_project_api_key>', {
-                                identity_distinct_id: 'user_123',
-                                identity_hash: 'a1b2c3d4e5f6...',
-                            })`}
+    identity_distinct_id: 'user_123',
+    identity_hash: 'a1b2c3d4e5f6...',
+})`}
                         </pre>
                         <p className="mb-0 text-xs text-muted-alt">
                             Without identity verification, tickets are scoped to a browser session and users must

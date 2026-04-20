@@ -20,7 +20,7 @@ export function AuthorizedDomains(): JSX.Element {
                     <p className="mb-2">
                         <span className="font-bold">No domains configured.</span>
                         <br />
-                        The widget will show on all domains. Add domains to limit where it appears.
+                        The widget and API will be accessible on all domains. Add domains to limit where they appear.
                     </p>
                     <p className="mb-0">
                         <span className="font-bold">Ticket recovery is disabled until a domain is added.</span>{' '}
