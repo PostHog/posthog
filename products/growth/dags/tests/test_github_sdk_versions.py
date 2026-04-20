@@ -129,6 +129,22 @@ class TestFetchPythonSdkData(TestFetchSdkDataBase):
         assert result["releaseDates"]["7.0.1"] == "2025-11-15T12:43:55Z"
         assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
+    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    def test_fetch_python_sdk_data_supports_unprefixed_release_tags(self, mock_get):
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                {"tag_name": "7.0.2", "draft": False, "prerelease": False, "created_at": "2025-11-16T12:43:55Z"},
+                {"tag_name": "v7.0.1", "draft": False, "prerelease": False, "created_at": "2025-11-15T12:43:55Z"},
+            ],
+        )
+
+        result = fetch_python_sdk_data()
+
+        assert result["latestVersion"] == "7.0.2"
+        assert result["releaseDates"]["7.0.2"] == "2025-11-16T12:43:55Z"
+        assert result["releaseDates"]["7.0.1"] == "2025-11-15T12:43:55Z"
+
 
 class TestFetchNodeSdkData(TestFetchSdkDataBase):
     @patch("products.growth.dags.github_sdk_versions.requests.get")
@@ -234,6 +250,22 @@ class TestFetchGoSdkData(TestFetchSdkDataBase):
         assert result["releaseDates"]["1.6.13"] == "2025-11-21T21:58:29Z"
         assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
+    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    def test_fetch_go_sdk_data_supports_unprefixed_release_tags(self, mock_get):
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                {"tag_name": "1.6.14", "draft": False, "prerelease": False, "created_at": "2025-11-22T21:58:29Z"},
+                {"tag_name": "v1.6.13", "draft": False, "prerelease": False, "created_at": "2025-11-21T21:58:29Z"},
+            ],
+        )
+
+        result = fetch_go_sdk_data()
+
+        assert result["latestVersion"] == "1.6.14"
+        assert result["releaseDates"]["1.6.14"] == "2025-11-22T21:58:29Z"
+        assert result["releaseDates"]["1.6.13"] == "2025-11-21T21:58:29Z"
+
 
 class TestFetchPhpSdkData(TestFetchSdkDataBase):
     @patch("products.growth.dags.github_sdk_versions.requests.get")
@@ -282,6 +314,22 @@ class TestFetchElixirSdkData(TestFetchSdkDataBase):
         assert result["releaseDates"]["2.1.0"] == "2025-11-25T18:54:57Z"
         assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
+    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    def test_fetch_elixir_sdk_data_supports_unprefixed_release_tags(self, mock_get):
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                {"tag_name": "2.1.1", "draft": False, "prerelease": False, "created_at": "2025-11-26T18:54:57Z"},
+                {"tag_name": "v2.1.0", "draft": False, "prerelease": False, "created_at": "2025-11-25T18:54:57Z"},
+            ],
+        )
+
+        result = fetch_elixir_sdk_data()
+
+        assert result["latestVersion"] == "2.1.1"
+        assert result["releaseDates"]["2.1.1"] == "2025-11-26T18:54:57Z"
+        assert result["releaseDates"]["2.1.0"] == "2025-11-25T18:54:57Z"
+
 
 class TestFetchDotnetSdkData(TestFetchSdkDataBase):
     @patch("products.growth.dags.github_sdk_versions.requests.get")
@@ -297,3 +345,19 @@ class TestFetchDotnetSdkData(TestFetchSdkDataBase):
         assert "2.2.2" in result["releaseDates"]
         assert result["releaseDates"]["2.2.2"] == "2025-11-21T17:27:02Z"
         assert mock_get.call_count == 2  # Assert that it attempted to paginate
+
+    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    def test_fetch_dotnet_sdk_data_supports_unprefixed_release_tags(self, mock_get):
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                {"tag_name": "2.2.3", "draft": False, "prerelease": False, "created_at": "2025-11-22T17:27:02Z"},
+                {"tag_name": "v2.2.2", "draft": False, "prerelease": False, "created_at": "2025-11-21T17:27:02Z"},
+            ],
+        )
+
+        result = fetch_dotnet_sdk_data()
+
+        assert result["latestVersion"] == "2.2.3"
+        assert result["releaseDates"]["2.2.3"] == "2025-11-22T17:27:02Z"
+        assert result["releaseDates"]["2.2.2"] == "2025-11-21T17:27:02Z"
