@@ -62,7 +62,7 @@ class Migration(migrations.Migration):
                         max_length=32,
                     ),
                 ),
-                ("resource_id", models.BigIntegerField()),
+                ("resource_id", models.CharField(max_length=36)),
                 ("is_pending", models.BooleanField(db_index=True, default=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (

@@ -39,7 +39,13 @@ class GuestResourceGrant(ModelActivityMixin, UUIDTModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=True)
     resource = models.CharField(max_length=32, choices=Resource.choices)
-    resource_id = models.BigIntegerField()
+    resource_id = models.CharField(max_length=36)
+    """URL-style identifier for the granted object. Stringified numeric PK for dashboards,
+    `short_id` for insights and notebooks — whatever shape the resource's own URL uses.
+    Mirrors the `AccessControl.resource_id` convention (also a CharField), so the middleware
+    and AC short-circuit can compare the URL segment as-is without integer casts or
+    short_id lookup dances.
+    """
 
     is_pending = models.BooleanField(default=True, db_index=True)
     """True while the grant is attached to an unaccepted invite. Flips to False when the invite

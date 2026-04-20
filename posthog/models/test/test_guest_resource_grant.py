@@ -19,7 +19,7 @@ class TestGuestResourceGrant(BaseTest):
             organization_membership=membership,
             team=self.team,
             resource=GuestResourceGrant.Resource.DASHBOARD,
-            resource_id=1,
+            resource_id="1",
             is_pending=False,
             created_by=self.user,
         )
@@ -35,7 +35,7 @@ class TestGuestResourceGrant(BaseTest):
             invite=invite,
             team=self.team,
             resource=GuestResourceGrant.Resource.NOTEBOOK,
-            resource_id=42,
+            resource_id="42",
             is_pending=True,
             created_by=self.user,
         )
@@ -55,7 +55,7 @@ class TestGuestResourceGrant(BaseTest):
             organization_membership=membership,
             team=self.team,
             resource=resource,
-            resource_id=1,
+            resource_id="1",
             is_pending=False,
         )
         with self.assertRaises(IntegrityError):
@@ -63,7 +63,7 @@ class TestGuestResourceGrant(BaseTest):
                 organization_membership=membership,
                 team=self.team,
                 resource=resource,
-                resource_id=1,
+                resource_id="1",
                 is_pending=False,
             )
 
@@ -82,7 +82,7 @@ class TestGuestResourceGrant(BaseTest):
             invite=invite,
             team=self.team,
             resource=resource,
-            resource_id=7,
+            resource_id="7",
             is_pending=True,
         )
         with self.assertRaises(IntegrityError):
@@ -90,7 +90,7 @@ class TestGuestResourceGrant(BaseTest):
                 invite=invite,
                 team=self.team,
                 resource=resource,
-                resource_id=7,
+                resource_id="7",
                 is_pending=True,
             )
 
@@ -105,7 +105,7 @@ class TestGuestResourceGrant(BaseTest):
                 invite=invite,
                 team=self.team,
                 resource=GuestResourceGrant.Resource.DASHBOARD,
-                resource_id=1,
+                resource_id="1",
                 is_pending=False,
             )
 
@@ -116,7 +116,7 @@ class TestGuestResourceGrant(BaseTest):
                 invite=None,
                 team=self.team,
                 resource=GuestResourceGrant.Resource.DASHBOARD,
-                resource_id=1,
+                resource_id="1",
                 is_pending=False,
             )
 
@@ -127,7 +127,7 @@ class TestGuestResourceGrant(BaseTest):
                 organization_membership=membership,
                 team=self.team,
                 resource=GuestResourceGrant.Resource.DASHBOARD,
-                resource_id=1,
+                resource_id="1",
                 is_pending=True,
             )
 
@@ -140,7 +140,7 @@ class TestGuestResourceGrant(BaseTest):
                 invite=invite,
                 team=self.team,
                 resource=GuestResourceGrant.Resource.DASHBOARD,
-                resource_id=1,
+                resource_id="1",
                 is_pending=False,
             )
 
@@ -152,7 +152,7 @@ class TestGuestResourceGrant(BaseTest):
             invite=invite,
             team=self.team,
             resource=GuestResourceGrant.Resource.DASHBOARD,
-            resource_id=9,
+            resource_id="9",
             is_pending=True,
         )
         # Simulate accept: create the membership, rebind the grant.
@@ -176,7 +176,7 @@ class TestGuestResourceGrant(BaseTest):
             organization_membership=membership,
             team=self.team,
             resource=GuestResourceGrant.Resource.DASHBOARD,
-            resource_id=1,
+            resource_id="1",
             is_pending=False,
         )
         self.assertTrue(
@@ -184,7 +184,7 @@ class TestGuestResourceGrant(BaseTest):
         )
 
         # Update
-        grant.resource_id = 2
+        grant.resource_id = "2"
         grant.save()
         self.assertTrue(
             ActivityLog.objects.filter(scope="GuestResourceGrant", activity="updated", item_id=str(grant.id)).exists()
