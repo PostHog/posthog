@@ -180,7 +180,7 @@ class Subscription(models.Model):
                 self.insight.url,
             )
         elif self.dashboard:
-            return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url)
+            return SubscriptionResourceInfo("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
 
         return None
 

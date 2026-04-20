@@ -6,6 +6,23 @@ from posthog.schema import ReplayInactivityPeriod
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
+AI_TAGS_FIXED_TAXONOMY: dict[str, str] = {
+    "onboarding": "First-time setup, account creation, getting-started flows",
+    "error": "Visible errors, failed requests, broken UI — something went wrong",
+    "frustration": "Rage clicks, repeated failures, visible confusion or backtracking",
+    "idle": "Long pauses with no meaningful interaction",
+    "navigation_only": "Browsing between pages without taking action",
+    "search": "Searching or filtering to find specific content",
+    "checkout": "Purchase or payment flows",
+    "form_interaction": "Filling out forms, multi-step wizards, sign-ups",
+    "account_management": "Profile, settings, preferences, subscriptions",
+    "content_consumption": "Reading, watching, scrolling through content",
+    "feature_exploration": "Trying out functionality, clicking around to learn what it does",
+    "support": "Viewing help docs, contacting support, FAQ",
+    "collaboration": "Sharing, commenting, inviting, reviewing others' work",
+    "bot": "Behavior suggests an automated script or bot, not a real user",
+}
+
 
 class VideoSummarySingleSessionInputs(BaseModel):
     """Workflow input for video-based session analysis"""
@@ -187,3 +204,20 @@ class ConsolidatedVideoAnalysis(BaseModel):
     sentiment: SessionSentiment | None = Field(
         default=None, description="Session-level sentiment scoring with evidence signals"
     )
+
+
+class SessionTaggingOutput(BaseModel):
+    """Output from the session tagging LLM call."""
+
+    model_config = ConfigDict(frozen=True)
+
+    tags_fixed: list[str] = Field(description="1-5 tags from the fixed taxonomy")
+    tags_freeform: list[str] = Field(description="1-5 specific free-form tags")
+    highlighted: bool = Field(default=False, description="Whether the session is worth watching")
+
+
+class ConsolidateVideoSegmentsOutput(TypedDict):
+    """Return type for consolidate_video_segments_activity including analysis and tagging."""
+
+    consolidated_analysis: ConsolidatedVideoAnalysis
+    tagging: SessionTaggingOutput
