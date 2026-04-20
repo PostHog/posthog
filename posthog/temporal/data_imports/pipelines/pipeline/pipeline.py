@@ -110,7 +110,14 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
 
             yield item
     finally:
-        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, ctx.run, _close)
+        # Use a fresh context snapshot for cleanup. Reusing `ctx` would fail
+        # with RuntimeError if the activity is cancelled mid-_next: the
+        # in-flight _next may still be inside `ctx` on an executor thread,
+        # and Context.run raises when re-entered. A failed _close would skip
+        # iterator.close() and leave DB cursors / connections / tunnels held
+        # open until garbage collection.
+        cleanup_ctx = contextvars.copy_context()
+        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, cleanup_ctx.run, _close)
 
 
 class PipelineNonDLT(Generic[ResumableData]):
