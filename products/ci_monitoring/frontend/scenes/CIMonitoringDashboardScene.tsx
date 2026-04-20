@@ -9,6 +9,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CIMonitoringSetupPrompt } from '../components/CIMonitoringSetupPrompt'
 import { FlakeScoreBar } from '../components/FlakeScoreBar'
 import { MainStreakCounter } from '../components/MainStreakCounter'
 import { TestStatusBadge } from '../components/TestStatusBadge'
@@ -93,27 +94,29 @@ export function CIMonitoringDashboardScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection name="CI monitoring" resourceType={{ type: 'ci_monitoring' }} />
 
-            <MainStreakCounter streak={streak} loading={healthLoading} />
+            <CIMonitoringSetupPrompt>
+                <MainStreakCounter streak={streak} loading={healthLoading} />
 
-            <LemonTabs
-                activeKey={activeTab}
-                onChange={(key) => setActiveTab(key)}
-                tabs={tabs.map(({ key, label }) => ({ key, label }))}
-            />
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key)}
+                    tabs={tabs.map(({ key, label }) => ({ key, label }))}
+                />
 
-            <LemonTable
-                dataSource={tests}
-                columns={columns}
-                loading={testsLoading}
-                pagination={{ pageSize: 20 }}
-                nouns={['test', 'tests']}
-                emptyState="No tests found"
-                defaultSorting={{ columnKey: 'flake_score', order: -1 }}
-                onRow={(test) => ({
-                    onClick: () => router.actions.push(`/ci_monitoring/tests/${test.id}`),
-                    className: 'cursor-pointer',
-                })}
-            />
+                <LemonTable
+                    dataSource={tests}
+                    columns={columns}
+                    loading={testsLoading}
+                    pagination={{ pageSize: 20 }}
+                    nouns={['test', 'tests']}
+                    emptyState="No tests found"
+                    defaultSorting={{ columnKey: 'flake_score', order: -1 }}
+                    onRow={(test) => ({
+                        onClick: () => router.actions.push(`/ci_monitoring/tests/${test.id}`),
+                        className: 'cursor-pointer',
+                    })}
+                />
+            </CIMonitoringSetupPrompt>
         </SceneContent>
     )
 }
