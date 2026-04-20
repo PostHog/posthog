@@ -466,7 +466,20 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
 
 
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "external_data_source"
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "reload",
+        "resync",
+        "cancel",
+        "incremental_fields",
+        "delete_data",
+    ]
+    scope_object_read_actions = ["list", "retrieve"]
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]
