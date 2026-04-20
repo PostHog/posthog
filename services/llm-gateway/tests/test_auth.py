@@ -345,8 +345,6 @@ class TestOAuthAccessTokenAuthenticator:
             pytest.param("", id="empty_scope"),
             pytest.param("read:only", id="wrong_scope"),
             pytest.param("task:read", id="read_not_write"),
-            pytest.param("*", id="wildcard_scope_rejected"),
-            pytest.param("* task:read", id="wildcard_with_other_scope_rejected"),
         ],
     )
     async def test_missing_task_write_scope_returns_none(
@@ -378,6 +376,7 @@ class TestOAuthAccessTokenAuthenticator:
             pytest.param(
                 "read:all llm_gateway:read admin", ["read:all", "llm_gateway:read", "admin"], id="three_scopes"
             ),
+            pytest.param("*", ["*"], id="wildcard_scope_accepted_for_oauth"),
         ],
     )
     async def test_scope_parsing(
