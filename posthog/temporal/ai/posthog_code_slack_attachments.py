@@ -182,7 +182,7 @@ def _build_content_block(file: dict[str, Any], bot_token: str) -> dict[str, Any]
 
 def encode_user_message_with_attachments(
     text: str,
-    files: list[dict[str, Any]] | None,
+    files: list[Any] | None,
     bot_token: str | None,
 ) -> str:
     """Encode a Slack user message (plus any file attachments) for the PostHog Code agent.
