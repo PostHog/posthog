@@ -250,6 +250,46 @@ class TestCheckCohortMembership(PersonhogTestMixin, BaseTest):
 
         assert result == {c1.id: True, c2.id: False, c3.id: True}
 
+    def test_isolates_cross_team_cohort(self):
+        """Cohorts belonging to other teams must not leak into results, regardless
+        of which path (personhog vs ORM) runs. Tenant scoping happens in the
+        public wrapper before dispatch, so the RPC is never called for
+        out-of-team cohort_ids."""
+        from posthog.models.person.util import check_cohort_membership
+
+        other_team = Team.objects.create(organization=self.organization)
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
+        # Plant a real CohortPeople row (ORM-path leak canary) and a fake
+        # membership (personhog-path leak canary). If scoping were missing on
+        # either path the assertion would flip to True.
+        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
+
+        result = check_cohort_membership(self.team.id, person.id, [other_team_cohort.id])
+
+        assert result == {other_team_cohort.id: False}
+        self._assert_personhog_not_called("check_cohort_membership")
+
+    def test_isolates_cross_team_cohort_mixed_with_in_team(self):
+        """When a mix of in-team and out-of-team cohort_ids is passed, only the
+        in-team ones reach downstream; the caller still gets a dict keyed by
+        every requested id with out-of-team ones reported as non-member."""
+        from posthog.models.person.util import check_cohort_membership
+
+        other_team = Team.objects.create(organization=self.organization)
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        in_team_cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="in")
+        other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="out")
+        CohortPeople.objects.create(cohort=in_team_cohort, person=person)
+        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=in_team_cohort.id, is_member=True)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
+
+        result = check_cohort_membership(self.team.id, person.id, [in_team_cohort.id, other_team_cohort.id])
+
+        assert result == {in_team_cohort.id: True, other_team_cohort.id: False}
+
 
 class TestCheckCohortMembershipFallback(BaseTest):
     """Routing test: verifies ORM fallback when the personhog gate is disabled."""
@@ -264,41 +304,6 @@ class TestCheckCohortMembershipFallback(BaseTest):
         with fake_personhog_client(gate_enabled=False) as fake:
             assert is_person_in_cohort(team_id=self.team.id, person_id=person.id, cohort_id=cohort.id) is True
 
-        fake.assert_not_called("check_cohort_membership")
-
-    def test_orm_path_isolates_by_team(self):
-        """ORM fallback must not return membership for a cohort belonging to a
-        different team, even if the cohort_id is passed explicitly."""
-        from posthog.models.person.util import check_cohort_membership
-
-        other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
-        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
-
-        with fake_personhog_client(gate_enabled=False):
-            result = check_cohort_membership(self.team.id, person.id, [other_team_cohort.id])
-
-        assert result == {other_team_cohort.id: False}
-
-    def test_personhog_path_isolates_by_team(self):
-        """Personhog path must not forward cross-team cohort_ids to the RPC.
-        Tenant scoping happens in the public wrapper before dispatch."""
-        from posthog.models.person.util import check_cohort_membership
-
-        other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
-
-        with fake_personhog_client() as fake:
-            # Seed a fake "true" membership so we can detect a leak: if the
-            # scoping didn't happen, the RPC would see this and report True.
-            fake.add_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
-
-            result = check_cohort_membership(self.team.id, person.id, [other_team_cohort.id])
-
-        assert result == {other_team_cohort.id: False}
-        # The RPC should not have been called at all — no in-team cohort_ids remained.
         fake.assert_not_called("check_cohort_membership")
 
 
