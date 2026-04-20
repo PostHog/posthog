@@ -100,11 +100,19 @@ export default defineConfig(({ mode }) => {
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
+            // Comma-separated hostnames Vite accepts as `Host` headers. Leave unset for
+            // localhost-only dev. Leading dot matches any subdomain (e.g. `.example.com`).
+            allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',').map((s) => s.trim()),
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
             cors: true,
             // JS_URL overrides for sandbox environments where Vite is exposed on a different port.
             origin: process.env.JS_URL || 'http://localhost:8234',
             hmr: (() => {
+                // Opt out of HMR entirely when the Vite origin is reachable but its
+                // websocket upgrade can't complete (e.g. auth-gated proxy subdomain).
+                if (process.env.VITE_HMR === 'false') {
+                    return false
+                }
                 if (!process.env.JS_URL) {
                     return undefined
                 }

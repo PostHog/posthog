@@ -17,6 +17,9 @@ services:
             CADDYFILE: |
                 {
                 ${CADDY_TLS_BLOCK:-}
+                    servers {
+                        trusted_proxies static ${CADDY_TRUSTED_PROXIES:-127.0.0.1/32 ::1/128}
+                    }
                 }
                 ${CADDY_HOST:-http://localhost:8000} {
                     @replay-capture {
