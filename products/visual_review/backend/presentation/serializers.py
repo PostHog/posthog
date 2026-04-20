@@ -28,6 +28,7 @@ from ..facade.contracts import (
     ToleratedHashEntry,
     UpdateRepoRequestInput,
     UploadTarget,
+    UserBasicInfo,
 )
 
 # --- Output Serializers ---
@@ -50,17 +51,25 @@ class ArtifactSerializer(DataclassSerializer):
         dataclass = Artifact
 
 
+class UserBasicInfoSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = UserBasicInfo
+
+
 class SnapshotSerializer(DataclassSerializer):
     # Explicitly mark artifact fields as nullable for OpenAPI schema
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
     baseline_artifact = ArtifactSerializer(allow_null=True, required=False)
     diff_artifact = ArtifactSerializer(allow_null=True, required=False)
+    reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = Snapshot
 
 
 class RunSerializer(DataclassSerializer):
+    approved_by = UserBasicInfoSerializer(allow_null=True, required=False)
+
     class Meta:
         dataclass = Run
 
@@ -138,6 +147,8 @@ class MarkToleratedInputSerializer(serializers.Serializer):
 
 
 class QuarantinedIdentifierEntrySerializer(DataclassSerializer):
+    created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+
     class Meta:
         dataclass = QuarantinedIdentifierEntry
 

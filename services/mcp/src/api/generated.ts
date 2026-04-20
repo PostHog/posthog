@@ -5759,6 +5759,12 @@ export namespace Schemas {
       PositionBased: 'position_based',
     } as const;
 
+    export interface UserBasicInfo {
+      id: number;
+      first_name: string;
+      email: string;
+    }
+
     export interface RunSummary {
       total: number;
       changed: number;
@@ -5771,6 +5777,7 @@ export namespace Schemas {
     export type RunMetadata = {[key: string]: unknown};
 
     export interface Run {
+      approved_by?: UserBasicInfo | null;
       id: string;
       repo_id: string;
       status: string;
@@ -22033,6 +22040,7 @@ export namespace Schemas {
     }
 
     export interface QuarantinedIdentifierEntry {
+      created_by?: UserBasicInfo | null;
       id: string;
       identifier: string;
       run_type: string;
@@ -22627,6 +22635,7 @@ export namespace Schemas {
       current_artifact?: Artifact | null;
       baseline_artifact?: Artifact | null;
       diff_artifact?: Artifact | null;
+      reviewed_by?: UserBasicInfo | null;
       id: string;
       identifier: string;
       result: string;

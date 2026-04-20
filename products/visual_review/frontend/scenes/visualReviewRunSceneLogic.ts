@@ -46,6 +46,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         approveChangesSuccess: true,
         approveChangesFailure: true,
         approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
+        approveSnapshotSuccess: true,
+        approveSnapshotFailure: true,
         markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
         quarantineSnapshot: (reason: string, identifiers: string[], expiresAt: string | null) => ({
             reason,
@@ -67,6 +69,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 approveChanges: () => true,
                 approveChangesSuccess: () => false,
                 approveChangesFailure: () => false,
+            },
+        ],
+        isApprovingSnapshot: [
+            false,
+            {
+                approveSnapshot: () => true,
+                approveSnapshotSuccess: () => false,
+                approveSnapshotFailure: () => false,
             },
         ],
     }),
@@ -156,6 +166,38 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             (s) => [s.snapshots],
             (snapshots): SnapshotApi[] => snapshots.filter((s) => s.result !== 'unchanged'),
         ],
+        sortedChangedSnapshots: [
+            (s) => [s.changedSnapshots],
+            (changedSnapshots: SnapshotApi[]): SnapshotApi[] => {
+                // Group by base identifier (strip theme suffix like --dark / --light)
+                const getBaseIdentifier = (identifier: string): string => {
+                    const parts = identifier.split('--')
+                    const last = parts[parts.length - 1]
+                    if (last === 'dark' || last === 'light') {
+                        return parts.slice(0, -1).join('--')
+                    }
+                    return identifier
+                }
+
+                // Group snapshots by base identifier
+                const groups = new Map<string, SnapshotApi[]>()
+                for (const snapshot of changedSnapshots) {
+                    const base = getBaseIdentifier(snapshot.identifier)
+                    const group = groups.get(base) || []
+                    group.push(snapshot)
+                    groups.set(base, group)
+                }
+
+                // Sort groups by max diff% descending
+                const sortedGroups = [...groups.values()].sort((a, b) => {
+                    const maxA = Math.max(...a.map((s) => s.diff_percentage ?? 0))
+                    const maxB = Math.max(...b.map((s) => s.diff_percentage ?? 0))
+                    return maxB - maxA
+                })
+
+                return sortedGroups.flat()
+            },
+        ],
         hasChanges: [(s) => [s.changedSnapshots], (changedSnapshots): boolean => changedSnapshots.length > 0],
         unreviewedChangesCount: [
             (s) => [s.changedSnapshots],
@@ -231,6 +273,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         approveSnapshot: async ({ snapshot }) => {
             if (!snapshot.current_artifact?.content_hash) {
                 lemonToast.error('No artifact to approve')
+                actions.approveSnapshotFailure()
                 return
             }
 
@@ -243,12 +286,22 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ],
             }
 
+            // Find the next pending snapshot in sorted order before the async call
+            const sorted = values.sortedChangedSnapshots
+            const currentIdx = sorted.findIndex((s) => s.id === snapshot.id)
+            const nextPending = sorted.slice(currentIdx + 1).find((s) => s.review_state === 'pending')
+
             try {
                 await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)
+                actions.approveSnapshotSuccess()
                 lemonToast.success('Snapshot approved')
                 actions.loadRun()
                 actions.loadSnapshots()
+                if (nextPending) {
+                    actions.setSelectedSnapshotId(nextPending.id)
+                }
             } catch (e: any) {
+                actions.approveSnapshotFailure()
                 lemonToast.error(e?.detail || e?.message || 'Failed to approve snapshot')
             }
         },

@@ -17,9 +17,13 @@ Do NOT:
 
 from uuid import UUID
 
+from django.contrib.auth import get_user_model
+
 from .. import logic
 from . import contracts
 from .enums import ReviewDecision
+
+User = get_user_model()
 
 # Re-export exceptions for callers
 RepoNotFoundError = logic.RepoNotFoundError
@@ -50,7 +54,10 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
-def _to_snapshot(snapshot, repo_id: UUID) -> contracts.Snapshot:
+def _to_snapshot(
+    snapshot, repo_id: UUID, users: dict[int, contracts.UserBasicInfo] | None = None
+) -> contracts.Snapshot:
+    reviewed_by = (users or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
     return contracts.Snapshot(
         id=snapshot.id,
         identifier=snapshot.identifier,
@@ -66,11 +73,13 @@ def _to_snapshot(snapshot, repo_id: UUID) -> contracts.Snapshot:
         approved_hash=snapshot.approved_hash,
         tolerated_hash_id=snapshot.tolerated_hash_match_id,
         is_quarantined=snapshot.is_quarantined,
+        reviewed_by=reviewed_by,
         metadata=snapshot.metadata or {},
     )
 
 
-def _to_run(run) -> contracts.Run:
+def _to_run(run, users: dict[int, contracts.UserBasicInfo] | None = None) -> contracts.Run:
+    approved_by = (users or {}).get(run.approved_by_id) if run.approved_by_id else None
     return contracts.Run(
         id=run.id,
         repo_id=run.repo_id,
@@ -94,6 +103,7 @@ def _to_run(run) -> contracts.Run:
         completed_at=run.completed_at,
         is_stale=logic.is_run_stale(run),
         superseded_by_id=run.superseded_by_id,
+        approved_by=approved_by,
         metadata=run.metadata or {},
     )
 
@@ -218,7 +228,9 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     run = logic.get_run(run_id, team_id=team_id)
-    return _to_run(run)
+    user_ids = {run.approved_by_id} if run.approved_by_id else set()
+    users = _fetch_users_by_ids(user_ids)
+    return _to_run(run, users)
 
 
 def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contracts.Snapshot]:
@@ -226,7 +238,9 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contract
     if not snapshots:
         return []
     repo_id = snapshots[0].run.repo_id
-    return [_to_snapshot(s, repo_id) for s in snapshots]
+    user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
+    users = _fetch_users_by_ids(user_ids)
+    return [_to_snapshot(s, repo_id, users) for s in snapshots]
 
 
 def get_snapshot_history(repo_id: UUID, identifier: str) -> list[contracts.SnapshotHistoryEntry]:
@@ -312,7 +326,25 @@ def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) ->
 # --- Quarantine ---
 
 
-def _to_quarantined_entry(q) -> contracts.QuarantinedIdentifierEntry:
+def _to_user_basic(user) -> contracts.UserBasicInfo:
+    return contracts.UserBasicInfo(
+        id=user.id,
+        first_name=user.first_name,
+        email=user.email,
+    )
+
+
+def _fetch_users_by_ids(user_ids: set[int]) -> dict[int, contracts.UserBasicInfo]:
+    if not user_ids:
+        return {}
+    users = User.objects.filter(id__in=user_ids).only("id", "first_name", "email")
+    return {u.id: _to_user_basic(u) for u in users}
+
+
+def _to_quarantined_entry(
+    q, users: dict[int, contracts.UserBasicInfo] | None = None
+) -> contracts.QuarantinedIdentifierEntry:
+    created_by = (users or {}).get(q.created_by_id) if q.created_by_id else None
     return contracts.QuarantinedIdentifierEntry(
         id=q.id,
         identifier=q.identifier,
@@ -321,6 +353,7 @@ def _to_quarantined_entry(q) -> contracts.QuarantinedIdentifierEntry:
         expires_at=q.expires_at,
         created_at=q.created_at,
         updated_at=q.updated_at,
+        created_by=created_by,
     )
 
 
@@ -328,7 +361,9 @@ def list_quarantined(
     repo_id: UUID, team_id: int, identifier: str | None = None
 ) -> list[contracts.QuarantinedIdentifierEntry]:
     entries = logic.list_quarantined_identifiers(repo_id, team_id, identifier=identifier)
-    return [_to_quarantined_entry(q) for q in entries]
+    user_ids = {e.created_by_id for e in entries if e.created_by_id}
+    users = _fetch_users_by_ids(user_ids)
+    return [_to_quarantined_entry(q, users) for q in entries]
 
 
 def quarantine_identifier(
@@ -343,7 +378,8 @@ def quarantine_identifier(
         user_id=user_id,
         team_id=team_id,
     )
-    return _to_quarantined_entry(entry)
+    users = _fetch_users_by_ids({user_id})
+    return _to_quarantined_entry(entry, users)
 
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:

@@ -46,7 +46,14 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
+export interface UserBasicInfoApi {
+    id: number
+    first_name: string
+    email: string
+}
+
 export interface QuarantinedIdentifierEntryApi {
+    created_by?: UserBasicInfoApi | null
     id: string
     identifier: string
     run_type: string
@@ -85,6 +92,7 @@ export interface RunSummaryApi {
 export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
+    approved_by?: UserBasicInfoApi | null
     id: string
     repo_id: string
     status: string
@@ -223,6 +231,7 @@ export interface SnapshotApi {
     current_artifact?: ArtifactApi | null
     baseline_artifact?: ArtifactApi | null
     diff_artifact?: ArtifactApi | null
+    reviewed_by?: UserBasicInfoApi | null
     id: string
     identifier: string
     result: string

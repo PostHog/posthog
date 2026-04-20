@@ -41,6 +41,7 @@ function SnapshotThumbnail({
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
     const showBadge = isReviewed || isQuarantined
+    const hasDiff = snapshot.diff_percentage != null && snapshot.diff_percentage > 0
 
     return (
         <button
@@ -92,12 +93,29 @@ function SnapshotThumbnail({
                 )}
             </div>
             <div className="flex items-center gap-1 max-w-[108px]">
-                <SnapshotStatusIndicator
-                    result={snapshot.result || 'unchanged'}
-                    reviewState=""
-                    classificationReason={snapshot.classification_reason}
-                    compact
-                />
+                {hasDiff ? (
+                    <span className="flex items-center gap-1 shrink-0 bg-warning-highlight rounded-full px-1.5 py-0.5">
+                        <SnapshotStatusIndicator
+                            result={snapshot.result || 'unchanged'}
+                            reviewState=""
+                            classificationReason={snapshot.classification_reason}
+                            size="small"
+                        />
+                        <span className="text-[10px] font-mono tabular-nums text-warning-dark leading-none">
+                            {snapshot.diff_percentage! < 1
+                                ? snapshot.diff_percentage!.toFixed(1)
+                                : Math.round(snapshot.diff_percentage!)}
+                            %
+                        </span>
+                    </span>
+                ) : (
+                    <SnapshotStatusIndicator
+                        result={snapshot.result || 'unchanged'}
+                        reviewState=""
+                        classificationReason={snapshot.classification_reason}
+                        size="small"
+                    />
+                )}
                 <span className={`text-[11px] truncate ${isSelected ? 'font-medium' : 'text-muted'}`}>{shortName}</span>
             </div>
         </button>
@@ -111,7 +129,7 @@ export function VisualReviewRunScene(): JSX.Element {
         snapshots,
         snapshotsLoading,
         selectedSnapshot,
-        changedSnapshots,
+        sortedChangedSnapshots,
         snapshotHistory,
         snapshotHistoryLoading,
         toleratedHashes,
@@ -120,6 +138,7 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifierSet,
         repoFullName,
         isApproving,
+        isApprovingSnapshot,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
@@ -168,7 +187,7 @@ export function VisualReviewRunScene(): JSX.Element {
     const hasMore = totalActionable > loadedActionable
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
-    const navSnapshots = changedSnapshots.length > 0 ? changedSnapshots : snapshots
+    const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
     const currentIndex = selectedSnapshot
         ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
         : -1
@@ -323,6 +342,7 @@ export function VisualReviewRunScene(): JSX.Element {
                             toleratedHashes={toleratedHashes}
                             toleratedHashesLoading={toleratedHashesLoading}
                             onApprove={handleApproveSnapshot}
+                            isApproving={isApprovingSnapshot}
                             onMarkTolerated={() => markAsTolerated(selectedSnapshot)}
                             quarantineEntry={
                                 quarantinedIdentifiers.find(
@@ -346,7 +366,7 @@ export function VisualReviewRunScene(): JSX.Element {
                             <LemonSkeleton className="h-6 w-1/4" />
                             <LemonSkeleton className="h-48 w-full" />
                         </div>
-                    ) : changedSnapshots.length > 0 ? (
+                    ) : sortedChangedSnapshots.length > 0 ? (
                         <div className="text-center text-muted py-8">Select a snapshot to view details</div>
                     ) : (
                         <div className="text-center text-muted py-8">No visual changes in this run</div>

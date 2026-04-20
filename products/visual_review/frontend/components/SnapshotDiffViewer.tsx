@@ -7,6 +7,7 @@ import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/Vis
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import type {
     QuarantinedIdentifierEntryApi,
@@ -153,6 +154,7 @@ interface SnapshotDiffViewerProps {
     toleratedHashes?: ToleratedHashEntryApi[]
     toleratedHashesLoading?: boolean
     onApprove?: () => void
+    isApproving?: boolean
     onMarkTolerated?: () => void
     quarantineEntry?: QuarantinedIdentifierEntryApi | null
     onQuarantine?: (reason: string, identifiers: string[], expiresAt: string | null) => void
@@ -170,6 +172,7 @@ export function SnapshotDiffViewer({
     toleratedHashes,
     toleratedHashesLoading,
     onApprove,
+    isApproving,
     onMarkTolerated,
     quarantineEntry,
     onQuarantine,
@@ -247,7 +250,7 @@ export function SnapshotDiffViewer({
                                     Tolerate
                                 </LemonButton>
                             )}
-                            <LemonButton type="primary" size="small" onClick={onApprove}>
+                            <LemonButton type="primary" size="small" onClick={onApprove} loading={isApproving}>
                                 Accept change
                             </LemonButton>
                         </>
@@ -259,10 +262,18 @@ export function SnapshotDiffViewer({
             <div className="flex gap-4">
                 <div className="flex-1 min-w-0 overflow-hidden">
                     {isQuarantined && quarantineEntry && (
-                        <div className="bg-warning-highlight border border-warning rounded px-3 py-2 mb-4 text-sm text-muted-alt">
-                            Quarantined — {quarantineEntry.reason}
-                            {quarantineEntry.expires_at &&
-                                ` · until ${new Date(quarantineEntry.expires_at).toLocaleDateString()}`}
+                        <div className="bg-warning-highlight border border-warning rounded px-3 py-2 mb-4 text-sm text-muted-alt flex items-center gap-1.5">
+                            <span>
+                                Quarantined — {quarantineEntry.reason}
+                                {quarantineEntry.expires_at &&
+                                    ` · until ${new Date(quarantineEntry.expires_at).toLocaleDateString()}`}
+                            </span>
+                            {quarantineEntry.created_by && (
+                                <>
+                                    <span>·</span>
+                                    <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
+                                </>
+                            )}
                         </div>
                     )}
 
@@ -280,6 +291,18 @@ export function SnapshotDiffViewer({
 
                 {/* Right sidebar */}
                 <div className="w-52 shrink-0 border-l pl-4 space-y-4">
+                    {/* === Diff minimap === */}
+                    {snapshot.diff_artifact?.download_url && (
+                        <div>
+                            <h4 className="text-xs font-semibold text-muted mb-2">Diff map</h4>
+                            <img
+                                src={snapshot.diff_artifact.download_url}
+                                alt="Diff heatmap"
+                                className="w-full rounded border border-border object-contain bg-bg-3000"
+                            />
+                        </div>
+                    )}
+
                     {/* === Run section === */}
                     {(runType || commitSha || prNumber) && (
                         <div>
@@ -330,15 +353,25 @@ export function SnapshotDiffViewer({
                                 {isApproved && snapshot.reviewed_at && (
                                     <div className="flex items-center justify-between text-xs">
                                         <span className="text-muted">Approved</span>
-                                        <span className="text-success">
-                                            {new Date(snapshot.reviewed_at).toLocaleDateString()}
-                                        </span>
+                                        <div className="flex items-center gap-1">
+                                            {snapshot.reviewed_by && (
+                                                <ProfilePicture user={snapshot.reviewed_by} size="xs" />
+                                            )}
+                                            <span className="text-success">
+                                                {new Date(snapshot.reviewed_at).toLocaleDateString()}
+                                            </span>
+                                        </div>
                                     </div>
                                 )}
                                 {isTolerated && snapshot.reviewed_at && (
                                     <div className="flex items-center justify-between text-xs">
                                         <span className="text-muted">Tolerated</span>
-                                        <span>{new Date(snapshot.reviewed_at).toLocaleDateString()}</span>
+                                        <div className="flex items-center gap-1">
+                                            {snapshot.reviewed_by && (
+                                                <ProfilePicture user={snapshot.reviewed_by} size="xs" />
+                                            )}
+                                            <span>{new Date(snapshot.reviewed_at).toLocaleDateString()}</span>
+                                        </div>
                                     </div>
                                 )}
                             </div>
