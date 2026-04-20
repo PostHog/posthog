@@ -4,6 +4,8 @@ import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
+import { dayjs } from 'lib/dayjs'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import type {
@@ -31,11 +33,12 @@ function QuarantineAction({
     onQuarantine,
 }: {
     identifier: string
-    onQuarantine: (reason: string, identifiers: string[]) => void
+    onQuarantine: (reason: string, identifiers: string[], expiresAt: string | null) => void
 }): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const [reason, setReason] = useState('')
     const [includeSibling, setIncludeSibling] = useState(true)
+    const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(null)
 
     const sibling = getThemeSibling(identifier)
 
@@ -44,9 +47,10 @@ function QuarantineAction({
         if (sibling && includeSibling) {
             identifiers.push(sibling)
         }
-        onQuarantine(reason, identifiers)
+        onQuarantine(reason, identifiers, expiresAt ? expiresAt.toISOString() : null)
         setIsOpen(false)
         setReason('')
+        setExpiresAt(null)
     }
 
     return (
@@ -89,15 +93,30 @@ function QuarantineAction({
                         />
                     </div>
 
-                    <div className="text-xs text-muted space-y-1">
-                        <div className="font-mono">{identifier}</div>
-                        {sibling && (
-                            <LemonCheckbox
-                                label={<span className="font-mono text-xs">{sibling}</span>}
-                                checked={includeSibling}
-                                onChange={setIncludeSibling}
-                            />
-                        )}
+                    <div>
+                        <label className="text-sm font-medium mb-1 block">
+                            Expires <span className="text-muted font-normal">(optional)</span>
+                        </label>
+                        <LemonCalendarSelectInput
+                            value={expiresAt}
+                            onChange={setExpiresAt}
+                            placeholder="No expiry"
+                            clearable
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-sm font-medium mb-2 block">Identifiers</label>
+                        <div className="text-xs text-muted space-y-1">
+                            <div className="font-mono">{identifier}</div>
+                            {sibling && (
+                                <LemonCheckbox
+                                    label={<span className="font-mono text-xs">{sibling}</span>}
+                                    checked={includeSibling}
+                                    onChange={setIncludeSibling}
+                                />
+                            )}
+                        </div>
                     </div>
                 </div>
             </LemonModal>
@@ -114,7 +133,7 @@ interface SnapshotDiffViewerProps {
     onApprove?: () => void
     onMarkTolerated?: () => void
     quarantineEntry?: QuarantinedIdentifierEntryApi | null
-    onQuarantine?: (reason: string, identifiers: string[]) => void
+    onQuarantine?: (reason: string, identifiers: string[], expiresAt: string | null) => void
     onUnquarantine?: () => void
     commitSha?: string
     prNumber?: number | null

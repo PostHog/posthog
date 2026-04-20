@@ -47,7 +47,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         approveChangesFailure: true,
         approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
-        quarantineSnapshot: (reason: string, identifiers: string[]) => ({ reason, identifiers }),
+        quarantineSnapshot: (reason: string, identifiers: string[], expiresAt: string | null) => ({
+            reason,
+            identifiers,
+            expiresAt,
+        }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
     }),
     reducers({
@@ -257,7 +261,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
         },
-        quarantineSnapshot: async ({ reason, identifiers }) => {
+        quarantineSnapshot: async ({ reason, identifiers, expiresAt }) => {
             const { run } = values
             if (!run) {
                 return
@@ -268,6 +272,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, run.run_type, {
                             identifier,
                             reason,
+                            expires_at: expiresAt,
                         })
                     )
                 )
