@@ -302,18 +302,26 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
                 is_resumable_source = isinstance(source, ResumableSource)
 
+            # Cap retries at 3 in local dev so failing syncs don't loop for
+            # tens of minutes while developers iterate. Prod cadence is
+            # unchanged.
+            max_resumable_attempts = 3 if settings.DEBUG else 15
+            max_incremental_attempts = 3 if settings.DEBUG else 9
+
             if is_resumable_source:
                 timeout_params = {
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
-                        maximum_attempts=15, non_retryable_error_types=["NonRetryableException"]
+                        maximum_attempts=max_resumable_attempts,
+                        non_retryable_error_types=["NonRetryableException"],
                     ),
                 }
             elif incremental_or_append:
                 timeout_params = {
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
-                        maximum_attempts=9, non_retryable_error_types=["NonRetryableException"]
+                        maximum_attempts=max_incremental_attempts,
+                        non_retryable_error_types=["NonRetryableException"],
                     ),
                 }
             else:
