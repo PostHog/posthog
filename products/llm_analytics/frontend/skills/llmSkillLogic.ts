@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router } from 'kea-router'
@@ -88,8 +88,6 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         ({ skillName, selectedVersion, tabId }) =>
             `skill-${skillName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
     ),
-    connect(() => ({})),
-
     actions({
         setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => ({ skill }),
         deleteSkill: true,
@@ -104,6 +102,13 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             {
                 loadSkillSuccess: (_, { skill }) => skill,
                 setSkill: (_, { skill }) => skill,
+            },
+        ],
+        skillFetched: [
+            props.skillName === 'new',
+            {
+                loadSkillSuccess: () => true,
+                loadSkillFailure: () => true,
             },
         ],
         versionsLoading: [
@@ -186,6 +191,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             description: formValues.description,
                             license: formValues.license || undefined,
                             compatibility: formValues.compatibility || undefined,
+                            allowed_tools: currentSkill.allowed_tools,
+                            metadata: currentSkill.metadata,
                             base_version: currentSkill.latest_version,
                         })
                         llmSkillsLogic.findMounted()?.actions.loadSkills(false)
@@ -208,7 +215,6 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             has_more: currentSkill.has_more,
                         })
                         actions.setSkillFormValues(getSkillFormDefaults(savedSkill))
-                        actions.setMode(SkillMode.View)
                         router.actions.replace(urls.llmAnalyticsSkill(props.skillName))
 
                         try {
@@ -244,9 +250,16 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
     selectors({
         isNewSkill: [() => [(_, props) => props], (props) => props.skillName === 'new'],
 
-        isSkillMissing: [(s) => [s.skill, s.skillLoading], (skill, skillLoading) => !skillLoading && skill === null],
+        isSkillMissing: [
+            (s) => [s.skill, s.skillLoading, s.skillFetched],
+            (skill, skillLoading, skillFetched) => skillFetched && !skillLoading && skill === null,
+        ],
 
-        shouldDisplaySkeleton: [(s) => [s.skill, s.skillLoading], (skill, skillLoading) => !skill && skillLoading],
+        shouldDisplaySkeleton: [
+            (s) => [s.skill, s.skillLoading, s.skillFetched, s.isNewSkill],
+            (skill, skillLoading, skillFetched, isNewSkill) =>
+                !isNewSkill && (!skillFetched || (skillLoading && skill === null)),
+        ],
 
         isHistoricalVersion: [(s) => [s.skill], (skill) => (isSkill(skill) ? !skill.is_latest : false)],
 

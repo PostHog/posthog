@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
@@ -21,27 +20,14 @@ import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMSkill } from '~/types'
 
+import { SKILL_NAME_MAX_LENGTH } from './llmSkillLogic'
 import { SKILLS_PER_PAGE, llmSkillsLogic } from './llmSkillsLogic'
+import { openArchiveSkillDialog } from './skillSceneComponents'
 
 export const scene: SceneExport = {
     component: LLMSkillsScene,
     logic: llmSkillsLogic,
     productKey: ProductKey.LLM_ANALYTICS,
-}
-
-function openArchiveSkillDialog(onConfirm: () => void): void {
-    LemonDialog.open({
-        title: 'Archive skill?',
-        description: 'All versions of this skill will be archived. This action cannot be undone.',
-        primaryButton: {
-            children: 'Archive',
-            status: 'danger',
-            onClick: onConfirm,
-        },
-        secondaryButton: {
-            children: 'Cancel',
-        },
-    })
 }
 
 export function LLMSkillsScene(): JSX.Element {
@@ -132,9 +118,15 @@ export function LLMSkillsScene(): JSX.Element {
                                                     newName: (name: string) =>
                                                         !name
                                                             ? 'You must enter a name'
-                                                            : !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)
-                                                              ? 'Lowercase letters, numbers, and hyphens only'
-                                                              : undefined,
+                                                            : name.toLowerCase() === 'new'
+                                                              ? "'new' is a reserved name"
+                                                              : name.length > SKILL_NAME_MAX_LENGTH
+                                                                ? `Name must be ${SKILL_NAME_MAX_LENGTH} characters or fewer`
+                                                                : !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)
+                                                                  ? 'Lowercase letters, numbers, and hyphens only'
+                                                                  : name.includes('--')
+                                                                    ? 'Consecutive hyphens are not allowed'
+                                                                    : undefined,
                                                 },
                                                 onSubmit: async ({ newName }) => {
                                                     duplicateSkill(skill.name, newName)

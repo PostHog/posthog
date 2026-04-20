@@ -10,7 +10,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -31,6 +30,7 @@ import {
 } from '~/types'
 
 import { SKILL_NAME_MAX_LENGTH, SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
+import { openArchiveSkillDialog } from './skillSceneComponents'
 
 export const scene: SceneExport<SkillLogicProps> = {
     component: LLMSkillScene,
@@ -41,15 +41,6 @@ export const scene: SceneExport<SkillLogicProps> = {
         mode: searchParams?.edit === 'true' ? SkillMode.Edit : SkillMode.View,
         selectedVersion: searchParams?.version ? Number(searchParams.version) || null : null,
     }),
-}
-
-function openArchiveDialog(onConfirm: () => void): void {
-    LemonDialog.open({
-        title: 'Archive skill?',
-        description: 'All versions of this skill will be archived. This action cannot be undone.',
-        primaryButton: { children: 'Archive', status: 'danger', onClick: onConfirm },
-        secondaryButton: { children: 'Cancel' },
-    })
 }
 
 export function LLMSkillScene(): JSX.Element {
@@ -143,7 +134,7 @@ export function LLMSkillScene(): JSX.Element {
                                 type="secondary"
                                 status="danger"
                                 icon={<IconTrash />}
-                                onClick={() => openArchiveDialog(deleteSkill)}
+                                onClick={() => openArchiveSkillDialog(deleteSkill)}
                                 size="small"
                                 data-attr="llma-skill-delete-button"
                             >
@@ -221,7 +212,7 @@ export function LLMSkillScene(): JSX.Element {
                                         type="secondary"
                                         status="danger"
                                         icon={<IconTrash />}
-                                        onClick={() => openArchiveDialog(deleteSkill)}
+                                        onClick={() => openArchiveSkillDialog(deleteSkill)}
                                         size="small"
                                         data-attr="llma-skill-delete-button"
                                     >
@@ -337,7 +328,12 @@ function SkillViewDetails(): JSX.Element {
                     </label>
                     <div className="mt-1 space-y-1">
                         {skill.files.map((file) => (
-                            <SkillFileViewer key={file.path} skillName={skill.name} file={file} />
+                            <SkillFileViewer
+                                key={file.path}
+                                skillName={skill.name}
+                                file={file}
+                                version={skill.is_latest ? undefined : skill.version}
+                            />
                         ))}
                     </div>
                 </div>
@@ -401,7 +397,15 @@ function getFileLanguage(path: string, contentType?: string): Language | null {
     return null
 }
 
-function SkillFileViewer({ skillName, file }: { skillName: string; file: LLMSkillFileManifestEntry }): JSX.Element {
+function SkillFileViewer({
+    skillName,
+    file,
+    version,
+}: {
+    skillName: string
+    file: LLMSkillFileManifestEntry
+    version?: number
+}): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [content, setContent] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
@@ -414,7 +418,9 @@ function SkillFileViewer({ skillName, file }: { skillName: string; file: LLMSkil
         if (content === null) {
             setLoading(true)
             try {
-                const fileData: LLMSkillFile = await api.llmSkills.getFile(skillName, file.path)
+                const fileData: LLMSkillFile = await api.llmSkills.getFile(skillName, file.path, {
+                    version,
+                })
                 setContent(fileData.content)
             } catch {
                 setContent('Failed to load file content.')
@@ -423,7 +429,7 @@ function SkillFileViewer({ skillName, file }: { skillName: string; file: LLMSkil
             }
         }
         setExpanded(true)
-    }, [expanded, content, skillName, file.path])
+    }, [expanded, content, skillName, file.path, version])
 
     const isMarkdown = file.content_type === 'text/markdown' || file.path.endsWith('.md')
     const codeLanguage = isMarkdown ? null : getFileLanguage(file.path, file.content_type)
