@@ -116,10 +116,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // PG fallback pool for cache misses (optional, disabled if URL is empty)
+    let fallback_pool = if config.fallback_database_url.is_empty() {
+        tracing::info!("PG fallback disabled (no FALLBACK_DATABASE_URL)");
+        None
+    } else {
+        tracing::info!("PG fallback enabled");
+        let pool_config = common_database::PoolConfig {
+            max_connections: config.fallback_pg_max_connections,
+            pool_name: Some("personhog-leader-fallback".to_string()),
+            statement_timeout_ms: Some(5_000),
+            ..Default::default()
+        };
+        Some(common_database::get_pool_with_config(
+            &config.fallback_database_url,
+            pool_config,
+        )?)
+    };
+
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
         config.kafka_person_state_topic.clone(),
+        fallback_pool,
     );
 
     // Connect to etcd and start coordination
