@@ -33,6 +33,7 @@ def _write_deltalake(
     partition_by: str | None,
     mode: Literal["error", "append", "overwrite", "ignore"],
     schema_mode: Literal["merge", "overwrite"] | None,
+    commit_properties: deltalake.CommitProperties | None = None,
 ) -> None:
     deltalake.write_deltalake(
         table_or_uri=table_or_uri,
@@ -40,6 +41,7 @@ def _write_deltalake(
         partition_by=partition_by,
         mode=mode,
         schema_mode=schema_mode,
+        commit_properties=commit_properties,
     )
 
 
