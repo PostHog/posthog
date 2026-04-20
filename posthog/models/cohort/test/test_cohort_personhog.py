@@ -4,6 +4,8 @@ via the ORM and personhog paths."""
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db.models import Q
+
 from parameterized import parameterized_class
 
 from posthog.models import Cohort, Person, Team
@@ -101,6 +103,7 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
         CohortPeople.objects.create(cohort=cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
 
         result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
@@ -111,6 +114,7 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         assert call_args[0][0] == person.uuid
         assert call_args[0][1] == cohort.pk
         assert call_args[1]["team_id"] == self.team.id
+        self._assert_personhog_called("check_cohort_membership")
 
     @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
     @patch("posthog.models.cohort.util.get_static_cohort_size", return_value=0)
@@ -148,6 +152,7 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
         CohortPeople.objects.create(cohort=cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
 
         cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
@@ -160,6 +165,7 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
         CohortPeople.objects.create(cohort=cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
 
         result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
@@ -176,3 +182,125 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
         self._assert_personhog_called("get_person_by_uuid")
+
+
+@parameterized_class(("personhog",), [(False,), (True,)])
+class TestCheckCohortMembership(PersonhogTestMixin, BaseTest):
+    def test_returns_true_for_member(self):
+        from posthog.models.person.util import check_cohort_membership, is_person_in_cohort
+
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        CohortPeople.objects.create(cohort=cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
+
+        assert is_person_in_cohort(team_id=self.team.id, person_id=person.id, cohort_id=cohort.id) is True
+        assert check_cohort_membership(self.team.id, person.id, [cohort.id]) == {cohort.id: True}
+        self._assert_personhog_called("check_cohort_membership")
+
+    def test_returns_false_for_non_member(self):
+        from posthog.models.person.util import is_person_in_cohort
+
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+
+        assert is_person_in_cohort(team_id=self.team.id, person_id=person.id, cohort_id=cohort.id) is False
+
+    def test_returns_empty_dict_for_empty_cohort_ids(self):
+        from posthog.models.person.util import check_cohort_membership
+
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+
+        assert check_cohort_membership(self.team.id, person.id, []) == {}
+        self._assert_personhog_not_called("check_cohort_membership")
+
+    def test_mixed_membership(self):
+        from posthog.models.person.util import check_cohort_membership
+
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        c1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        c2 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c2")
+        c3 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c3")
+        CohortPeople.objects.create(cohort=c1, person=person)
+        CohortPeople.objects.create(cohort=c3, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=c1.id, is_member=True)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=c3.id, is_member=True)
+
+        result = check_cohort_membership(self.team.id, person.id, [c1.id, c2.id, c3.id])
+
+        assert result == {c1.id: True, c2.id: False, c3.id: True}
+
+
+class TestCheckCohortMembershipFallback(BaseTest):
+    """Routing test: verifies ORM fallback when the personhog gate is disabled."""
+
+    def test_falls_back_to_orm_when_personhog_disabled(self):
+        from posthog.models.person.util import is_person_in_cohort
+
+        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        CohortPeople.objects.create(cohort=cohort, person=person)
+
+        with fake_personhog_client(gate_enabled=False) as fake:
+            assert is_person_in_cohort(team_id=self.team.id, person_id=person.id, cohort_id=cohort.id) is True
+
+        fake.assert_not_called("check_cohort_membership")
+
+
+@parameterized_class(("personhog",), [(False,), (True,)])
+class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
+    """property_to_Q short-circuits the Exists(CohortPeople) subquery when
+    caller passes person_id + team_id for a static cohort."""
+
+    def _make_cohort_property(self, cohort_id: int):
+        from posthog.models.property import Property
+
+        return Property(key="id", value=cohort_id, type="cohort")
+
+    def test_returns_match_all_q_when_person_is_member(self):
+        from posthog.queries.base import property_to_Q
+
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        CohortPeople.objects.create(cohort=cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
+
+        q = property_to_Q(
+            self.team.project_id,
+            self._make_cohort_property(cohort.id),
+            person_id=person.id,
+            team_id=self.team.id,
+        )
+
+        assert q == Q(pk__isnull=False)
+        self._assert_personhog_called("check_cohort_membership")
+
+    def test_returns_no_match_q_when_person_is_not_member(self):
+        from posthog.queries.base import property_to_Q
+
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+
+        q = property_to_Q(
+            self.team.project_id,
+            self._make_cohort_property(cohort.id),
+            person_id=person.id,
+            team_id=self.team.id,
+        )
+
+        assert q == Q(pk__isnull=True)
+
+    def test_falls_back_to_exists_without_person_id(self):
+        from posthog.queries.base import property_to_Q
+
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        CohortPeople.objects.create(cohort=cohort, person=person)
+
+        q = property_to_Q(self.team.project_id, self._make_cohort_property(cohort.id))
+
+        # Not a short-circuit Q — it's an Exists() wrapped in Q
+        assert q != Q(pk__isnull=False)
+        assert q != Q(pk__isnull=True)
+        # The Exists subquery path never calls the RPC
+        self._assert_personhog_not_called("check_cohort_membership")

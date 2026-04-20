@@ -27,7 +27,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
-from posthog.models.person.util import get_person_by_uuid, get_persons_by_distinct_ids
+from posthog.models.person.util import get_person_by_uuid, get_persons_by_distinct_ids, is_person_in_cohort
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
@@ -794,16 +794,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             if person is None:
                 raise Person.DoesNotExist
 
-            # Check if person is in the cohort in PostgreSQL
-            cohort_person = CohortPeople.objects.filter(
-                cohort_id=self.id,
-                person_id=person.id,
-            ).first()
+            # Check if person is in the cohort — routed through personhog when enabled,
+            # falling back to the persons-DB ORM query otherwise.
+            is_member = is_person_in_cohort(team_id=team_id, person_id=person.id, cohort_id=self.id)
 
             # Delete from PostgreSQL first (source of truth), then ClickHouse.
             # This order ensures if PG delete fails, we don't create inverse inconsistency.
-            if cohort_person:
-                cohort_person.delete()
+            # The delete itself still goes through the ORM — no personhog RPC exists yet
+            # for removing a cohort member.
+            if is_member:
+                CohortPeople.objects.filter(cohort_id=self.id, person_id=person.id).delete()
             else:
                 # Person not in PG - this is expected when handling CH/PG sync issues
                 logger.info(

@@ -36,6 +36,7 @@ from posthog.personhog_client.metrics import (
     get_client_name,
 )
 from posthog.personhog_client.proto import (
+    CheckCohortMembershipRequest,
     DeletePersonsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
@@ -563,6 +564,53 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person
         .first(),
         team_id=team_id,
     )
+
+
+def _check_cohort_membership_via_personhog(team_id: int, person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.check_cohort_membership(CheckCohortMembershipRequest(person_id=person_id, cohort_ids=cohort_ids))
+    membership_by_cohort: dict[int, bool] = {m.cohort_id: m.is_member for m in resp.memberships}
+    return {cohort_id: membership_by_cohort.get(cohort_id, False) for cohort_id in cohort_ids}
+
+
+def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
+    """Return ``{cohort_id: is_member}`` for the given person.
+
+    Routes through personhog when the gate is enabled, falling back to a Django
+    ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    Membership for cohorts the person is not in is returned as ``False`` rather
+    than being omitted, so callers can index directly by cohort_id.
+    """
+    if not cohort_ids:
+        return {}
+
+    def orm_fn() -> dict[int, bool]:
+        # Local import to avoid circulars (cohort → person via CohortPeople FK).
+        from posthog.models.cohort.cohort import CohortPeople
+
+        member_ids = set(
+            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(person_id=person_id, cohort_id__in=cohort_ids)
+            .values_list("cohort_id", flat=True)
+        )
+        return {cohort_id: cohort_id in member_ids for cohort_id in cohort_ids}
+
+    return _personhog_routed(
+        "check_cohort_membership",
+        lambda: _check_cohort_membership_via_personhog(team_id, person_id, cohort_ids),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+def is_person_in_cohort(team_id: int, person_id: int, cohort_id: int) -> bool:
+    """Convenience single-cohort variant of ``check_cohort_membership``."""
+    return check_cohort_membership(team_id, person_id, [cohort_id]).get(cohort_id, False)
 
 
 def get_person_by_pk_or_uuid(team_id: int, key: str) -> Optional[Person]:
