@@ -152,16 +152,24 @@ function getAttachmentLabel(block: PromptResourceLinkBlock): string | null {
     }
 }
 
+function isPromptTextBlock(block: PromptBlock): block is PromptTextBlock {
+    return block.type === 'text'
+}
+
+function isPromptResourceLinkBlock(block: PromptBlock): block is PromptResourceLinkBlock {
+    return block.type === 'resource_link'
+}
+
 function parsePromptBlocks(prompt: PromptBlock[], id: string): Pick<LogEntry, 'message' | 'attachments'> | null {
     const textParts: string[] = []
     const attachments: LogEntryAttachment[] = []
 
     prompt.forEach((block, index) => {
-        if (block.type === 'text' && block.text) {
+        if (isPromptTextBlock(block) && block.text) {
             textParts.push(block.text)
         }
 
-        if (block.type === 'resource_link') {
+        if (isPromptResourceLinkBlock(block)) {
             const label = getAttachmentLabel(block)
             if (label) {
                 attachments.push({
