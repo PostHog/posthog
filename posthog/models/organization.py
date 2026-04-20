@@ -510,6 +510,9 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Transient flag set by the pre_save signal to communicate level changes to post_save.
+    _level_changed: bool = False
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -667,16 +670,39 @@ def sync_billing_on_membership_removal(sender, instance: OrganizationMembership,
 def organization_membership_saved(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
     from posthog.event_usage import report_user_organization_membership_level_changed
 
+    instance._level_changed = False
     try:
         old_instance = OrganizationMembership.objects.get(id=instance.id)
         if old_instance.level != instance.level:
-            # the level has been changed
+            instance._level_changed = True
             report_user_organization_membership_level_changed(
                 instance.user, instance.organization, instance.level, old_instance.level
             )
     except OrganizationMembership.DoesNotExist:
         # The instance is new, or we are setting up test data
         pass
+
+
+@receiver(post_save, sender=OrganizationMembership)
+def sync_billing_on_membership_save(sender, instance: OrganizationMembership, created: bool, **kwargs):
+    # Covers any path that creates a membership or changes its level, including
+    # Organization.bootstrap, the Vercel integration, and direct ORM saves that
+    # bypass OrganizationMemberSerializer. Mirrors sync_billing_on_membership_removal.
+    from posthog.tasks.sync_billing import sync_members_to_billing
+
+    if not is_cloud():
+        return
+
+    if not created and not getattr(instance, "_level_changed", False):
+        return
+
+    organization_id = str(instance.organization_id)
+
+    def _sync_if_org_exists():
+        if Organization.objects.filter(id=organization_id).exists():
+            sync_members_to_billing.delay(organization_id)
+
+    transaction.on_commit(_sync_if_org_exists)
 
 
 @receiver(post_save, sender=Organization)
