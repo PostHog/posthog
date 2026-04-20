@@ -18055,7 +18055,8 @@
                 "Postmark",
                 "Granola",
                 "BuildBetter",
-                "Convex"
+                "Convex",
+                "ClickHouse"
             ],
             "type": "string"
         },
