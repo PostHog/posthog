@@ -991,6 +991,82 @@ class TestUpdateExternalDataSchema:
         assert schema.should_sync is False
         assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
 
+    def test_update_schema_cdc_with_blank_source_schema_uses_physical_schema_metadata(
+        self, team, user, client: HttpClient, temporal
+    ):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={
+                "schema": "",
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "test_slot",
+                "cdc_publication_name": "test_pub",
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="analytics.events",
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "foreign_keys": [],
+                    "source_schema": "analytics",
+                    "source_table_name": "events",
+                }
+            },
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=True,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.ExternalDataSchemaSerializer._alter_cdc_publication"
+            ) as mock_alter_cdc_publication,
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "id": str(schema.id),
+                    "name": schema.name,
+                    "should_sync": True,
+                    "incremental": False,
+                    "status": "Completed",
+                    "sync_type": "cdc",
+                    "incremental_field": None,
+                    "incremental_field_type": None,
+                    "sync_frequency": "6hour",
+                    "sync_time_of_day": "00:00:00",
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200
+        mock_alter_cdc_publication.assert_called_once()
+        assert mock_alter_cdc_publication.call_args.args == (
+            source,
+            "test_pub",
+            "analytics",
+            "events",
+        )
+
     def test_delete_data_hides_direct_postgres_table(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
         source = ExternalDataSource.objects.create(
