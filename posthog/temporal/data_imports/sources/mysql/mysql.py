@@ -764,15 +764,13 @@ def mysql_source(
 
     arrow_schema = table.to_arrow_schema()
 
-    def _stream_with_optional_force_index(
-        force_index_name: str | None,
-        db_incremental_field_last_value: Any,
-    ) -> Iterator[tuple[Any, Any]]:
+    def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
         """Open a fresh connection and stream rows from `db_incremental_field_last_value`.
 
-        Yields (arrow_table, last_cursor_value_in_batch) pairs so the caller can
-        track progress for a fallback resume. The `last_cursor_value_in_batch`
-        is None when there's no incremental field.
+        The pipeline itself persists the per-batch cursor value (see
+        `update_incremental_field_values`), so a retry that restarts from the
+        original starting cursor is correct but occasionally replays a few
+        already-processed rows; the delta merge dedupes by primary key.
         """
         with tunnel() as (host, port):
             # PlanetScale needs this to be set
@@ -823,11 +821,6 @@ def mysql_source(
                     cursor.execute(query, args)
 
                     column_names = [column[0] for column in cursor.description or []]
-                    cursor_idx = (
-                        column_names.index(incremental_field)
-                        if should_use_incremental_field and incremental_field in column_names
-                        else None
-                    )
 
                     while True:
                         # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
@@ -835,20 +828,15 @@ def mysql_source(
                         if not rows:
                             break
 
-                        last_cursor_in_batch = rows[-1][cursor_idx] if cursor_idx is not None else None
-                        arrow_batch = table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
-                        yield arrow_batch, last_cursor_in_batch
+                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-    def _force_index_fallback(
-        db_incremental_field_last_value: Any,
-    ) -> Iterator[tuple[Any, Any]]:
+    def _force_index_fallback() -> Iterator[Any]:
         """Re-run the streaming query with FORCE INDEX after a bad-plan timeout.
 
-        Opens a fresh connection (the previous one is dead), looks up a usable
-        index on the incremental field, and streams from `db_incremental_field_last_value`
-        (the last committed cursor, if any — else the sync's starting cursor).
-        If no suitable index exists, re-raises the original exception by yielding
-        nothing and raising.
+        Opens a fresh short-lived connection (the streaming one is dead), probes
+        for an index whose leading column is the cursor field, and streams with
+        a `FORCE INDEX` hint. If no suitable index exists, re-raises the
+        original exception so Temporal's retry policy can surface it.
         """
         if not should_use_incremental_field or not incremental_field:
             # Without an incremental field there's no cursor to force an index on.
@@ -882,30 +870,19 @@ def mysql_source(
             raise
 
         logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad-plan timeout")
-        yield from _stream_with_optional_force_index(force_index_name, db_incremental_field_last_value)
+        yield from _stream_with_optional_force_index(force_index_name)
 
     def get_rows() -> Iterator[Any]:
-        last_cursor_value = db_incremental_field_last_value
-
         try:
-            for arrow_batch, batch_cursor in _stream_with_optional_force_index(
-                force_index_name=None,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            ):
-                if batch_cursor is not None:
-                    last_cursor_value = batch_cursor
-                yield arrow_batch
+            yield from _stream_with_optional_force_index(force_index_name=None)
         except pymysql.err.OperationalError as e:
             if not _is_bad_plan_timeout(e):
                 raise
             logger.warning(
                 f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}). "
-                f"Attempting FORCE INDEX fallback from cursor={last_cursor_value!r}."
+                f"Attempting FORCE INDEX fallback."
             )
-            for arrow_batch, batch_cursor in _force_index_fallback(last_cursor_value):
-                if batch_cursor is not None:
-                    last_cursor_value = batch_cursor
-                yield arrow_batch
+            yield from _force_index_fallback()
 
     name = NamingConvention.normalize_identifier(table_name)
 
