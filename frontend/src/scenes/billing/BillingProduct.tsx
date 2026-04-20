@@ -496,7 +496,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     </div>
                                                 ) : null}
                                             </>
-                                        ) : product.current_amount_usd ? (
+                                        ) : product.current_amount_usd && product.type !== 'platform_and_support' ? (
                                             <div className="mt-8 mb-4 flex justify-end w-full">
                                                 <Tooltip
                                                     title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}

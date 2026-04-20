@@ -1,20 +1,24 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import {
+    IconAI,
     IconActivity,
     IconCheckCircle,
     IconCrown,
+    IconGear,
     IconGroups,
     IconHeadset,
     IconInfinity,
     IconLock,
+    IconServer,
     IconShield,
     IconShieldLock,
     IconShieldPeople,
 } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { humanFriendlyCurrency } from 'lib/utils'
 
@@ -23,6 +27,7 @@ import { BillingFeatureType, BillingPlan, BillingProductV2AddonType, BillingProd
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
 import { PlanIcon } from './PlanComparison'
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const COMPARISON_ADDONS: BillingPlan[] = [BillingPlan.Boost, BillingPlan.Scale, BillingPlan.Enterprise]
 
@@ -50,6 +55,14 @@ const CORE_FEATURES: Record<string, CoreFeature[]> = {
         { icon: <IconShieldPeople />, label: 'Role-based access control' },
         { icon: <IconGroups />, label: 'SCIM' },
         { icon: <IconCrown />, label: 'Dedicated account manager' },
+    ],
+    [BillingPlan.Teams]: [
+        { icon: <IconGear />, label: 'Automatic provisioning' },
+        { icon: <IconServer />, label: 'Managed reverse proxy' },
+        { icon: <IconAI />, label: 'Product Analytics AI' },
+        { icon: <IconShieldLock />, label: 'Enforce SSO login' },
+        { icon: <IconLock />, label: 'Enforce 2FA' },
+        { icon: <IconHeadset />, label: 'Priority support' },
     ],
 }
 
@@ -132,7 +145,10 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
 }
 
 const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
-    const featureTags = (addon.features ?? []).filter((feature) => !feature.entitlement_only).slice(0, 6)
+    const { currentAndUpgradePlans, surveyID } = useValues(billingProductLogic({ product: addon }))
+    const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product: addon }))
+    const currentPlan = currentAndUpgradePlans?.currentPlan
+    const coreFeatures = CORE_FEATURES[addon.type] ?? []
 
     return (
         <div className="flex flex-col gap-3 p-5 rounded bg-surface-secondary ring-2 ring-accent">
@@ -149,18 +165,37 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                         You're subscribed to our legacy {addon.name} plan. Compare plans to see if it makes sense to
                         switch.
                     </p>
-                    {featureTags.length > 0 && (
+                    {coreFeatures.length > 0 && (
                         <div className="flex flex-wrap gap-1">
-                            {featureTags.map((feature) => (
-                                <LemonTag key={feature.key}>{feature.name}</LemonTag>
+                            {coreFeatures.map((feature) => (
+                                <LemonTag key={feature.label} icon={feature.icon}>
+                                    {feature.label}
+                                </LemonTag>
                             ))}
                         </div>
                     )}
                 </div>
-                <div className="shrink-0">
-                    <BillingProductAddonActions addon={addon} buttonSize="small" align="right" />
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                    {currentPlan?.flat_rate && (
+                        <div className="flex items-baseline gap-x-1">
+                            <span className="font-bold text-3xl leading-none">
+                                {humanFriendlyCurrency(Number(currentPlan.unit_amount_usd), 0)}
+                            </span>
+                            {currentPlan.unit && <span className="text-secondary">/ {currentPlan.unit}</span>}
+                        </div>
+                    )}
+                    <LemonButton
+                        type="primary"
+                        onClick={() => {
+                            setSurveyResponse('$survey_response_1', addon.type)
+                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                        }}
+                    >
+                        Remove add-on
+                    </LemonButton>
                 </div>
             </div>
+            {surveyID === UNSUBSCRIBE_SURVEY_ID && <UnsubscribeSurveyModal product={addon} />}
         </div>
     )
 }
