@@ -15,7 +15,7 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     uiResourceUri?: string
     /** Return JSON instead of TOON-encoded text. */
     responseFormat?: 'json'
-    /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new?q=...`. */
+    /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new#q=...`. */
     urlPrefix?: string
     /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
     mcpVersion?: number

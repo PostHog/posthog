@@ -14,7 +14,7 @@ import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
 import { getApiErrorDetail, llmPromptLogic } from '../prompts/llmPromptLogic'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
-import { normalizeRole } from '../utils'
+import { normalizeRole, safeStringify } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
 import { isTraceLikeSelection } from './playgroundModelMatching'
 
@@ -66,6 +66,7 @@ export interface PlaygroundSetupPayload {
     sourcePromptVersion?: number
     sourceEvaluationId?: string
     input?: unknown
+    output?: unknown
     tools?: Record<string, unknown>[]
 }
 
@@ -170,6 +171,7 @@ interface RawMessage {
     role: string
     content: unknown
     tool_calls?: unknown
+    tool_call_id?: unknown
 }
 
 type ConversationRole = 'user' | 'assistant'
@@ -194,29 +196,31 @@ function formatContentBlock(part: Record<string, unknown>): string | null {
     // Anthropic: { type: 'tool_use', id, name, input }
     if (type === 'tool_use') {
         const name = part.name ?? 'unknown'
-        const input = part.input !== undefined ? JSON.stringify(part.input, null, 2) : '{}'
+        const input = part.input !== undefined ? safeStringify(part.input) : '{}'
         return `[Tool call: ${name}]\n${input}`
     }
 
     // Anthropic: { type: 'tool_result', tool_use_id, content }
     if (type === 'tool_result') {
-        const toolId = part.tool_use_id ?? 'unknown'
-        const content = typeof part.content === 'string' ? part.content : JSON.stringify(part.content, null, 2)
-        return `[Tool result for ${toolId}]\n${content}`
+        const toolId = typeof part.tool_use_id === 'string' ? part.tool_use_id : null
+        const content = typeof part.content === 'string' ? part.content : safeStringify(part.content)
+        const header = toolId ? `[Tool result for ${toolId}]` : '[Tool result]'
+        return `${header}\n${content}`
     }
 
     // OpenAI Responses API: { type: 'function_call', name, call_id, arguments }
     if (type === 'function_call') {
         const name = part.name ?? 'unknown'
-        const args = typeof part.arguments === 'string' ? part.arguments : JSON.stringify(part.arguments, null, 2)
+        const args = typeof part.arguments === 'string' ? part.arguments : safeStringify(part.arguments)
         return `[Function call: ${name}]\n${args}`
     }
 
     // OpenAI Responses API: { type: 'function_call_output', call_id, output }
     if (type === 'function_call_output') {
-        const callId = part.call_id ?? 'unknown'
-        const output = typeof part.output === 'string' ? part.output : JSON.stringify(part.output, null, 2)
-        return `[Function output for ${callId}]\n${output}`
+        const callId = typeof part.call_id === 'string' ? part.call_id : null
+        const output = typeof part.output === 'string' ? part.output : safeStringify(part.output)
+        const header = callId ? `[Function output for ${callId}]` : '[Function output]'
+        return `${header}\n${output}`
     }
 
     return null
@@ -230,12 +234,12 @@ function formatToolCallsForPlayground(toolCalls: unknown): string {
     return toolCalls
         .map((tc) => {
             if (!isObject(tc)) {
-                return JSON.stringify(tc, null, 2)
+                return safeStringify(tc)
             }
             const fn = isObject(tc.function) ? tc.function : tc
             const name = fn.name ?? 'unknown'
             const args = fn.arguments ?? '{}'
-            const argsStr = typeof args === 'string' ? args : JSON.stringify(args, null, 2)
+            const argsStr = typeof args === 'string' ? args : safeStringify(args)
             return `[Tool call: ${name}]\n${argsStr}`
         })
         .join('\n\n')
@@ -292,7 +296,49 @@ function normalizeMessageContent(content: unknown): string {
         }
     }
 
-    return JSON.stringify(content, null, 2)
+    return safeStringify(content)
+}
+
+// Safety cap on recursion depth in flattenOutputMessages. Trace payloads can't have true cycles
+// (they come from `JSON.parse`), but deeply nested `{ message: { message: … } }` chains or arrays
+// of arrays could run the stack down — bail early and hand back an empty list instead.
+const MAX_OUTPUT_FLATTEN_DEPTH = 100
+
+// Flattens a raw generation output (string, single message, message array, or an
+// OpenAI/LiteLLM-style { choices: [...] } wrapper) into a list of RawMessage entries
+// without splitting structured content blocks — unlike `normalizeMessages` from utils,
+// which fans out tool_use/tool_result blocks into separate display bubbles.
+function flattenOutputMessages(output: unknown, depth: number = 0): RawMessage[] {
+    if (output == null || depth > MAX_OUTPUT_FLATTEN_DEPTH) {
+        return []
+    }
+
+    if (typeof output === 'string') {
+        return [{ role: InputMessageRole.Assistant, content: output }]
+    }
+
+    if (Array.isArray(output)) {
+        return output.flatMap((item) => flattenOutputMessages(item, depth + 1))
+    }
+
+    if (isObject(output)) {
+        if (Array.isArray(output.choices)) {
+            return output.choices.flatMap((item) => flattenOutputMessages(item, depth + 1))
+        }
+        if (isObject(output.message)) {
+            return flattenOutputMessages(output.message, depth + 1)
+        }
+        return [
+            {
+                role: typeof output.role === 'string' ? output.role : InputMessageRole.Assistant,
+                content: output.content,
+                tool_calls: output.tool_calls,
+                tool_call_id: output.tool_call_id,
+            },
+        ]
+    }
+
+    return []
 }
 
 function extractConversationMessage(rawMessage: RawMessage): { role: ConversationRole; content: string } {
@@ -305,6 +351,16 @@ function extractConversationMessage(rawMessage: RawMessage): { role: Conversatio
 
     let content = normalizeMessageContent(rawMessage.content)
 
+    // Tool-role messages collapse into a user turn since the playground only renders user/assistant.
+    // Prefix with `[Tool result …]` so the origin is preserved — in practice the caller will merge
+    // this into the preceding assistant turn via `appendRawMessage`, but the prefix is kept for the
+    // rare case where a tool result has no preceding assistant (e.g. a broken trace).
+    if (normalizedMessageRole === 'tool') {
+        const toolId = typeof rawMessage.tool_call_id === 'string' ? rawMessage.tool_call_id : null
+        const header = toolId ? `[Tool result for ${toolId}]` : '[Tool result]'
+        content = `${header}\n${content}`
+    }
+
     // Append top-level tool_calls (OpenAI format) when present
     const toolCallsText = formatToolCallsForPlayground(rawMessage.tool_calls)
     if (toolCallsText) {
@@ -315,6 +371,36 @@ function extractConversationMessage(rawMessage: RawMessage): { role: Conversatio
         role: enumRole ?? InputMessageRole.User,
         content,
     }
+}
+
+// Detects messages whose entire purpose is carrying a tool response — OpenAI `role: 'tool'` or an
+// Anthropic-style `role: 'user'` message whose content is a pure `tool_result` / `function_call_output`
+// block. Such messages don't represent a real user turn and should be folded into the preceding
+// assistant turn rather than rendered as standalone user bubbles in the playground.
+function isToolResultMessage(raw: RawMessage): boolean {
+    if (normalizeRole(raw.role, '') === 'tool') {
+        return true
+    }
+    if (Array.isArray(raw.content) && raw.content.length > 0) {
+        return raw.content.every((c) => isObject(c) && (c.type === 'tool_result' || c.type === 'function_call_output'))
+    }
+    return false
+}
+
+// Appends a raw message to a running conversation, merging tool-result messages into the previous
+// assistant turn rather than emitting a separate user bubble. This keeps the playground's display
+// in line with how tool calls/results conceptually bind together, without requiring a dedicated
+// tool role in the playground's Message model.
+function appendRawMessage(conversation: Message[], raw: RawMessage): void {
+    const extracted = extractConversationMessage(raw)
+    const prev = conversation[conversation.length - 1]
+
+    if (isToolResultMessage(raw) && prev?.role === InputMessageRole.Assistant) {
+        prev.content = prev.content ? `${prev.content}\n\n${extracted.content}` : extracted.content
+        return
+    }
+
+    conversation.push(extracted)
 }
 
 export interface LLMPlaygroundPromptsLogicProps {
@@ -852,9 +938,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                                 systemPromptContent = systemContents.join('\n\n')
                             }
 
-                            conversationMessages = input
-                                .filter((msg: RawMessage) => msg.role !== 'system')
-                                .map((msg: RawMessage) => extractConversationMessage(msg))
+                            for (const msg of input as RawMessage[]) {
+                                if (msg.role === 'system') {
+                                    continue
+                                }
+                                appendRawMessage(conversationMessages, msg)
+                            }
                         } else if (typeof input === 'string') {
                             initialUserPrompt = input
                         } else if (isObject(input)) {
@@ -877,6 +966,19 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
                 if (initialUserPrompt) {
                     conversationMessages.unshift({ role: 'user', content: initialUserPrompt })
+                }
+
+                // Append the generation output as assistant turn(s) so users see the full exchange.
+                // `flattenOutputMessages` unwraps LiteLLM/OpenAI `choices` shapes and string outputs,
+                // then `appendRawMessage` folds any tool-result messages into the preceding assistant turn.
+                if (payload.output != null) {
+                    try {
+                        for (const msg of flattenOutputMessages(payload.output)) {
+                            appendRawMessage(conversationMessages, msg)
+                        }
+                    } catch (e) {
+                        console.error('Error processing output for playground:', e)
+                    }
                 }
 
                 actions.setMessages(conversationMessages, promptId)
