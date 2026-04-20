@@ -190,11 +190,15 @@ class PackageJsonScriptsCheck(ProductCheck):
         result = CheckResult()
 
         # --- presence checks (legacy leaks exempt from contract-check) ---
+        from .ast_helpers import has_any_function_defs
+
         module_path = f"products.{ctx.name}"
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
         has_leaks = has_legacy_interface_leaks(tach_content, module_path)
 
-        needs_contract_check = ctx.is_isolated and not has_leaks
+        facade_api = ctx.backend_dir / "facade" / "api.py"
+        has_real_facade = facade_api.exists() and has_any_function_defs(facade_api)
+        needs_contract_check = ctx.is_isolated and not has_leaks and has_real_facade
         required = ["backend:test"] + (["backend:contract-check"] if needs_contract_check else [])
         for script in required:
             if script not in scripts:
@@ -205,7 +209,7 @@ class PackageJsonScriptsCheck(ProductCheck):
                 )
 
         # --- absence check: must NOT have contract-check when not safe for isolation ---
-        must_not_have_contract_check = not ctx.is_isolated or has_leaks
+        must_not_have_contract_check = not ctx.is_isolated or has_leaks or not has_real_facade
         if must_not_have_contract_check and "backend:contract-check" in scripts:
             if has_leaks:
                 reason = "has legacy interface leaks (core imports internals directly)"
