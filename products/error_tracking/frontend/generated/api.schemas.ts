@@ -839,6 +839,7 @@ export interface ErrorTrackingRecommendationApi {
     readonly id: string
     readonly type: string
     readonly meta: unknown
+    readonly completion_progress: number
     /** @nullable */
     readonly computed_at: string | null
     /** @nullable */
