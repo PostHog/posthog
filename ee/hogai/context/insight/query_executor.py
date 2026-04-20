@@ -350,8 +350,8 @@ class AssistantQueryExecutor:
                         )
 
                     # Poll async query until completion
-                    # Total wait time: 5 minutes with linear increments
-                    while total_wait_s <= 60 * 5:
+                    # Total wait time: 60 seconds with linear increments
+                    while total_wait_s <= 60:
                         poll_count += 1
                         total_wait_s += self.WAIT_TIME_S
 
