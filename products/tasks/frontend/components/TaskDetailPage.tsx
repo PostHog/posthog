@@ -42,7 +42,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const latestRun = runs.length > 0 ? runs[0] : null
     const isLatestRunInProgress = latestRun?.status === 'in_progress' || latestRun?.status === 'queued'
     const isLatestRunCompleted = latestRun?.status === 'completed'
-    const runButtonText = !hasBeenRun ? 'Run task' : isLatestRunCompleted ? 'Run again' : 'Retry task'
+    const runButtonText = !hasBeenRun ? 'Implement' : isLatestRunCompleted ? 'Implement again' : 'Retry'
 
     const prUrl = selectedRun?.output?.pr_url as string | undefined
 
