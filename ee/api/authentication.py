@@ -589,9 +589,12 @@ def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
 
     # Reject if the provider+uid is known to PostHog (via UserSocialIdentity) but has
     # no UserSocialAuth row — meaning login was explicitly disabled for this external
-    # account. If a UserSocialAuth row exists, login proceeds normally (that IS the
-    # login credential). This runs before the SSO check so the user sees a clear
-    # reason when it's their own toggle rather than org policy.
+    # account. Without this check, social-auth would simply create a new UserSocialAuth
+    # row during the pipeline, re-enabling login and bypassing the user's toggle.
+    # The UserSocialIdentity row is the signal that distinguishes "login intentionally
+    # disabled" from "user hasn't logged in with this provider yet".
+    # This runs before the SSO check so the user sees a clear reason when it's their
+    # own toggle rather than org policy.
     uid = kwargs.get("uid")
     if uid is None and response:
         uid = response.get("id")

@@ -11,6 +11,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { SSOProvider } from '~/types'
 
 import { LinkedAccount, linkedAccountsLogic } from './linkedAccountsLogic'
+import { useState, useEffect } from 'react'
 
 function StatusTag({ account }: { account: LinkedAccount }): JSX.Element | null {
     if (account.connected && !account.can_disconnect) {
@@ -71,19 +72,29 @@ function GithubSignInToggle({
     account: LinkedAccount
     onChange: (value: boolean) => void
 }): JSX.Element {
+    const [optimisticLoginEnabled, setOptimisticLoginEnabled] = useState(account.login_enabled)
+
+    useEffect(() => {
+        setOptimisticLoginEnabled(account.login_enabled)
+    }, [account.login_enabled])
+
     const tooltip = !account.can_enable_login
         ? "Your organization requires SSO — sign-in with GitHub can't be enabled."
         : account.login_enabled
-          ? 'GitHub may be used to sign in.'
-          : 'GitHub is linked for attribution only. Toggle on to also use it for sign-in.'
+          ? 'GitHub is linked for identity & login.'
+          : 'GitHub is linked for identity only.'
     return (
         <Tooltip title={tooltip}>
             <span className="inline-flex items-center">
                 <LemonSwitch
-                    checked={!!account.login_enabled}
+                    checked={optimisticLoginEnabled}
                     disabledReason={!account.can_enable_login ? 'Blocked by SSO enforcement' : undefined}
-                    onChange={onChange}
-                    label="Allow sign-in"
+                    loading={optimisticLoginEnabled !== account.login_enabled}
+                    onChange={(value) => {
+                        setOptimisticLoginEnabled(value)
+                        onChange(value)
+                    }}
+                    label="Allow login"
                     bordered={false}
                 />
             </span>
@@ -176,8 +187,8 @@ export function LinkedAccounts(): JSX.Element {
             title: `Disconnect ${account.display_name}?`,
             description:
                 account.provider === 'github'
-                    ? 'PostHog will no longer be able to attribute actions to your GitHub account. You can re-link anytime.'
-                    : `You'll no longer be able to sign in with ${account.display_name}.`,
+                    ? 'PostHog will no longer be able to attribute code changes to your PostHog account. You can re-link anytime.'
+                    : `You'll no longer be able to sign in with ${account.display_name}. You can re-link anytime.`,
             primaryButton: {
                 children: 'Disconnect',
                 status: 'danger',

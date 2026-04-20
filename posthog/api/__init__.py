@@ -703,7 +703,7 @@ router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_logi
 router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
-router.register(r"linked_accounts", linked_accounts.LinkedAccountsViewSet, "linked_accounts")
+router.register(r"users/@me/linked_accounts", linked_accounts.LinkedAccountsViewSet, "linked_accounts")
 router.register(
     r"user_home_settings",
     user_home_settings.UserHomeSettingsViewSet,
