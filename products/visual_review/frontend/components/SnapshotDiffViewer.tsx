@@ -259,17 +259,10 @@ export function SnapshotDiffViewer({
             <div className="flex gap-4">
                 <div className="flex-1 min-w-0 overflow-hidden">
                     {isQuarantined && quarantineEntry && (
-                        <div className="flex items-center justify-between bg-warning-highlight border border-warning rounded px-3 py-2 mb-4 text-sm">
-                            <span className="text-muted-alt">
-                                Quarantined — {quarantineEntry.reason}
-                                {quarantineEntry.expires_at &&
-                                    ` · until ${new Date(quarantineEntry.expires_at).toLocaleDateString()}`}
-                            </span>
-                            {onUnquarantine && (
-                                <LemonButton size="xsmall" type="secondary" onClick={onUnquarantine}>
-                                    Unquarantine
-                                </LemonButton>
-                            )}
+                        <div className="bg-warning-highlight border border-warning rounded px-3 py-2 mb-4 text-sm text-muted-alt">
+                            Quarantined — {quarantineEntry.reason}
+                            {quarantineEntry.expires_at &&
+                                ` · until ${new Date(quarantineEntry.expires_at).toLocaleDateString()}`}
                         </div>
                     )}
 
@@ -440,6 +433,32 @@ export function SnapshotDiffViewer({
                     {/* Quarantine */}
                     {hasChanges && !isQuarantined && onQuarantine && (
                         <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
+                    )}
+                    {isQuarantined && onUnquarantine && (
+                        <div>
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                size="small"
+                                fullWidth
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: 'Unquarantine this identifier?',
+                                        description:
+                                            'This identifier will be gated on again in future runs. ' +
+                                            'Branches that haven\u2019t merged the fix may get blocked.',
+                                        primaryButton: {
+                                            children: 'Unquarantine',
+                                            status: 'danger',
+                                            onClick: onUnquarantine,
+                                        },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                }}
+                            >
+                                Unquarantine
+                            </LemonButton>
+                        </div>
                     )}
                 </div>
             </div>
