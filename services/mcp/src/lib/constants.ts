@@ -132,6 +132,7 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'ticket:read',
     'ticket:write',
     'user:read',
+    'user:write',
     'warehouse_table:read',
     'warehouse_view:read',
     'warehouse_view:write',
