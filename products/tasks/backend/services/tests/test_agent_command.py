@@ -250,6 +250,20 @@ class TestSendAgentCommand:
 
     @patch("products.tasks.backend.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.services.agent_command.requests.post")
+    def test_no_active_session_400_is_retryable(self, mock_post, mock_validate):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.json.return_value = {"error": "No active session for this run"}
+        mock_post.return_value = mock_resp
+
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "user_message", params={"content": "hi"})
+        assert not result.success
+        assert result.retryable
+        assert result.error == "No active session for this run"
+
+    @patch("products.tasks.backend.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.services.agent_command.requests.post")
     def test_jsonrpc_error_in_200_response_is_detected(self, mock_post, mock_validate):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
