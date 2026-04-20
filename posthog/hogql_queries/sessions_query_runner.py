@@ -149,7 +149,15 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             for prop in self.query.properties:
                 if hasattr(prop, "type") and prop.type == "person":
                     return True
+        if self.query.filterTestAccounts:
+            for prop in self._get_test_account_filters():
+                prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
+                if prop_type == "person":
+                    return True
         return False
+
+    def _get_test_account_filters(self) -> list:
+        return self.team.test_account_filters or []
 
     def _transform_person_property_col(self, col: str) -> str:
         """Transform person.properties.X to use __person_lookup alias."""
@@ -335,13 +343,33 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                                 op=ast.CompareOperationOp.In,
                             )
                         )
+                # Collect test account filters that need the events subquery
+                test_account_event_filters: list = []
                 if self.query.filterTestAccounts:
                     with self.timings.measure("test_account_filters"):
-                        for prop in self.team.test_account_filters or []:
-                            where_exprs.append(property_to_expr(prop, self.team))
+                        for prop in self._get_test_account_filters():
+                            prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
+                            if prop_type == "session":
+                                where_exprs.append(property_to_expr(prop, self.team, scope="session"))
+                            elif prop_type == "person":
+                                from posthog.models.property import Property
+
+                                parsed = Property(**prop) if isinstance(prop, dict) else prop
+                                where_exprs.append(self._person_property_to_expr(parsed))
+                            elif prop_type in ("cohort", "static-cohort", "precalculated-cohort"):
+                                # Cohort filters reference person_id which doesn't exist on sessions;
+                                # route through the events subquery instead.
+                                test_account_event_filters.append(prop)
+                            elif prop_type == "event":
+                                # Event property filters reference the events properties column;
+                                # route through the events subquery.
+                                test_account_event_filters.append(prop)
+                            else:
+                                # Other types (hogql, etc.) — try applying directly
+                                test_account_event_filters.append(prop)
 
                 # Filter sessions by events
-                if self.query.event or self.query.actionId or self.query.eventProperties:
+                if self.query.event or self.query.actionId or self.query.eventProperties or test_account_event_filters:
                     with self.timings.measure("event_filter"):
                         # Extract $session_id exact-match filters from eventProperties and apply
                         # them directly on the sessions table, avoiding an unnecessary events
@@ -373,7 +401,10 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
 
                         # Build the events subquery for remaining filters
                         needs_events_subquery = bool(
-                            self.query.event or self.query.actionId or remaining_event_properties
+                            self.query.event
+                            or self.query.actionId
+                            or remaining_event_properties
+                            or test_account_event_filters
                         )
                         if needs_events_subquery:
                             event_where_exprs = []
@@ -400,6 +431,11 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             if remaining_event_properties:
                                 event_where_exprs.extend(
                                     property_to_expr(property, self.team) for property in remaining_event_properties
+                                )
+
+                            if test_account_event_filters:
+                                event_where_exprs.extend(
+                                    property_to_expr(prop, self.team) for prop in test_account_event_filters
                                 )
 
                             # Add timestamp filter to events subquery based on session date range
