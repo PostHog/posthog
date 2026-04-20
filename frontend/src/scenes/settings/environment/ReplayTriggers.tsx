@@ -255,6 +255,32 @@ function MobileSampling(): JSX.Element {
     )
 }
 
+function MobileMinimumDuration(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    const minDurationMs = currentTeam?.session_recording_minimum_duration_milliseconds
+    const minDurationSeconds = (minDurationMs ?? 0) / 1000
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-row items-center gap-2">
+                <LemonLabel className="text-base">
+                    Duration threshold <Since ios={{ version: '3.53.0' }} />
+                </LemonLabel>
+                <Tooltip title="Minimum duration is shared across web and mobile. Change it on the Web tab.">
+                    <span className="text-muted font-semibold">
+                        {minDurationMs ? `${minDurationSeconds}s` : 'No minimum'}
+                    </span>
+                </Tooltip>
+            </div>
+            <p className="text-muted-alt">
+                Minimum duration is shared across Web and iOS.{' '}
+                <span className="font-semibold">Change this setting on the Web tab.</span>
+            </p>
+        </div>
+    )
+}
+
 function MinimumDurationSetting(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -264,7 +290,7 @@ function MinimumDurationSetting(): JSX.Element | null {
             <div className="flex flex-col gap-2">
                 <div className="flex flex-row justify-between items-center">
                     <LemonLabel className="text-base">
-                        Duration threshold <Since web={{ version: '1.85.0' }} />
+                        Duration threshold <Since web={{ version: '1.85.0' }} ios={{ version: '3.53.0' }} />
                     </LemonLabel>
                     <IngestionControls.MinDuration
                         value={currentTeam?.session_recording_minimum_duration_milliseconds}
@@ -472,6 +498,7 @@ export function ReplayTriggers(): JSX.Element {
                     )}
                     <LinkedFlagSelector />
                     <MobileSampling />
+                    <MobileMinimumDuration />
                 </div>
             ),
         },
@@ -578,6 +605,11 @@ const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: '
             type: TriggerType.SAMPLING,
             enabled: hasSampling,
             sampleRate: sampleRate ? parseFloat(sampleRate) : null,
+        },
+        {
+            type: TriggerType.MIN_DURATION,
+            enabled: hasMinDuration,
+            minDurationMs: hasMinDuration ? (currentTeam.session_recording_minimum_duration_milliseconds ?? 0) : null,
         },
     ]
 }

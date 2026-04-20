@@ -9,6 +9,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// CapabilityGroupKey is the reserved key under ProcConfig.Groups that carries
+// the capability dimension inferred from ProcConfig.Capability
+const CapabilityGroupKey = "capability"
+
 // Mirrors a single entry under mprocs.yaml's "procs" key
 type ProcConfig struct {
 	Shell        string            `yaml:"shell"`
@@ -78,7 +82,30 @@ func Load(path string) (*Config, error) {
 	if cfg.MouseScrollSpeed == 0 {
 		cfg.MouseScrollSpeed = 3
 	}
+	inferGroupFromCapability(&cfg)
 	return &cfg, nil
+}
+
+// inferGroupFromCapability copies each proc's "capability:" field into
+// "groups:" map, so the TUI's grouping dimension cycle ("g" key) picks
+// it up alongside user-declared dimensions.
+// An explicit Groups[CapabilityGroupKey] in YAML takes precedence.
+func inferGroupFromCapability(cfg *Config) {
+	for name, pc := range cfg.Procs {
+		if pc.Capability == "" {
+			// Procs without a capability fall under "Ungrouped"
+			continue
+		}
+		if _, ok := pc.Groups[CapabilityGroupKey]; ok {
+			// Any explicit entry is respected, setting to "" leads to "Ungrouped"
+			continue
+		}
+		if pc.Groups == nil {
+			pc.Groups = make(map[string]string)
+		}
+		pc.Groups[CapabilityGroupKey] = pc.Capability
+		cfg.Procs[name] = pc
+	}
 }
 
 // Intent is a minimal representation of an intent from intent-map.yaml.

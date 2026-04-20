@@ -1,14 +1,19 @@
 """LangGraph agent for evaluation report generation using create_react_agent."""
 
 import os
+import uuid
 from typing import Any
 
 from django.conf import settings
 
 import structlog
+import posthoganalytics
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from posthog.cloud_utils import is_cloud
 from posthog.temporal.llm_analytics.eval_reports.report_agent.prompts import EVAL_REPORT_SYSTEM_PROMPT
@@ -248,11 +253,31 @@ def run_eval_report_agent(
         "report": EvalReportContent(metrics=metrics),
     }
 
-    try:
-        result = agent.invoke(
-            initial_state,
-            {"recursion_limit": EVAL_REPORT_AGENT_RECURSION_LIMIT},
+    # Tag every LLM call made by this agent run so they show up under `ai_product =
+    # llma_eval_reports` in LLM analytics, matching the convention used by other
+    # PostHog internal AI features. Trace id is unique per run so each invocation
+    # is its own trace; distinct id is the team so traces group by project.
+    callbacks: list[BaseCallbackHandler] = []
+    if posthoganalytics.default_client:
+        callbacks.append(
+            CallbackHandler(
+                posthoganalytics.default_client,
+                distinct_id=str(team_id),
+                trace_id=f"llma-eval-report-{evaluation_id}-{uuid.uuid4()}",
+                properties={
+                    "ai_product": "llma_eval_reports",
+                    "evaluation_id": evaluation_id,
+                },
+            )
         )
+
+    config: RunnableConfig = {
+        "recursion_limit": EVAL_REPORT_AGENT_RECURSION_LIMIT,
+        "callbacks": callbacks,
+    }
+
+    try:
+        result = agent.invoke(initial_state, config)
 
         content: EvalReportContent = result.get("report", EvalReportContent(metrics=metrics))
         # Always overwrite metrics with the trusted computation — the agent cannot

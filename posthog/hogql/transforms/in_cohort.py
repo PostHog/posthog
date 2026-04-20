@@ -438,6 +438,9 @@ class InCohortResolver(TraversingVisitor):
             else:
                 select.select_from = new_join
 
+        if current_scope is None:
+            raise ValueError("Expected current scope when resolving cohort comparison")
+
         compare.op = ast.CompareOperationOp.NotEq if negative else ast.CompareOperationOp.Eq
         compare.left = resolve_types(
             ast.Field(chain=[f"in_cohort__{cohort_id}", "matched"]),

@@ -315,3 +315,27 @@ tools:
     llm-analytics-evaluation-reports-runs-list:
         operation: llm_analytics_evaluation_reports_runs_list
         enabled: false
+    llm-skills-list:
+        operation: llm_skills_list
+        enabled: false
+    llm-skills-create:
+        operation: llm_skills_create
+        enabled: false
+    llm-skills-name-retrieve:
+        operation: llm_skills_name_retrieve
+        enabled: false
+    llm-skills-name-partial-update:
+        operation: llm_skills_name_partial_update
+        enabled: false
+    llm-skills-name-archive-create:
+        operation: llm_skills_name_archive_create
+        enabled: false
+    llm-skills-name-duplicate-create:
+        operation: llm_skills_name_duplicate_create
+        enabled: false
+    llm-skills-name-files-retrieve:
+        operation: llm_skills_name_files_retrieve
+        enabled: false
+    llm-skills-resolve-name-retrieve:
+        operation: llm_skills_resolve_name_retrieve
+        enabled: false

@@ -644,6 +644,52 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly supports_webhooks?: boolean
 }
 
+export interface ExternalDataSourceBulkUpdateSchemaApi {
+    /** Schema identifier to update. */
+    id: string
+    /** Whether the schema should be queryable/synced. */
+    should_sync?: boolean
+    /** Requested sync mode for the schema.
+
+* `full_refresh` - full_refresh
+* `incremental` - incremental
+* `append` - append
+* `webhook` - webhook
+* `cdc` - cdc */
+    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+    /**
+     * Incremental cursor field for incremental or append syncs.
+     * @nullable
+     */
+    incremental_field?: string | null
+    /**
+     * Type of the incremental cursor field.
+     * @nullable
+     */
+    incremental_field_type?: string | null
+    /**
+     * Human-readable sync frequency value.
+     * @nullable
+     */
+    sync_frequency?: string | null
+    /**
+     * UTC anchor time for scheduled syncs.
+     * @nullable
+     */
+    sync_time_of_day?: string | null
+    /** How CDC-backed tables should be exposed.
+
+* `consolidated` - consolidated
+* `cdc_only` - cdc_only
+* `both` - both */
+    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+}
+
+export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
+    /** Schema updates to apply in a single batch. */
+    schemas?: ExternalDataSourceBulkUpdateSchemaApi[]
+}
+
 export interface ExternalDataSourceConnectionOptionApi {
     readonly id: string
     /** @nullable */
@@ -1212,6 +1258,21 @@ export type ExternalDataSchemasListParams = {
 }
 
 export type ExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
     /**
      * Number of results to return per page.
      */

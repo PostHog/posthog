@@ -33,8 +33,8 @@ import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/lo
 
 import type { logsSceneLogicType } from './logsSceneLogicType'
 
-export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts'
-const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts']
+export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'configuration']
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 
 const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null => {
