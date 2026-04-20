@@ -35392,14 +35392,6 @@ export namespace Schemas {
     version?: number;
     };
 
-    export type LlmSkillsNameFilesRetrieveParams = {
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
     export type LlmSkillsResolveNameRetrieveParams = {
     /**
      * Return versions older than this version number. Mutually exclusive with offset.

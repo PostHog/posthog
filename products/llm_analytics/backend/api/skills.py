@@ -400,10 +400,7 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(new_skill), status=status.HTTP_201_CREATED)
 
-    @extend_schema(
-        parameters=[LLMSkillFetchQuerySerializer],
-        responses={200: LLMSkillFileSerializer},
-    )
+    @extend_schema(responses={200: LLMSkillFileSerializer})
     @action(
         methods=["GET"],
         detail=False,
