@@ -123,7 +123,14 @@ def test_load_deletion_request_rejects_property_removal():
 
 
 @pytest.mark.django_db
-def test_finalize_deletion_request_immediate_transitions_to_completed():
+@pytest.mark.parametrize(
+    "execution_mode, expected_status",
+    [
+        (ExecutionMode.IMMEDIATE, RequestStatus.COMPLETED),
+        (ExecutionMode.DEFERRED, RequestStatus.QUEUED),
+    ],
+)
+def test_finalize_deletion_request_transitions_status(execution_mode, expected_status):
     request = DataDeletionRequest.objects.create(
         team_id=TEAM_ID,
         request_type=RequestType.EVENT_REMOVAL,
@@ -131,6 +138,7 @@ def test_finalize_deletion_request_immediate_transitions_to_completed():
         start_time=datetime.now() - timedelta(days=7),
         end_time=datetime.now(),
         status=RequestStatus.IN_PROGRESS,
+        execution_mode=execution_mode,
     )
 
     deletion_ctx = DeletionRequestContext(
@@ -139,40 +147,13 @@ def test_finalize_deletion_request_immediate_transitions_to_completed():
         start_time=request.start_time,
         end_time=request.end_time,
         events=["$pageview"],
-        execution_mode=ExecutionMode.IMMEDIATE.value,
+        execution_mode=execution_mode.value,
     )
     context = build_op_context()
     finalize_deletion_request(context, deletion_ctx)
 
     request.refresh_from_db()
-    assert request.status == RequestStatus.COMPLETED
-
-
-@pytest.mark.django_db
-def test_finalize_deletion_request_deferred_transitions_to_queued():
-    request = DataDeletionRequest.objects.create(
-        team_id=TEAM_ID,
-        request_type=RequestType.EVENT_REMOVAL,
-        events=["$pageview"],
-        start_time=datetime.now() - timedelta(days=7),
-        end_time=datetime.now(),
-        status=RequestStatus.IN_PROGRESS,
-        execution_mode=ExecutionMode.DEFERRED,
-    )
-
-    deletion_ctx = DeletionRequestContext(
-        request_id=str(request.pk),
-        team_id=TEAM_ID,
-        start_time=request.start_time,
-        end_time=request.end_time,
-        events=["$pageview"],
-        execution_mode=ExecutionMode.DEFERRED.value,
-    )
-    context = build_op_context()
-    finalize_deletion_request(context, deletion_ctx)
-
-    request.refresh_from_db()
-    assert request.status == RequestStatus.QUEUED
+    assert request.status == expected_status
 
 
 @pytest.mark.django_db

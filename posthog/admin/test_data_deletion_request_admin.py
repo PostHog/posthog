@@ -8,6 +8,8 @@ from django.contrib.auth.models import Group
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, override_settings
 
+from parameterized import parameterized
+
 from posthog.admin.admins.data_deletion_request_admin import DataDeletionRequestAdmin
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 
@@ -73,23 +75,21 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.context_data["supports_deferred"])
 
-    def test_approve_view_post_deferred_persists_for_event_removal(self):
+    @parameterized.expand(
+        [
+            ("deferred", ExecutionMode.DEFERRED),
+            ("immediate", ExecutionMode.IMMEDIATE),
+        ]
+    )
+    def test_approve_view_post_persists_execution_mode_for_event_removal(self, _name, execution_mode):
         request = self._pending_request()
-        response = self._call_approve("POST", request, {"execution_mode": ExecutionMode.DEFERRED.value})
+        response = self._call_approve("POST", request, {"execution_mode": execution_mode.value})
 
         self.assertEqual(response.status_code, 302)
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.APPROVED)
-        self.assertEqual(request.execution_mode, ExecutionMode.DEFERRED)
+        self.assertEqual(request.execution_mode, execution_mode)
         self.assertTrue(request.approved)
-
-    def test_approve_view_post_immediate_persists(self):
-        request = self._pending_request()
-        response = self._call_approve("POST", request, {"execution_mode": ExecutionMode.IMMEDIATE.value})
-
-        self.assertEqual(response.status_code, 302)
-        request.refresh_from_db()
-        self.assertEqual(request.execution_mode, ExecutionMode.IMMEDIATE)
 
     def test_approve_view_post_deferred_rejected_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
