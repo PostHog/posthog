@@ -369,15 +369,27 @@ def _check_replication_healthy(client: Client, source_table: str) -> bool:
 
 
 def _check_no_mutations(client: Client, source_table: str) -> int:
-    """Return cluster-wide count of in-progress mutations on the source table."""
+    """Return cluster-wide count of distinct in-progress mutations on the source table."""
     database = _get_database()
     cluster = settings.CLICKHOUSE_CLUSTER
     rows = client.execute(
-        "SELECT count() FROM clusterAllReplicas(%(cluster)s, system.mutations) "
+        "SELECT countDistinct(mutation_id) FROM clusterAllReplicas(%(cluster)s, system.mutations) "
         "WHERE database = %(db)s AND table = %(table)s AND is_done = 0",
         {"cluster": cluster, "db": database, "table": source_table},
     )
     return rows[0][0]
+
+
+def _get_mutation_ids(client: Client, source_table: str) -> set[str]:
+    """Return all mutation_ids (any status) for the source table across the cluster."""
+    database = _get_database()
+    cluster = settings.CLICKHOUSE_CLUSTER
+    rows = client.execute(
+        "SELECT DISTINCT mutation_id FROM clusterAllReplicas(%(cluster)s, system.mutations) "
+        "WHERE database = %(db)s AND table = %(table)s",
+        {"cluster": cluster, "db": database, "table": source_table},
+    )
+    return {row[0] for row in rows}
 
 
 def _ensure_staging_table(client: Client, source_table: str, staging_table: str) -> None:
@@ -889,6 +901,10 @@ def break_part(
                     f"Part breaker would risk data inconsistency — skipping."
                 )
 
+            # Capture mutation_ids at start so we can detect any new mutations that appear
+            # during our run (even ones that start AND complete between FREEZE and ATTACH).
+            baseline_mutation_ids = _get_mutation_ids(client, source_table)
+
             # -- Step 3: Get paths and establish SSH connection --
             disk_paths = _get_disk_paths(client)
             part_disk = _get_part_disk(client, source_table, part.part_name)
@@ -1040,6 +1056,17 @@ def break_part(
             context.log.info(f"Moving {len(detached_parts)} parts to {source_detached}...")
             for dp in detached_parts:
                 _ssh_exec(ssh, f"mv {staging_tgt_detached}{dp} {source_detached}{dp}")
+
+            # Re-check for new mutations that appeared during our work — they'd have
+            # mutated the old part but not our staging data, producing inconsistent state.
+            current_mutation_ids = _get_mutation_ids(client, source_table)
+            new_mutation_ids = current_mutation_ids - baseline_mutation_ids
+            if new_mutation_ids:
+                raise dagster.Failure(
+                    description=f"{len(new_mutation_ids)} new mutation(s) appeared during part break "
+                    f"on {source_table}: {sorted(new_mutation_ids)}. "
+                    f"Aborting before ATTACH to avoid data inconsistency."
+                )
 
             context.log.info(f"Attaching {len(detached_parts)} new parts to {source_table}...")
             for dp in detached_parts:
