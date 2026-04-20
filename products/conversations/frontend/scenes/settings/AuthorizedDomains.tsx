@@ -4,7 +4,6 @@ import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { Link } from 'lib/lemon-ui/Link'
 
 import { supportSettingsLogic } from './supportSettingsLogic'
 
@@ -21,24 +20,12 @@ export function AuthorizedDomains(): JSX.Element {
                     <p className="mb-2">
                         <span className="font-bold">No domains configured.</span>
                         <br />
-                        The widget will show on all domains. Add domains to limit where it appears.
+                        The widget and API will be accessible on all domains. Add domains to limit where they appear.
                     </p>
-                    <p className="mb-2">
+                    <p className="mb-0">
                         <span className="font-bold">Ticket recovery is disabled until a domain is added.</span>{' '}
                         Recovering tickets by email requires at least one authorized domain so the recovery link can
                         only point to a site you control.
-                    </p>
-                    <p className="mb-0">
-                        For logged-in users we recommend{' '}
-                        <Link
-                            to="https://posthog.com/docs/support/widget#identity-verification"
-                            target="_blank"
-                            targetBlankIcon
-                        >
-                            identity verification
-                        </Link>{' '}
-                        instead — tickets persist across browsers and devices automatically without relying on email
-                        recovery.
                     </p>
                 </div>
             )}

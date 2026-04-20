@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 import asyncio
 import traceback
@@ -12,6 +11,7 @@ from django.core.management.base import BaseCommand, CommandError
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 from products.tasks.backend.services.mts_example import run_cursed_identifier_research
 
@@ -61,7 +61,7 @@ class Command(BaseCommand):
         self.stdout.write("")
 
         try:
-            findings, actionability, priority, presentation = asyncio.run(
+            result = asyncio.run(
                 run_cursed_identifier_research(
                     context,
                     branch=BRANCH,
@@ -74,31 +74,32 @@ class Command(BaseCommand):
             self.stdout.write(traceback.format_exc())
             raise
 
-        self._print_result(findings, actionability, priority, presentation)
-        self._write_json(findings, actionability, priority, presentation)
+        self._print_result(result)
+        self._write_json(result)
 
     def _flushing_write(self, msg: str) -> None:
         self.stdout.write(msg)
         self.stdout.flush()
 
-    def _print_result(self, findings, actionability, priority, presentation) -> None:
+    def _print_result(self, result: ReportResearchOutput) -> None:
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("=" * 60))
-        self.stdout.write(self.style.SUCCESS(f"Title:   {presentation.title}"))
-        self.stdout.write(f"Summary: {presentation.summary}")
+        self.stdout.write(self.style.SUCCESS(f"Title:   {result.title}"))
+        self.stdout.write(f"Summary: {result.summary}")
         self.stdout.write("")
         self.stdout.write(
-            f"Actionability: {actionability.actionability.value} (already_addressed={actionability.already_addressed})"
+            f"Actionability: {result.actionability.actionability.value} "
+            f"(already_addressed={result.actionability.already_addressed})"
         )
-        self.stdout.write(f"  Reason: {actionability.explanation}")
-        if priority:
-            self.stdout.write(f"Priority: {priority.priority.value}")
-            self.stdout.write(f"  Reason: {priority.explanation}")
+        self.stdout.write(f"  Reason: {result.actionability.explanation}")
+        if result.priority:
+            self.stdout.write(f"Priority: {result.priority.priority.value}")
+            self.stdout.write(f"  Reason: {result.priority.explanation}")
         else:
             self.stdout.write("Priority: N/A (not actionable)")
         self.stdout.write("")
-        for i, finding in enumerate(findings, start=1):
-            self.stdout.write(self.style.WARNING(f"--- Finding {i}/{len(findings)} ({finding.signal_id}) ---"))
+        for i, finding in enumerate(result.findings, start=1):
+            self.stdout.write(self.style.WARNING(f"--- Finding {i}/{len(result.findings)} ({finding.signal_id}) ---"))
             self.stdout.write(f"  Paths: {', '.join(finding.relevant_code_paths) or '(none)'}")
             self.stdout.write(f"  Verified: {finding.verified}")
             for sha, reason in finding.relevant_commit_hashes.items():
@@ -106,13 +107,7 @@ class Command(BaseCommand):
             self.stdout.write(f"  MCP/data: {finding.data_queried}")
             self.stdout.write("")
 
-    def _write_json(self, findings, actionability, priority, presentation) -> None:
-        payload = {
-            "findings": [f.model_dump(mode="json") for f in findings],
-            "actionability": actionability.model_dump(mode="json"),
-            "priority": priority.model_dump(mode="json") if priority else None,
-            "presentation": presentation.model_dump(mode="json"),
-        }
+    def _write_json(self, result: ReportResearchOutput) -> None:
         path = Path(f"mts_example_{int(time.time())}.json")
-        path.write_text(json.dumps(payload, indent=2, default=str))
+        path.write_text(result.model_dump_json(indent=2))
         self.stdout.write(self.style.SUCCESS(f"Saved: {path}"))
