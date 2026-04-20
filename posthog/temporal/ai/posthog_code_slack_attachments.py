@@ -7,10 +7,8 @@ ACP `ContentBlock`s. The wire format is consumed by `deserializeCloudPrompt` in
 `packages/agent/src/server/agent-server.ts` on the agent side.
 """
 
-from __future__ import annotations
-
-import base64
 import json
+import base64
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
