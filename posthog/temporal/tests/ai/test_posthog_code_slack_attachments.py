@@ -120,7 +120,7 @@ class TestEncodeUserMessageWithAttachments:
         ):
             result = encode_user_message_with_attachments(
                 "msg",
-                ["not-a-dict", _file()],  # type: ignore[list-item]
+                ["not-a-dict", _file()],
                 "xoxb-token",
             )
 
