@@ -164,6 +164,15 @@ def escape_postgres_identifier(v: str) -> str:
     if len(v) > 63:
         raise QueryError(f'The Postgres identifier "{v}" is too long. Maximum length is 63 characters.')
 
+    return _quote_postgres_wire_identifier(v)
+
+
+def escape_duckdb_identifier(v: str) -> str:
+    """Escape an identifier for DuckDB. Same quoting rules as Postgres but no length limit."""
+    return _quote_postgres_wire_identifier(v)
+
+
+def _quote_postgres_wire_identifier(v: str) -> str:
     if POSTGRES_SIMPLE_IDENTIFIER_REGEX.match(v) and v.upper() not in POSTGRES_RESERVED_KEYWORDS:
         return v
 

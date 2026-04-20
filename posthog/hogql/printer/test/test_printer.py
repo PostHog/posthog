@@ -5624,3 +5624,86 @@ class TestPostgresPrinter(BaseTest):
             self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
             "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
         )
+
+
+class TestDuckDBPrinter(BaseTest):
+    """DuckDB printer tests — focused on the DuckDB-specific overrides vs Postgres.
+
+    The DuckDB dialect inherits most of its behavior from PostgresPrinter, so the
+    full PG test surface is implicitly covered via inheritance. The assertions below
+    lock in the specific places DuckDB output diverges from PG.
+    """
+
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: ast.Expr | str,
+        context: Optional[HogQLContext] = None,
+        settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp-json",
+    ) -> str:
+        node = parse_expr(query, backend=backend) if isinstance(query, str) else query
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(
+            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
+        )
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="duckdb", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="duckdb",
+            stack=[prepared_select_query],
+        )
+
+    def _select(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        placeholders: Optional[dict[str, ast.Expr]] = None,
+    ) -> str:
+        return prepare_and_print_ast(
+            parse_select(query, placeholders=placeholders, backend="cpp-json"),
+            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "duckdb",
+        )[0]
+
+    @parameterized.expand(
+        [
+            ("any_renames_to_any_value", "any(event)", "any_value(events.event)"),
+            ("toTypeName_renames_to_typeof", "toTypeName(event)", "typeof(events.event)"),
+            (
+                "formatDateTime_renames_to_strftime",
+                "formatDateTime(timestamp, '%Y-%m-%d')",
+                "strftime(events.timestamp, '%Y-%m-%d')",
+            ),
+            (
+                "endsWith_renames_to_ends_with",
+                "endsWith(event, '_done')",
+                "ends_with(events.event, '_done')",
+            ),
+        ]
+    )
+    def test_function_renames(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_smoke_basic_select(self):
+        self.assertEqual(
+            self._select("SELECT event FROM events"),
+            "SELECT events.event FROM events LIMIT 50000",
+        )
+
+    def test_identifier_no_truncation(self):
+        # PG would truncate a >63-char generated alias with double underscores into a SHA-suffixed name,
+        # and raise outright via escape_postgres_identifier. DuckDB leaves it intact.
+        long_name = "a_really_long_table_name_that_would_force_pg_to_truncate__here"
+        long_name += "_even_further_past_63_chars"
+        self.assertGreater(len(long_name), 63)
+        from posthog.hogql.printer.duckdb import DuckDBPrinter
+
+        printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
+        # Simple alphanumeric identifier — returned verbatim without quoting.
+        self.assertEqual(printer._print_identifier(long_name), long_name)
