@@ -5827,7 +5827,15 @@ class AssistantRetentionEventsNode(BaseModel):
         default=None,
         description="Custom name for the event if it is needed to be renamed.",
     )
-    name: str = Field(..., description="Event name from the plan.")
+    id: str = Field(
+        ...,
+        description=(
+            "Event name from the plan — the same string as `name`. This is the field"
+            " the retention query engine uses to match events, so it must be populated"
+            " exactly as the event appears in the plan."
+        ),
+    )
+    name: str = Field(..., description="Event name from the plan — must be identical to `id`.")
     properties: (
         list[
             AssistantCohortPropertyFilter
@@ -8974,6 +8982,16 @@ class AssistantFunnelNodeShared(BaseModel):
             " completed the event with specified filters for the first time."
         ),
     )
+    optionalInFunnel: bool | None = Field(
+        default=False,
+        description=(
+            "If true, this step can be skipped without breaking the funnel — conversion"
+            " between the surrounding required steps still counts even if this step"
+            " didn't happen. Set this when the user asks for a non-required, skippable,"
+            " or optional step in the funnel. Do not set it on the first or last step"
+            " (those must be required)."
+        ),
+    )
     properties: (
         list[
             AssistantCohortPropertyFilter
@@ -9016,6 +9034,16 @@ class AssistantFunnelsActionsNode(BaseModel):
         ),
     )
     name: str = Field(..., description="Action name from the plan.")
+    optionalInFunnel: bool | None = Field(
+        default=False,
+        description=(
+            "If true, this step can be skipped without breaking the funnel — conversion"
+            " between the surrounding required steps still counts even if this step"
+            " didn't happen. Set this when the user asks for a non-required, skippable,"
+            " or optional step in the funnel. Do not set it on the first or last step"
+            " (those must be required)."
+        ),
+    )
     properties: (
         list[
             AssistantCohortPropertyFilter
@@ -9060,6 +9088,16 @@ class AssistantFunnelsEventsNode(BaseModel):
             " of users who have completed the event for the first time ever."
             " `first_time_for_user_with_filters` - counts the number of users who have"
             " completed the event with specified filters for the first time."
+        ),
+    )
+    optionalInFunnel: bool | None = Field(
+        default=False,
+        description=(
+            "If true, this step can be skipped without breaking the funnel — conversion"
+            " between the surrounding required steps still counts even if this step"
+            " didn't happen. Set this when the user asks for a non-required, skippable,"
+            " or optional step in the funnel. Do not set it on the first or last step"
+            " (those must be required)."
         ),
     )
     properties: (
