@@ -5,13 +5,14 @@ import { Readable } from 'stream'
 
 import type { LogsSettings } from '../types'
 import { parseJSON } from '../utils/json-parse'
-import { scrubLogRecord } from './log-pii-scrub'
 
 const MAX_JSON_ATTRIBUTES = 50
 
+// Histogram: `pii_scrub_enabled` reflects team `pii_scrub_logs` (TEMP: repurposed as “enter Avro decode/encode path”
+// for benchmark, not “PII scrub ran”). Revert label semantics when scrub is reattached below.
 const logProcessingDurationHistogram = new Histogram({
     name: 'logs_ingestion_processing_duration_seconds',
-    help: 'Time spent processing log messages (AVRO decode/encode cycle)',
+    help: 'Time spent processing log messages (AVRO decode/encode cycle). Label pii_scrub_enabled mirrors logs_settings.pii_scrub_logs (TEMP: gates Avro path only, scrub disabled).',
     labelNames: ['json_parse_enabled', 'pii_scrub_enabled', 'compression_codec'],
     buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1],
 })
@@ -219,7 +220,9 @@ export function enrichLogRecordWithJsonAttributes(record: LogRecord): LogRecord 
 /**
  * Processes an AVRO-encoded log message buffer containing multiple records.
  * Passthrough (no decode) when both json_parse_logs and pii_scrub_logs are off.
- * Otherwise: decode → optional JSON enrich → optional PII scrub → encode.
+ *
+ * TEMP (Avro benchmark): `pii_scrub_logs` only forces decode → encode (Avro round-trip). It does **not** run PII scrub.
+ * Revert: restore `scrubLogRecord` loop when `piiScrub`, un-skip tests in log-record-avro.test.ts, restore UI meaning.
  */
 export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSettings): Promise<Buffer> {
     const jsonParse = settings.json_parse_logs ?? false
@@ -246,11 +249,7 @@ export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSett
             }
         }
 
-        if (piiScrub) {
-            for (const record of records) {
-                scrubLogRecord(record)
-            }
-        }
+        // TEMP: pii_scrub_logs gates Avro decode/encode path only (benchmark). scrubLogRecord not called — see file docstring.
 
         const resultBuffer = await encodeLogRecords(logRecordType, codec, records)
         return resultBuffer

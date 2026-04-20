@@ -478,7 +478,8 @@ describe('log-record-avro', () => {
             expect(outputBuffer).toBe(inputBuffer)
         })
 
-        it('decodes and scrubs only when PII scrub is on without JSON parse', async () => {
+        // TEMP: skipped while pii_scrub_logs repurposes Avro round-trip only (no scrubLogRecord). Re-enable when scrub is wired back.
+        it.skip('decodes and scrubs only when PII scrub is on without JSON parse', async () => {
             const records: LogRecord[] = [
                 {
                     uuid: 'test-uuid',
@@ -512,7 +513,8 @@ describe('log-record-avro', () => {
             expect(body.message).toContain('{{REDACTED}}')
         })
 
-        it('enriches then scrubs when both JSON parse and PII scrub are on', async () => {
+        // TEMP: same as decodes-and-scrubs test above.
+        it.skip('enriches then scrubs when both JSON parse and PII scrub are on', async () => {
             const records: LogRecord[] = [
                 {
                     uuid: 'test-uuid',
@@ -545,7 +547,8 @@ describe('log-record-avro', () => {
             })
         })
 
-        it('flattens nested JSON keys then scrubs sensitive flattened attribute keys when both flags are on', async () => {
+        // TEMP: same as decodes-and-scrubs test above.
+        it.skip('flattens nested JSON keys then scrubs sensitive flattened attribute keys when both flags are on', async () => {
             const records: LogRecord[] = [
                 {
                     uuid: 'test-uuid',
