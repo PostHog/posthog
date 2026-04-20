@@ -34,14 +34,3 @@ pub enum BreakdownShape {
     ArrayString,
     U64,
 }
-
-impl BreakdownShape {
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "nullable_string" => Some(Self::NullableString),
-            "array_string" => Some(Self::ArrayString),
-            "u64" => Some(Self::U64),
-            _ => None,
-        }
-    }
-}

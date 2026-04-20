@@ -41,9 +41,9 @@
             <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinary</format>
+        <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel steps nullable_string</command>
+        <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -80,9 +80,9 @@
             <type>Array(Tuple(Nullable(Float64), UUID, UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinary</format>
+        <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel steps u64</command>
+        <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -119,9 +119,9 @@
             <type>Array(Tuple(Nullable(Float64), UUID, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinary</format>
+        <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel steps array_string</command>
+        <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -162,9 +162,9 @@
             <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinary</format>
+        <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel trends nullable_string</command>
+        <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -205,9 +205,9 @@
             <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinary</format>
+        <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel trends array_string</command>
+        <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -248,9 +248,9 @@
             <type>Array(Tuple(Nullable(Float64), UInt64, UUID, UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinary</format>
+        <format>RowBinaryWithNamesAndTypes</format>
         <send_chunk_header>true</send_chunk_header>
-        <command>aggregate_funnel trends u64</command>
+        <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
     </function>
 

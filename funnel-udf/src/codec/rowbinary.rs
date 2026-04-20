@@ -17,6 +17,12 @@ pub trait RowBinaryRead: Read {
         self.read_u8().map(|b| b as i8)
     }
 
+    fn read_u16_le(&mut self) -> CodecResult<u16> {
+        let mut b = [0u8; 2];
+        self.read_exact(&mut b)?;
+        Ok(u16::from_le_bytes(b))
+    }
+
     fn read_u32_le(&mut self) -> CodecResult<u32> {
         let mut b = [0u8; 4];
         self.read_exact(&mut b)?;

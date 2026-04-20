@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod chunk;
+pub mod header;
 pub mod rowbinary;
 
 use std::io;
@@ -15,6 +16,9 @@ pub enum CodecError {
     ShapeMismatch,
     InvalidChunkHeader(String),
     UnexpectedEof,
+    UnknownType(String),
+    TypeMismatch(String),
+    SchemaLen { got: usize, want: usize },
 }
 
 impl std::fmt::Display for CodecError {
@@ -35,6 +39,11 @@ impl std::fmt::Display for CodecError {
             }
             Self::InvalidChunkHeader(s) => write!(f, "invalid chunk header: {s:?}"),
             Self::UnexpectedEof => write!(f, "unexpected eof mid-row"),
+            Self::UnknownType(s) => write!(f, "unsupported ClickHouse type from header: {s}"),
+            Self::TypeMismatch(s) => write!(f, "type mismatch: {s}"),
+            Self::SchemaLen { got, want } => {
+                write!(f, "block header declares {got} columns, expected {want}")
+            }
         }
     }
 }
