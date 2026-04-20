@@ -39,16 +39,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="datadeletionrequest",
             name="person_drop_profiles",
-            field=models.BooleanField(
-                blank=True, help_text="Drop person profiles.", null=True
-            ),
+            field=models.BooleanField(blank=True, help_text="Drop person profiles.", null=True),
         ),
         migrations.AddField(
             model_name="datadeletionrequest",
             name="person_drop_recordings",
-            field=models.BooleanField(
-                blank=True, help_text="Drop person recordings.", null=True
-            ),
+            field=models.BooleanField(blank=True, help_text="Drop person recordings.", null=True),
         ),
         migrations.AlterField(
             model_name="datadeletionrequest",
