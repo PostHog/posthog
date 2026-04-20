@@ -5,6 +5,8 @@ from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
 
+from parameterized import parameterized
+
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 
@@ -112,6 +114,32 @@ class TestLogsAlertConfiguration(BaseTest):
 
         result = alert.get_recent_breaches()
         assert result == (False, True)
+
+    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
+    def test_get_recent_breaches_excludes_non_check_kinds(self, _name, non_check_kind):
+        # Control-plane rows (resets, snoozes, etc.) must never participate in N-of-M.
+        # A non-CHECK row with threshold_breached=False would otherwise inject a spurious
+        # "not-breaching" data point into the evaluator's window.
+        alert = self._create_alert(evaluation_periods=3)
+        check = LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        LogsAlertEvent.objects.filter(pk=check.pk).update(created_at=datetime(2026, 3, 19, 12, 0, tzinfo=UTC))
+        control = LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=non_check_kind,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+        LogsAlertEvent.objects.filter(pk=control.pk).update(created_at=datetime(2026, 3, 19, 12, 1, tzinfo=UTC))
+
+        result = alert.get_recent_breaches()
+        assert result == (True,)
 
     def test_clean_valid_n_of_m(self):
         alert = self._create_alert(datapoints_to_alarm=2, evaluation_periods=3, filters={"severityLevels": ["error"]})

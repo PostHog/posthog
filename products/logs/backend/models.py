@@ -134,9 +134,13 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         )
 
     def get_recent_breaches(self) -> tuple[bool, ...]:
-        """Last M non-errored events' threshold_breached values, newest first."""
+        """Last M non-errored check events' threshold_breached values, newest first."""
         return tuple(
-            LogsAlertEvent.objects.filter(alert=self, error_message__isnull=True)
+            LogsAlertEvent.objects.filter(
+                alert=self,
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=True,
+            )
             .order_by("-created_at")
             .values_list("threshold_breached", flat=True)[: self.evaluation_periods]
         )
@@ -179,11 +183,26 @@ class LogsAlertEvent(UUIDModel):
     # OK rows are capped by count (MAX_EVALUATION_PERIODS per alert) rather than by time.
     EVENT_RETENTION_DAYS = 90
 
+    class Kind(models.TextChoices):
+        # Worker-produced row from evaluating the ClickHouse check query. Only CHECK rows
+        # feed the N-of-M evaluator and are eligible for the inline prune. Control-plane
+        # kinds are reserved for user-initiated state transitions; writers are added in a
+        # follow-up PR (see spike 4.7). Every read path must filter by kind=CHECK to keep
+        # control-plane rows out of evaluator and prune windows.
+        CHECK = "check", "Check"
+        RESET = "reset", "Reset"
+        ENABLE = "enable", "Enable"
+        DISABLE = "disable", "Disable"
+        SNOOZE = "snooze", "Snooze"
+        UNSNOOZE = "unsnooze", "Unsnooze"
+        THRESHOLD_CHANGE = "threshold_change", "Threshold change"
+
     alert = models.ForeignKey(
         LogsAlertConfiguration,
         on_delete=models.CASCADE,
         related_name="events",
     )
+    kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.CHECK)
     created_at = models.DateTimeField(auto_now_add=True)
     result_count = models.PositiveIntegerField(null=True, blank=True)
     threshold_breached = models.BooleanField()

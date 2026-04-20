@@ -19574,6 +19574,144 @@ export namespace Schemas {
       readonly last_used_at: string | null;
     }
 
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type LLMSkillMetadata = {[key: string]: unknown};
+
+    export interface LLMSkillFileInput {
+      /**
+       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+       * @maxLength 500
+       */
+      path: string;
+      /** Text content of the file. */
+      content: string;
+      /**
+       * MIME type of the file content.
+       * @maxLength 100
+       */
+      content_type?: string;
+    }
+
+    export interface LLMSkill {
+      readonly id: string;
+      /**
+       * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+       * @maxLength 64
+       */
+      name: string;
+      /**
+       * What this skill does and when to use it. Max 4096 characters.
+       * @maxLength 4096
+       */
+      description: string;
+      /** The SKILL.md instruction content (markdown). */
+      body: string;
+      /**
+       * License name or reference to a bundled license file.
+       * @maxLength 255
+       */
+      license?: string;
+      /**
+       * Environment requirements (intended product, system packages, network access, etc.).
+       * @maxLength 500
+       */
+      compatibility?: string;
+      /** List of pre-approved tools the skill may use. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata. */
+      metadata?: LLMSkillMetadata;
+      /** Bundled files to include with the initial version (scripts, references, assets). */
+      files?: LLMSkillFileInput[];
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly deleted: boolean;
+      readonly is_latest: boolean;
+      readonly latest_version: number;
+      readonly version_count: number;
+      readonly first_version_created_at: string;
+    }
+
+    export interface LLMSkillDuplicate {
+      /**
+       * Name for the duplicated skill. Must be unique.
+       * @maxLength 64
+       */
+      new_name: string;
+    }
+
+    export interface LLMSkillFile {
+      /** @maxLength 500 */
+      path: string;
+      content: string;
+      /** @maxLength 100 */
+      content_type?: string;
+    }
+
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type LLMSkillListMetadata = {[key: string]: unknown};
+
+    /**
+     * List serializer that omits the body field for progressive disclosure (Level 1).
+     */
+    export interface LLMSkillList {
+      readonly id: string;
+      /**
+       * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+       * @maxLength 64
+       */
+      name: string;
+      /**
+       * What this skill does and when to use it. Max 4096 characters.
+       * @maxLength 4096
+       */
+      description: string;
+      /**
+       * License name or reference to a bundled license file.
+       * @maxLength 255
+       */
+      license?: string;
+      /**
+       * Environment requirements (intended product, system packages, network access, etc.).
+       * @maxLength 500
+       */
+      compatibility?: string;
+      /** List of pre-approved tools the skill may use. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata. */
+      metadata?: LLMSkillListMetadata;
+      /** Bundled files to include with the initial version (scripts, references, assets). */
+      files?: LLMSkillFileInput[];
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly deleted: boolean;
+      readonly is_latest: boolean;
+      readonly latest_version: number;
+      readonly version_count: number;
+      readonly first_version_created_at: string;
+    }
+
+    export interface LLMSkillVersionSummary {
+      readonly id: string;
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly is_latest: boolean;
+    }
+
+    export interface LLMSkillResolveResponse {
+      skill: LLMSkill;
+      versions: LLMSkillVersionSummary[];
+      has_more: boolean;
+    }
+
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -21460,6 +21598,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LLMProviderKey[];
+    }
+
+    export interface PaginatedLLMSkillListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LLMSkillList[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
@@ -25613,6 +25760,42 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       /** @nullable */
       readonly last_used_at?: string | null;
+    }
+
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type PatchedLLMSkillPublishMetadata = {[key: string]: unknown};
+
+    export interface PatchedLLMSkillPublish {
+      /** Full skill body (SKILL.md instruction content) to publish as a new version. */
+      body?: string;
+      /**
+       * Updated description for the new version.
+       * @maxLength 4096
+       */
+      description?: string;
+      /**
+       * License name or reference.
+       * @maxLength 255
+       */
+      license?: string;
+      /**
+       * Environment requirements.
+       * @maxLength 500
+       */
+      compatibility?: string;
+      /** List of pre-approved tools the skill may use. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata. */
+      metadata?: PatchedLLMSkillPublishMetadata;
+      /** Bundled files to include with this version. Replaces all files from the previous version. */
+      files?: LLMSkillFileInput[];
+      /**
+       * Latest version you are editing from. Used for optimistic concurrency checks.
+       * @minimum 1
+       */
+      base_version?: number;
     }
 
     export interface PatchedLiveDebuggerBreakpoint {
@@ -35121,6 +35304,57 @@ export namespace Schemas {
     version?: number;
     /**
      * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
+    version_id?: string;
+    };
+
+    export type LlmSkillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Optional substring filter applied to skill names and descriptions.
+     */
+    search?: string;
+    };
+
+    export type LlmSkillsNameRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
+    export type LlmSkillsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number;
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    /**
+     * Exact skill version UUID to resolve.
      */
     version_id?: string;
     };
