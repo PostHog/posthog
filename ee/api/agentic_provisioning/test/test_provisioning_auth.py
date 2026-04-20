@@ -798,6 +798,116 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         assert res.status_code == 429
         assert res.json()["error"]["code"] == "rate_limited"
 
+    @patch("posthog.api.oauth.cimd.CIMD_THROTTLES", new=[])
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_cimd_domain_rate_limit_blocks_excessive_registrations(self, mock_get, _url_mock):
+        from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
+
+        base_domain = "evil.example.com"
+        _, challenge = _pkce_pair()
+
+        for i in range(CIMD_DOMAIN_RATE_LIMIT_MAX):
+            url = f"https://{base_domain}/path-{i}/metadata.json"
+            mock_get.return_value = _cimd_mock_response(_make_cimd_metadata(url))
+            res = self.client.post(
+                "/api/agentic/provisioning/account_requests",
+                data={
+                    "id": f"req_domain_rl_{i}",
+                    "email": f"domain-rl-{i}@example.com",
+                    "client_id": url,
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                },
+                content_type="application/json",
+                HTTP_API_VERSION="0.1d",
+            )
+            assert res.status_code == 200, f"Request {i} failed: {res.json()}"
+
+        # Next registration from the same domain should be blocked
+        url = f"https://{base_domain}/path-blocked/metadata.json"
+        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata(url))
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_domain_rl_blocked",
+                "email": "domain-rl-blocked@example.com",
+                "client_id": url,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 429
+        assert res.json()["error"]["code"] == "rate_limited"
+
+    @patch("posthog.api.oauth.cimd.CIMD_THROTTLES", new=[])
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_cimd_domain_rate_limit_does_not_block_different_domains(self, mock_get, _url_mock):
+        from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
+
+        _, challenge = _pkce_pair()
+
+        for i in range(CIMD_DOMAIN_RATE_LIMIT_MAX + 2):
+            url = f"https://domain-{i}.example.com/.well-known/metadata.json"
+            mock_get.return_value = _cimd_mock_response(_make_cimd_metadata(url))
+            res = self.client.post(
+                "/api/agentic/provisioning/account_requests",
+                data={
+                    "id": f"req_diff_domain_{i}",
+                    "email": f"diff-domain-{i}@example.com",
+                    "client_id": url,
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                },
+                content_type="application/json",
+                HTTP_API_VERSION="0.1d",
+            )
+            assert res.status_code == 200, f"Request {i} for domain-{i} failed: {res.json()}"
+
+    @patch("posthog.api.oauth.cimd.CIMD_THROTTLES", new=[])
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_cimd_domain_rate_limit_skipped_for_existing_apps(self, mock_get, _url_mock):
+        from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
+
+        base_domain = "existing.example.com"
+        _, challenge = _pkce_pair()
+
+        # Pre-create apps exceeding the domain limit
+        for i in range(CIMD_DOMAIN_RATE_LIMIT_MAX + 1):
+            url = f"https://{base_domain}/path-{i}/metadata.json"
+            OAuthApplication.objects.create(
+                name=f"Existing CIMD {i}",
+                client_secret="",
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="http://127.0.0.1:3000/callback",
+                algorithm="RS256",
+                is_cimd_client=True,
+                cimd_metadata_url=url,
+                provisioning_auth_method="pkce",
+                provisioning_active=True,
+                provisioning_can_create_accounts=True,
+                provisioning_can_provision_resources=True,
+            )
+
+        # Requests for existing apps should bypass the domain rate limit
+        url = f"https://{base_domain}/path-0/metadata.json"
+        mock_get.return_value = _cimd_mock_response(_make_cimd_metadata(url))
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_existing_domain",
+                "email": "existing-domain@example.com",
+                "client_id": url,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 200
+
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_self_serve_org_named_after_client_name(self, mock_get, _url_mock):
         from posthog.models.user import User

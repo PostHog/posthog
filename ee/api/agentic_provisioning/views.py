@@ -71,6 +71,10 @@ DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
 ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_PREFIX = "agentic_provisioning_account_requests_partner_rate:"
 ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
 
+CIMD_DOMAIN_RATE_LIMIT_PREFIX = "cimd_registration_domain_rate:"
+CIMD_DOMAIN_RATE_LIMIT_MAX = 5
+CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
+
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
 STRIPE_APP_NAME = "PostHog Stripe App"
@@ -1641,7 +1645,7 @@ def _enforce_partner_account_request_rate_limit(partner: OAuthApplication) -> Re
 
 
 def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
-    """Rate-limit first-time CIMD app registration by IP to match /authorize protections."""
+    """Rate-limit first-time CIMD app registration by IP and domain to match /authorize protections."""
     from posthog.api.oauth.cimd import CIMD_THROTTLES, is_cimd_client_id
 
     client_id = request.data.get("client_id") or request.query_params.get("client_id")
@@ -1651,8 +1655,6 @@ def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
         return None
 
     for throttle in CIMD_THROTTLES:
-        # CIMD throttles key on IP (CIMDBurstThrottle, CIMDSustainedThrottle) or a
-        # fixed global ident (CIMDGlobalThrottle) — none of them use the view argument.
         if not throttle.allow_request(request, view=None):  # type: ignore[arg-type]
             logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
             return Response(
@@ -1665,6 +1667,42 @@ def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
                 },
                 status=429,
             )
+
+    if error := _enforce_cimd_domain_rate_limit(client_id):
+        return error
+
+    return None
+
+
+def _enforce_cimd_domain_rate_limit(client_id: str) -> Response | None:
+    """Prevent a single domain from registering unlimited CIMD apps via different URL paths."""
+    from urllib.parse import urlparse
+
+    domain = urlparse(client_id).hostname
+    if not domain:
+        return None
+
+    window_index = int(time.time()) // CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS
+    key = f"{CIMD_DOMAIN_RATE_LIMIT_PREFIX}{domain}:{window_index}"
+    try:
+        count = cache.incr(key)
+    except ValueError:
+        cache.add(key, 0, timeout=CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS)
+        count = cache.incr(key)
+
+    if count > CIMD_DOMAIN_RATE_LIMIT_MAX:
+        logger.warning("cimd_domain_rate_limited", client_id=client_id, domain=domain, count=count)
+        _capture_provisioning_event("account_request", "cimd_domain_rate_limited", domain=domain, count=count)
+        return Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "rate_limited",
+                    "message": "Too many new client registrations from this domain. Try again later.",
+                },
+            },
+            status=429,
+        )
     return None
 
 
