@@ -261,6 +261,9 @@ def account_requests(request: Request) -> Response:
     if error := verify_api_version(request):
         return error
 
+    if error := _enforce_cimd_registration_throttle(request):
+        return error
+
     # --- Identify partner ---
     auth = ProvisioningAuthentication()
     partner = None
@@ -482,9 +485,7 @@ def _handle_new_user(
     if not isinstance(configuration, dict):
         configuration = {}
 
-    partner_label = (
-        partner.provisioning_partner_type.capitalize() if partner and partner.provisioning_partner_type else "Stripe"
-    )
+    partner_label = _partner_label(partner)
     org_name = configuration.get("organization_name") or f"{partner_label} ({email})"
 
     try:
@@ -1585,6 +1586,42 @@ def deep_links(request: Request) -> Response:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _partner_label(partner: OAuthApplication | None) -> str:
+    if not partner:
+        return "Stripe"
+    if partner.provisioning_partner_type:
+        return partner.provisioning_partner_type.capitalize()
+    if partner.name:
+        return partner.name
+    return "Stripe"
+
+
+def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
+    """Rate-limit first-time CIMD app registration by IP to match /authorize protections."""
+    from posthog.api.oauth.cimd import CIMD_THROTTLES, is_cimd_client_id
+
+    client_id = request.data.get("client_id") or request.query_params.get("client_id")
+    if not is_cimd_client_id(client_id):
+        return None
+    if OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+        return None
+
+    for throttle in CIMD_THROTTLES:
+        if not throttle.allow_request(request, view=None):
+            logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
+            return Response(
+                {
+                    "type": "error",
+                    "error": {
+                        "code": "rate_limited",
+                        "message": "Too many new client registrations. Try again later.",
+                    },
+                },
+                status=429,
+            )
+    return None
 
 
 def _verify_hmac_if_present(request: Request) -> Response | None:

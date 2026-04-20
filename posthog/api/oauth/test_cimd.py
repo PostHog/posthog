@@ -25,6 +25,7 @@ from posthog.api.oauth.cimd import (
     fetch_cimd_metadata,
     get_application_by_client_id,
     get_or_create_cimd_application,
+    get_or_create_cimd_provisioning_application,
     is_cimd_client_id,
     refresh_cimd_metadata_task,
     validate_cimd_url,
@@ -435,6 +436,67 @@ class TestGetApplicationByClientId(APIBaseTest):
     def test_cimd_url_not_found(self):
         with self.assertRaises(OAuthApplication.DoesNotExist):
             get_application_by_client_id("https://unknown.example.com/.well-known/oauth-client-metadata.json")
+
+
+@patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
+class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_creates_new_app_with_provisioning_defaults(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+
+        app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+
+        self.assertTrue(app.is_cimd_client)
+        self.assertEqual(app.cimd_metadata_url, VALID_CIMD_URL)
+        self.assertEqual(app.provisioning_auth_method, "pkce")
+        self.assertTrue(app.provisioning_active)
+        self.assertTrue(app.provisioning_can_create_accounts)
+        self.assertTrue(app.provisioning_can_provision_resources)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_backfills_provisioning_defaults_on_existing_cimd_app(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+        self.assertFalse(existing.is_provisioning_partner)
+
+        app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+
+        self.assertEqual(app.pk, existing.pk)
+        self.assertEqual(app.provisioning_auth_method, "pkce")
+        self.assertTrue(app.provisioning_active)
+        self.assertTrue(app.provisioning_can_create_accounts)
+        self.assertTrue(app.provisioning_can_provision_resources)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_preserves_existing_provisioning_config(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+        existing.provisioning_auth_method = "hmac"
+        existing.provisioning_active = False
+        existing.provisioning_can_create_accounts = False
+        existing.save(
+            update_fields=["provisioning_auth_method", "provisioning_active", "provisioning_can_create_accounts"]
+        )
+
+        app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+
+        self.assertEqual(app.provisioning_auth_method, "hmac")
+        self.assertFalse(app.provisioning_active)
+        self.assertFalse(app.provisioning_can_create_accounts)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_fetch_failure_raises(self, mock_get, _url_mock):
+        mock_get.side_effect = requests.ConnectionError("DNS resolution failed")
+        with self.assertRaises(CIMDFetchError):
+            get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
 
 
 @override_settings(
