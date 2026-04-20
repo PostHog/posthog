@@ -734,9 +734,7 @@ def create_posthog_code_task_for_repo_activity(
     )
 
     event_files = event.get("files") or []
-    encoded_user_message = encode_user_message_with_attachments(
-        user_text, event_files, slack.client.token
-    )
+    encoded_user_message = encode_user_message_with_attachments(user_text, event_files, slack.client.token)
     has_encoded_attachments = encoded_user_message.startswith(CLOUD_PROMPT_PREFIX)
 
     slack_thread_context = SlackThreadContext(
