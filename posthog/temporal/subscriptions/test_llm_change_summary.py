@@ -180,6 +180,17 @@ class TestBuildInitialPromptMessages:
         user_content = messages[1]["content"]
         assert "conversion" in user_content.lower()
 
+    def test_funnel_hint_warns_against_superlatives_for_two_step_funnels(self):
+        # Regression: a two-step funnel was being described as having "the largest
+        # bottleneck" — clumsy because there's only one transition to describe.
+        current = [_make_state(1, "Signup", "step 1: 100, step 2: 12", query_kind="FunnelsQuery")]
+
+        messages = build_initial_prompt_messages(current)
+
+        user_content = messages[1]["content"]
+        assert "only two steps" in user_content
+        assert "without superlatives" in user_content
+
     def test_includes_subscription_title(self):
         current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]
 
