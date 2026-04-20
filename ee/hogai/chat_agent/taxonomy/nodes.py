@@ -269,4 +269,4 @@ class TaxonomyAgentToolsNode(
         ]
         reset_state.output = output
         reset_state.billable = state.billable
-        return cast("TaxonomyPartialStateType", reset_state)  # type: ignore[return-value]
+        return cast("TaxonomyPartialStateType", reset_state)

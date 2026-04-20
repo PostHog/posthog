@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime
-from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -127,7 +126,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
 
             if filters is None:
-                filters: dict[str, Any] = {
+                filters = {
                     "events": [{"id": "user signed up", "type": "events", "order": 0}],
                     "actions": [
                         {"id": action_credit_card.pk, "type": "actions", "order": 1},
@@ -139,7 +138,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             if properties is not None:
                 filters.update({"properties": properties})
 
-            filters["insight"] = INSIGHT_FUNNELS
+            filters["insight"] = INSIGHT_FUNNELS  # ty: ignore[invalid-assignment]
             filter = Filter(data=filters, team=self.team)
             return Funnel(filter=filter, team=self.team)
 

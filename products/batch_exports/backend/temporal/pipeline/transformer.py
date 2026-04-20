@@ -827,7 +827,7 @@ class PipelineTransformer:
             async for chunk in transformer.iter(record_batches_iter):
                 yield chunk
 
-        pipeline: collections.abc.AsyncIterable[Chunk] = functools.reduce(  # ty: ignore[invalid-assignment]
+        pipeline: collections.abc.AsyncIterable[Chunk] = functools.reduce(  # type: ignore[arg-type]  # ty: ignore[invalid-assignment]
             generate, iter(self.transformers), record_batches
         )
 
