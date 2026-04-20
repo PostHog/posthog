@@ -11,6 +11,7 @@ from posthog.hogql import ast
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.llm_analytics.eval_reports.constants import DOGFOOD_TEAM_IDS
 from posthog.temporal.llm_analytics.eval_reports.types import (
     CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
@@ -45,6 +46,7 @@ async def fetch_due_eval_reports_activity(
                 next_delivery_date__lte=now_with_buffer,
                 enabled=True,
                 deleted=False,
+                team_id__in=DOGFOOD_TEAM_IDS,
             )
             .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
             .values_list("id", flat=True)
@@ -78,6 +80,7 @@ async def fetch_count_triggered_eval_reports_activity(
             enabled=True,
             deleted=False,
             trigger_threshold__isnull=False,
+            team_id__in=DOGFOOD_TEAM_IDS,
         ).select_related("evaluation")
 
         for report in reports:
@@ -98,8 +101,11 @@ async def fetch_count_triggered_eval_reports_activity(
 
             # Count evals since last delivery (or since report creation if first run).
             # starts_at is nullable for count-triggered reports, so fall back to created_at.
+            # Pass the datetime directly to ast.Constant — HogQL's printer serializes it
+            # as toDateTime64(..., 6, <team_tz>) with correct TZ alignment. A bare string
+            # would be coerced in the team's timezone and silently shift the comparison
+            # by the team's offset.
             since = report.last_delivered_at or report.starts_at or report.created_at
-            since_str = since.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             team = Team.objects.get(id=report.team_id)
             query = parse_select(
@@ -112,7 +118,7 @@ async def fetch_count_triggered_eval_reports_activity(
                 """,
                 placeholders={
                     "evaluation_id": ast.Constant(value=str(report.evaluation_id)),
-                    "since": ast.Constant(value=since_str),
+                    "since": ast.Constant(value=since),
                 },
             )
             result = execute_hogql_query(query=query, team=team)
@@ -152,7 +158,8 @@ def _find_nth_eval_timestamp(
     from posthog.models import Team
 
     team = Team.objects.get(id=team_id)
-    before_str = before.strftime("%Y-%m-%d %H:%M:%S.%f")
+    # Pass `before` as a datetime so HogQL serializes it as toDateTime64(..., 6, <team_tz>)
+    # instead of a bare string that would be coerced in the team's timezone.
     query = parse_select(
         """
         SELECT min(ts) FROM (
@@ -167,7 +174,7 @@ def _find_nth_eval_timestamp(
         """,
         placeholders={
             "evaluation_id": ast.Constant(value=evaluation_id),
-            "before": ast.Constant(value=before_str),
+            "before": ast.Constant(value=before),
             "limit": ast.Constant(value=int(n)),
         },
     )

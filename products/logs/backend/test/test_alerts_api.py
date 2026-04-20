@@ -12,7 +12,7 @@ from posthog.models.team.team import Team
 
 from products.logs.backend.alert_check_query import BucketedCount
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
-from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -77,7 +77,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_last_error_message_null_when_no_errored_check(self):
         created = self._create_via_api()
         alert = LogsAlertConfiguration.objects.get(pk=created["id"])
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert, threshold_breached=False, state_before="not_firing", state_after="not_firing"
         )
 
@@ -89,21 +89,21 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_last_error_message_returns_most_recent_errored_check(self):
         created = self._create_via_api()
         alert = LogsAlertConfiguration.objects.get(pk=created["id"])
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert,
             threshold_breached=False,
             state_before="not_firing",
             state_after="errored",
             error_message="Earlier timeout",
         )
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert,
             threshold_breached=False,
             state_before="not_firing",
             state_after="errored",
             error_message="Latest ClickHouse timeout",
         )
-        LogsAlertCheck.objects.create(
+        LogsAlertEvent.objects.create(
             alert=alert, threshold_breached=False, state_before="errored", state_after="not_firing"
         )
 
@@ -111,6 +111,35 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["last_error_message"] == "Latest ClickHouse timeout"
+
+    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
+    def test_last_error_message_excludes_non_check_kinds(self, _name, non_check_kind):
+        # A control-plane row that happens to carry an error_message (e.g. a failed reset
+        # audit row in a hypothetical future shape) must not bleed into the user-facing
+        # last_error_message field — only worker CHECK rows should source it.
+        created = self._create_via_api()
+        alert = LogsAlertConfiguration.objects.get(pk=created["id"])
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="errored",
+            error_message="Real CH timeout",
+        )
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=non_check_kind,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+            error_message="This should not surface",
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["last_error_message"] == "Real CH timeout"
 
     def test_update(self):
         created = self._create_via_api()

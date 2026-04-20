@@ -27,6 +27,10 @@ import type {
     LLMPromptPublicApi,
     LLMPromptResolveResponseApi,
     LLMProviderKeyApi,
+    LLMSkillApi,
+    LLMSkillDuplicateApi,
+    LLMSkillFileApi,
+    LLMSkillResolveResponseApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
@@ -38,6 +42,9 @@ import type {
     LlmPromptsListParams,
     LlmPromptsNameRetrieveParams,
     LlmPromptsResolveNameRetrieveParams,
+    LlmSkillsListParams,
+    LlmSkillsNameRetrieveParams,
+    LlmSkillsResolveNameRetrieveParams,
     PaginatedClusteringJobListApi,
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
@@ -46,6 +53,7 @@ import type {
     PaginatedEvaluationReportRunListApi,
     PaginatedLLMPromptListListApi,
     PaginatedLLMProviderKeyListApi,
+    PaginatedLLMSkillListListApi,
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
     PaginatedScoreDefinitionListApi,
@@ -56,6 +64,7 @@ import type {
     PatchedEvaluationReportApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
+    PatchedLLMSkillPublishApi,
     PatchedReviewQueueItemUpdateApi,
     PatchedReviewQueueUpdateApi,
     PatchedScoreDefinitionMetadataApi,
@@ -1516,6 +1525,184 @@ export const llmPromptsResolveNameRetrieve = async (
     options?: RequestInit
 ): Promise<LLMPromptResolveResponseApi> => {
     return apiMutator<LLMPromptResolveResponseApi>(getLlmPromptsResolveNameRetrieveUrl(projectId, promptName, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsListUrl = (projectId: string, params?: LlmSkillsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_skills/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_skills/`
+}
+
+export const llmSkillsList = async (
+    projectId: string,
+    params?: LlmSkillsListParams,
+    options?: RequestInit
+): Promise<PaginatedLLMSkillListListApi> => {
+    return apiMutator<PaginatedLLMSkillListListApi>(getLlmSkillsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_skills/`
+}
+
+export const llmSkillsCreate = async (
+    projectId: string,
+    lLMSkillApi: NonReadonly<LLMSkillApi>,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillApi),
+    })
+}
+
+export const getLlmSkillsNameRetrieveUrl = (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_skills/name/${skillName}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_skills/name/${skillName}/`
+}
+
+export const llmSkillsNameRetrieve = async (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameRetrieveParams,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameRetrieveUrl(projectId, skillName, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsNamePartialUpdateUrl = (projectId: string, skillName: string) => {
+    return `/api/environments/${projectId}/llm_skills/name/${skillName}/`
+}
+
+export const llmSkillsNamePartialUpdate = async (
+    projectId: string,
+    skillName: string,
+    patchedLLMSkillPublishApi: PatchedLLMSkillPublishApi,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNamePartialUpdateUrl(projectId, skillName), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLLMSkillPublishApi),
+    })
+}
+
+export const getLlmSkillsNameArchiveCreateUrl = (projectId: string, skillName: string) => {
+    return `/api/environments/${projectId}/llm_skills/name/${skillName}/archive/`
+}
+
+export const llmSkillsNameArchiveCreate = async (
+    projectId: string,
+    skillName: string,
+    lLMSkillApi: NonReadonly<LLMSkillApi>,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameArchiveCreateUrl(projectId, skillName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillApi),
+    })
+}
+
+export const getLlmSkillsNameDuplicateCreateUrl = (projectId: string, skillName: string) => {
+    return `/api/environments/${projectId}/llm_skills/name/${skillName}/duplicate/`
+}
+
+export const llmSkillsNameDuplicateCreate = async (
+    projectId: string,
+    skillName: string,
+    lLMSkillDuplicateApi: LLMSkillDuplicateApi,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameDuplicateCreateUrl(projectId, skillName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillDuplicateApi),
+    })
+}
+
+export const getLlmSkillsNameFilesRetrieveUrl = (projectId: string, skillName: string, filePath: string) => {
+    return `/api/environments/${projectId}/llm_skills/name/${skillName}/files/${filePath}/`
+}
+
+export const llmSkillsNameFilesRetrieve = async (
+    projectId: string,
+    skillName: string,
+    filePath: string,
+    options?: RequestInit
+): Promise<LLMSkillFileApi> => {
+    return apiMutator<LLMSkillFileApi>(getLlmSkillsNameFilesRetrieveUrl(projectId, skillName, filePath), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsResolveNameRetrieveUrl = (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsResolveNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_skills/resolve/name/${skillName}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_skills/resolve/name/${skillName}/`
+}
+
+export const llmSkillsResolveNameRetrieve = async (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsResolveNameRetrieveParams,
+    options?: RequestInit
+): Promise<LLMSkillResolveResponseApi> => {
+    return apiMutator<LLMSkillResolveResponseApi>(getLlmSkillsResolveNameRetrieveUrl(projectId, skillName, params), {
         ...options,
         method: 'GET',
     })

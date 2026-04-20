@@ -31,8 +31,6 @@
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "// DEPRECATED - use hogli migrations:run instead ": "",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
-        "mypy-baseline-sync": "TEST=1 mypy . | mypy-baseline sync",
-        "mypy-check": "TEST=1 mypy . | mypy-baseline filter",
         "// DEPRECATED - use hogli format:python instead": "",
         "format:backend": "./bin/ruff.sh format .",
         "// DEPRECATED - use hogli format:js instead": "",
