@@ -18,6 +18,7 @@ Run `hogli --help` to get the full, current command list. Run `hogli <command> -
 
 ## Key references
 
-- `common/hogli/manifest.yaml` — command definitions (source of truth)
-- `common/hogli/commands.py` — extension point for custom Click commands
-- `common/hogli/README.md` — full developer and architecture docs
+- `hogli.yaml` — command definitions (source of truth)
+- `common/posthog_hogli/commands.py` — extension point for custom Click commands
+- `tools/hogli/README.md` — framework documentation
+- `common/posthog_hogli/README.md` — PostHog commands documentation
