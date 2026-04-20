@@ -18,6 +18,10 @@ const mockedUseValues = useValues as jest.Mock
 
 describe('ReplayCaptureDiagnosticsPanel', () => {
     describe('with eventProperties prop', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
         it('renders captured headline when $has_recording is true', () => {
             render(
                 <ReplayCaptureDiagnosticsPanel
@@ -57,7 +61,7 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             expect(screen.getByText('Session recording was disabled for this session')).toBeInTheDocument()
         })
 
-        it('renders sampled out headline', () => {
+        it('renders sampled in as unknown (sampled means recording started)', () => {
             render(
                 <ReplayCaptureDiagnosticsPanel
                     eventProperties={{
@@ -66,7 +70,7 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
                 />
             )
 
-            expect(screen.getByText('This session was excluded by sampling')).toBeInTheDocument()
+            expect(screen.getByText('Unable to determine why this recording is missing')).toBeInTheDocument()
         })
 
         it('renders trigger pending headline', () => {
@@ -173,7 +177,7 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             expect(container.innerHTML).toBe('')
         })
 
-        it('renders sampled out diagnosis from loaded properties', () => {
+        it('renders sampled in as unknown from loaded properties', () => {
             mockedUseValues.mockReturnValue({
                 sessionEventProperties: { $recording_status: 'sampled' },
                 sessionEventPropertiesLoading: false,
@@ -181,7 +185,7 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
 
             render(<ReplayCaptureDiagnosticsPanel sessionId="session-789" />)
 
-            expect(screen.getByText('This session was excluded by sampling')).toBeInTheDocument()
+            expect(screen.getByText('Unable to determine why this recording is missing')).toBeInTheDocument()
         })
     })
 })
