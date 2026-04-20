@@ -14,10 +14,6 @@ from django.conf import settings as app_settings
 
 import sqlparse
 import structlog
-from cachetools import (
-    TTLCache,
-    cached as cachetools_cached,
-)
 from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -150,19 +146,6 @@ def default_settings() -> dict:
         # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
         "max_query_size": 1048576,
     }
-
-
-_team_ai_cache: TTLCache = TTLCache(maxsize=10000, ttl=300)
-_team_ai_cache_lock = threading.RLock()
-
-
-@cachetools_cached(_team_ai_cache, lock=_team_ai_cache_lock)
-def get_team_ai_data_processing_approved(team_id: int) -> Optional[bool]:
-    from posthog.models.team import Team
-
-    return (
-        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
-    )
 
 
 @lru_cache(maxsize=1)
@@ -345,9 +328,6 @@ def sync_execute(
     query_log_tags = tags.model_copy(deep=True)
     query_log_tags.source_file = source_file
     query_log_tags.source_line = source_line
-
-    if query_log_tags.team_id is not None and query_log_tags.ai_data_processing_approved is None:
-        query_log_tags.ai_data_processing_approved = get_team_ai_data_processing_approved(query_log_tags.team_id)
 
     settings = {
         **core_settings,

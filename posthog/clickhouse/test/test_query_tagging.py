@@ -11,7 +11,6 @@ from pydantic import ValidationError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.execute import _team_ai_cache
 from posthog.clickhouse.query_tagging import (
     _PROJECT_ROOT_PREFIX,
     _SOURCE_SKIP_PREFIXES,
@@ -345,26 +344,20 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["source_line"] > 0
 
     @parameterized.expand([("approved", True), ("not_approved", False)])
-    def test_sync_execute_populates_ai_data_processing_approved(self, _name, approved):
-        _team_ai_cache.clear()
-        self.organization.is_ai_data_processing_approved = approved
-        self.organization.save()
-
+    def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):
         marker = str(uuid.uuid4())
         reset_query_tags()
-        tag_queries(kind="request", id="test", team_id=self.team.pk)
+        tag_queries(kind="request", id="test", team_id=self.team.pk, ai_data_processing_approved=approved)
         sync_execute(f"SELECT '{marker}'")  # noqa: S608
 
         comment = self._get_log_comment(marker)
 
         assert comment["ai_data_processing_approved"] is approved
 
-    def test_sync_execute_omits_ai_data_processing_approved_without_team_id(self):
-        _team_ai_cache.clear()
-
+    def test_sync_execute_omits_ai_data_processing_approved_when_not_tagged(self):
         marker = str(uuid.uuid4())
         reset_query_tags()
-        tag_queries(kind="request", id="test")
+        tag_queries(kind="request", id="test", team_id=self.team.pk)
         sync_execute(f"SELECT '{marker}'")  # noqa: S608
 
         comment = self._get_log_comment(marker)
