@@ -159,13 +159,14 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             if not ok:
                 raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
 
-        # Reject undispatchable formats before any workflow is enqueued.
-        # Without this gate, e.g. a JSON export request would be dispatched to
-        # image_exporter, raise NotImplementedError, and pollute the export SLO
-        # with a "failure" event for what is really a 4xx client error.
-        # Externally-handled formats (videos via VideoExportWorkflow, PDF via
-        # the sharing flow) are routed elsewhere and bypass this check.
-        if export_format not in (ExportedAsset.EXTERNALLY_HANDLED_FORMATS | ExportedAsset.DISPATCHABLE_FORMATS):
+        # Reject formats that have no working dispatcher before any workflow
+        # is enqueued. Without this gate, an undispatchable format (e.g. JSON
+        # or PDF) would enqueue a workflow, raise NotImplementedError during
+        # dispatch, and pollute the export SLO with a failure event for what
+        # is really a 4xx client error. `ACCEPTED_FORMATS` is the set with a
+        # real dispatch path — see `ExportedAsset.ExportFormat` for why some
+        # formats are in the enum but not accepted.
+        if export_format not in ExportedAsset.ACCEPTED_FORMATS:
             raise ValidationError({"export_format": [f"{export_format} is not currently supported."]})
 
         data["team_id"] = self.context["team_id"]
@@ -190,11 +191,6 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             validated_data["created_by"] = user
 
         instance: ExportedAsset = super().create(validated_data)
-
-        if instance.export_format not in ExportedAsset.SUPPORTED_FORMATS:
-            raise serializers.ValidationError(
-                {"export_format": [f"Export format {instance.export_format} is not supported."]}
-            )
 
         team = instance.team
 
@@ -378,7 +374,7 @@ class ExportedAssetViewSet(
 
             # Add export format filter
             export_format_filter = self.request.query_params.get("export_format")
-            if export_format_filter and export_format_filter in ExportedAsset.get_supported_format_values():
+            if export_format_filter and export_format_filter in ExportedAsset.get_accepted_format_values():
                 queryset = queryset.filter(export_format=export_format_filter)
 
         return queryset

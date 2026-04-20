@@ -313,14 +313,20 @@ class TestExports(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("insight", lambda self: {"insight": self.insight.id}),
-            ("dashboard", lambda self: {"dashboard": self.dashboard.id}),
+            ("json_insight", "application/json", "insight"),
+            ("json_dashboard", "application/json", "dashboard"),
+            ("pdf_insight", "application/pdf", "insight"),
+            ("pdf_dashboard", "application/pdf", "dashboard"),
         ]
     )
-    def test_rejects_json_export(self, _name: str, payload_fn) -> None:
+    def test_rejects_undispatchable_format(self, _name: str, export_format: str, target: str) -> None:
+        # JSON and PDF are in ExportFormat.choices but have no working dispatcher.
+        # The serializer must reject them with a 400 before any workflow is enqueued
+        # (otherwise they surface as NotImplementedError in the exporter and pollute
+        # the export SLO with a spurious failure event).
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/json", **payload_fn(self)},
+            {"export_format": export_format, target: getattr(self, target).id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         body = response.json()
@@ -330,7 +336,7 @@ class TestExports(APIBaseTest):
     def test_will_error_if_dashboard_missing(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "dashboard": 54321},
+            {"export_format": "image/png", "dashboard": 54321},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -362,7 +368,7 @@ class TestExports(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "dashboard": other_dashboard.id},
+            {"export_format": "image/png", "dashboard": other_dashboard.id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -396,7 +402,7 @@ class TestExports(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "insight": other_insight.id},
+            {"export_format": "image/png", "insight": other_insight.id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -766,7 +772,6 @@ class TestExports(APIBaseTest):
             ("video/mp4", timedelta(days=365)),
             ("video/webm", timedelta(days=365)),
             ("image/gif", timedelta(days=365)),
-            ("application/pdf", timedelta(days=180)),
         ]
     )
     @patch("posthog.api.exports.async_to_sync")

@@ -42,6 +42,12 @@ class ExportedAssetManager(models.Manager):
 
 class ExportedAsset(models.Model):
     class ExportFormat(models.TextChoices):
+        # NOTE: PDF and JSON appear in this enum but have no working exporter and
+        # are rejected at the serializer (see `ACCEPTED_FORMATS` below). They are
+        # kept in the enum to avoid a schema/type migration and so existing
+        # historical rows remain valid. Adding real support later means wiring up
+        # an exporter branch in `posthog/tasks/exporter.py` and moving the format
+        # into `ACCEPTED_FORMATS`.
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
         CSV = "text/csv", "text/csv"
@@ -60,15 +66,13 @@ class ExportedAsset(models.Model):
     VISUAL_FORMATS = frozenset({ExportFormat.PNG})
     DISPATCHABLE_FORMATS = TABULAR_FORMATS | VISUAL_FORMATS
 
-    # Formats routed by separate code paths that bypass the standard dispatch:
-    #   - PDF          -> separate sharing/embed flow
-    #   - WEBM/MP4/GIF -> VideoExportWorkflow (session recordings only)
-    EXTERNALLY_HANDLED_FORMATS = frozenset({ExportFormat.PDF, ExportFormat.WEBM, ExportFormat.MP4, ExportFormat.GIF})
+    # Videos are dispatched via VideoExportWorkflow (session recordings only).
     VIDEO_FORMATS = frozenset({ExportFormat.WEBM, ExportFormat.MP4, ExportFormat.GIF})
 
-    # JSON is in ExportFormat.choices but has no working dispatch — rejected at
-    # the serializer to stop polluting the export SLO.
-    SUPPORTED_FORMATS = list(DISPATCHABLE_FORMATS | EXTERNALLY_HANDLED_FORMATS | {ExportFormat.JSON})
+    # The set the API actually accepts — every member has a working dispatch path.
+    # Formats in `ExportFormat.choices` but absent here (PDF, JSON) are rejected at
+    # the serializer with a 400 instead of silently failing downstream.
+    ACCEPTED_FORMATS = DISPATCHABLE_FORMATS | VIDEO_FORMATS
 
     # Relations
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -187,8 +191,8 @@ class ExportedAsset(models.Model):
         expired_assets.delete()
 
     @classmethod
-    def get_supported_format_values(cls):
-        return [format_choice.value for format_choice in cls.SUPPORTED_FORMATS]
+    def get_accepted_format_values(cls):
+        return [format_choice.value for format_choice in cls.ACCEPTED_FORMATS]
 
 
 def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:

@@ -118,14 +118,11 @@ def export_asset_direct(
         elif exported_asset.export_format in ExportedAsset.VISUAL_FORMATS:
             image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels, source=export_source)
         else:
-            # Defense in depth: the API serializer should reject unsupported
-            # format/asset combinations, but if we get here the asset was
-            # constructed by a non-API code path that bypassed validation.
-            # Each branch (csv_exporter / image_exporter) also has its own
-            # NotImplementedError as a third-line backstop.
+            # The API serializer rejects non-ACCEPTED_FORMATS. Reaching this
+            # branch means a non-API creator (e.g. subscriptions) built an
+            # ExportedAsset with a format the direct dispatcher can't handle.
             raise NotImplementedError(
-                f"Export format {exported_asset.export_format} cannot be dispatched. "
-                f"This format is either handled by a separate workflow or has no implementation."
+                f"Export format {exported_asset.export_format} has no direct-dispatch implementation."
             )
 
         EXPORT_SUCCEEDED_COUNTER.labels(type=exported_asset.export_format).inc()
