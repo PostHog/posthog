@@ -40,7 +40,8 @@ class ErrorTrackingSuppressionRuleFiltersField(serializers.JSONField):
             try:
                 PropertyGroupFilterValue(**value)
             except (PydanticValidationError, TypeError) as err:
-                raise serializers.ValidationError(str(err)) from err
+                logger.warning("Invalid suppression rule filters payload", exc_info=err)
+                raise serializers.ValidationError("Invalid filters payload.") from err
         elif "values" not in value:
             raise serializers.ValidationError("Invalid filters")
 
