@@ -74,8 +74,43 @@ const getStorageKey = (key: string): string => {
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
+/**
+ * Tab metadata we can safely JSON-serialize. `sceneParams` is omitted — it is derived from the URL when
+ * scenes load and can contain deep or cyclic structures after routing (e.g. dashboard as homepage).
+ */
+const tabToPersistableSnapshot = (tab: SceneTab, overrides: Partial<SceneTab> = {}): SceneTab => {
+    const snapshot: SceneTab = {
+        id: tab.id || generateTabId(),
+        pathname: tab.pathname,
+        search: tab.search,
+        hash: tab.hash,
+        title: tab.title,
+        iconType: tab.iconType,
+        active: tab.active,
+    }
+    if (tab.customTitle !== undefined) {
+        snapshot.customTitle = tab.customTitle
+    }
+    if (tab.pinned !== undefined) {
+        snapshot.pinned = tab.pinned
+    }
+    if (tab.badge !== undefined) {
+        snapshot.badge = tab.badge
+    }
+    if (tab.sceneId !== undefined) {
+        snapshot.sceneId = tab.sceneId
+    }
+    if (tab.sceneKey !== undefined) {
+        snapshot.sceneKey = tab.sceneKey
+    }
+    return { ...snapshot, ...overrides }
+}
+
+/** Plain tab snapshots for browser history (`structuredClone` in initKea); excludes `sceneParams`. */
+export const getTabsSnapshotForHistory = (tabs: SceneTab[]): SceneTab[] => tabs.map((t) => tabToPersistableSnapshot(t))
+
 const persistSessionTabs = (tabs: SceneTab[]): void => {
-    sessionStorage.setItem(getStorageKey(TAB_STATE_KEY), JSON.stringify(tabs))
+    sessionStorage.setItem(getStorageKey(TAB_STATE_KEY), JSON.stringify(tabs.map((t) => tabToPersistableSnapshot(t))))
 }
 
 const getPersistedSessionTabs = (): SceneTab[] | null => {
@@ -91,13 +126,7 @@ const getPersistedSessionTabs = (): SceneTab[] | null => {
 }
 
 const sanitizeTabForPersistence = (tab: SceneTab): SceneTab => {
-    const { active, ...rest } = tab
-    return {
-        ...rest,
-        id: tab.id || generateTabId(),
-        pinned: true,
-        active: false,
-    }
+    return tabToPersistableSnapshot(tab, { pinned: true, active: false })
 }
 
 const persistPinnedTabs = (tabs: SceneTab[], homepage: SceneTab | null): void => {
@@ -1429,8 +1458,21 @@ export const sceneLogic = kea<sceneLogicType>([
                 if (targetPathname === '/') {
                     targetPathname = urls.projectHomepage()
                 }
-                router.actions.replace(targetPathname, homepage.search || '', homepage.hash || '')
-                return
+                const targetSearch = homepage.search || ''
+                const targetHash = homepage.hash || ''
+                const loc = router.values.currentLocation
+                // If we're already at the homepage URL, skip replace. Otherwise replaceState re-runs this
+                // handler forever (e.g. homepage pathname equals project root `/project/:id`).
+                if (
+                    addProjectIdIfMissing(loc.pathname) === addProjectIdIfMissing(targetPathname) &&
+                    (loc.search || '') === targetSearch &&
+                    (loc.hash || '') === targetHash
+                ) {
+                    // Fall through to default `/` resolution below
+                } else {
+                    router.actions.replace(targetPathname, targetSearch, targetHash)
+                    return
+                }
             }
 
             const isAIFirst = posthog.isFeatureEnabled(FEATURE_FLAGS.AI_FIRST)
