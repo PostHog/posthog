@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { IconGithub } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 import { dayjs } from 'lib/dayjs'
@@ -15,6 +15,18 @@ import type {
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
+
+function getThemeSibling(identifier: string): string | null {
+    const parts = identifier.split('--')
+    const theme = parts[parts.length - 1]
+    if (theme === 'dark') {
+        return [...parts.slice(0, -1), 'light'].join('--')
+    }
+    if (theme === 'light') {
+        return [...parts.slice(0, -1), 'dark'].join('--')
+    }
+    return null
+}
 
 const SUGGESTED_REASONS = [
     'Non-deterministic rendering (animations, timestamps)',
@@ -34,10 +46,17 @@ function QuarantineAction({
 }): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const [reason, setReason] = useState('')
+    const [includeSibling, setIncludeSibling] = useState(true)
     const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(dayjs().add(DEFAULT_EXPIRY_DAYS, 'day'))
 
+    const sibling = getThemeSibling(identifier)
+
     const handleSubmit = (): void => {
-        onQuarantine(reason, [identifier], expiresAt ? expiresAt.toISOString() : null)
+        const identifiers = [identifier]
+        if (sibling && includeSibling) {
+            identifiers.push(sibling)
+        }
+        onQuarantine(reason, identifiers, expiresAt ? expiresAt.toISOString() : null)
         setIsOpen(false)
         setReason('')
         setExpiresAt(dayjs().add(DEFAULT_EXPIRY_DAYS, 'day'))
@@ -76,6 +95,18 @@ function QuarantineAction({
                     <div>
                         <label className="text-sm font-medium mb-1 block">Identifier</label>
                         <div className="font-mono text-xs text-muted bg-bg-3000 rounded px-2 py-1.5">{identifier}</div>
+                        {sibling && (
+                            <LemonCheckbox
+                                className="mt-1.5"
+                                label={
+                                    <span className="text-xs">
+                                        Also quarantine <span className="font-mono">{sibling}</span>
+                                    </span>
+                                }
+                                checked={includeSibling}
+                                onChange={setIncludeSibling}
+                            />
+                        )}
                     </div>
 
                     <div>
