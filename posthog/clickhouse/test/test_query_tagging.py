@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.execute import get_team_ai_data_processing_approved
+from posthog.clickhouse.client.execute import _team_ai_cache
 from posthog.clickhouse.query_tagging import (
     _PROJECT_ROOT_PREFIX,
     _SOURCE_SKIP_PREFIXES,
@@ -346,7 +346,7 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
     @parameterized.expand([("approved", True), ("not_approved", False)])
     def test_sync_execute_populates_ai_data_processing_approved(self, _name, approved):
-        get_team_ai_data_processing_approved.cache_clear()
+        _team_ai_cache.clear()
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
 
@@ -360,7 +360,7 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["ai_data_processing_approved"] is approved
 
     def test_sync_execute_omits_ai_data_processing_approved_without_team_id(self):
-        get_team_ai_data_processing_approved.cache_clear()
+        _team_ai_cache.clear()
 
         marker = str(uuid.uuid4())
         reset_query_tags()
