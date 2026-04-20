@@ -1,9 +1,11 @@
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
-import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, LogEntry, LogEntryLevel, MinimalAppMetric } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
+import { HogFlow } from '~/schema/hogflow'
 import { parseJSON } from '~/utils/json-parse'
 
 import { logger } from '../../../utils/logger'
@@ -135,13 +137,104 @@ export class EmailTrackingService {
         })
     }
 
+    public async trackLogs(
+        entries: {
+            functionId?: string
+            invocationId?: string
+            level: LogEntryLevel
+            message: string
+            // ISO timestamp of the originating SES event
+            timestamp: string
+        }[]
+    ): Promise<void> {
+        if (entries.length === 0) {
+            return
+        }
+
+        // Resolve flows once per unique functionId. Unknown IDs are cached as null by
+        // LazyLoader so repeated webhooks for non-flow function IDs don't hammer Postgres.
+        // Treat DB failure differently from "this ID is not a flow" so ops can distinguish
+        // transient infrastructure issues from the normal hog_function skip path.
+        const uniqueFunctionIds = Array.from(
+            new Set(entries.map((e) => e.functionId).filter((id): id is string => Boolean(id)))
+        )
+
+        let hogFlows: Record<string, HogFlow | null> = {}
+        try {
+            hogFlows = await this.hogFlowManager.getHogFlows(uniqueFunctionIds)
+        } catch (error) {
+            logger.error('[EmailTrackingService] trackLogs: Failed to load hog flows', { error })
+            emailTrackingErrorsCounter.inc({ error_type: 'hog_flow_lookup_failed', source: 'ses' })
+            return
+        }
+
+        const logEntries: LogEntry[] = []
+        for (const entry of entries) {
+            if (!entry.functionId || !entry.invocationId) {
+                logger.error('[EmailTrackingService] trackLogs: Invalid custom ID', {
+                    functionId: entry.functionId,
+                    invocationId: entry.invocationId,
+                })
+                emailTrackingErrorsCounter.inc({ error_type: 'invalid_custom_id', source: 'ses' })
+                continue
+            }
+
+            const hogFlow = hogFlows[entry.functionId]
+            if (!hogFlow) {
+                emailTrackingErrorsCounter.inc({ error_type: 'log_skipped_non_flow', source: 'ses' })
+                continue
+            }
+
+            const parsed = DateTime.fromISO(entry.timestamp, { zone: 'utc' })
+            if (!parsed.isValid) {
+                // Drop rather than fall back to `DateTime.utc()`: "now" differs across SNS
+                // retries and would defeat ClickHouse ReplacingMergeTree collapse, producing
+                // duplicate rows. SES always emits well-formed ISO timestamps, so an invalid
+                // value signals a malformed payload worth surfacing.
+                logger.warn('[EmailTrackingService] trackLogs: Invalid timestamp, dropping entry', {
+                    functionId: entry.functionId,
+                    invocationId: entry.invocationId,
+                    timestamp: entry.timestamp,
+                })
+                emailTrackingErrorsCounter.inc({ error_type: 'invalid_timestamp', source: 'ses' })
+                continue
+            }
+            logEntries.push({
+                team_id: hogFlow.team_id,
+                log_source: 'hog_flow',
+                log_source_id: hogFlow.id,
+                instance_id: entry.invocationId,
+                // Stamp with the SES event timestamp so the workflow log timeline reflects
+                // when the event actually happened. Combined with `queueLogs`'
+                // `fixLogDeduplication` (which bumps same-ms entries within a batch by +1ms
+                // deterministically), identical SNS re-deliveries land on identical
+                // ClickHouse ORDER BY keys and ReplacingMergeTree collapses duplicates.
+                // Edge case: if SNS splits a batch across retries or two pods race on the
+                // same notification, the +1ms offsets may shift and dedup may miss those rows.
+                timestamp: parsed,
+                level: entry.level,
+                message: entry.message,
+            })
+        }
+
+        if (logEntries.length === 0) {
+            return
+        }
+
+        // queueLogs runs fixLogDeduplication, which bumps duplicate-ms timestamps by +1ms
+        // within the batch. Queue all entries in one call so that protection applies
+        // across the whole webhook, then flush once rather than per entry.
+        this.hogFunctionMonitoringService.queueLogs(logEntries, 'hog_flow')
+        await this.hogFunctionMonitoringService.flush()
+    }
+
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
         if (!req.body) {
             return { status: 403, message: 'Missing request body' }
         }
 
         try {
-            const { status, body, metrics, optOutRecipients } = await this.sesWebhookHandler.handleWebhook({
+            const { status, body, metrics, logEntries, optOutRecipients } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
@@ -155,6 +248,28 @@ export class EmailTrackingService {
                     metricName: metric.metricName,
                     source: 'ses',
                 })
+            }
+
+            // One batched call per webhook: one flow lookup per unique functionId, one
+            // queueLogs call, one flush. Wrapped so a failure here doesn't skip the
+            // opt-out processing below.
+            // Gated by CDP_EMAIL_TRACKING_LOG_ENTRIES_ENABLED so ops can turn off the
+            // ClickHouse log_entries fan-out without affecting metrics or opt-outs.
+            if (defaultConfig.CDP_EMAIL_TRACKING_LOG_ENTRIES_ENABLED) {
+                try {
+                    await this.trackLogs(
+                        (logEntries || []).map((entry) => ({
+                            functionId: entry.functionId,
+                            invocationId: entry.invocationId,
+                            level: entry.level,
+                            message: entry.message,
+                            timestamp: entry.timestamp,
+                        }))
+                    )
+                } catch (error) {
+                    logger.error('[EmailTrackingService] handleSesWebhook: Failed to track logs', { error })
+                    emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
+                }
             }
 
             // Collect all emails to opt out per team, then batch each team's opt-out in one query

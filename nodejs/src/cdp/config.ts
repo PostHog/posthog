@@ -57,6 +57,11 @@ export type CdpConfig = {
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
+    // Kill switch for emitting per-SES-event log entries (Delivery, Bounce, Open, ...)
+    // into the hog_flow log_entries stream. When false, SES metrics and opt-outs still
+    // flow; only the log-row fan-out is suppressed. Read at process start - flipping
+    // requires a pod restart / rolling redeploy, not a live config change.
+    CDP_EMAIL_TRACKING_LOG_ENTRIES_ENABLED: boolean
 
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
@@ -151,6 +156,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
+        CDP_EMAIL_TRACKING_LOG_ENTRIES_ENABLED: true,
 
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()

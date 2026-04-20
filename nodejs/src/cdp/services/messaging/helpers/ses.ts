@@ -77,6 +77,14 @@ const SesClickEventSchema = SesCommonEventBase.extend({
     }),
 })
 
+// SES documents 50 recipients as the per-send maximum, so cap log fan-out at 50.
+// Anything beyond that is either a schema change or malformed input, and the summary
+// line below communicates the truncation without losing opt-out or metric signal.
+// Truncate at the log-format site rather than rejecting the whole payload at the
+// Zod layer so oversized records still get their metrics counted and opt-outs
+// processed; only the log fan-out is bounded.
+const MAX_RECIPIENTS_PER_EVENT = 50
+
 const SesDeliveryEventSchema = SesCommonEventBase.extend({
     eventType: z.literal('Delivery'),
     delivery: z.object({
@@ -126,7 +134,10 @@ const SesRenderingFailureSchema = SesCommonEventBase.extend({
 })
 
 const SesSendEventSchema = SesCommonEventBase.extend({ eventType: z.literal('Send') })
-const SesRejectEventSchema = SesCommonEventBase.extend({ eventType: z.literal('Reject') })
+const SesRejectEventSchema = SesCommonEventBase.extend({
+    eventType: z.literal('Reject'),
+    reject: z.object({ reason: z.string().optional() }).optional(),
+})
 
 const SesEventRecordSchema = z.union([
     SesOpenEventSchema,
@@ -153,6 +164,173 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
     Complaint: 'email_blocked',
     RenderingFailure: 'email_failed',
     Reject: 'email_failed',
+}
+
+export type SesEventLogLine = {
+    level: 'info' | 'warn' | 'error'
+    message: string
+    // ISO timestamp of the originating SES event. Used as the log entry timestamp so
+    // log order reflects when the event actually happened and SNS retries dedupe.
+    timestamp: string
+}
+
+// Cap each interpolated SES field so a huge user-agent or diagnostic string can't blow up
+// a log row. 1 KB is generous for anything SES produces in practice.
+const MAX_SES_FIELD_LENGTH = 1024
+
+// Strip control chars, neutralize rich-log bracket tokens (`[Action:…]`, `[Person:…]` etc.
+// that the workflow logs viewer renders as clickable UI elements), and cap length.
+const sanitizeSesField = (value: string, max = MAX_SES_FIELD_LENGTH): string => {
+    const cleaned = value
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/\[/g, '(')
+        .replace(/\]/g, ')')
+    return cleaned.length > max ? cleaned.slice(0, max) + '…' : cleaned
+}
+
+/**
+ * Format log lines for a single SES event record.
+ *
+ * Recipient-keyed events (Delivery, Bounce, Complaint) emit one line per actual recipient
+ * reported by SES. Account-scoped events (Open, Click, RenderingFailure, Reject) emit a
+ * single line. Open/Click don't carry per-recipient info in the SES payload, so fanning
+ * out over `mail.destination` would fabricate claims about recipients who didn't engage.
+ * Send events are skipped since the send is already logged when the email is dispatched.
+ */
+// Truncate a per-recipient fan-out list so we never emit more than
+// `MAX_RECIPIENTS_PER_EVENT` log lines per SES record. When truncation fires, append
+// a summary line so operators can see something was dropped. The caller still gets
+// the full recipient list for opt-out and metric processing.
+const truncateWithSummary = <T>(
+    items: T[],
+    format: (item: T) => SesEventLogLine,
+    summaryLevel: SesEventLogLine['level'],
+    summaryTimestamp: string
+): SesEventLogLine[] => {
+    if (items.length <= MAX_RECIPIENTS_PER_EVENT) {
+        return items.map(format)
+    }
+    const truncated = items.slice(0, MAX_RECIPIENTS_PER_EVENT).map(format)
+    const omitted = items.length - MAX_RECIPIENTS_PER_EVENT
+    truncated.push({
+        level: summaryLevel,
+        message: `... and ${omitted} more recipient${omitted === 1 ? '' : 's'} omitted from logs`,
+        timestamp: summaryTimestamp,
+    })
+    return truncated
+}
+
+export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
+    switch (rec.eventType) {
+        case 'Delivery': {
+            const smtp = rec.delivery.smtpResponse ? `, ${sanitizeSesField(rec.delivery.smtpResponse)}` : ''
+            const parts: string[] = []
+            if (rec.delivery.processingTimeMillis !== undefined) {
+                parts.push(`${rec.delivery.processingTimeMillis}ms`)
+            }
+            if (rec.delivery.reportingMTA) {
+                parts.push(`reporting MTA ${sanitizeSesField(rec.delivery.reportingMTA)}`)
+            }
+            const suffix = parts.length ? ` (${parts.join(', ')})` : ''
+            // Only emit per-recipient lines when SES names the successful recipients. Falling
+            // back to `mail.destination` would misreport failed addresses as "Delivered".
+            if (!rec.delivery.recipients || rec.delivery.recipients.length === 0) {
+                return [{ level: 'info', message: `Delivered${smtp}${suffix}`, timestamp: rec.delivery.timestamp }]
+            }
+            return truncateWithSummary(
+                rec.delivery.recipients,
+                (recipient) => ({
+                    level: 'info',
+                    message: `Delivered to ${sanitizeSesField(recipient)}${smtp}${suffix}`,
+                    timestamp: rec.delivery.timestamp,
+                }),
+                'info',
+                rec.delivery.timestamp
+            )
+        }
+        case 'Bounce': {
+            const bounceType = rec.bounce.bounceType
+            const level: SesEventLogLine['level'] = bounceType === 'Permanent' ? 'error' : 'warn'
+            return truncateWithSummary(
+                rec.bounce.bouncedRecipients,
+                (r) => {
+                    const diag = r.diagnosticCode ? sanitizeSesField(r.diagnosticCode) : ''
+                    // SES typically inlines the SMTP status inside diagnosticCode already
+                    // (e.g. "smtp; 550 5.1.1 user unknown"). Only append status separately
+                    // when the diagnostic doesn't already contain it, to avoid duplicates like
+                    // "... user unknown (5.1.1) (5.1.1)".
+                    const statusSuffix = r.status && !diag.includes(r.status) ? ` (${sanitizeSesField(r.status)})` : ''
+                    const diagPart = diag ? `, ${diag}` : ''
+                    return {
+                        level,
+                        message: `${bounceType} bounce to ${sanitizeSesField(r.emailAddress)}${diagPart}${statusSuffix}`,
+                        timestamp: rec.bounce.timestamp,
+                    }
+                },
+                level,
+                rec.bounce.timestamp
+            )
+        }
+        case 'Complaint': {
+            const feedback = rec.complaint.complaintFeedbackType
+                ? `, feedback type: ${sanitizeSesField(rec.complaint.complaintFeedbackType)}`
+                : ''
+            return truncateWithSummary(
+                rec.complaint.complainedRecipients,
+                (r) => ({
+                    level: 'warn',
+                    message: `Complaint from ${sanitizeSesField(r.emailAddress)}${feedback}`,
+                    timestamp: rec.complaint.timestamp,
+                }),
+                'warn',
+                rec.complaint.timestamp
+            )
+        }
+        case 'Open': {
+            // SES Open events don't identify which recipient opened - the event applies to
+            // whoever fetched the tracking pixel. Emit one account-scoped line; the row
+            // timestamp conveys "when".
+            // The message intentionally omits the word "Email" since the [Action:…] rich
+            // token in front of it renders as the action's name (typically "Email"), so
+            // "Email Email opened" would be redundant in the workflow logs viewer.
+            const ua = rec.open.userAgent ? ` (${sanitizeSesField(rec.open.userAgent)})` : ''
+            return [{ level: 'info', message: `Opened${ua}`, timestamp: rec.open.timestamp }]
+        }
+        case 'Click': {
+            const ua = rec.click.userAgent ? ` (${sanitizeSesField(rec.click.userAgent)})` : ''
+            return [
+                {
+                    level: 'info',
+                    message: `Link clicked: ${sanitizeSesField(rec.click.link)}${ua}`,
+                    timestamp: rec.click.timestamp,
+                },
+            ]
+        }
+        case 'RenderingFailure': {
+            const tmpl = rec.renderingFailure.templateName
+                ? ` for template ${sanitizeSesField(rec.renderingFailure.templateName)}`
+                : ''
+            return [
+                {
+                    level: 'error',
+                    message: `Rendering failure${tmpl}: ${sanitizeSesField(rec.renderingFailure.errorMessage)}`,
+                    timestamp: rec.mail.timestamp,
+                },
+            ]
+        }
+        case 'Reject': {
+            const reason = rec.reject?.reason ? `: ${sanitizeSesField(rec.reject.reason)}` : ''
+            return [
+                {
+                    level: 'error',
+                    message: `Message rejected by SES${reason}`,
+                    timestamp: rec.mail.timestamp,
+                },
+            ]
+        }
+        default:
+            return []
+    }
 }
 
 export class SesWebhookHandler {
@@ -315,6 +493,15 @@ export class SesWebhookHandler {
             actionId?: string
             metricName: MinimalAppMetric['metric_name']
         }[]
+        logEntries?: {
+            functionId?: string
+            invocationId?: string
+            actionId?: string
+            teamId?: string
+            level: SesEventLogLine['level']
+            message: string
+            timestamp: string
+        }[]
         optOutRecipients?: {
             teamId?: string
             emailAddresses: string[]
@@ -368,6 +555,15 @@ export class SesWebhookHandler {
             actionId?: string
             metricName: MinimalAppMetric['metric_name']
         }[] = []
+        const logEntries: {
+            functionId?: string
+            invocationId?: string
+            actionId?: string
+            teamId?: string
+            level: SesEventLogLine['level']
+            message: string
+            timestamp: string
+        }[] = []
         const optOutRecipients: {
             teamId?: string
             emailAddresses: string[]
@@ -388,6 +584,27 @@ export class SesWebhookHandler {
                 metrics.push({ functionId, invocationId, actionId, metricName })
             }
 
+            // Only trust the actionId for the rich-log prefix if it matches the allowlist
+            // the frontend log viewer uses for Action tokens. `actionId` originates from the
+            // attacker-influenceable `ph_id` tag, so without this gate a crafted payload
+            // could close the token early (e.g. `act] [Actor:victim`) and inject fake rich
+            // tokens into the workflow log viewer. Real action ids are UUID/slug-shaped.
+            const safeActionId = actionId && /^[a-zA-Z0-9_-]+$/.test(actionId) ? actionId : undefined
+            for (const line of formatSesEventLogs(rec)) {
+                // Prefix with [Action:<id>] so the workflow logs viewer can correlate
+                // the line with the email step and its per-step log filter picks it up.
+                const prefix = safeActionId ? `[Action:${safeActionId}] ` : ''
+                logEntries.push({
+                    functionId,
+                    invocationId,
+                    actionId,
+                    teamId,
+                    level: line.level,
+                    message: `${prefix}${line.message}`,
+                    timestamp: line.timestamp,
+                })
+            }
+
             // Opt out recipients on permanent bounces
             if (teamId && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
@@ -395,6 +612,6 @@ export class SesWebhookHandler {
             }
         }
 
-        return { status: 200, body: { ok: true }, metrics, optOutRecipients }
+        return { status: 200, body: { ok: true }, metrics, logEntries, optOutRecipients }
     }
 }
