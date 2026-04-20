@@ -56,11 +56,22 @@ if [ -f "$FLOX_MANIFEST" ]; then
   fi
 fi
 
+# Worktree-local env (VIRTUAL_ENV, PATH prepend) must NOT be cached — the
+# cache file is often hardlinked across worktrees for fast setup, so caching
+# these would pollute every linked worktree with one worktree's venv path.
+append_worktree_local_env() {
+  if [ -d "$VENV_DIR/bin" ]; then
+    printf 'export PATH="%s/bin:$PATH"\n' "${VENV_DIR}" >> "$CLAUDE_ENV_FILE"
+    printf 'export VIRTUAL_ENV="%s"\n' "${VENV_DIR}" >> "$CLAUDE_ENV_FILE"
+  fi
+}
+
 # Fast path: reuse cached env if manifest hash matches
 if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   CACHED_HASH=$(head -1 "$CACHE_FILE" | sed 's/^# manifest-hash: //')
   if [ "$CACHED_HASH" = "$MANIFEST_HASH" ]; then
     tail -n +2 "$CACHE_FILE" >> "$CLAUDE_ENV_FILE"
+    append_worktree_local_env
     mark_exit cache_hit
     exit 0
   fi
@@ -80,14 +91,14 @@ while IFS='=' read -r key value; do
   ENV_CONTENT="${ENV_CONTENT}$(printf 'export %s=%q\n' "$key" "$value")"$'\n'
 done < <(echo "$FLOX_ENV_SNAPSHOT" | grep -E "^(PATH|FLOX_|UV_PROJECT_ENVIRONMENT|OPENSSL_|LDFLAGS|CPPFLAGS|RUST_|LIBRARY_PATH|MANPATH|DOTENV_FILE|DEBUG|POSTHOG_SKIP_MIGRATION_CHECKS|FLAGS_REDIS_URL|RUSTC_WRAPPER|SCCACHE_)=")
 
-if [ -d "$VENV_DIR/bin" ]; then
-  ENV_CONTENT="${ENV_CONTENT}export PATH=\"${VENV_DIR}/bin:\$PATH\""$'\n'
-  ENV_CONTENT="${ENV_CONTENT}export VIRTUAL_ENV=\"${VENV_DIR}\""$'\n'
-fi
-
+# ENV_CONTENT deliberately excludes $VENV_DIR-based values — those are
+# worktree-specific and are appended to $CLAUDE_ENV_FILE separately below so
+# the cache file stays worktree-agnostic (safe to hardlink across worktrees).
 mkdir -p "$(dirname "$CACHE_FILE")"
 printf '%s' "$ENV_CONTENT" >> "$CLAUDE_ENV_FILE"
 printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
+
+append_worktree_local_env
 
 mark_exit fresh_snapshot
 exit 0
