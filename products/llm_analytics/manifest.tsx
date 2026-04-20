@@ -105,7 +105,6 @@ export const manifest: ProductManifest = {
             name: 'Skills',
             description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/skills-store',
             iconType: 'llm_prompts',
         },
         LLMAnalyticsSkill: {
@@ -113,7 +112,6 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'LLM analytics skill',
             layout: 'app-container',
-            defaultDocsPath: '/docs/llm-analytics/skills-store',
             iconType: 'llm_prompts',
         },
         LLMAnalyticsClusters: {
@@ -319,7 +317,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Skills',
             intents: [ProductKey.LLM_PROMPTS],
-            category: 'AI engineering',
+            category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_skills',
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
