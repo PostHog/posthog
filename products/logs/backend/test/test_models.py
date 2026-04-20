@@ -27,7 +27,7 @@ class TestLogsAlertConfiguration(BaseTest):
         assert alert.state == LogsAlertConfiguration.State.NOT_FIRING
         assert alert.threshold_operator == LogsAlertConfiguration.ThresholdOperator.ABOVE
         assert alert.window_minutes == 5
-        assert alert.check_interval_minutes == 1
+        assert alert.check_interval_minutes == 5
         assert alert.evaluation_periods == 1
         assert alert.datapoints_to_alarm == 1
         assert alert.cooldown_minutes == 0
