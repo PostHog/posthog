@@ -81,7 +81,6 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
     @parameterized.expand(
         [
             (ExportedAsset.ExportFormat.PNG, SIX_MONTHS),
-            (ExportedAsset.ExportFormat.PDF, SIX_MONTHS),
             (ExportedAsset.ExportFormat.CSV, SEVEN_DAYS),
             (ExportedAsset.ExportFormat.XLSX, SEVEN_DAYS),
             (ExportedAsset.ExportFormat.MP4, TWELVE_MONTHS),

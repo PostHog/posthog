@@ -15159,7 +15159,6 @@ export namespace Schemas {
 
     /**
      * * `image/png` - image/png
-    * `application/pdf` - application/pdf
     * `text/csv` - text/csv
     * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
     * `video/webm` - video/webm
@@ -15172,7 +15171,6 @@ export namespace Schemas {
 
     export const ExportFormatEnum = {
       ImagePng: 'image/png',
-      ApplicationPdf: 'application/pdf',
       TextCsv: 'text/csv',
       ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       VideoWebm: 'video/webm',

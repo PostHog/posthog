@@ -5083,7 +5083,6 @@ export interface SharingConfigurationType {
 export enum ExporterFormat {
     PNG = 'image/png',
     CSV = 'text/csv',
-    PDF = 'application/pdf',
     JSON = 'application/json',
     XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     WEBM = 'video/webm',

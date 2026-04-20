@@ -55,6 +55,21 @@ def get_counter_value(counter: Counter, labels: dict) -> float:
     return value_container.get() if value_container else 0.0
 
 
+# Expected API response for every ExportFormat. Accepts have a working dispatcher
+# (csv_exporter, image_exporter, or VideoExportWorkflow); rejects do not. If you
+# add a new ExportFormat, add a row here — the completeness assertion in
+# `test_format_status_matrix_covers_every_enum_value` fails otherwise.
+_FORMAT_STATUS_MATRIX = [
+    (ExportedAsset.ExportFormat.PNG, status.HTTP_201_CREATED),
+    (ExportedAsset.ExportFormat.CSV, status.HTTP_201_CREATED),
+    (ExportedAsset.ExportFormat.XLSX, status.HTTP_201_CREATED),
+    (ExportedAsset.ExportFormat.WEBM, status.HTTP_201_CREATED),
+    (ExportedAsset.ExportFormat.MP4, status.HTTP_201_CREATED),
+    (ExportedAsset.ExportFormat.GIF, status.HTTP_201_CREATED),
+    (ExportedAsset.ExportFormat.JSON, status.HTTP_400_BAD_REQUEST),
+]
+
+
 class TestExports(APIBaseTest):
     exported_asset: ExportedAsset
     dashboard: Dashboard
@@ -311,27 +326,42 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @parameterized.expand(
-        [
-            ("json_insight", "application/json", "insight"),
-            ("json_dashboard", "application/json", "dashboard"),
-            ("pdf_insight", "application/pdf", "insight"),
-            ("pdf_dashboard", "application/pdf", "dashboard"),
-        ]
-    )
-    def test_rejects_undispatchable_format(self, _name: str, export_format: str, target: str) -> None:
-        # JSON and PDF are in ExportFormat.choices but have no working dispatcher.
-        # The serializer must reject them with a 400 before any workflow is enqueued
-        # (otherwise they surface as NotImplementedError in the exporter and pollute
-        # the export SLO with a spurious failure event).
+    def _payload_for_format(self, export_format: str) -> dict:
+        if export_format in ExportedAsset.VIDEO_FORMATS:
+            return {
+                "export_format": export_format,
+                "export_context": {
+                    "mode": "screenshot",
+                    "session_recording_id": "session_test",
+                    "timestamp": 100,
+                    "duration": 5,
+                },
+            }
+        return {"export_format": export_format, "dashboard": self.dashboard.id}
+
+    @parameterized.expand(_FORMAT_STATUS_MATRIX)
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_format_gate_response_per_format(
+        self, export_format: str, expected_status: int, _mock_connect, _mock_async_to_sync
+    ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": export_format, target: getattr(self, target).id},
+            self._payload_for_format(export_format),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        body = response.json()
-        self.assertEqual(body["attr"], "export_format")
-        self.assertIn("not currently supported", body["detail"])
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            body = response.json()
+            self.assertEqual(body["attr"], "export_format")
+            self.assertIn("not currently supported", body["detail"])
+
+    def test_format_status_matrix_covers_every_enum_value(self) -> None:
+        # If a new ExportFormat is added without a row in _FORMAT_STATUS_MATRIX,
+        # this test fails — keeping the accept/reject decision explicit for
+        # every format instead of implicit in the serializer gate.
+        matrix_formats = {row[0] for row in _FORMAT_STATUS_MATRIX}
+        enum_values = set(ExportedAsset.ExportFormat.values)
+        self.assertSetEqual(matrix_formats, enum_values)
 
     def test_will_error_if_dashboard_missing(self) -> None:
         response = self.client.post(
@@ -779,22 +809,10 @@ class TestExports(APIBaseTest):
     def test_export_expiry_varies_by_format(
         self, export_format, expected_delta, mock_async_connect, mock_async_to_sync
     ) -> None:
-        is_video_format = export_format in ExportedAsset.VIDEO_FORMATS
-
-        if is_video_format:
-            payload = {
-                "export_format": export_format,
-                "export_context": {
-                    "mode": "screenshot",
-                    "session_recording_id": "test_session_123",
-                    "timestamp": 100,
-                    "duration": 5,
-                },
-            }
-        else:
-            payload = {"export_format": export_format, "dashboard": self.dashboard.id}
-
-        response = self.client.post(f"/api/projects/{self.team.id}/exports", payload)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            self._payload_for_format(export_format),
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
 

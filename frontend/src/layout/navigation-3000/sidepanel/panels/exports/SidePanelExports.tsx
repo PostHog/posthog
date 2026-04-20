@@ -166,7 +166,6 @@ const ExportsEmpty = (): JSX.Element => {
             case ExporterFormat.GIF:
                 return 'Video exports are automatically deleted after 12 months'
             case ExporterFormat.PNG:
-            case ExporterFormat.PDF:
             case ExporterFormat.JSON:
                 return 'These exports are automatically deleted after 6 months'
             default:

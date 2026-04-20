@@ -816,7 +816,6 @@ export interface PatchedDashboardTemplateApi {
 
 /**
  * * `image/png` - image/png
- * `application/pdf` - application/pdf
  * `text/csv` - text/csv
  * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
  * `video/webm` - video/webm
@@ -828,7 +827,6 @@ export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof Expo
 
 export const ExportFormatEnumApi = {
     ImagePng: 'image/png',
-    ApplicationPdf: 'application/pdf',
     TextCsv: 'text/csv',
     ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

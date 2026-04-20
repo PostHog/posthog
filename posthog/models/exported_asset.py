@@ -43,19 +43,14 @@ class ExportedAssetManager(models.Manager):
 class ExportedAsset(models.Model):
     class ExportFormat(models.TextChoices):
         # NOTE: Not every choice here is accepted by the /exports API —
-        # see `ACCEPTED_FORMATS` below for the honest subset.
-        #   * PDF has no working exporter anywhere. Kept in the enum for
-        #     historical rows and for one TTL-display switch in the frontend.
-        #   * JSON has no server-side exporter (rejected by the serializer),
-        #     but is actively used client-side as a MIME type for local Blob
-        #     downloads and clipboard copies (staff dashboard-as-template
-        #     export, web analytics copy, SQL editor output). Removing it
-        #     would require rewiring every client-side call site.
-        # Adding real server support means wiring a dispatcher in
-        # `posthog/tasks/exporter.py` and moving the format into
+        # `ACCEPTED_FORMATS` below is the honest subset. JSON has no server-side
+        # exporter (rejected by the serializer) but is kept here because it is
+        # used client-side as a MIME type for local Blob downloads and clipboard
+        # copies (staff dashboard-as-template export, web analytics copy, SQL
+        # editor output). Adding real server support for JSON means wiring a
+        # dispatcher in `posthog/tasks/exporter.py` and moving it into
         # `ACCEPTED_FORMATS`.
         PNG = "image/png", "image/png"
-        PDF = "application/pdf", "application/pdf"
         CSV = "text/csv", "text/csv"
         XLSX = (
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
