@@ -21,8 +21,8 @@ use crate::pg::load_person_from_pg;
 pub struct PersonHogLeaderService {
     cache: Arc<PartitionedCache>,
     /// Per-key locks to serialize concurrent updates for the same person.
-    /// Prevents lost updates from concurrent get -> compute -> produce -> put sequences.
-    update_locks: DashMap<PersonCacheKey, Arc<Mutex<()>>>,
+    /// Prevents lost updates from concurrent get -> compute -> produce -> put
+    /// sequences, and thundering herd on PG fallback.
     locks: DashMap<PersonCacheKey, Arc<Mutex<()>>>,
     producer: FutureProducer<KafkaContext>,
     changelog_topic: String,
