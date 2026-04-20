@@ -488,10 +488,9 @@ export interface PropertyGroupFilterValueApi {
  * * `user` - user
  * `role` - role
  */
-export type ErrorTrackingAssignmentRuleAssigneeRequestTypeEnumApi =
-    (typeof ErrorTrackingAssignmentRuleAssigneeRequestTypeEnumApi)[keyof typeof ErrorTrackingAssignmentRuleAssigneeRequestTypeEnumApi]
+export type Type079EnumApi = (typeof Type079EnumApi)[keyof typeof Type079EnumApi]
 
-export const ErrorTrackingAssignmentRuleAssigneeRequestTypeEnumApi = {
+export const Type079EnumApi = {
     User: 'user',
     Role: 'role',
 } as const
@@ -501,7 +500,7 @@ export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: ErrorTrackingAssignmentRuleAssigneeRequestTypeEnumApi
+    type: Type079EnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -650,6 +649,8 @@ export interface ErrorTrackingGroupingRuleApi {
     filters: unknown
     /** @nullable */
     readonly assignee: ErrorTrackingGroupingRuleApiAssignee
+    /** @nullable */
+    description?: string | null
     /**
      * Issue linked to this rule
      * @nullable
@@ -665,13 +666,30 @@ export interface ErrorTrackingGroupingRuleApi {
     readonly updated_at: string
 }
 
-export interface PaginatedErrorTrackingGroupingRuleListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+export interface ErrorTrackingGroupingRuleListResponseApi {
     results: ErrorTrackingGroupingRuleApi[]
+}
+
+export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
+    /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
+
+* `user` - user
+* `role` - role */
+    type: Type079EnumApi
+    /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
+    id: number | string
+}
+
+export interface ErrorTrackingGroupingRuleCreateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. */
+    filters: PropertyGroupFilterValueApi
+    /** Optional user or role to assign to issues created by this grouping rule. */
+    assignee?: ErrorTrackingGroupingRuleAssigneeRequestApi | null
+    /**
+     * Optional human-readable description of what this grouping rule is for.
+     * @nullable
+     */
+    description?: string | null
 }
 
 /**
@@ -693,6 +711,8 @@ export interface PatchedErrorTrackingGroupingRuleApi {
     filters?: unknown
     /** @nullable */
     readonly assignee?: PatchedErrorTrackingGroupingRuleApiAssignee
+    /** @nullable */
+    description?: string | null
     /**
      * Issue linked to this rule
      * @nullable
@@ -1030,17 +1050,6 @@ export type ErrorTrackingExternalReferencesListParams = {
 }
 
 export type ErrorTrackingFingerprintsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingGroupingRulesListParams = {
     /**
      * Number of results to return per page.
      */

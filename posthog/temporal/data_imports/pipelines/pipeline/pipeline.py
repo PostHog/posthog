@@ -2,6 +2,7 @@ import sys
 import time
 import asyncio
 import threading
+import contextvars
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Generic, Literal, TypeVar
@@ -83,6 +84,11 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
     iterator = iter(iterable)
     lock = threading.Lock()
     loop = asyncio.get_running_loop()
+    # loop.run_in_executor does not propagate contextvars across the thread
+    # boundary (unlike asyncio.to_thread). Snapshot them once so logs emitted
+    # from inside the source generator keep team_id / workflow_* and reach the
+    # log_entries table via LogMessagesRenderer's produce path.
+    ctx = contextvars.copy_context()
 
     def _next() -> tuple[bool, T | None]:
         with lock:
@@ -98,13 +104,20 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
 
     try:
         while True:
-            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _next)  # type: ignore
+            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, ctx.run, _next)  # type: ignore
             if not has_value:
                 break
 
             yield item
     finally:
-        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _close)
+        # Use a fresh context snapshot for cleanup. Reusing `ctx` would fail
+        # with RuntimeError if the activity is cancelled mid-_next: the
+        # in-flight _next may still be inside `ctx` on an executor thread,
+        # and Context.run raises when re-entered. A failed _close would skip
+        # iterator.close() and leave DB cursors / connections / tunnels held
+        # open until garbage collection.
+        cleanup_ctx = contextvars.copy_context()
+        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, cleanup_ctx.run, _close)
 
 
 class PipelineNonDLT(Generic[ResumableData]):
