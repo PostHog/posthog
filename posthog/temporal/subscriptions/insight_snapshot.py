@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import orjson
 import structlog
 from pydantic_core import to_jsonable_python
 
@@ -65,17 +66,26 @@ def build_initial_content_snapshot(subscription: Subscription) -> dict[str, Any]
 
 
 def _serialize_insight_result(result: InsightResult) -> dict[str, Any]:
-    return {
-        "result": result.result,
-        "columns": result.columns,
-        "types": result.types,
-        "resolved_date_range": _json_safe_value(result.resolved_date_range),
-        "last_refresh": result.last_refresh.isoformat() if result.last_refresh else None,
-        "is_cached": result.is_cached,
-        "timezone": result.timezone,
-        "has_more": result.has_more,
-        "query_status": _json_safe_value(result.query_status),
-    }
+    # Coerce NaN / ±Inf to null via orjson — Postgres JSONB rejects the bare tokens that stdlib
+    # json.dumps (Django JSONField's default encoder) emits for non-finite floats.
+    # `default=str` covers types orjson doesn't serialize natively (notably Decimal) the way
+    # DjangoJSONEncoder would have, so switching encoders is a no-op for non-finite-float payloads.
+    return orjson.loads(
+        orjson.dumps(
+            {
+                "result": result.result,
+                "columns": result.columns,
+                "types": result.types,
+                "resolved_date_range": _json_safe_value(result.resolved_date_range),
+                "last_refresh": result.last_refresh.isoformat() if result.last_refresh else None,
+                "is_cached": result.is_cached,
+                "timezone": result.timezone,
+                "has_more": result.has_more,
+                "query_status": _json_safe_value(result.query_status),
+            },
+            default=str,
+        )
+    )
 
 
 def _insight_snapshot_base_metadata(*, insight: Insight, tile: DashboardTile | None) -> dict[str, Any]:
@@ -104,6 +114,23 @@ def _resolve_effective_query_json(insight: Insight, dashboard: Dashboard | None)
     if query_json is None:
         query_json = insight.query_from_filters
     return query_json
+
+
+def _has_comparison_enabled(query_json: Any) -> bool:
+    """True if the insight has 'Compare to previous period' turned on.
+
+    Used to help the AI summary suggest enabling the overlay when it would
+    make the insight easier to interpret, without nagging when it is already
+    configured. Handles TrendsQuery / LifecycleQuery / StickinessQuery and
+    the DataVisualizationNode wrapper shape.
+    """
+    if not isinstance(query_json, dict):
+        return False
+    source = query_json.get("source", query_json)
+    if not isinstance(source, dict):
+        return False
+    compare_filter = source.get("compareFilter")
+    return bool(isinstance(compare_filter, dict) and compare_filter.get("compare"))
 
 
 def _execute_and_serialize_insight_query(
@@ -185,8 +212,10 @@ def build_insight_delivery_snapshot(
             "type": "missing_query",
             "message": "Insight has no query or convertible filters",
         }
+        base["comparison_enabled"] = False
         return base
 
+    base["comparison_enabled"] = _has_comparison_enabled(query_json)
     base.update(
         _execute_and_serialize_insight_query(
             insight=insight,

@@ -18,15 +18,11 @@ discovery → research ×N (up to 10) → actionability → priority? → presen
 
 ## Output shape
 
-4-tuple, types imported from Signals:
-
-```python
-(list[SignalFinding], ActionabilityAssessment, PriorityAssessment | None, ReportPresentationOutput)
-```
+Returns `ReportResearchOutput` from `products.signals.backend.report_generation.research` — consumed as-is by the Signals pipeline.
 
 ## Run it
 
-DEBUG only. Set up local sandboxes + GitHub integration + PostHog MCP OAuth first — see [../../temporal/process_task/SETUP_GUIDE.md](../../temporal/process_task/SETUP_GUIDE.md).
+DEBUG only. Set up local sandboxes + GitHub integration + PostHog MCP OAuth first — see [docs/internal/sandboxes-setup-guide.md](../../../../../docs/internal/sandboxes-setup-guide.md).
 
 ```bash
 DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>

@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
+import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -253,6 +254,12 @@ export default meta
 
 type Story = StoryObj<{}>
 export const SurveysList: Story = {}
+
+export const SurveysGlobalSettings: Story = {
+    parameters: {
+        pageUrl: urls.surveys(SurveysTabs.Settings),
+    },
+}
 
 export const NewSurvey: Story = {
     parameters: {

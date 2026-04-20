@@ -1793,18 +1793,6 @@ wheels = [
 ]
 
 [[package]]
-name = "django-picklefield"
-version = "3.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "django" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3d/3d/5e8b2ce0be78427ca91e63fcbdce2b98ea356c7c15b1886055b7ad35b959/django-picklefield-3.0.1.tar.gz", hash = "sha256:15ccba592ca953b9edf9532e64640329cd47b136b7f8f10f2939caa5f9ce4287", size = 9506, upload-time = "2020-06-05T16:08:07.509Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/59/d4/28d05a25f5d8dcb2f5f73b64badf278ae29a27ad8334a0022730a4ca3eb4/django_picklefield-3.0.1-py3-none-any.whl", hash = "sha256:3c702a54fde2d322fe5b2f39b8f78d9f655b8f77944ab26f703be6c0ed335a35", size = 9435, upload-time = "2020-06-05T16:08:06.467Z" },
-]
-
-[[package]]
 name = "django-prometheus"
 version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1840,18 +1828,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/17/60/2abaaa8bd46276d05630477f10960790dcd86c5ce63372ec8ce134401df6/django_scim2-0.19.0.tar.gz", hash = "sha256:531e8ae3d7dadb225e1b5addaa8c685f307de7eda5f23796ad0f4c7a96e06479", size = 27644, upload-time = "2023-03-19T17:57:30.271Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b9/1e/bfed9fe77bdb941b541f9ee61d5f24b6d8bfc61ed7e10ff2cba3fffe326c/django_scim2-0.19.0-py3-none-any.whl", hash = "sha256:0571c9798e3af1a199bc05d6726185675bdd960627c3f4406a0c125e3e12e025", size = 32070, upload-time = "2023-03-19T17:57:27.951Z" },
-]
-
-[[package]]
-name = "django-statsd"
-version = "2.5.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "python-statsd" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/0f/54/17d4a458a84ce02450cd4fa9672a6225d257fed1f506505612707ed6efd7/django-statsd-2.5.2.tar.gz", hash = "sha256:0be61db6bafb5eb16b2e81a095fc228fb2419da2fb8aa78916e25e850bc130a7", size = 8754, upload-time = "2020-05-03T19:18:27.003Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7a/06/d0340f12a7a949d927ee9f34b6e706993f3702f8db9f2214c90d3cb156d1/django_statsd-2.5.2-py2.py3-none-any.whl", hash = "sha256:e11a6a47cce17ec5bab2e44fb05333527342ef115c4cc7e573eccba9a0012f28", size = 10024, upload-time = "2020-05-03T19:18:29.252Z" },
 ]
 
 [[package]]
@@ -2042,12 +2018,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/2f/10/28dad68f4693a5131
 wheels = [
     { url = "https://files.pythonhosted.org/packages/39/06/c8d170aeb3e9eb3d951dd37acf1b6bad2b9401d0bee3346e40295c9e15a2/docker_image_py-0.1.13-py3-none-any.whl", hash = "sha256:c217fc72e8cdf2aa2caa718c758cec1ad41c09972ec1c94e85a4bf79a8f81061", size = 8894, upload-time = "2024-07-17T05:36:02.563Z" },
 ]
-
-[[package]]
-name = "docopt"
-version = "0.6.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a2/55/8f8cab2afd404cf578136ef2cc5dfb50baa1761b68c9da1fb1e4eed343c9/docopt-0.6.2.tar.gz", hash = "sha256:49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491", size = 25901, upload-time = "2014-06-16T11:18:57.406Z" }
 
 [[package]]
 name = "docstring-parser"
@@ -5078,11 +5048,9 @@ dependencies = [
     { name = "django-filter" },
     { name = "django-loginas" },
     { name = "django-oauth-toolkit" },
-    { name = "django-picklefield" },
     { name = "django-prometheus" },
     { name = "django-redis" },
     { name = "django-scim2" },
-    { name = "django-statsd" },
     { name = "django-structlog", extra = ["celery"] },
     { name = "django-two-factor-auth" },
     { name = "djangorestframework" },
@@ -5248,7 +5216,6 @@ dev = [
     { name = "pytest-rerunfailures" },
     { name = "pytest-split" },
     { name = "pytest-timeout" },
-    { name = "pytest-watch" },
     { name = "pytest-xdist" },
     { name = "python-dateutil" },
     { name = "pywatchman" },
@@ -5337,11 +5304,9 @@ requires-dist = [
     { name = "django-filter", specifier = "~=25.1" },
     { name = "django-loginas", specifier = "==0.3.14" },
     { name = "django-oauth-toolkit", specifier = "==3.1.0" },
-    { name = "django-picklefield", specifier = "==3.0.1" },
     { name = "django-prometheus", specifier = "==2.2.0" },
     { name = "django-redis", specifier = "==6.0.0" },
     { name = "django-scim2", specifier = "==0.19.0" },
-    { name = "django-statsd", specifier = "==2.5.2" },
     { name = "django-structlog", extras = ["celery"], specifier = "~=9.1.0" },
     { name = "django-two-factor-auth", specifier = "~=1.18.0" },
     { name = "djangorestframework", specifier = "~=3.16.1" },
@@ -5507,7 +5472,6 @@ dev = [
     { name = "pytest-rerunfailures", specifier = "~=16.1" },
     { name = "pytest-split", specifier = "~=0.10.0" },
     { name = "pytest-timeout", specifier = "~=2.4.0" },
-    { name = "pytest-watch", specifier = "==4.2.0" },
     { name = "pytest-xdist", specifier = "~=3.8.0" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
     { name = "pywatchman", specifier = ">=2.0.0" },
@@ -6261,18 +6225,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pytest-watch"
-version = "4.2.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "colorama" },
-    { name = "docopt" },
-    { name = "pytest" },
-    { name = "watchdog" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/36/47/ab65fc1d682befc318c439940f81a0de1026048479f732e84fe714cd69c0/pytest-watch-4.2.0.tar.gz", hash = "sha256:06136f03d5b361718b8d0d234042f7b2f203910d8568f63df2f866b547b3d4b9", size = 16340, upload-time = "2018-05-20T19:52:16.194Z" }
-
-[[package]]
 name = "pytest-xdist"
 version = "3.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -6346,15 +6298,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/39/66/9185fbb6605ba92716d9f77fbb13c97eb671cd13c3ad56bd154016fbf08b/python_snappy-0.7.3.tar.gz", hash = "sha256:40216c1badfb2d38ac781ecb162a1d0ec40f8ee9747e610bcfefdfa79486cee3", size = 9337, upload-time = "2024-08-29T13:16:05.705Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/86/c1/0ee413ddd639aebf22c85d6db39f136ccc10e6a4b4dd275a92b5c839de8d/python_snappy-0.7.3-py3-none-any.whl", hash = "sha256:074c0636cfcd97e7251330f428064050ac81a52c62ed884fc2ddebbb60ed7f50", size = 9155, upload-time = "2024-08-29T13:16:04.773Z" },
-]
-
-[[package]]
-name = "python-statsd"
-version = "2.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/bc/ea/0beeadf66faed4ccdcb48009bb4eebf580ac6c05e55b6fae4032c6c45b9a/python-statsd-2.1.0.tar.gz", hash = "sha256:d2c573d325d0f015b4d79f0d0f8c88dd8413d7b9ef890c09076a9b6089ab301c", size = 10834, upload-time = "2017-09-05T02:02:33.536Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6f/af/224e67da2deda72317aa9afe3445cf849ebd86f4001e20b5d164ef9d05f8/python_statsd-2.1.0-py2.py3-none-any.whl", hash = "sha256:f0b8b3333a7d474a3b0ece069e4849febdc66d2712d5290aea6ff1189a05fb80", size = 14479, upload-time = "2017-09-05T02:02:35.631Z" },
 ]
 
 [[package]]

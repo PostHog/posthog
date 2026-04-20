@@ -43,7 +43,6 @@ export const manifest: ProductManifest = {
             description: 'Test and experiment with LLM prompts in a sandbox environment.',
             layout: 'app-full-scene-height',
             iconType: 'llm_playground',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsDatasets: {
             import: () => import('./frontend/datasets/LLMAnalyticsDatasetsScene'),
@@ -68,7 +67,6 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsEvaluation: {
             import: () => import('./frontend/evaluations/LLMAnalyticsEvaluation'),
@@ -77,7 +75,6 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsEvaluationTemplates: {
             import: () => import('./frontend/evaluations/EvaluationTemplates'),
@@ -86,7 +83,6 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsPrompts: {
             import: () => import('./frontend/prompts/LLMPromptsScene'),
@@ -100,6 +96,21 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/prompts/LLMPromptScene'),
             projectBased: true,
             name: 'LLM analytics prompt',
+            layout: 'app-container',
+            iconType: 'llm_prompts',
+        },
+        LLMAnalyticsSkills: {
+            import: () => import('./frontend/skills/LLMSkillsScene'),
+            projectBased: true,
+            name: 'Skills',
+            description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
+            layout: 'app-container',
+            iconType: 'llm_prompts',
+        },
+        LLMAnalyticsSkill: {
+            import: () => import('./frontend/skills/LLMSkillScene'),
+            projectBased: true,
+            name: 'LLM analytics skill',
             layout: 'app-container',
             iconType: 'llm_prompts',
         },
@@ -144,6 +155,8 @@ export const manifest: ProductManifest = {
         '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
         '/llm-analytics/prompts': ['LLMAnalyticsPrompts', 'llmAnalyticsPrompts'],
         '/llm-analytics/prompts/:name': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
+        '/llm-analytics/skills': ['LLMAnalyticsSkills', 'llmAnalyticsSkills'],
+        '/llm-analytics/skills/:name': ['LLMAnalyticsSkill', 'llmAnalyticsSkill'],
         '/llm-analytics/clusters': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
         '/llm-analytics/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
         '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
@@ -219,6 +232,8 @@ export const manifest: ProductManifest = {
         llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
         llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
         llmAnalyticsPrompt: (name: string): string => `/llm-analytics/prompts/${name}`,
+        llmAnalyticsSkills: (): string => '/llm-analytics/skills',
+        llmAnalyticsSkill: (name: string): string => `/llm-analytics/skills/${name}`,
         llmAnalyticsClusters: (runId?: string): string =>
             runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
         llmAnalyticsCluster: (runId: string, clusterId: number): string =>
@@ -298,6 +313,18 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
             tags: ['beta'],
             sceneKey: 'LLMAnalyticsPrompts',
+        },
+        {
+            path: 'Skills',
+            intents: [ProductKey.LLM_PROMPTS],
+            category: ProductItemCategory.AI_ENGINEERING,
+            type: 'llm_skills',
+            iconType: 'llm_prompts' as FileSystemIconType,
+            iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+            href: urls.llmAnalyticsSkills(),
+            flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
+            tags: ['beta'],
+            sceneKey: 'LLMAnalyticsSkills',
         },
     ],
 }

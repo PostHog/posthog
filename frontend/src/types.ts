@@ -935,6 +935,7 @@ export enum ExperimentsTabs {
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
     History = 'history',
+    Settings = 'settings',
 }
 
 export enum ActivityTab {
@@ -5245,6 +5246,7 @@ export type APIScopeObject =
     | 'llm_gateway'
     | 'llm_prompt'
     | 'llm_provider_key'
+    | 'llm_skill'
     | 'logs'
     | 'notebook'
     | 'organization'
@@ -6283,15 +6285,15 @@ export enum AppMetricsTab {
 }
 
 export enum SidePanelTab {
-    AccessControl = 'access-control',
+    Max = 'max',
+    Notebooks = 'notebook',
+    Support = 'support',
+    Settings = 'settings',
     Activity = 'activity',
     Discussion = 'discussion',
     Exports = 'exports',
+    AccessControl = 'access-control',
     Info = 'info',
-    Max = 'max',
-    Notebooks = 'notebook',
-    Settings = 'settings',
-    Support = 'support',
 }
 
 export interface ProductPricingTierSubrows {

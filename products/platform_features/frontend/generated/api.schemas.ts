@@ -725,6 +725,10 @@ export type MembersListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string
 }
 
 export type RolesListParams = {

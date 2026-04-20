@@ -125,6 +125,9 @@ def _get_managed_prompt(team: Team | None, prompt_name: str, fallback: str) -> s
     return fallback
 
 
+COMPARISON_SUPPORTED_QUERY_KINDS = {"TrendsQuery", "LifecycleQuery", "StickinessQuery"}
+
+
 def _format_section(
     header: str,
     state: dict,
@@ -136,6 +139,12 @@ def _format_section(
         lines.append(f"Description: {description}")
     if analysis_hint:
         lines.append(f"Analysis focus: {analysis_hint}")
+    if state.get("query_kind") in COMPARISON_SUPPORTED_QUERY_KINDS:
+        lines.append(
+            "Compare to previous period: enabled"
+            if state.get("comparison_enabled")
+            else "Compare to previous period: not configured"
+        )
     lines.append(state.get("results_summary", "No data"))
     return "\n".join(lines)
 
