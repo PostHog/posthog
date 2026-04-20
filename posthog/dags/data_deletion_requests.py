@@ -545,7 +545,7 @@ _DELETION_JOB_NAMES = [
 
 @dagster.sensor(
     jobs=[data_deletion_request_event_removal, data_deletion_request_property_removal],
-    minimum_interval_seconds=60,
+    minimum_interval_seconds=600,
     default_status=dagster.DefaultSensorStatus.STOPPED,
 )
 def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext):
