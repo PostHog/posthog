@@ -6,21 +6,26 @@ The tagging LLM call happens in A4 as a follow-up turn in the same conversation
 that produced the consolidation. This activity only handles the Kafka produce.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import structlog
 import temporalio
+from dateutil import parser as dateutil_parser
 
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.models.team.team import Team
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.sync import database_sync_to_async
+from posthog.temporal.session_replay.session_summary.state import (
+    StateActivitiesEnum,
+    get_data_class_from_redis,
+    get_redis_state_client,
+)
 from posthog.temporal.session_replay.session_summary.types.video import (
     SessionTaggingOutput,
     VideoSummarySingleSessionInputs,
 )
+
+from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -32,19 +37,29 @@ async def tag_and_highlight_session_activity(
 ) -> None:
     """Write session tags and highlight flag to ClickHouse via Kafka."""
     try:
-        team = await Team.objects.aget(id=inputs.team_id)
-        metadata = await database_sync_to_async(SessionReplayEvents().get_metadata, thread_sensitive=False)(
-            session_id=inputs.session_id,
-            team=team,
+        # Read session metadata from the same Redis cache used by A6
+        redis_client, redis_input_key, _ = get_redis_state_client(
+            key_base=inputs.redis_key_base,
+            input_label=StateActivitiesEnum.SESSION_DB_DATA,
+            state_id=inputs.session_id,
         )
-        if not metadata or not metadata.get("start_time"):
+        llm_input = await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
+        )
+        if not llm_input:
             logger.warning(
-                f"No metadata for session {inputs.session_id}, skipping tag write",
+                f"No cached session data for session {inputs.session_id}, skipping tag write",
                 session_id=inputs.session_id,
                 signals_type="session-summaries",
             )
             return
-        _produce_to_kafka(inputs, tagging, metadata["start_time"])
+
+        session_start_time = dateutil_parser.isoparse(llm_input.session_start_time_str)
+        distinct_id = llm_input.distinct_id or ""
+        _produce_to_kafka(inputs, tagging, session_start_time, distinct_id)
     except Exception:
         logger.exception(
             f"Failed to write tags to Kafka for session {inputs.session_id}",
@@ -57,7 +72,8 @@ async def tag_and_highlight_session_activity(
 def _produce_to_kafka(
     inputs: VideoSummarySingleSessionInputs,
     tagging: SessionTaggingOutput,
-    session_start_time: datetime,
+    session_start_time,
+    distinct_id: str,
 ) -> None:
     """Produce a Kafka message to write tags and highlight flag to ClickHouse.
 
@@ -73,7 +89,7 @@ def _produce_to_kafka(
     data = {
         "session_id": inputs.session_id,
         "team_id": inputs.team_id,
-        "distinct_id": "",
+        "distinct_id": distinct_id,
         "first_timestamp": tag_row_ts,
         "last_timestamp": tag_row_ts,
         "block_url": None,
