@@ -439,3 +439,52 @@ class TestProcessTaskWorkflowUnit:
         await workflow._get_sandbox_for_repository()
 
         assert inject_fresh_tokens_on_resume not in activity_calls
+
+    async def test_update_pr_url_signal_stores_pr_url_on_workflow(self, monkeypatch):
+        # workflow.logger requires an active Temporal event loop; swap in a plain
+        # logger so the signal body can run as a direct coroutine call.
+        import logging
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger("test"))
+
+        workflow_instance = ProcessTaskWorkflow()
+        workflow_instance._context = _build_context(github_integration_id=123)
+
+        assert workflow_instance._pr_url is None
+
+        await workflow_instance.update_pr_url("https://github.com/org/repo/pull/42")
+
+        assert workflow_instance._pr_url == "https://github.com/org/repo/pull/42"
+
+    async def test_update_pr_url_signal_overwrites_previous_value(self, monkeypatch):
+        import logging
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger("test"))
+
+        workflow_instance = ProcessTaskWorkflow()
+        workflow_instance._context = _build_context(github_integration_id=123)
+        workflow_instance._pr_url = "https://github.com/org/repo/pull/1"
+
+        await workflow_instance.update_pr_url("https://github.com/org/repo/pull/2")
+
+        assert workflow_instance._pr_url == "https://github.com/org/repo/pull/2"
+
+    async def test_update_pr_url_signal_does_not_mutate_unrelated_state(self, monkeypatch):
+        # The signal should only touch _pr_url — completion/heartbeat/followup
+        # state drive the main loop, so clobbering them would terminate the run.
+        import logging
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger("test"))
+
+        workflow_instance = ProcessTaskWorkflow()
+        workflow_instance._context = _build_context(github_integration_id=123)
+
+        await workflow_instance.update_pr_url("https://github.com/org/repo/pull/42")
+
+        assert workflow_instance._task_completed is False
+        assert workflow_instance._completion_status == "completed"
+        assert workflow_instance._completion_error is None
+        assert workflow_instance._heartbeat_received is False
+        assert workflow_instance._pending_followup is None
+        assert workflow_instance._ci_repetitions == 0
+        assert workflow_instance._last_active_time is None

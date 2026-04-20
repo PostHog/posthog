@@ -1504,6 +1504,128 @@ class TestTaskRunAPI(BaseTaskAPITest):
             },
         )
 
+    @patch("products.tasks.backend.api.TaskRunViewSet._update_workflow_with_pr_url")
+    @patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.post_slack_update")
+    def test_partial_update_with_new_pr_url_signals_workflow(self, _mock_post_slack_update, mock_update_workflow):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"pr_url": "https://github.com/org/repo/pull/7"}, "status": "in_progress"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_update_workflow.assert_called_once()
+        call_args = mock_update_workflow.call_args
+        self.assertEqual(call_args[0][0].id, run.id)
+        self.assertEqual(call_args[0][1], "https://github.com/org/repo/pull/7")
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._update_workflow_with_pr_url")
+    @patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.post_slack_update")
+    def test_partial_update_without_pr_url_does_not_signal_workflow(
+        self, _mock_post_slack_update, mock_update_workflow
+    ):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"head_branch": "posthog-code/update-readme"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_update_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._update_workflow_with_pr_url")
+    @patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.post_slack_update")
+    def test_partial_update_same_pr_url_does_not_signal_workflow(self, _mock_post_slack_update, mock_update_workflow):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": "https://github.com/org/repo/pull/1"},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"pr_url": "https://github.com/org/repo/pull/1"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_update_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._post_slack_update_for_pr")
+    def test_update_workflow_with_pr_url_signal_failure_does_not_fail_request(self, _mock_slack):
+        # sync_connect is imported lazily inside _update_workflow_with_pr_url.
+        # A signal failure must be swallowed so the PATCH still succeeds and the
+        # output is persisted.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        with patch("posthog.temporal.common.client.sync_connect", side_effect=RuntimeError("temporal down")):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"output": {"pr_url": "https://github.com/org/repo/pull/9"}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual(run.output, {"pr_url": "https://github.com/org/repo/pull/9"})
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._post_slack_update_for_pr")
+    def test_update_workflow_with_pr_url_dispatches_signal_with_correct_args(self, _mock_slack):
+        # End-to-end check of the signal dispatch: correct workflow_id is resolved
+        # from the task_run and the signal carries the pr_url argument.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        fake_handle = MagicMock()
+        fake_handle.signal = AsyncMock(return_value=None)
+        fake_client = MagicMock()
+        fake_client.get_workflow_handle.return_value = fake_handle
+
+        with patch("posthog.temporal.common.client.sync_connect", return_value=fake_client):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"output": {"pr_url": "https://github.com/org/repo/pull/123"}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        fake_client.get_workflow_handle.assert_called_once_with(run.workflow_id)
+        fake_handle.signal.assert_awaited_once()
+        signal_args, signal_kwargs = fake_handle.signal.call_args
+        # First positional arg is the signal handle (ProcessTaskWorkflow.update_pr_url)
+        self.assertEqual(signal_args[0].__name__, "update_pr_url")
+        self.assertEqual(signal_kwargs.get("args"), ["https://github.com/org/repo/pull/123"])
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._update_workflow_with_pr_url")
+    @patch("products.tasks.backend.api.TaskRunViewSet._post_slack_update_for_pr")
+    def test_partial_update_with_new_pr_url_fires_both_slack_and_workflow_signal(
+        self, mock_slack, mock_update_workflow
+    ):
+        # Both side effects live behind the same guard — a change to one must
+        # not accidentally skip the other.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"pr_url": "https://github.com/org/repo/pull/5"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_slack.assert_called_once()
+        mock_update_workflow.assert_called_once()
+
     @patch("products.tasks.backend.api.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
         from posthog.models.integration import Integration

@@ -239,6 +239,9 @@ class TestCIFollowUpLoop:
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=4),
                 )
+                # CI follow-up is gated on _pr_url — arm it before advancing time.
+                await asyncio.sleep(2)
+                await handle.signal(ProcessTaskWorkflow.update_pr_url, "https://github.com/org/repo/pull/1")
                 result = await handle.result()
 
         assert result.success is True
@@ -263,6 +266,8 @@ class TestCIFollowUpLoop:
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=4),
                 )
+                await asyncio.sleep(2)
+                await handle.signal(ProcessTaskWorkflow.update_pr_url, "https://github.com/org/repo/pull/1")
                 await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 10)
                 await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
                 await handle.result()
@@ -338,6 +343,8 @@ class TestCIFollowUpLoop:
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=2),
                 )
+                await asyncio.sleep(2)
+                await handle.signal(ProcessTaskWorkflow.update_pr_url, "https://github.com/org/repo/pull/1")
                 near_delay = CI_FOLLOW_UP_DELAY.total_seconds() - 30
                 await env.sleep(near_delay)
                 await handle.signal(ProcessTaskWorkflow.heartbeat, args=[True])
@@ -352,3 +359,54 @@ class TestCIFollowUpLoop:
             "heartbeat(agent_active=True) should have pushed the CI follow-up past the original 15m boundary"
         )
         assert _ci_followup_calls, "follow-up should still fire after the rescheduled deadline"
+
+    @pytest.mark.timeout(60)
+    async def test_no_ci_follow_up_when_pr_url_never_set(self):
+        # The CI loop is meant to chase a PR's checks — without a PR URL there's
+        # nothing to check, so the loop must stay disarmed even if create_pr and
+        # pr_loop_enabled are both on.
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=2),
+                )
+                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 60)
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        assert _ci_followup_calls == []
+
+    @pytest.mark.timeout(60)
+    async def test_ci_follow_up_arms_after_update_pr_url_signal(self):
+        # Before update_pr_url is sent, the CI timer must not fire. After the
+        # signal arms _pr_url, the next CI_FOLLOW_UP_DELAY window triggers a
+        # follow-up message.
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=2),
+                )
+                # Advance well past the CI delay with no PR URL: must stay silent.
+                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 60)
+                followups_before_pr_url = list(_ci_followup_calls)
+
+                # Now arm the gate and advance again — follow-up should fire.
+                await handle.signal(ProcessTaskWorkflow.update_pr_url, "https://github.com/org/repo/pull/1")
+                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 60)
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        assert followups_before_pr_url == [], "CI loop fired before _pr_url was set"
+        assert _ci_followup_calls, "CI loop did not arm after update_pr_url signal"

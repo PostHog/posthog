@@ -555,8 +555,25 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         new_pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
         if new_pr_url and new_pr_url != old_pr_url:
             self._post_slack_update_for_pr(task_run)
+            self._update_workflow_with_pr_url(task_run, new_pr_url)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    def _update_workflow_with_pr_url(self, task_run: TaskRun, pr_url: str) -> None:
+        """Send PR URL update signal to Temporal workflow."""
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(task_run.workflow_id)
+            import asyncio
+
+            asyncio.run(handle.signal(ProcessTaskWorkflow.update_pr_url, args=[pr_url]))
+            logger.info(f"Signaled workflow with PR URL update for task run {task_run.id}")
+        except Exception as e:
+            logger.warning(f"Failed to signal workflow with PR URL update for task run {task_run.id}: {e}")
 
     def _post_slack_update_for_pr(self, task_run: TaskRun) -> None:
         pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None

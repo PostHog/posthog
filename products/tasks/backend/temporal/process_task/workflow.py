@@ -97,6 +97,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pending_followup: Optional[str] = None
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
+        self._pr_url: Optional[str] = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -115,8 +116,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _wait_for_task_external_event(self):
+        current_pr_url = self._pr_url
         await workflow.wait_condition(
-            lambda: self._task_completed or self._heartbeat_received or self._pending_followup is not None
+            lambda: self._task_completed
+            or self._heartbeat_received
+            or self._pending_followup is not None
+            or self._pr_url != current_pr_url
         )
         return TaskEvent.SIGNAL_RECEIVED
 
@@ -150,6 +155,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             and self._context.create_pr
             and self._context.pr_loop_enabled
             and self._ci_repetitions < MAX_CI_REPETITIONS
+            and self._pr_url
         ):
             workflow.logger.info(
                 "Waiting for CI follow-up event", run_id=self.context.run_id, repetitions=self._ci_repetitions
@@ -635,6 +641,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             message_length=len(message),
         )
         self._pending_followup = message
+
+    @temporalio.workflow.signal
+    async def update_pr_url(self, pr_url: str) -> None:
+        self._pr_url = pr_url
+        workflow.logger.info(
+            "pr_url_updated",
+            run_id=self.context.run_id,
+            pr_url=pr_url,
+        )
 
     async def _send_followup_to_sandbox(self, message: str) -> None:
         workflow.logger.info(
