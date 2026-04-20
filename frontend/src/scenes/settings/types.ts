@@ -35,7 +35,6 @@ export type SettingSectionId =
     | 'environment-experiments'
     | 'environment-error-tracking'
     | 'environment-logs'
-    | 'environment-conversations'
     | 'environment-visual-review'
     | 'environment-csp-reporting'
     | 'environment-max'
@@ -77,14 +76,10 @@ export type SettingSectionId =
 
 export type SettingId =
     | 'conversations-api'
-    | 'conversations-api-key'
-    | 'conversations-email'
-    | 'conversations-email-channel'
     | 'conversations-notifications'
-    | 'conversations-public-token'
     | 'conversations-slack'
+    | 'conversations-email'
     | 'conversations-widget'
-    | 'conversations-widget-config'
     | 'conversations-workflows'
     | 'snippet-v2'
     | 'js-snippet-version'

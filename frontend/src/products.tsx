@@ -50,6 +50,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
+    SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
@@ -123,6 +124,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transformations': ['Transformations', 'transformations'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
+    '/support/settings': ['SupportSettings', 'supportSettings'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
@@ -208,7 +210,6 @@ export const productRedirects: Record<
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
     '/support': '/support/tickets',
-    '/support/settings': '/settings/environment-conversations',
     '/customer_analytics': (_params, searchParams, hashParams) =>
         combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
@@ -262,18 +263,9 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'HogFunction',
         iconType: 'data_pipeline',
     },
-    SupportTickets: {
-        name: 'Ticket list',
-        projectBased: true,
-        layout: 'app-container',
-        settingsSection: 'environment-conversations',
-    },
-    SupportTicketDetail: {
-        name: 'Ticket detail',
-        projectBased: true,
-        layout: 'app-container',
-        settingsSection: 'environment-conversations',
-    },
+    SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
+    SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
+    SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
@@ -559,6 +551,7 @@ export const productUrls = {
     supportDashboard: (): string => '/support',
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
+    supportSettings: (): string => '/support/settings',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
@@ -1618,7 +1611,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
-        sceneKeys: ['SupportTickets', 'SupportTicketDetail'],
+        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings'],
     },
     {
         path: 'Surveys',
