@@ -2,7 +2,10 @@
 
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field as dataclass_field,
+)
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
@@ -45,11 +48,7 @@ class ETLState:
 
     last_sync_timestamp: Optional[datetime] = None
     rows_synced: int = 0
-    errors: list[str] = None
-
-    def __post_init__(self):
-        if self.errors is None:
-            self.errors = []
+    errors: list[str] = dataclass_field(default_factory=list)
 
 
 # Define retry policy for transient failures
@@ -471,21 +470,21 @@ def handle_array_fields(row: dict, array_fields: list[str]) -> None:
         row: The data row to process (modified in place)
         array_fields: List of field names that should be arrays
     """
-    for field in array_fields:
-        if row.get(field) is None:
-            row[field] = []
-        elif isinstance(row[field], list):
+    for field_name in array_fields:
+        if row.get(field_name) is None:
+            row[field_name] = []
+        elif isinstance(row[field_name], list):
             # Filter out None values from the array
-            row[field] = [item for item in row[field] if item is not None]
+            row[field_name] = [item for item in row[field_name] if item is not None]
 
 
 def transform_organization_row(row: dict) -> dict:
     """Transform a Postgres organization row for ClickHouse insertion."""
     # Convert UUID fields to strings for ClickHouse
     uuid_fields = ["id", "logo_media_id"]
-    for field in uuid_fields:
-        if row.get(field) is not None:
-            row[field] = str(row[field])
+    for field_name in uuid_fields:
+        if row.get(field_name) is not None:
+            row[field_name] = str(row[field_name])
 
     # Convert JSON fields to strings
     json_fields = ["available_product_features", "usage", "customer_trust_scores", "personalization"]
@@ -523,9 +522,9 @@ def transform_team_row(row: dict) -> dict:
     """Transform a Postgres team row for ClickHouse insertion."""
     # Convert UUID fields to strings for ClickHouse
     uuid_fields = ["uuid", "organization_id"]
-    for field in uuid_fields:
-        if row.get(field) is not None:
-            row[field] = str(row[field])
+    for field_name in uuid_fields:
+        if row.get(field_name) is not None:
+            row[field_name] = str(row[field_name])
 
     # Convert JSON fields to strings
     json_fields = [
@@ -850,7 +849,7 @@ def verify_sync(
             {
                 "org_count": MetadataValue.int(org_count),
                 "team_count": MetadataValue.int(team_count),
-                "success": MetadataValue.bool(verification["success"]),
+                "success": MetadataValue.bool(bool(verification["success"])),
             }
         )
 

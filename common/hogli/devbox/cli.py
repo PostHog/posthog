@@ -9,6 +9,7 @@ import os
 import errno
 import shutil
 import socket
+import functools
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -29,11 +30,17 @@ from .coder import (
     ensure_coder_installed,
     ensure_runtime_ready,
     ensure_tailscale_connected,
+    ensure_tailscale_routes_accepted,
     extract_workspace_label,
+    get_coder_user_info,
     get_default_git_identity,
+    get_shared_users,
+    get_sharing_status,
     get_workspace,
     get_workspace_name,
     get_workspace_status,
+    list_coder_users,
+    list_shared_workspaces,
     list_user_workspaces,
     logs_replace,
     maybe_configure_ssh,
@@ -41,12 +48,15 @@ from .coder import (
     open_in_browser,
     open_vscode,
     open_web_ide,
+    parse_workspace_target,
     port_forward_replace,
     print_setup_summary,
     restart_workspace,
+    share_workspace,
     ssh_replace,
     start_workspace,
     stop_workspace,
+    unshare_workspace,
     update_workspace,
     update_workspace_parameters,
 )
@@ -65,14 +75,20 @@ WORKSPACE_STATUS_COLORS = {
 PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
 
-def resolve_workspace_name(label: str | None) -> tuple[str, list[dict[str, Any]]]:
-    """Resolve a workspace name from an optional label.
+def resolve_workspace_name(workspace: str | None) -> tuple[str, list[dict[str, Any]] | None]:
+    """Resolve a workspace target into a full workspace name.
+
+    Supports:
+    - ``None`` -> user's default workspace (auto-selects when only one exists)
+    - ``"@user"`` -> another user's default workspace
+    - ``"@user/label"`` -> another user's labeled workspace
+    - ``"label"`` -> current user's labeled workspace
 
     Returns (name, workspaces) where workspaces is the already-fetched list
     when available, so callers can skip a second ``_list_workspaces`` call.
     """
-    if label is not None:
-        return get_workspace_name(label), []
+    if workspace is not None:
+        return parse_workspace_target(workspace), None
 
     workspaces = list_user_workspaces()
 
@@ -88,9 +104,9 @@ def resolve_workspace_name(label: str | None) -> tuple[str, list[dict[str, Any]]
         if ws.get("name") == default_name:
             return default_name, workspaces
 
-    # No default among multiple -- require explicit --name
+    # No default among multiple -- require explicit workspace argument
     labels = [extract_workspace_label(ws["name"]) or "(default)" for ws in workspaces]
-    _fail("Multiple workspaces found. Use --name to pick one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
+    _fail("Multiple workspaces found. Specify which one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
 
 
 def _local_port_is_available(port: int) -> bool:
@@ -108,19 +124,28 @@ def _local_port_is_available(port: int) -> bool:
     return True
 
 
-def workspace_name_option(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Shared Click decorator adding ``--name`` / ``-n`` for workspace selection."""
-    return click.option(
-        "--name",
-        "workspace_label",
-        default=None,
-        help="Workspace label (omit for default workspace)",
-    )(fn)
+def workspace_argument(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Shared Click decorator adding an optional ``WORKSPACE`` positional argument.
+
+    Accepts a label for the current user's workspace, or ``@user[/label]``
+    for another user's shared workspace.  ``--name`` / ``-n`` is accepted as
+    an explicit alternative (e.g. ``--name api`` instead of just ``api``).
+    """
+
+    @click.argument("workspace", required=False, default=None)
+    @click.option("--name", "-n", "workspace_name", default=None, help="Workspace label or @user[/label] target")
+    @functools.wraps(fn)
+    def wrapper(*args: Any, workspace: str | None = None, workspace_name: str | None = None, **kwargs: Any) -> Any:
+        if workspace and workspace_name:
+            raise click.UsageError("Pass WORKSPACE or --name, not both.")
+        return fn(*args, workspace=workspace_name or workspace, **kwargs)
+
+    return wrapper
 
 
 def _print_connection_info(name: str) -> None:
     """Print connection commands after workspace is ready."""
-    suffix = _workspace_label_suffix(name)
+    suffix = _workspace_arg_suffix(name)
     commands = [
         ("SSH", "devbox:ssh"),
         ("Open", "devbox:open"),
@@ -138,10 +163,10 @@ def _print_connection_info(name: str) -> None:
         click.echo(f"  {label:<8} hogli {command}{suffix}")
 
 
-def _workspace_label_suffix(name: str) -> str:
+def _workspace_arg_suffix(name: str) -> str:
     """Return the optional CLI suffix for a named workspace."""
     label = extract_workspace_label(name)
-    return f" --name {label}" if label else ""
+    return f" {label}" if label else ""
 
 
 def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -406,17 +431,20 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
     default=None,
     help="Prompt for a Claude OAuth token to store in Keychain",
 )
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_setup(
     configure_ssh: bool | None,
     configure_git_identity: bool | None,
     configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
+    verbose: bool,
 ) -> None:
     """Prepare this machine for Coder workspaces."""
     ensure_tailscale_connected("rerun `hogli devbox:setup`.")
-    ensure_coder_installed()
+    ensure_tailscale_routes_accepted()
+    ensure_coder_installed(verbose=verbose)
     ensure_coder_authenticated()
-    maybe_configure_ssh(configure_ssh=configure_ssh)
+    maybe_configure_ssh(configure_ssh=configure_ssh, verbose=verbose)
     maybe_configure_git_identity(configure_git_identity)
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_token(configure_claude_setup)
@@ -425,24 +453,140 @@ def devbox_setup(
 
 @cli.command(name="devbox:list", help="List your devboxes")
 def devbox_list() -> None:
-    """List all workspaces belonging to the current user."""
+    """List all workspaces belonging to the current user, plus shared workspaces."""
     ensure_runtime_ready()
     workspaces = list_user_workspaces()
 
     if not workspaces:
         click.echo("No devboxes found. Run 'hogli devbox:start' to create one.")
-        return
+    else:
+        click.echo(f"{'LABEL':<16} {'STATUS':<12} {'NAME'}")
+        for ws in workspaces:
+            ws_name = ws.get("name", "")
+            label = extract_workspace_label(ws_name) or "(default)"
+            status = get_workspace_status(ws)
+            click.echo(f"  {label:<14} {click.style(status, fg=_workspace_status_color(status)):<20} {ws_name}")
 
-    click.echo(f"{'LABEL':<16} {'STATUS':<12} {'NAME'}")
+    shared = list_shared_workspaces()
+    if shared:
+        click.echo()
+        click.echo("Shared with you:")
+        for ws in shared:
+            ws_name = ws.get("name", "")
+            status = get_workspace_status(ws)
+            owner = ws.get("owner_name", "unknown")
+            click.echo(f"  {ws_name:<30} {click.style(status, fg=_workspace_status_color(status)):<20} (from {owner})")
+
+    shared_out: list[tuple[str, list[str]]] = []
     for ws in workspaces:
         ws_name = ws.get("name", "")
-        label = extract_workspace_label(ws_name) or "(default)"
-        status = get_workspace_status(ws)
-        click.echo(f"  {label:<14} {click.style(status, fg=_workspace_status_color(status)):<20} {ws_name}")
+        users = get_shared_users(ws_name)
+        if users:
+            shared_out.append((ws_name, users))
+    if shared_out:
+        click.echo()
+        click.echo("Shared with others:")
+        for ws_name, users in shared_out:
+            label = extract_workspace_label(ws_name) or "(default)"
+            click.echo(f"  {label:<16} {', '.join(users)}")
+
+
+@cli.command(name="devbox:users", help="List Coder users (for devbox sharing)")
+def devbox_users() -> None:
+    """List all active Coder users so you know who to share with."""
+    ensure_runtime_ready()
+
+    current_user = get_coder_user_info()
+    current_username = current_user.get("username", "")
+
+    users = list_coder_users()
+    if not users:
+        _fail("Could not fetch users. Check your Coder authentication.")
+
+    users.sort(key=lambda u: u.get("username", ""))
+
+    click.echo(f"  {'USERNAME':<16} {'NAME':<30} {'EMAIL'}")
+    for user in users:
+        username = user.get("username", "")
+        name = user.get("name", "")
+        email = user.get("email", "")
+        is_you = username == current_username
+        name_col = f"{'(you)' if is_you else name:<30}"
+        if is_you:
+            name_col = click.style(name_col, fg="green")
+        click.echo(f"  {username:<16} {name_col} {email}")
+
+
+def _hint_if_positional_looks_like_username(
+    command: str, workspace: str | None, users: tuple[str, ...], list_sharing: bool = False
+) -> None:
+    """Warn when the positional arg is almost certainly meant as a target username.
+
+    The positional slot on every `devbox:*` command selects a workspace label,
+    not a user. Share/unshare take `--user` for the target, so this case is a
+    common footgun.
+    """
+    if workspace and not users and not list_sharing:
+        raise click.UsageError(
+            f"Pass the target user with --user (e.g. `hogli {command} --user {workspace}`).\n"
+            "The positional argument selects one of YOUR workspaces. Run 'hogli devbox:users' to find usernames."
+        )
+
+
+@cli.command(name="devbox:share", help="Share your devbox with other users")
+@workspace_argument
+@click.option("--user", "users", multiple=True, help="Coder username(s) to share with")
+@click.option("--role", type=click.Choice(["use", "admin"]), default="use", help="Access role to grant")
+@click.option("--list", "list_sharing", is_flag=True, help="Show who has access")
+def devbox_share(
+    workspace: str | None,
+    users: tuple[str, ...],
+    role: str,
+    list_sharing: bool,
+) -> None:
+    """Share your devbox with other Coder users."""
+    ensure_runtime_ready()
+    _hint_if_positional_looks_like_username("devbox:share", workspace, users, list_sharing)
+
+    name, workspaces = resolve_workspace_name(workspace)
+    _get_workspace_or_fail(name, workspaces)
+
+    if list_sharing:
+        result = get_sharing_status(name)
+        if result.returncode != 0:
+            raise SystemExit(result.returncode)
+        click.echo(result.stdout)
+        return
+
+    if not users:
+        raise click.UsageError("Specify at least one --user. Run 'hogli devbox:users' to find usernames.")
+
+    share_workspace(name, list(users), role)
+    click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")
+
+
+@cli.command(name="devbox:unshare", help="Revoke access to your devbox from other users")
+@workspace_argument
+@click.option("--user", "users", multiple=True, help="Coder username(s) to revoke access from")
+def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
+    """Revoke access to your devbox from one or more Coder users."""
+    ensure_runtime_ready()
+    _hint_if_positional_looks_like_username("devbox:unshare", workspace, users)
+
+    name, workspaces = resolve_workspace_name(workspace)
+    _get_workspace_or_fail(name, workspaces)
+
+    if not users:
+        raise click.UsageError("Specify at least one --user. Run 'hogli devbox:share --list' to see current access.")
+
+    user_list = list(users)
+    unshare_workspace(name, user_list)
+    click.echo(f"Revoked access for: {', '.join(user_list)}")
+    click.echo(click.style("Restart your devbox for this to take effect.", fg="yellow"))
 
 
 @cli.command(name="devbox:start", help="Start or create your remote devbox")
-@workspace_name_option
+@workspace_argument
 @click.option(
     "--disk",
     type=click.Choice(["60", "80", "100"]),
@@ -461,7 +605,7 @@ def devbox_list() -> None:
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
-    workspace_label: str | None,
+    workspace: str | None,
     disk: str,
     configure_claude: bool | None,
     claude_oauth_token: str | None,
@@ -469,7 +613,7 @@ def devbox_start(
 ) -> None:
     """Start or create the remote devbox."""
     ensure_runtime_ready()
-    name, workspaces = resolve_workspace_name(workspace_label)
+    name, workspaces = resolve_workspace_name(workspace)
     ws = get_workspace(name, workspaces)
 
     if ws is not None:
@@ -494,12 +638,12 @@ def devbox_start(
 
 
 @cli.command(name="devbox:stop", help="Stop your devbox (preserves disk, stops billing)")
-@workspace_name_option
+@workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
-def devbox_stop(workspace_label: str | None, verbose: bool) -> None:
+def devbox_stop(workspace: str | None, verbose: bool) -> None:
     """Stop the devbox. State is preserved on the EBS volume."""
     ensure_runtime_ready()
-    name, workspaces = resolve_workspace_name(workspace_label)
+    name, workspaces = resolve_workspace_name(workspace)
     ws = _get_workspace_or_fail(name, workspaces)
 
     status = get_workspace_status(ws)
@@ -513,12 +657,12 @@ def devbox_stop(workspace_label: str | None, verbose: bool) -> None:
 
 
 @cli.command(name="devbox:restart", help="Restart your devbox")
-@workspace_name_option
+@workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
-def devbox_restart(workspace_label: str | None, verbose: bool) -> None:
+def devbox_restart(workspace: str | None, verbose: bool) -> None:
     """Stop and start the devbox in one step."""
     ensure_runtime_ready()
-    name, workspaces = resolve_workspace_name(workspace_label)
+    name, workspaces = resolve_workspace_name(workspace)
     _get_workspace_or_fail(name, workspaces)
     click.echo(f"Restarting '{name}'...")
     restart_workspace(name, verbose=verbose)
@@ -527,12 +671,12 @@ def devbox_restart(workspace_label: str | None, verbose: bool) -> None:
 
 
 @cli.command(name="devbox:update", help="Update devbox to the latest template")
-@workspace_name_option
+@workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
-def devbox_update(workspace_label: str | None, verbose: bool) -> None:
+def devbox_update(workspace: str | None, verbose: bool) -> None:
     """Apply the latest template to the devbox."""
     ensure_runtime_ready()
-    name, workspaces = resolve_workspace_name(workspace_label)
+    name, workspaces = resolve_workspace_name(workspace)
     ws = _get_workspace_or_fail(name, workspaces)
     if not ws.get("outdated"):
         click.echo(f"Devbox '{name}' is already up to date.")
@@ -548,27 +692,27 @@ def devbox_update(workspace_label: str | None, verbose: bool) -> None:
 
 
 @cli.command(name="devbox:ssh", help="SSH into your devbox")
-@workspace_name_option
-def devbox_ssh(workspace_label: str | None) -> None:
+@workspace_argument
+def devbox_ssh(workspace: str | None) -> None:
     """Open an SSH session to the devbox."""
     ensure_runtime_ready()
-    name, _ = resolve_workspace_name(workspace_label)
+    name, _ = resolve_workspace_name(workspace)
     ssh_replace(name)
 
 
 @cli.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")
-@workspace_name_option
+@workspace_argument
 @click.option("--vscode", is_flag=True, help="Open in VS Code Desktop via SSH")
 @click.option("--cursor", is_flag=True, help="Open in Cursor via SSH")
 @click.option("--web", is_flag=True, help="Open code-server (VS Code in browser)")
-def devbox_open(workspace_label: str | None, vscode: bool, cursor: bool, web: bool) -> None:
+def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool) -> None:
     """Open the devbox in a browser or editor."""
     chosen = sum([vscode, cursor, web])
     if chosen > 1:
         raise click.UsageError("Choose one of `--vscode`, `--cursor`, or `--web`.")
 
     ensure_runtime_ready()
-    name, _ = resolve_workspace_name(workspace_label)
+    name, _ = resolve_workspace_name(workspace)
 
     if vscode:
         click.echo(f"Opening '{name}' in VS Code...")
@@ -585,22 +729,22 @@ def devbox_open(workspace_label: str | None, vscode: bool, cursor: bool, web: bo
 
 
 @cli.command(name="devbox:logs", help="Tail devbox build and agent logs")
-@workspace_name_option
+@workspace_argument
 @click.option("-f", "--follow", is_flag=True, help="Follow log output")
-def devbox_logs(workspace_label: str | None, follow: bool) -> None:
+def devbox_logs(workspace: str | None, follow: bool) -> None:
     """Tail workspace build and agent logs."""
     ensure_runtime_ready()
-    name, _ = resolve_workspace_name(workspace_label)
+    name, _ = resolve_workspace_name(workspace)
     logs_replace(name, follow)
 
 
 @cli.command(name="devbox:destroy", help="Destroy your devbox and its data")
-@workspace_name_option
+@workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
-def devbox_destroy(workspace_label: str | None, verbose: bool) -> None:
+def devbox_destroy(workspace: str | None, verbose: bool) -> None:
     """Destroy the devbox completely."""
     ensure_runtime_ready()
-    name, workspaces = resolve_workspace_name(workspace_label)
+    name, workspaces = resolve_workspace_name(workspace)
 
     ws = get_workspace(name, workspaces)
     if ws is None:
@@ -616,11 +760,11 @@ def devbox_destroy(workspace_label: str | None, verbose: bool) -> None:
 
 
 @cli.command(name="devbox:status", help="Show devbox status")
-@workspace_name_option
-def devbox_status(workspace_label: str | None) -> None:
+@workspace_argument
+def devbox_status(workspace: str | None) -> None:
     """Show the current state of the devbox."""
     ensure_runtime_ready()
-    name, workspaces = resolve_workspace_name(workspace_label)
+    name, workspaces = resolve_workspace_name(workspace)
 
     ws = get_workspace(name, workspaces)
     if ws is None:
@@ -648,12 +792,12 @@ def devbox_status(workspace_label: str | None) -> None:
 
 
 @cli.command(name="devbox:forward", help="Forward PostHog UI to localhost")
-@workspace_name_option
+@workspace_argument
 @click.option("--port", default=8010, type=int, help="Local port to forward to")
-def devbox_forward(workspace_label: str | None, port: int) -> None:
+def devbox_forward(workspace: str | None, port: int) -> None:
     """Forward the PostHog UI port to localhost."""
     ensure_runtime_ready()
-    name, _ = resolve_workspace_name(workspace_label)
+    name, _ = resolve_workspace_name(workspace)
     if not _local_port_is_available(port):
         _fail(
             f"Local port {port} is already in use.\n"

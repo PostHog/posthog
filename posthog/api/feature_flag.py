@@ -88,6 +88,7 @@ from posthog.models.group.group import Group
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
+    person_existed_at_timestamp,
 )
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -3435,8 +3436,6 @@ class FeatureFlagViewSet(
         if timestamp:
             try:
                 # First check if the person actually existed at the timestamp
-                from posthog.models.person.point_in_time_properties import person_existed_at_timestamp
-
                 person_existed = person_existed_at_timestamp(
                     team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids
                 )
@@ -3532,9 +3531,9 @@ class FeatureFlagViewSet(
                     flag_dict["team_id"] = evaluation_flag.team_id
 
                     override_definitions = {feature_flag.key: flag_dict}
-                except Exception as e:
+                except Exception:
                     # Log the error but continue without override definitions
-                    logging.exception(f"Failed to serialize flag for override: {e}")
+                    logger.exception("Failed to serialize flag for override")
                     override_definitions = None
 
             rust_response = get_flags_from_service(
