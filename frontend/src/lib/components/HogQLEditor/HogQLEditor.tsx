@@ -19,6 +19,17 @@ export interface HogQLEditorProps {
     disableCmdEnter?: boolean
     submitText?: string
     placeholder?: string
+    /** When true, show a hint about using `AS column_name` or `-- column_name` to make
+     * long expressions readable as a breakdown/column label. */
+    showBreakdownLabelHint?: boolean
+}
+
+// Hint is only helpful once the expression is long enough to look unreadable as a column header.
+const BREAKDOWN_LABEL_HINT_MIN_LENGTH = 20
+
+function hasBreakdownLabel(expression: string): boolean {
+    // Detects a trailing `AS name` alias or `-- name` comment label.
+    return /\bAS\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i.test(expression) || /--\s*\S+.*$/m.test(expression)
 }
 
 export function HogQLEditor({
@@ -30,11 +41,17 @@ export function HogQLEditor({
     disableCmdEnter,
     submitText,
     placeholder,
+    showBreakdownLabelHint,
 }: HogQLEditorProps): JSX.Element {
     const [bufferedValue, setBufferedValue] = useState(value ?? '')
     useEffect(() => {
         setBufferedValue(value ?? '')
     }, [value])
+
+    const shouldShowBreakdownLabelHint =
+        showBreakdownLabelHint &&
+        bufferedValue.trim().length > BREAKDOWN_LABEL_HINT_MIN_LENGTH &&
+        !hasBreakdownLabel(bufferedValue)
 
     return (
         <>
@@ -66,6 +83,12 @@ export function HogQLEditor({
                             : "Enter SQL Expression, such as:\n- properties.$current_url\n- person.properties.email\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)")}
                 </pre>
             </div>
+            {shouldShowBreakdownLabelHint && (
+                <div className="text-secondary mt-2 text-xs">
+                    Tip: add <code>AS column_name</code> or <code>-- column_name</code> to the end of your expression to
+                    use a readable label for this breakdown.
+                </div>
+            )}
             <LemonButton
                 className="mt-2"
                 fullWidth
