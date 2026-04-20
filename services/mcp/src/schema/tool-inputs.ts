@@ -72,6 +72,18 @@ export const DocumentationSearchSchema = z.object({
     query: z.string(),
 })
 
+export const ToolsetsInputSchema = z.object({
+    action: z
+        .enum(['list', 'describe', 'enable', 'disable'])
+        .describe(
+            "What to do: 'list' returns all available toolsets and which ones are currently enabled; 'describe' returns the tools inside one toolset; 'enable' activates a toolset so its tools become callable; 'disable' turns one off."
+        ),
+    name: z
+        .string()
+        .optional()
+        .describe("Toolset id — required for 'describe', 'enable', and 'disable'. Get valid ids from 'list'."),
+})
+
 export const ExperimentResultsGetSchema = z.object({
     experimentId: z.number().describe('The ID of the experiment to get comprehensive results for'),
     refresh: z.boolean().describe('Force refresh of results instead of using cached values'),

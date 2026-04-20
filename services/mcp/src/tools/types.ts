@@ -25,6 +25,10 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
+    aiConsentGiven: boolean | undefined
+    aiConsentFetchedAt: number | undefined
+    /** Toolset ids activated via toolsets(action='enable') in progressive mode. */
+    enabledToolsets: string[] | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &

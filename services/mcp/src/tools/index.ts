@@ -39,6 +39,8 @@ import {
     getToolsForFeatures as getFilteredToolNames,
     getToolDefinition,
 } from './toolDefinitions'
+// Toolsets (progressive disclosure meta-tool)
+import toolsetsMetaTool from './toolsets/manage'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 
 // Map of tool names to tool factory functions
@@ -83,6 +85,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,
     'external-data-sources-jobs': externalDataSourcesJobs,
+
+    // Meta (progressive disclosure)
+    toolsets: toolsetsMetaTool,
 }
 
 export const getToolsFromContext = async (
@@ -91,9 +96,26 @@ export const getToolsFromContext = async (
 ): Promise<Tool<ZodObjectAny>[]> => {
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
-    const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
+
+    // Progressive disclosure: merge session-enabled toolsets from cache with
+    // any toolsets pre-enabled via the ?toolsets=a,b query param.
+    let enabledToolsetsForFilter: string[] | undefined
+    if (options?.progressive) {
+        const sessionEnabled = ((await context.cache.get('enabledToolsets' as any)) ?? []) as string[]
+        const fromQuery = options?.enabledToolsets ?? []
+        enabledToolsetsForFilter = Array.from(new Set([...sessionEnabled, ...fromQuery]))
+    }
+
+    const effectiveOptions: ToolFilterOptions = {
+        ...options,
+        ...(aiConsentGiven !== undefined ? { aiConsentGiven } : {}),
+        ...(enabledToolsetsForFilter !== undefined ? { enabledToolsets: enabledToolsetsForFilter } : {}),
+    }
     const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
-    const excludeTools = options?.excludeTools ?? []
+    // The toolsets meta-tool only exists in progressive mode — skip it in default mode so
+    // the default tool surface is unchanged.
+    const baseExcludes = options?.excludeTools ?? []
+    const excludeTools = options?.progressive ? baseExcludes : [...baseExcludes, 'toolsets']
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
 

@@ -15,6 +15,7 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
+import { clientSupportsListChanged } from '@/lib/clientCapabilities'
 import {
     CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
@@ -34,6 +35,7 @@ import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
+import { ENABLED_TOOLSETS_KEY } from '@/tools/toolsets/manage'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -58,6 +60,10 @@ export type RequestProperties = {
     readOnly?: boolean
     transport?: 'streamable-http' | 'sse'
     requestStartTime?: number
+    /** When true, only expose bootstrap tools + toolsets(action='enable',...)'d tools. */
+    progressive?: boolean
+    /** Toolset ids to pre-enable on connect (from ?toolsets=a,b URL param). */
+    initialToolsets?: string[]
 }
 
 export class MCP extends McpAgent<Env> {
@@ -70,6 +76,9 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
+        aiConsentGiven: undefined,
+        aiConsentFetchedAt: undefined,
+        enabledToolsets: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -459,6 +468,22 @@ export class MCP extends McpAgent<Env> {
         )
     }
 
+    /**
+     * Fire a `notifications/tools/list_changed` MCP notification so compatible clients
+     * re-request `tools/list`. Best-effort: swallow errors since the transport may not
+     * support notifications at all.
+     */
+    notifyToolListChanged(): void {
+        try {
+            const underlying = (this.server as any)?.server
+            if (underlying && typeof underlying.sendToolListChanged === 'function') {
+                underlying.sendToolListChanged()
+            }
+        } catch {
+            // best-effort
+        }
+    }
+
     async getContext(): Promise<Context> {
         const api = await this.api()
         return {
@@ -471,7 +496,16 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
+        const {
+            features,
+            tools,
+            version: clientVersion,
+            organizationId,
+            projectId,
+            readOnly,
+            progressive,
+            initialToolsets,
+        } = this.requestProperties
 
         // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
@@ -535,6 +569,8 @@ export class MCP extends McpAgent<Env> {
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
+            progressive,
+            enabledToolsets: initialToolsets,
         })
 
         // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
@@ -546,7 +582,29 @@ export class MCP extends McpAgent<Env> {
 
         for (const tool of allTools) {
             const typedTool = tool as Tool<z.ZodObject>
-            this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+            if (progressive && typedTool.name === 'toolsets') {
+                // Wrap the toolsets meta-tool so enable/disable calls fire
+                // notifications/tools/list_changed and (for known-unsupported clients)
+                // include a reconnect hint in the response.
+                this.registerTool(typedTool, async (params: any) => {
+                    const result = (await typedTool.handler(context, params)) as Record<string, unknown>
+                    if (params?.action === 'enable' || params?.action === 'disable') {
+                        this.notifyToolListChanged()
+                        await this.resolveClientInfo()
+                        if (!clientSupportsListChanged(this._mcpClientName)) {
+                            const enabled = ((await context.cache.get(ENABLED_TOOLSETS_KEY as any)) ?? []) as string[]
+                            const reconnectQuery = `?progressive=true${enabled.length ? `&toolsets=${enabled.join(',')}` : ''}`
+                            return {
+                                ...result,
+                                _reconnectHint: `Your MCP client may not auto-refresh the tool list. If new tools aren't visible next turn, ask the user to reconnect with: ${reconnectQuery}`,
+                            }
+                        }
+                    }
+                    return result
+                })
+            } else {
+                this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+            }
         }
 
         await initMcpCatObservability(this.server, {

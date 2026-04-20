@@ -19,6 +19,21 @@
             },
             "required": ["query"]
         },
+        "ToolsetsInputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["list", "describe", "enable", "disable"],
+                    "description": "What to do: 'list' returns all available toolsets and which ones are currently enabled; 'describe' returns the tools inside one toolset; 'enable' activates a toolset so its tools become callable; 'disable' turns one off."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Toolset id — required for 'describe', 'enable', and 'disable'. Get valid ids from 'list'."
+                }
+            },
+            "required": ["action"]
+        },
         "EntitySearchSchema": {
             "type": "object",
             "properties": {

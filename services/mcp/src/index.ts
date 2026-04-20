@@ -264,7 +264,23 @@ const handleRequest = async (
     const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
-    const extraContextProps = { features, tools, region: regionParam, version, readOnly }
+    // Progressive disclosure: ?progressive=true exposes only bootstrap tools + the toolsets
+    // meta-tool. ?toolsets=a,b pre-enables specific toolsets on connect (used by the reconnect
+    // fallback for clients that don't support notifications/tools/list_changed).
+    const progressiveParam = request.headers.get('x-posthog-progressive') || url.searchParams.get('progressive')
+    const progressive = progressiveParam === 'true' || progressiveParam === '1' || undefined
+    const toolsetsParam = url.searchParams.get('toolsets')
+    const initialToolsets = toolsetsParam ? toolsetsParam.split(',').filter(Boolean) : undefined
+
+    const extraContextProps = {
+        features,
+        tools,
+        region: regionParam,
+        version,
+        readOnly,
+        progressive,
+        initialToolsets,
+    }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
 

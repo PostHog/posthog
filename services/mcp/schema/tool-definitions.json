@@ -458,5 +458,19 @@
             "openWorldHint": false,
             "readOnlyHint": true
         }
+    },
+    "toolsets": {
+        "description": "Manage which PostHog MCP toolsets are active in this session. Call with action='list' to see all available toolsets, action='describe' with a name to see which tools a toolset contains, action='enable' with a name to activate a toolset (its tools become callable), and action='disable' with a name to turn one off. Use this when the user asks about a PostHog surface (dashboards, feature flags, experiments, surveys, error tracking, LLM analytics, etc.) whose tools aren't yet available.",
+        "category": "Meta",
+        "feature": "meta",
+        "summary": "List, describe, enable, or disable progressive-disclosure toolsets.",
+        "title": "Manage toolsets",
+        "required_scopes": [],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": false
+        }
     }
 }
