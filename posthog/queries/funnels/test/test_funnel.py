@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -126,7 +127,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
 
             if filters is None:
-                filters = {
+                filters: dict[str, Any] = {
                     "events": [{"id": "user signed up", "type": "events", "order": 0}],
                     "actions": [
                         {"id": action_credit_card.pk, "type": "actions", "order": 1},

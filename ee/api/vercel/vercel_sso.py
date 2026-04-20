@@ -2,7 +2,7 @@ from dataclasses import asdict
 from typing import Any
 from urllib.parse import urlencode, urlparse
 
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseBase, HttpResponseRedirect
 
 import structlog
 from cryptography.fernet import InvalidToken
@@ -76,9 +76,9 @@ def _decrypt_claims(token: str) -> dict:
 class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
 
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
         # SSO codes are single-use, so we redirect the browser instead of proxying server-side
-        return viewsets.GenericViewSet.dispatch(self, request, *args, **kwargs)  # type: ignore[return-value]
+        return viewsets.GenericViewSet.dispatch(self, request, *args, **kwargs)
 
     def _should_redirect_to_eu(self, resource_id: str | None, installation_id: str | None = None) -> bool:
         if self.is_dev_env or self.current_region != "us":

@@ -4,7 +4,7 @@ import asyncio
 import threading
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, cast
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -77,7 +77,7 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
     """
     if isinstance(iterable, AsyncIterable):
         async for item in iterable:
-            yield item
+            yield cast(T, item)
         return
 
     iterator = iter(iterable)
@@ -102,6 +102,7 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
             if not has_value:
                 break
 
+            assert item is not None
             yield item
     finally:
         await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _close)

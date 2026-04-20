@@ -69,7 +69,7 @@ class ChatAgentPlanToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type[MaxTool]]:
-        tools = [
+        tools: list[type[MaxTool]] = [
             ReadTaxonomyTool,
             SearchTool,
             TodoWriteTool,  # type: ignore[list-item]

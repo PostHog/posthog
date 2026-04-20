@@ -1,5 +1,6 @@
 import io
 import time
+from typing import cast
 
 from django.http import HttpRequest
 from django.test import TestCase, override_settings
@@ -80,7 +81,7 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         drf_request = Request(django_request, parsers=[JSONParser()])
         _ = drf_request.data
 
-        return drf_request
+        return cast(Request, drf_request)
 
     def test_returns_400_when_stream_consumed(self):
         body = b'{"email":"test@example.com"}'
