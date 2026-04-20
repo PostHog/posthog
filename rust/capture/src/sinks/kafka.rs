@@ -3,13 +3,20 @@
 //! This sink is pure mechanism: it serializes `ProcessedEvent`s and produces them
 //! to Kafka using `rdkafka`. All routing *policy* (overflow rerouting, DLQ
 //! redirects, custom-topic redirects, force-disable-person-processing headers) is
-//! decided *upstream* in the pipeline (`events::analytics::process_events` and
-//! `events::recordings::process_replay_events`) and stamped onto
+//! decided *upstream* in the pipeline and stamped onto
 //! `ProcessedEventMetadata`. `KafkaSinkBase::prepare_record` reads that metadata
-//! and maps it to a concrete topic + partition key. Keeping routing policy out
-//! of the sink keeps the clone-per-spawned-task cost in the scatter-gather
-//! batch path at two `Arc::clone` calls (producer + topics) rather than deep
-//! copies of limiter state.
+//! and maps it to a concrete topic + partition key.
+//!
+//! The `overflow_reason` stamping specifically runs at four call sites, all via
+//! the shared `events::overflow_stamping::stamp_overflow_reason` helper:
+//! * `events::analytics::process_events` (analytics batch path: `/e/`, `/batch/`, `/capture`, etc.)
+//! * `events::recordings::process_replay_events` (replay-specific `RedisLimiter`, stamps `OverflowReason::ReplayLimited`)
+//! * `ai_endpoint::ai_handler` (`/i/v0/ai`, single-event)
+//! * `otel::otel_handler` (`/i/v0/ai/otel`, multi-span batch)
+//!
+//! Keeping routing policy out of the sink keeps the clone-per-spawned-task
+//! cost in the scatter-gather batch path at two `Arc::clone` calls (producer
+//! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::KafkaConfig;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};

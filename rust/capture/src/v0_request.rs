@@ -176,10 +176,15 @@ pub struct ProcessedEvent {
 
 /// Reason the pipeline has decided to reroute an event to an overflow topic.
 ///
-/// Set by the pipeline (`events::analytics::process_events` for analytics,
-/// `events::recordings::process_replay_events` for replay snapshots) based on
-/// the `OverflowLimiter` (governor-backed, in-process) and the replay
-/// `RedisLimiter` (session-scoped, redis-backed).
+/// Set by every handler that emits events to the kafka sink, via the shared
+/// `events::overflow_stamping::stamp_overflow_reason` helper for the
+/// in-process `OverflowLimiter` (governor-backed) paths and a separate inline
+/// check for the replay `RedisLimiter` (session-scoped, redis-backed). Call
+/// sites:
+/// * `events::analytics::process_events` — `/e/`, `/batch/`, `/capture`, etc.
+/// * `events::recordings::process_replay_events` — `/s/` (stamps `ReplayLimited`)
+/// * `ai_endpoint::ai_handler` — `/i/v0/ai`
+/// * `otel::otel_handler` — `/i/v0/ai/otel`
 ///
 /// Consumed by `sinks::kafka::KafkaSinkBase::prepare_record`, which is pure
 /// mechanism: it reads this reason and maps to the overflow topic and

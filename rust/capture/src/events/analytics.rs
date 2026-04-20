@@ -13,19 +13,18 @@ use metrics::counter;
 use serde_json;
 use tracing::{error, instrument, warn, Span};
 
-use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
+use limiters::overflow::OverflowLimiter;
 
 use crate::{
     api::CaptureError,
     debug_or_info,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
+    events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
     utils::uuid_v7,
-    v0_request::{
-        DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
-    },
+    v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
 };
 
 /// Process a single analytics event from RawEvent to ProcessedEvent
@@ -135,8 +134,12 @@ pub fn process_single_event(
 ///
 /// All routing policy lives here: token dropping, event restrictions, global
 /// rate limiting (per `token:distinct_id`), historical rerouting, and
-/// per-key overflow rerouting via [`OverflowLimiter`]. The kafka sink is a
-/// pure mechanism layer — it reads `ProcessedEventMetadata::overflow_reason`,
+/// per-key overflow rerouting via [`OverflowLimiter`]. Overflow stamping
+/// goes through the shared [`stamp_overflow_reason`] helper, which the AI
+/// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
+/// call so every `DataType::AnalyticsMain` event gets identical limiter
+/// semantics regardless of entry point. The kafka sink is a pure mechanism
+/// layer — it reads `ProcessedEventMetadata::overflow_reason`,
 /// `force_overflow`, `redirect_to_dlq`, and `redirect_to_topic` to decide
 /// which topic and key to produce to.
 #[instrument(skip_all, fields(events = events.len(), request_id))]
@@ -250,63 +253,11 @@ pub async fn process_events<'a>(
     // Overflow routing stage. This used to live in the kafka sink's
     // prepare_record; moving it here keeps the sink free of policy and
     // co-locates overflow with every other pipeline-level routing decision.
-    // We stamp `ProcessedEventMetadata::overflow_reason`; the sink reads it
-    // and picks the overflow topic / partition-key policy accordingly.
-    //
-    // `force_overflow` (set by event restrictions) short-circuits the
-    // limiter check — same semantics as before. We emit the
-    // `capture_events_rerouted_overflow` counter here at stamp time; the
-    // sink no longer emits it. Label values match the pre-refactor sink
-    // counter so existing dashboards keep working.
-    for event in events.iter_mut() {
-        if event.metadata.data_type != DataType::AnalyticsMain {
-            continue;
-        }
-
-        if event.metadata.force_overflow {
-            counter!(
-                "capture_events_rerouted_overflow",
-                "reason" => "event_restriction",
-            )
-            .increment(1);
-            continue;
-        }
-
-        let Some(ref limiter) = overflow_limiter else {
-            continue;
-        };
-
-        let event_key = event.event.key();
-        match limiter.is_limited(&event_key) {
-            OverflowLimiterResult::ForceLimited => {
-                counter!(
-                    "capture_events_rerouted_overflow",
-                    "reason" => "force_limited",
-                )
-                .increment(1);
-                event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
-                // Self-describing metadata: ForceLimited implies person
-                // processing is skipped. Pre-refactor the sink inferred this
-                // from the limiter result; now we stamp it alongside the
-                // reason so the sink's generic skip-person path handles it
-                // uniformly. Kafka output is byte-identical — the sink's
-                // ForceLimited arm still sets the header redundantly as
-                // defense against a future caller stamping reason-only.
-                event.metadata.skip_person_processing = true;
-            }
-            OverflowLimiterResult::Limited => {
-                counter!(
-                    "capture_events_rerouted_overflow",
-                    "reason" => "rate_limited",
-                )
-                .increment(1);
-                event.metadata.overflow_reason = Some(OverflowReason::RateLimited {
-                    preserve_locality: limiter.should_preserve_locality(),
-                });
-            }
-            OverflowLimiterResult::NotLimited => {}
-        }
-    }
+    // The stamping helper is shared with the AI (`ai_endpoint::ai_handler`)
+    // and OTEL (`otel::otel_handler`) paths so every handler that emits
+    // `DataType::AnalyticsMain` events gets identical limiter semantics and
+    // metric labels — see `events::overflow_stamping`.
+    stamp_overflow_reason(&mut events, overflow_limiter.as_ref());
 
     if events.is_empty() {
         return Ok(());
@@ -326,7 +277,7 @@ pub async fn process_events<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v0_request::ProcessingContext;
+    use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
     use common_types::RawEvent;
     use serde_json::json;
