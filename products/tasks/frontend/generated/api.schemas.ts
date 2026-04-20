@@ -645,8 +645,9 @@ export interface TaskStagedArtifactPrepareUploadApi {
      */
     source?: string
     /**
-     * Expected upload size in bytes
+     * Expected upload size in bytes (max 31457280 bytes)
      * @minimum 1
+     * @maximum 31457280
      */
     size: number
     /**
@@ -997,8 +998,9 @@ export interface TaskRunArtifactPrepareUploadApi {
      */
     source?: string
     /**
-     * Expected upload size in bytes
+     * Expected upload size in bytes (max 31457280 bytes)
      * @minimum 1
+     * @maximum 31457280
      */
     size: number
     /**
