@@ -129,6 +129,15 @@ class LLMSkillFileInputSerializer(serializers.Serializer):
         help_text="MIME type of the file content.",
     )
 
+    def validate_path(self, value: str) -> str:
+        normalized = value.replace("\\", "/")
+        parts = normalized.split("/")
+        if any(part == ".." for part in parts):
+            raise serializers.ValidationError("File paths must not contain '..' traversal segments.")
+        if normalized.startswith("/"):
+            raise serializers.ValidationError("File paths must be relative, not absolute.")
+        return value
+
 
 class LLMSkillPublishSerializer(serializers.Serializer):
     body = serializers.CharField(
@@ -189,6 +198,12 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     latest_version = serializers.SerializerMethodField()
     version_count = serializers.SerializerMethodField()
     first_version_created_at = serializers.SerializerMethodField()
+    allowed_tools = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="List of pre-approved tools the skill may use.",
+    )
     files = LLMSkillFileInputSerializer(
         many=True,
         required=False,
@@ -240,7 +255,6 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "compatibility": {
                 "help_text": "Environment requirements (intended product, system packages, network access, etc.)."
             },
-            "allowed_tools": {"help_text": "List of pre-approved tools the skill may use."},
             "metadata": {"help_text": "Arbitrary key-value metadata."},
         }
 

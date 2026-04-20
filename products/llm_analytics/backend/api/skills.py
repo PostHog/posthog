@@ -414,6 +414,12 @@ class LLMSkillViewSet(
             return self._skill_not_found_response(skill_name)
 
         file_path = file_path.rstrip("/")
+        normalized = file_path.replace("\\", "/")
+        if ".." in normalized.split("/") or normalized.startswith("/"):
+            return Response(
+                {"detail": "Invalid file path."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         skill_file = LLMSkillFile.objects.filter(skill=skill, path=file_path).first()
         if skill_file is None:
             return Response(
