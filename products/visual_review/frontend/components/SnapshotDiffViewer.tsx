@@ -24,6 +24,7 @@ interface SnapshotDiffViewerProps {
     commitSha?: string
     prNumber?: number | null
     repoFullName?: string | null
+    runType?: string
 }
 
 export function SnapshotDiffViewer({
@@ -43,6 +44,7 @@ export function SnapshotDiffViewer({
     commitSha,
     prNumber,
     repoFullName,
+    runType,
 }: SnapshotDiffViewerProps): JSX.Element {
     const baselineUrl = snapshot.baseline_artifact?.download_url
     const currentUrl = snapshot.current_artifact?.download_url
@@ -94,8 +96,12 @@ export function SnapshotDiffViewer({
 
                         {needsAction && (
                             <>
-                                <LemonButton type="primary" size="small" onClick={onApprove}>
-                                    Accept change
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    disabledReason="Leaving a snapshot unreviewed already blocks the PR. To fix it, update your code and rerun CI."
+                                >
+                                    Reject
                                 </LemonButton>
                                 {snapshot.result === 'changed' && (
                                     <LemonButton
@@ -118,13 +124,16 @@ export function SnapshotDiffViewer({
                                         Tolerate
                                     </LemonButton>
                                 )}
+                                <LemonButton type="primary" size="small" onClick={onApprove}>
+                                    Accept change
+                                </LemonButton>
                             </>
                         )}
                     </div>
                 </div>
 
                 {/* Snapshot title */}
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-baseline gap-2 mb-4">
                     <h3 className="text-lg font-semibold capitalize">{pageName}</h3>
                     {variant && (
                         <span className="text-sm text-muted">
@@ -135,19 +144,30 @@ export function SnapshotDiffViewer({
                 </div>
 
                 <VisualImageDiffViewer
+                    key={snapshot.id}
                     baselineUrl={baselineUrl || null}
                     currentUrl={currentUrl || null}
                     diffUrl={snapshot.diff_artifact?.download_url || null}
                     diffPercentage={snapshot.diff_percentage ?? null}
                     result={(snapshot.result || 'unchanged') as VisualDiffResult}
+                    imageWidth={width ?? undefined}
+                    className="min-h-[200px]"
                 />
             </div>
 
             {/* Right sidebar — flat, no nested cards */}
             <div className="w-52 shrink-0 border-l pl-4 space-y-4">
                 {/* Run context */}
-                {(commitSha || prNumber) && (
+                {(runType || commitSha || prNumber) && (
                     <div className="space-y-2">
+                        {runType && (
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-muted">Type</span>
+                                <LemonTag type="muted" size="small" className="uppercase">
+                                    {runType}
+                                </LemonTag>
+                            </div>
+                        )}
                         {commitSha && (
                             <div className="flex items-center justify-between text-xs">
                                 <span className="text-muted">Commit</span>
@@ -198,7 +218,7 @@ export function SnapshotDiffViewer({
                     {snapshot.diff_percentage != null && snapshot.diff_percentage > 0 && (
                         <div className="flex items-center justify-between text-xs">
                             <span className="text-muted">Diff</span>
-                            <span className="font-mono">{snapshot.diff_percentage}%</span>
+                            <span className="font-mono">{Number(snapshot.diff_percentage.toFixed(2))}%</span>
                         </div>
                     )}
                     {snapshot.baseline_artifact?.content_hash && (
@@ -240,20 +260,7 @@ export function SnapshotDiffViewer({
                             {snapshotHistory.map((entry) => (
                                 <div key={entry.run_id} className="flex items-center justify-between text-xs">
                                     <span className="font-mono text-muted">{entry.commit_sha.slice(0, 7)}</span>
-                                    <LemonTag
-                                        type={
-                                            entry.result === 'changed'
-                                                ? 'warning'
-                                                : entry.result === 'new'
-                                                  ? 'highlight'
-                                                  : entry.result === 'removed'
-                                                    ? 'danger'
-                                                    : 'muted'
-                                        }
-                                        size="small"
-                                    >
-                                        {entry.result}
-                                    </LemonTag>
+                                    <SnapshotStatusIndicator result={entry.result} reviewState="" size="medium" />
                                 </div>
                             ))}
                         </div>

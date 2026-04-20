@@ -3,7 +3,6 @@ import json
 import base64
 import datetime as dt
 
-from django.core.cache import cache
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
@@ -37,7 +36,7 @@ from posthog.tasks.exporter import export_asset
 
 from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.explain import LogExplainViewSet
-from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
+from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
@@ -563,24 +562,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:
-        cache_key = f"team:{self.team.id}:has_logs"
-        cached = cache.get(cache_key)
-        if cached is True:
-            report_user_action(
-                request.user,
-                "logs has_logs checked",
-                {"has_logs": True},
-                team=self.team,
-                request=request,
-            )
-            return Response({"hasLogs": True}, status=status.HTTP_200_OK)
-
-        runner = HasLogsQueryRunner(self.team)
-        has_logs = runner.run()
-
-        # Only cache positive results (once you have logs, you always have logs)
-        if has_logs:
-            cache.set(cache_key, True, int(dt.timedelta(days=7).total_seconds()))
+        has_logs = team_has_logs(self.team)
 
         report_user_action(
             request.user,

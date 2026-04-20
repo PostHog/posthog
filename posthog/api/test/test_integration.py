@@ -1133,10 +1133,14 @@ class TestStripeIntegrationOAuthTokens:
         stripe_int.write_posthog_secrets(self.team.pk, self.user)
 
         calls = mock_client.apps.secrets.create.call_args_list
-        assert len(calls) == 3
+        assert len(calls) == 5
         for call in calls:
             assert call.kwargs["params"]["scope"] == {"type": "account"}
             assert call.kwargs["options"] == {"stripe_account": "acct_456"}
+
+        secret_payloads = {call.kwargs["params"]["name"]: call.kwargs["params"]["payload"] for call in calls}
+        assert secret_payloads["posthog_project_id"] == str(self.team.pk)
+        assert secret_payloads["posthog_oauth_client_id"] == self.oauth_app.client_id
 
     @patch("posthog.models.integration.StripeClient")
     @patch("posthog.models.integration.settings")
@@ -1158,7 +1162,7 @@ class TestStripeIntegrationOAuthTokens:
         stripe_int.clear_posthog_secrets()
 
         calls = mock_client.apps.secrets.delete_where.call_args_list
-        assert len(calls) == 3
+        assert len(calls) == 5
         for call in calls:
             assert call.kwargs["params"]["scope"] == {"type": "account"}
             assert call.kwargs["options"] == {"stripe_account": "acct_789"}

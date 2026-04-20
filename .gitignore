@@ -118,8 +118,8 @@ test-results/
 
 # Frontend caching, build artifacts, logs, private assets, etc.
 common/tailwind/dist
-frontend/__snapshots__/__diff_output__/
-frontend/__snapshots__/__failures__/
+frontend/__snapshots__/
+playwright/__snapshots__/
 frontend/.cache/
 frontend/@posthog/apps-common/dist/
 frontend/dist/
