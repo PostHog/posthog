@@ -93,7 +93,10 @@ function EntityDisplay({ entity }: { entity: AnyEntityNode<AnyDataWarehouseNode>
                 </Link>
             ) : isEventsNode(entity) ? (
                 <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                    <PropertyKeyInfo value={entity.event || '$pageview'} type={TaxonomicFilterGroupType.Events} />
+                    <PropertyKeyInfo
+                        value={entity.event || entity.name || '$pageview'}
+                        type={TaxonomicFilterGroupType.Events}
+                    />
                 </span>
             ) : (
                 <i>{entity.kind /* TODO: Support DataWarehouseNode */}</i>
@@ -225,7 +228,8 @@ function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
                         : {
                               kind: NodeKind.EventsNode,
                               name: query.retentionFilter.targetEntity?.name,
-                              event: query.retentionFilter.targetEntity?.id as string,
+                              event: (query.retentionFilter.targetEntity?.id ??
+                                  query.retentionFilter.targetEntity?.name) as string,
                           }
                 }
             />
@@ -250,7 +254,8 @@ function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
                         : {
                               kind: NodeKind.EventsNode,
                               name: query.retentionFilter.returningEntity?.name,
-                              event: query.retentionFilter.returningEntity?.id as string,
+                              event: (query.retentionFilter.returningEntity?.id ??
+                                  query.retentionFilter.returningEntity?.name) as string,
                           }
                 }
             />

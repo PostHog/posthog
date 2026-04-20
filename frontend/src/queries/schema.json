@@ -2950,12 +2950,8 @@
                     "description": "Custom name for the event if it is needed to be renamed.",
                     "type": "string"
                 },
-                "id": {
-                    "description": "Event name from the plan — the same string as `name`. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan.",
-                    "type": "string"
-                },
                 "name": {
-                    "description": "Event name from the plan — must be identical to `id`.",
+                    "description": "Event name from the plan.",
                     "type": "string"
                 },
                 "properties": {
@@ -2970,7 +2966,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "id", "name"],
+            "required": ["type", "name"],
             "type": "object"
         },
         "AssistantRetentionFilter": {

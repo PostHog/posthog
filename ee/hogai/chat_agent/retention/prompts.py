@@ -20,10 +20,6 @@ Retention can be aggregated by:
 Actions are user-defined event filters. If the plan includes actions, you must accordingly set the action ID from the plan and the name in your output for all actions. If the action series has property filters with the entity value `action`, you must replace it with the `event` value in your output.
 </actions>
 
-<entities>
-For `targetEntity` and `returningEntity`, if the entity is an event (`type: "events"`), you must set BOTH `id` and `name` to the event name from the plan. They must be identical strings — the retention engine uses `id` to match events, so omitting it or leaving it empty causes the chart to run against the wrong event. For actions (`type: "actions"`), set `id` to the numeric action ID and `name` to the action name from the plan.
-</entities>
-
 ## Schema Examples
 
 ### Question: How do new users of insights retain?

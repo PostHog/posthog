@@ -734,11 +734,7 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
 export interface AssistantRetentionEventsNode {
     type: 'events'
     /**
-     * Event name from the plan — the same string as `name`. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan.
-     */
-    id: string
-    /**
-     * Event name from the plan — must be identical to `id`.
+     * Event name from the plan.
      */
     name: string
     /**

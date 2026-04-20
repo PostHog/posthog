@@ -370,17 +370,7 @@ def cast_assistant_query(
     elif query.kind == "FunnelsQuery":
         return FunnelsQuery(**query.model_dump())
     elif query.kind == "RetentionQuery":
-        data = query.model_dump()
-        # Defensive backfill: the retention query engine matches events via `entity.id`, so if the
-        # assistant emitted an events entity with only `name` populated, mirror it into `id`. Without
-        # this, the backend falls through to the "all events" branch and the chart silently runs
-        # against every event instead of the one the user asked for.
-        retention_filter = data.get("retentionFilter") or {}
-        for entity_key in ("targetEntity", "returningEntity"):
-            entity = retention_filter.get(entity_key)
-            if entity and entity.get("type") == "events" and not entity.get("id") and entity.get("name"):
-                entity["id"] = entity["name"]
-        return RetentionQuery(**data)
+        return RetentionQuery(**query.model_dump())
     elif query.kind == "HogQLQuery":
         return HogQLQuery(**query.model_dump())
     else:

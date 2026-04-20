@@ -12,10 +12,6 @@ from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
     AssistantMessage,
-    AssistantRetentionActionsNode,
-    AssistantRetentionEventsNode,
-    AssistantRetentionFilter,
-    AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     HumanMessage,
@@ -687,69 +683,6 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
 
 
 class TestCastAssistantQuery(unittest.TestCase):
-    def test_retention_events_entity_id_is_preserved(self):
-        query = AssistantRetentionQuery(
-            kind=NodeKind.RETENTION_QUERY,
-            retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionEventsNode(type="events", id="signed up", name="signed up"),
-                returningEntity=AssistantRetentionEventsNode(type="events", id="activated", name="activated"),
-            ),
-        )
-
-        result = cast_assistant_query(query)
-
-        assert result.kind == "RetentionQuery"
-        assert result.retentionFilter is not None
-        assert result.retentionFilter.targetEntity is not None
-        assert result.retentionFilter.returningEntity is not None
-        self.assertEqual(result.retentionFilter.targetEntity.id, "signed up")
-        self.assertEqual(result.retentionFilter.returningEntity.id, "activated")
-
-    def test_retention_action_entity_id_is_preserved(self):
-        query = AssistantRetentionQuery(
-            kind=NodeKind.RETENTION_QUERY,
-            retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionActionsNode(type="actions", id=42, name="Signed up action"),
-                returningEntity=AssistantRetentionActionsNode(type="actions", id=43, name="Activated action"),
-            ),
-        )
-
-        result = cast_assistant_query(query)
-
-        assert result.retentionFilter is not None
-        assert result.retentionFilter.targetEntity is not None
-        assert result.retentionFilter.returningEntity is not None
-        self.assertEqual(result.retentionFilter.targetEntity.id, 42)
-        self.assertEqual(result.retentionFilter.returningEntity.id, 43)
-
-    def test_retention_legacy_entity_without_id_is_backfilled_from_name(self):
-        """Defensive path: if a retention entity arrives with only `name` populated (e.g. from
-        an older cached assistant query), `cast_assistant_query` must mirror `name` into `id`
-        so the retention engine matches the right event instead of falling through to 'all events'."""
-        query = AssistantRetentionQuery(
-            kind=NodeKind.RETENTION_QUERY,
-            retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionEventsNode(
-                    type="events", id="nav panel trigger clicked", name="nav panel trigger clicked"
-                ),
-                returningEntity=AssistantRetentionEventsNode(
-                    type="events", id="nav panel trigger clicked", name="nav panel trigger clicked"
-                ),
-            ),
-        )
-        # Simulate legacy payload by blanking `id` post-construction; the defensive backfill
-        # inside cast_assistant_query should repopulate it from `name`.
-        query.retentionFilter.targetEntity.id = ""
-        query.retentionFilter.returningEntity.id = ""
-
-        result = cast_assistant_query(query)
-
-        assert result.retentionFilter is not None
-        assert result.retentionFilter.targetEntity is not None
-        assert result.retentionFilter.returningEntity is not None
-        self.assertEqual(result.retentionFilter.targetEntity.id, "nav panel trigger clicked")
-        self.assertEqual(result.retentionFilter.returningEntity.id, "nav panel trigger clicked")
-
     def test_funnel_optional_step_survives_cast(self):
         query = AssistantFunnelsQuery(
             kind=NodeKind.FUNNELS_QUERY,
