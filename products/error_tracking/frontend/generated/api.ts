@@ -51,7 +51,6 @@ import type {
     PaginatedErrorTrackingSymbolSetListApi,
     PatchedErrorTrackingAssignmentRuleApi,
     PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
-    PatchedErrorTrackingExternalReferenceApi,
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingIssueFullApi,
     PatchedErrorTrackingReleaseApi,
@@ -272,45 +271,6 @@ export const errorTrackingExternalReferencesRetrieve = async (
         ...options,
         method: 'GET',
     })
-}
-
-export const getErrorTrackingExternalReferencesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/external_references/${id}/`
-}
-
-export const errorTrackingExternalReferencesUpdate = async (
-    projectId: string,
-    id: string,
-    errorTrackingExternalReferenceApi: ErrorTrackingExternalReferenceApi,
-    options?: RequestInit
-): Promise<ErrorTrackingExternalReferenceApi> => {
-    return apiMutator<ErrorTrackingExternalReferenceApi>(getErrorTrackingExternalReferencesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingExternalReferenceApi),
-    })
-}
-
-export const getErrorTrackingExternalReferencesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/external_references/${id}/`
-}
-
-export const errorTrackingExternalReferencesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedErrorTrackingExternalReferenceApi: NonReadonly<PatchedErrorTrackingExternalReferenceApi>,
-    options?: RequestInit
-): Promise<ErrorTrackingExternalReferenceApi> => {
-    return apiMutator<ErrorTrackingExternalReferenceApi>(
-        getErrorTrackingExternalReferencesPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingExternalReferenceApi),
-        }
-    )
 }
 
 /**

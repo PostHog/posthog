@@ -606,17 +606,9 @@ export interface PaginatedErrorTrackingExternalReferenceListApi {
     results: ErrorTrackingExternalReferenceApi[]
 }
 
-export interface PatchedErrorTrackingExternalReferenceApi {
-    readonly id?: string
-    readonly integration?: ErrorTrackingExternalReferenceIntegrationApi
-    integration_id?: number
-    config?: unknown
-    issue?: string
-    readonly external_url?: string
-}
-
 export interface ErrorTrackingFingerprintApi {
-    fingerprint: string
+    readonly id: string
+    readonly fingerprint: string
     readonly issue_id: string
     readonly created_at: string
 }
