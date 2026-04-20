@@ -13,6 +13,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
 
+from products.signals.backend.models import SignalReportTask
+
 from .constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
@@ -42,6 +44,19 @@ class TaskSerializer(serializers.ModelSerializer):
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
     description = serializers.CharField(required=False, allow_blank=True)
     origin_product = serializers.ChoiceField(choices=Task.OriginProduct.choices, required=False)
+    # Write-only: which SignalReportTask row to create when linking a task to a report from the
+    # public task API (e.g. PostHog Code inbox). Only implementation is supported; research/repo
+    # selection links are created by server-side flows.
+    signal_report_task_relationship = serializers.ChoiceField(
+        choices=[
+            (
+                SignalReportTask.Relationship.IMPLEMENTATION.value,
+                SignalReportTask.Relationship.IMPLEMENTATION.label,
+            ),
+        ],
+        required=False,
+        write_only=True,
+    )
 
     class Meta:
         model = Task
@@ -56,6 +71,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "repository",
             "github_integration",
             "signal_report",
+            "signal_report_task_relationship",
             "json_schema",
             "internal",
             "latest_run",
@@ -103,11 +119,29 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Signal report must belong to the same team")
         return value
 
+    def validate(self, attrs: dict) -> dict:
+        rel = attrs.get("signal_report_task_relationship")
+        if rel is not None:
+            if not attrs.get("signal_report"):
+                raise serializers.ValidationError(
+                    {"signal_report_task_relationship": "Requires signal_report when set."}
+                )
+            if attrs.get("origin_product") != Task.OriginProduct.SIGNAL_REPORT:
+                raise serializers.ValidationError(
+                    {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
+                )
+        return attrs
+
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
 
         if "request" in self.context and hasattr(self.context["request"], "user"):
             validated_data["created_by"] = self.context["request"].user
+
+        link_relationship = validated_data.pop(
+            "signal_report_task_relationship",
+            SignalReportTask.Relationship.IMPLEMENTATION,
+        )
 
         # Set default GitHub integration if not provided
         if not validated_data.get("github_integration"):
@@ -122,7 +156,20 @@ class TaskSerializer(serializers.ModelSerializer):
         elif title:
             validated_data.setdefault("title_manually_set", True)
 
-        return super().create(validated_data)
+        # Inbox / PostHog Code: tasks created via this API with a signal report use the same
+        # origin_product as server-side flows, but only those flows previously called
+        # SignalReportTask.objects.create. Link implementation tasks here so report task
+        # listings (e.g. getSignalReportTasks) match autostarted implementations.
+        with transaction.atomic():
+            task = super().create(validated_data)
+            if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+                SignalReportTask.objects.create(
+                    team_id=task.team_id,
+                    report_id=task.signal_report_id,
+                    task=task,
+                    relationship=link_relationship,
+                )
+            return task
 
     def update(self, instance, validated_data):
         if "title" in validated_data and "title_manually_set" not in validated_data:
