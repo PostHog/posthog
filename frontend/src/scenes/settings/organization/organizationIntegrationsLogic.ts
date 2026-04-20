@@ -1,5 +1,7 @@
-import { afterMount, kea, path, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ICONS } from 'lib/integrations/utils'
@@ -10,6 +12,10 @@ import type { organizationIntegrationsLogicType } from './organizationIntegratio
 
 export const organizationIntegrationsLogic = kea<organizationIntegrationsLogicType>([
     path(['scenes', 'settings', 'organization', 'organizationIntegrationsLogic']),
+
+    actions({
+        deleteOrganizationIntegration: (id: IntegrationType['id']) => ({ id }),
+    }),
 
     loaders(() => ({
         organizationIntegrations: [
@@ -44,6 +50,37 @@ export const organizationIntegrationsLogic = kea<organizationIntegrationsLogicTy
             },
         ],
     }),
+
+    listeners(({ actions, values }) => ({
+        deleteOrganizationIntegration: ({ id }) => {
+            const integration = values.organizationIntegrations?.find((x) => x.id === id)
+            if (!integration) {
+                return
+            }
+
+            LemonDialog.open({
+                title: `Disconnect ${integration.kind} integration?`,
+                description:
+                    'This will remove the integration from your organization. PostHog resources configured to use this integration will stop working.',
+                primaryButton: {
+                    children: 'Yes, disconnect',
+                    status: 'danger',
+                    onClick: async () => {
+                        try {
+                            await api.organizationIntegrations.delete(id)
+                            lemonToast.success('Integration disconnected.')
+                            actions.loadOrganizationIntegrations()
+                        } catch {
+                            lemonToast.error('Failed to disconnect integration. Please try again.')
+                        }
+                    },
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
+    })),
 
     afterMount(({ actions }) => {
         actions.loadOrganizationIntegrations()

@@ -29,6 +29,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from ..models.skills import LLMSkill, LLMSkillFile
 from .metrics import llma_track_latency
 from .skill_serializers import (
+    LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
     LLMSkillFileSerializer,
@@ -144,11 +145,8 @@ class LLMSkillViewSet(
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    def _serialize_skill(self, skill: LLMSkill, include_files: bool = True) -> dict[str, Any]:
-        data = cast(dict[str, Any], self.get_serializer(skill).data)
-        if include_files:
-            data["files"] = list(LLMSkillFile.objects.filter(skill=skill).values("path", "content_type"))
-        return data
+    def _serialize_skill(self, skill: LLMSkill) -> dict[str, Any]:
+        return cast(dict[str, Any], LLMSkillSerializer(skill, context=self.get_serializer_context()).data)
 
     def _serialize_version_summaries(self, skills: list[LLMSkill]) -> list[dict[str, Any]]:
         return cast(list[dict[str, Any]], LLMSkillVersionSummarySerializer(skills, many=True).data)
@@ -182,6 +180,8 @@ class LLMSkillViewSet(
     def get_serializer_class(self):
         if self.action == "list":
             return LLMSkillListSerializer
+        if self.action == "create":
+            return LLMSkillCreateSerializer
         return super().get_serializer_class()
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
@@ -324,6 +324,7 @@ class LLMSkillViewSet(
             }
         )
 
+    @extend_schema(request=None, responses={204: None})
     @action(
         methods=["POST"],
         detail=False,
