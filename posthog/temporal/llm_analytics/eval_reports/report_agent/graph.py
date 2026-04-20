@@ -248,6 +248,8 @@ def run_eval_report_agent(
         "report": EvalReportContent(metrics=metrics),
     }
 
+    from posthog.temporal.llm_analytics.eval_reports.metrics import increment_errors, increment_report_generated
+
     try:
         result = agent.invoke(
             initial_state,
@@ -261,8 +263,6 @@ def run_eval_report_agent(
 
         validation_error = _validate_agent_output(content)
         if validation_error:
-            from posthog.temporal.llm_analytics.eval_reports.metrics import increment_report_generated
-
             increment_report_generated("fallback_validation")
 
             logger.warning(
@@ -276,8 +276,6 @@ def run_eval_report_agent(
             return _fallback_content(evaluation_name, metrics, validation_error)
 
         _append_references_section(content)
-
-        from posthog.temporal.llm_analytics.eval_reports.metrics import increment_report_generated
 
         increment_report_generated("completed")
 
@@ -293,8 +291,6 @@ def run_eval_report_agent(
         return content
 
     except Exception as e:
-        from posthog.temporal.llm_analytics.eval_reports.metrics import increment_errors, increment_report_generated
-
         increment_report_generated("fallback_error")
         increment_errors(f"agent_{type(e).__name__}")
 

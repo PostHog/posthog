@@ -383,20 +383,20 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     all_errors: list[str] = []
 
     email_targets = [t for t in targets if t.get("type") == "email"]
+    email_errors: list[str] = []
     if email_targets:
-        all_errors.extend(
-            deliver_email_report(
-                report_run, email_targets, evaluation_name, evaluation_id, project_id, period_start, period_end
-            )
+        email_errors = deliver_email_report(
+            report_run, email_targets, evaluation_name, evaluation_id, project_id, period_start, period_end
         )
+        all_errors.extend(email_errors)
 
     slack_targets = [t for t in targets if t.get("type") == "slack"]
+    slack_errors: list[str] = []
     if slack_targets:
-        all_errors.extend(
-            deliver_slack_report(
-                report_run, slack_targets, evaluation_name, team_id, project_id, period_start, period_end
-            )
+        slack_errors = deliver_slack_report(
+            report_run, slack_targets, evaluation_name, team_id, project_id, period_start, period_end
         )
+        all_errors.extend(slack_errors)
 
     had_any_target = bool(email_targets or slack_targets)
     # Each email target may contain multiple comma-separated addresses, and deliver_email_report
@@ -410,13 +410,14 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
 
     from posthog.temporal.llm_analytics.eval_reports.metrics import increment_delivery
 
-    for _t in email_targets:
-        email_addrs = [addr.strip() for addr in _t.get("value", "").split(",") if addr.strip()]
-        for _addr in email_addrs:
-            increment_delivery("email", "failed" if any(_addr in e for e in all_errors) else "delivered")
-    for _t in slack_targets:
-        channel = _t.get("channel", "")
-        increment_delivery("slack", "failed" if any(channel in e for e in all_errors) else "delivered")
+    for _ in range(email_attempts - len(email_errors)):
+        increment_delivery("email", "delivered")
+    for _ in range(len(email_errors)):
+        increment_delivery("email", "failed")
+    for _ in range(slack_attempts - len(slack_errors)):
+        increment_delivery("slack", "delivered")
+    for _ in range(len(slack_errors)):
+        increment_delivery("slack", "failed")
 
     if not had_any_target:
         report_run.delivery_status = EvaluationReportRun.DeliveryStatus.PENDING
