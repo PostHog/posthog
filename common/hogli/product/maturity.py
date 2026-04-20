@@ -633,7 +633,8 @@ def generate_report(scores: list[ProductScore]) -> str:
     # Summary
     applicable = [s for s in scores if s.overall is not None]
     if applicable:
-        avg = round(sum(s.overall for s in applicable) / len(applicable))  # type: ignore[arg-type]
+        overall_scores = [s.overall for s in applicable if s.overall is not None]
+        avg = round(sum(overall_scores) / len(overall_scores))
         high = sum(1 for s in applicable if (s.overall or 0) >= 80)
         mid = sum(1 for s in applicable if 50 <= (s.overall or 0) < 80)
         low = sum(1 for s in applicable if (s.overall or 0) < 50)
