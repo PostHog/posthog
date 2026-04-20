@@ -1,4 +1,7 @@
+from datetime import datetime
+
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 import structlog
 
@@ -27,11 +30,25 @@ class Command(BaseCommand):
             default=None,
             help="Optionally filter by source type (e.g. Postgres, MySQL)",
         )
+        parser.add_argument(
+            "--disabled-after",
+            type=str,
+            default=None,
+            help="Only include schemas updated after this ISO8601 datetime (e.g. 2026-04-16T17:00:00Z)",
+        )
+        parser.add_argument(
+            "--disabled-before",
+            type=str,
+            default=None,
+            help="Only include schemas updated before this ISO8601 datetime (e.g. 2026-04-17T00:00:00Z)",
+        )
 
     def handle(self, *args, **options):
         error_substring = options["error"]
         dry_run = options["dry_run"]
         source_type = options["source_type"]
+        disabled_after = options["disabled_after"]
+        disabled_before = options["disabled_before"]
 
         schemas = (
             ExternalDataSchema.objects.select_related("source")
@@ -45,6 +62,18 @@ class Command(BaseCommand):
 
         if source_type:
             schemas = schemas.filter(source__source_type=source_type)
+
+        if disabled_after:
+            dt = datetime.fromisoformat(disabled_after)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            schemas = schemas.filter(updated_at__gte=dt)
+
+        if disabled_before:
+            dt = datetime.fromisoformat(disabled_before)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            schemas = schemas.filter(updated_at__lte=dt)
 
         schemas = list(schemas)
 
