@@ -1650,7 +1650,9 @@ def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
         return None
 
     for throttle in CIMD_THROTTLES:
-        if not throttle.allow_request(request, view=None):
+        # CIMD throttles key on IP (CIMDBurstThrottle, CIMDSustainedThrottle) or a
+        # fixed global ident (CIMDGlobalThrottle) — none of them use the view argument.
+        if not throttle.allow_request(request, view=None):  # type: ignore[arg-type]
             logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
             return Response(
                 {
