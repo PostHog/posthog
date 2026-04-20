@@ -1061,6 +1061,37 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: search]')
         })
 
+        it('should handle OpenAI Responses API output (type: "message" with output_text content blocks)', () => {
+            const input = [{ role: 'user', content: 'hello' }]
+            // Shape matches $ai_output_choices from a real gpt-5 Responses API trace: the outer array
+            // elements carry `type: "message"` and `role: "assistant"` at the top level, and the text
+            // lives in `output_text` content blocks (not `text`). This exercises the generic object
+            // branch of flattenOutputMessages (no `choices`/`message` wrapper) plus formatContentBlock's
+            // output_text case.
+            const output = [
+                {
+                    type: 'message',
+                    role: 'assistant',
+                    status: 'completed',
+                    content: [
+                        {
+                            type: 'output_text',
+                            text: 'Hi! What are you shopping for today?',
+                            annotations: [],
+                            logprobs: [],
+                        },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'hello' },
+                { role: 'assistant', content: 'Hi! What are you shopping for today?' },
+            ])
+        })
+
         it('should unwrap OpenAI choices-shaped output', () => {
             const input = [{ role: 'user', content: 'Hi' }]
             const output = {
