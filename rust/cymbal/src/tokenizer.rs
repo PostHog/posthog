@@ -6,11 +6,11 @@
 //! emission and every stacktrace truncation check — so we cache it once for the
 //! lifetime of the process.
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use tiktoken_rs::{cl100k_base, CoreBPE};
 
-pub static CL100K_BPE: Lazy<CoreBPE> =
-    Lazy::new(|| cl100k_base().expect("cl100k_base encoder must be constructible"));
+pub static CL100K_BPE: LazyLock<CoreBPE> =
+    LazyLock::new(|| cl100k_base().expect("cl100k_base encoder must be constructible"));
 
 #[cfg(test)]
 mod tests {

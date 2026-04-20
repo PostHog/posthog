@@ -28,6 +28,7 @@ export interface SlowestQuery {
     experiment_name: string
     experiment_metric_name: string
     experiment_execution_path: string
+    experiment_metric_type: string
 }
 
 export const queryPerformanceLogic = kea<queryPerformanceLogicType>([

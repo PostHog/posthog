@@ -50,7 +50,7 @@ use tokio::time::timeout;
 use tracing::debug;
 
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
-const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
+pub const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
 
 /// Metric name for tracking Redis failure reasons (timeout, get_error, pickle_error, json_error)
 const HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME: &str = "posthog_hypercache_redis_miss_reason";
@@ -455,6 +455,9 @@ impl HyperCacheReader {
     ) -> Result<(Option<T>, CacheSource), HyperCacheError> {
         let redis_cache_key = self.config.get_redis_cache_key(key);
 
+        // S3 NotFound is the only authoritative miss signal; infra errors are
+        // tracked separately so callers don't tombstone keys whose backing store
+        // may recover.
         let mut s3_confirmed_miss = false;
         let mut infra_error: Option<HyperCacheError> = None;
 
@@ -583,6 +586,32 @@ impl HyperCacheReader {
                 }
             }
         }
+
+        // Parse errors (Json/Pickle) are persistent, not transient: surface them
+        // before checking s3_confirmed_miss so callers can tombstone the corruption
+        // even when the other tier reports NotFound.
+        let infra_error = match infra_error {
+            Some(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
+                debug!(
+                    redis_key = %redis_cache_key,
+                    s3_key = %s3_cache_key,
+                    namespace = %self.config.namespace,
+                    error = %e,
+                    "HyperCache parse error observed; surfacing over any S3 miss"
+                );
+                inc(
+                    HYPERCACHE_COUNTER_NAME,
+                    &[
+                        ("result".to_string(), "infra_error".to_string()),
+                        ("namespace".to_string(), self.config.namespace.clone()),
+                        ("value".to_string(), self.config.object_name.clone()),
+                    ],
+                    1,
+                );
+                return Err(e);
+            }
+            other => other,
+        };
 
         if s3_confirmed_miss {
             debug!(
@@ -1574,9 +1603,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_typed_with_source_json_parse_error_falls_to_s3() {
-        // When Redis returns invalid JSON, the reader falls through to S3.
-        // With dummy S3 (always NotFound), this results in a confirmed CacheMiss.
+    async fn test_get_typed_with_source_redis_json_error_surfaces_over_s3_miss() {
         let invalid_json = "not valid json {{{";
         let pickled = serde_pickle::to_vec(&invalid_json, Default::default()).unwrap();
 
@@ -1589,11 +1616,93 @@ mod tests {
             .get_typed_with_source::<TestFlags>(&KeyType::int(42))
             .await;
 
-        assert!(result.is_err());
-        // S3 confirms miss → CacheMiss takes priority over the Redis JSON error
         assert!(
-            matches!(result.unwrap_err(), HyperCacheError::CacheMiss),
-            "should be CacheMiss when S3 confirms NotFound"
+            matches!(result.unwrap_err(), HyperCacheError::Json(_)),
+            "parse error must surface over S3 NotFound"
+        );
+    }
+
+    #[cfg(feature = "mock-client")]
+    #[tokio::test]
+    async fn test_get_typed_with_source_redis_json_error_falls_through_to_s3_hit() {
+        let expected = make_test_flags();
+        let json_string = serde_json::to_string(&expected).unwrap();
+
+        let invalid_json = "not valid json {{{";
+        let pickled = serde_pickle::to_vec(&invalid_json, Default::default()).unwrap();
+
+        let mut mock_redis = MockRedisClient::new();
+        let cache_key = create_test_config().get_redis_cache_key(&KeyType::int(42));
+        mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
+        let redis_handle = mock_redis.clone();
+
+        let mut mock_s3 = MockS3Client::new();
+        let s3_key = create_test_config().get_s3_cache_key(&KeyType::int(42));
+        let json_clone = json_string.clone();
+        mock_s3
+            .expect_get_string()
+            .with(
+                predicate::eq("test-bucket".to_string()),
+                predicate::eq(s3_key),
+            )
+            .returning(move |_, _| {
+                let val = json_clone.clone();
+                Box::pin(async move { Ok(val) })
+            });
+
+        let reader = create_test_reader_with_mocks(mock_redis, Arc::new(mock_s3));
+        let (data, source) = reader
+            .get_typed_with_source::<TestFlags>(&KeyType::int(42))
+            .await
+            .unwrap();
+
+        assert_eq!(source, CacheSource::S3);
+        assert_eq!(data, Some(expected));
+        assert!(
+            redis_handle.get_calls().iter().any(|c| c.key == cache_key),
+            "Redis must be consulted before S3"
+        );
+    }
+
+    #[cfg(feature = "mock-client")]
+    #[tokio::test]
+    async fn test_get_typed_with_source_redis_pickle_error_falls_through_to_s3_hit() {
+        let expected = make_test_flags();
+        let json_string = serde_json::to_string(&expected).unwrap();
+
+        // Raw non-pickle bytes make serde_pickle::from_slice::<String> fail.
+        let non_pickle_bytes = b"this is not pickle data".to_vec();
+
+        let mut mock_redis = MockRedisClient::new();
+        let cache_key = create_test_config().get_redis_cache_key(&KeyType::int(42));
+        mock_redis.get_raw_bytes_ret(&cache_key, Ok(non_pickle_bytes));
+        let redis_handle = mock_redis.clone();
+
+        let mut mock_s3 = MockS3Client::new();
+        let s3_key = create_test_config().get_s3_cache_key(&KeyType::int(42));
+        let json_clone = json_string.clone();
+        mock_s3
+            .expect_get_string()
+            .with(
+                predicate::eq("test-bucket".to_string()),
+                predicate::eq(s3_key),
+            )
+            .returning(move |_, _| {
+                let val = json_clone.clone();
+                Box::pin(async move { Ok(val) })
+            });
+
+        let reader = create_test_reader_with_mocks(mock_redis, Arc::new(mock_s3));
+        let (data, source) = reader
+            .get_typed_with_source::<TestFlags>(&KeyType::int(42))
+            .await
+            .unwrap();
+
+        assert_eq!(source, CacheSource::S3);
+        assert_eq!(data, Some(expected));
+        assert!(
+            redis_handle.get_calls().iter().any(|c| c.key == cache_key),
+            "Redis must be consulted before S3"
         );
     }
 
