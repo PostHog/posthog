@@ -1976,7 +1976,8 @@ export class ApiRequest {
     }
 
     public llmSkillFile(name: string, filePath: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmSkillByName(name, teamId).addPathComponent('files').addPathComponent(filePath)
+        const encodedPath = filePath.split('/').map(encodeURIComponent).join('/')
+        return this.llmSkillByName(name, teamId).addPathComponent('files').addPathComponent(encodedPath)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -6326,7 +6327,7 @@ const api = {
             order_by?: string
             offset?: number
             limit?: number
-        }): Promise<CountedPaginatedResponse<LLMSkill>> {
+        }): Promise<CountedPaginatedResponse<Omit<LLMSkill, 'body'>>> {
             return new ApiRequest().llmSkills().withQueryString(params).get()
         },
 

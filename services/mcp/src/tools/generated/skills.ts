@@ -161,16 +161,22 @@ const skillDuplicate = (): ToolBase<typeof SkillDuplicateSchema, Schemas.LLMSkil
     },
 })
 
-const SkillFileGetSchema = LlmSkillsNameFilesRetrieveParams.omit({ project_id: true })
+const SkillFileGetSchema = LlmSkillsNameFilesRetrieveParams.omit({ project_id: true }).extend(
+    LlmSkillsNameRetrieveQueryParams.shape
+)
 
 const skillFileGet = (): ToolBase<typeof SkillFileGetSchema, Schemas.LLMSkillFile> => ({
     name: 'skill-file-get',
     schema: SkillFileGetSchema,
     handler: async (context: Context, params: z.infer<typeof SkillFileGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const encodedPath = params.file_path.split('/').map(encodeURIComponent).join('/')
         const result = await context.api.request<Schemas.LLMSkillFile>({
             method: 'GET',
-            path: `/api/environments/${projectId}/llm_skills/name/${params.skill_name}/files/${params.file_path}/`,
+            path: `/api/environments/${projectId}/llm_skills/name/${params.skill_name}/files/${encodedPath}/`,
+            query: {
+                version: params.version,
+            },
         })
         return result
     },
