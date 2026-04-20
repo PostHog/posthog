@@ -225,7 +225,10 @@ SELECT
 FROM events
 WHERE event IN ('$ai_generation', '$ai_embedding')
     AND timestamp >= now() - INTERVAL 30 DAY
-    AND distinct_id != properties.$ai_trace_id  -- filter out traces used as distinct_id
+    AND (
+        properties.$ai_trace_id IS NULL
+        OR distinct_id != properties.$ai_trace_id
+    )  -- filter out rows where distinct_id was defaulted to the trace id
 GROUP BY distinct_id
 ORDER BY cost_usd DESC
 LIMIT 25
