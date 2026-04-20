@@ -29,6 +29,7 @@ from .ast_helpers import (
     get_model_names,
     get_orm_bound_serializer_names,
     get_public_function_names,
+    has_any_function_defs,
     imports_any,
     view_facade_usage,
 )
@@ -228,27 +229,28 @@ def score_facade(backend_dir: Path) -> DimensionScore:
     else:
         parts.append("no contracts")
 
-    # Facade
+    # Facade — must have actual function definitions, not just re-exports
     facade_path = backend_dir / "facade" / "api.py"
     fn_names: list[str] = []
     if facade_path.exists():
-        impure = imports_any(facade_path, ["rest_framework"])
-        fn_names = get_public_function_names(facade_path)
-        if not impure:
-            score += 15
+        has_real_functions = has_any_function_defs(facade_path)
+        if not has_real_functions:
+            parts.append("facade (re-export only, not a real facade)")
         else:
-            score += 5
-            parts.append("facade (impure)")
+            impure = imports_any(facade_path, ["rest_framework"])
+            fn_names = get_public_function_names(facade_path)
+            if not impure:
+                score += 15
+            else:
+                score += 5
+                parts.append("facade (impure)")
 
-        # Real surface vs stub: 3+ methods suggests actual coverage
-        if len(fn_names) >= 3:
-            score += 15
-            parts.append(f"facade ({len(fn_names)} methods)")
-        elif fn_names:
-            score += 5
-            parts.append(f"facade (stub, {len(fn_names)} method)")
-        else:
-            parts.append("facade (empty)")
+            if len(fn_names) >= 3:
+                score += 15
+                parts.append(f"facade ({len(fn_names)} methods)")
+            elif fn_names:
+                score += 5
+                parts.append(f"facade (stub, {len(fn_names)} method)")
     else:
         parts.append("no facade")
 

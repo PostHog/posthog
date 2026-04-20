@@ -94,6 +94,14 @@ def get_frozen_dataclass_names(file_path: Path) -> list[str]:
     return names
 
 
+def has_any_function_defs(file_path: Path) -> bool:
+    """Return True if file contains any top-level function definitions (public or private)."""
+    tree = ast_parse_safe(file_path)
+    if not tree:
+        return False
+    return any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) for node in ast.iter_child_nodes(tree))
+
+
 def get_public_function_names(file_path: Path) -> list[str]:
     """Return names of public top-level and class-level functions/methods (not nested)."""
     tree = ast_parse_safe(file_path)

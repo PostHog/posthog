@@ -379,10 +379,105 @@ class TachCheck(ProductCheck):
         return CheckResult(lines=["✓ ok"])
 
 
+class IsolationChainCheck(ProductCheck):
+    """Validates the isolation prerequisite chain is consistent.
+
+    The chain: real facade → tach interfaces → contract-check script → narrowed turbo.json.
+    Each step requires the previous one. A product that skips a step gets CI
+    benefits it hasn't earned (Django suite skipped on changes).
+    """
+
+    label = "isolation chain"
+
+    def _has_contract_check_script(self, product_dir: Path) -> bool:
+        package_json = product_dir / "package.json"
+        if not package_json.exists():
+            return False
+        try:
+            scripts = json.loads(package_json.read_text()).get("scripts", {})
+        except json.JSONDecodeError:
+            return False
+        return "backend:contract-check" in scripts
+
+    def _has_narrowed_turbo_inputs(self, product_dir: Path) -> bool:
+        turbo_json = product_dir / "turbo.json"
+        if not turbo_json.exists():
+            return False
+        try:
+            tasks = json.loads(turbo_json.read_text()).get("tasks", {})
+        except json.JSONDecodeError:
+            return False
+        contract_task = tasks.get("backend:contract-check")
+        if not contract_task:
+            return False
+        inputs = contract_task.get("inputs", [])
+        return any("facade" in i or "presentation" in i for i in inputs)
+
+    def _has_tach_interfaces(self, name: str) -> bool:
+        module_path = f"products.{name}"
+        block = get_tach_block(module_path)
+        if not block:
+            return False
+        if "interfaces" in block and "interfaces = []" not in block:
+            return True
+        tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+        return bool(
+            re.search(
+                rf"\[\[interfaces\]\].*?from\s*=\s*\[.*?{re.escape(name)}",
+                tach_content,
+                re.DOTALL,
+            )
+        )
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        from .ast_helpers import has_any_function_defs
+
+        facade_api = ctx.backend_dir / "facade" / "api.py"
+        has_real_facade = facade_api.exists() and has_any_function_defs(facade_api)
+        has_tach = self._has_tach_interfaces(ctx.name)
+        has_script = self._has_contract_check_script(ctx.product_dir)
+        has_narrowed = self._has_narrowed_turbo_inputs(ctx.product_dir)
+
+        result = CheckResult()
+
+        if has_script and not has_real_facade:
+            result.issues.append(
+                "has 'backend:contract-check' but facade/api.py has no function definitions — "
+                "re-exporting from logic is not a facade. turbo-discover classifies this product "
+                "as isolated, which may cause the Django test suite to be skipped on changes"
+            )
+
+        if has_script and not has_tach:
+            result.issues.append(
+                "has 'backend:contract-check' but no tach interfaces — isolation requires tach boundary enforcement"
+            )
+
+        if has_narrowed and not has_script:
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but package.json has no "
+                "'backend:contract-check' script — dead config, remove the turbo.json override"
+            )
+
+        if has_narrowed and not has_real_facade:
+            result.issues.append(
+                "turbo.json narrows contract-check inputs to facade/presentation but "
+                "facade/api.py has no function definitions — internal changes won't trigger "
+                "Django suite even though the facade boundary isn't real"
+            )
+
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        else:
+            result.lines = ["✓ ok"]
+
+        return result
+
+
 CHECKS: list[ProductCheck] = [
     RequiredRootFilesCheck(),
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),
     FileFolderConflictsCheck(),
     TachCheck(),
+    IsolationChainCheck(),
 ]
