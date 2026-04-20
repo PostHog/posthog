@@ -80,7 +80,9 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         )
         for attr, value in validated_data.items():
             if attr == "level":
-                requesting_membership.validate_update(updated_membership, value)
+                requesting_membership.validate_update(
+                    updated_membership, cast(OrganizationMembership.Level | None, value)
+                )
             setattr(updated_membership, attr, value)
         updated_membership.save()
         return updated_membership
