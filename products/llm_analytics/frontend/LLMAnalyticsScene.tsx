@@ -1,8 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import React from 'react'
+import React, { useMemo } from 'react'
 
-import { LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -25,6 +25,8 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { EditCustomProductsModal } from '~/layout/panel-layout/PinnedFolder/EditCustomProductsModal'
+import { editCustomProductsModalLogic } from '~/layout/panel-layout/PinnedFolder/editCustomProductsModalLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -40,7 +42,11 @@ import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import {
+    buildApplyUrlStatePayload,
+    LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    llmAnalyticsSharedLogic,
+} from './llmAnalyticsSharedLogic'
 import { LLMAnalyticsTools } from './LLMAnalyticsTools'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
@@ -172,8 +178,8 @@ function LLMAnalyticsDashboard(): JSX.Element {
 }
 
 function LLMAnalyticsGenerations(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
-    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { applyUrlState } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { searchParams } = useValues(router)
     const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
         useActions(llmAnalyticsGenerationsLogic)
@@ -234,13 +240,16 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 if (!isEventsQuery(query.source)) {
                     throw new Error('Invalid query')
                 }
-                setDates(query.source.after || null, query.source.before || null)
-                setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-
-                const newPropertyFilters = query.source.properties || []
-                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
-                    setPropertyFilters(newPropertyFilters)
-                }
+                applyUrlState(
+                    buildApplyUrlStatePayload({
+                        dateFrom: query.source.after || null,
+                        dateTo: query.source.before || null,
+                        shouldFilterTestAccounts: query.source.filterTestAccounts || false,
+                        propertyFilters: query.source.properties || [],
+                        currentDateFilter: dateFilter,
+                        currentPropertyFilters,
+                    })
+                )
 
                 if (query.source.select) {
                     setGenerationsColumns(query.source.select)
@@ -454,6 +463,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     const isTraceReviewEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     const { push } = useActions(router)
+    const { toggleProduct, openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
 
     // Tab switching shortcuts
     useAppShortcut({
@@ -581,6 +591,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     })
 
     const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
         tabs.push({
@@ -633,6 +644,52 @@ function LLMAnalyticsSceneContent(): JSX.Element {
         })
     }
 
+    const availableItemsInSidebar = useMemo(() => {
+        return [
+            <Link
+                key="playground"
+                to={combineUrl(urls.llmAnalyticsPlayground(), searchParams).url}
+                onClick={() => toggleProduct('Playground', true)}
+            >
+                Playground
+            </Link>,
+            <Link
+                key="clusters"
+                to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
+                onClick={() => toggleProduct('Clusters', true)}
+            >
+                clusters
+            </Link>,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] ? (
+                <Link
+                    key="datasets"
+                    to={combineUrl(urls.llmAnalyticsDatasets(), searchParams).url}
+                    onClick={() => toggleProduct('Datasets', true)}
+                >
+                    datasets
+                </Link>
+            ) : null,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS] ? (
+                <Link
+                    key="evaluations"
+                    to={combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url}
+                    onClick={() => toggleProduct('Evaluations', true)}
+                >
+                    evaluations
+                </Link>
+            ) : null,
+            isPromptManagementEnabled ? (
+                <Link
+                    key="prompts"
+                    to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
+                    onClick={() => toggleProduct('Prompts', true)}
+                >
+                    prompts
+                </Link>
+            ) : null,
+        ].filter(Boolean) as JSX.Element[]
+    }, [featureFlags, isPromptManagementEnabled, searchParams, toggleProduct])
+
     if (activeTab === 'reviews' && !isTraceReviewEnabled) {
         return <NotFound object="page" />
     }
@@ -658,6 +715,24 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     </>
                 }
             />
+
+            {availableItemsInSidebar.length > 0 ? (
+                <>
+                    <LemonBanner type="info" className="mb-2" dismissKey="llm-analytics-sidebar-moved-banner">
+                        We've moved{' '}
+                        {availableItemsInSidebar.map((el, i) => (
+                            <React.Fragment key={i}>
+                                {i > 0 && ', '}
+                                {el}
+                            </React.Fragment>
+                        ))}{' '}
+                        out of LLM Analytics and into their own apps. You can access them by clicking in the links
+                        above, or by clicking "All apps" in the sidebar. You can also customize your sidebar{' '}
+                        <Link onClick={openEditCustomProductsModal}>here</Link>.
+                    </LemonBanner>
+                    <EditCustomProductsModal />
+                </>
+            ) : null}
 
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
         </SceneContent>

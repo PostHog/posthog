@@ -106,6 +106,23 @@ def _resolve_effective_query_json(insight: Insight, dashboard: Dashboard | None)
     return query_json
 
 
+def _has_comparison_enabled(query_json: Any) -> bool:
+    """True if the insight has 'Compare to previous period' turned on.
+
+    Used to help the AI summary suggest enabling the overlay when it would
+    make the insight easier to interpret, without nagging when it is already
+    configured. Handles TrendsQuery / LifecycleQuery / StickinessQuery and
+    the DataVisualizationNode wrapper shape.
+    """
+    if not isinstance(query_json, dict):
+        return False
+    source = query_json.get("source", query_json)
+    if not isinstance(source, dict):
+        return False
+    compare_filter = source.get("compareFilter")
+    return bool(isinstance(compare_filter, dict) and compare_filter.get("compare"))
+
+
 def _execute_and_serialize_insight_query(
     *,
     insight: Insight,
@@ -185,8 +202,10 @@ def build_insight_delivery_snapshot(
             "type": "missing_query",
             "message": "Insight has no query or convertible filters",
         }
+        base["comparison_enabled"] = False
         return base
 
+    base["comparison_enabled"] = _has_comparison_enabled(query_json)
     base.update(
         _execute_and_serialize_insight_query(
             insight=insight,

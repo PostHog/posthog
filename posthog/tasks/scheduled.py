@@ -77,7 +77,7 @@ from posthog.utils import get_crontab, get_instance_region
 from products.conversations.backend.tasks import wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
-from products.logs.backend.tasks import logs_alert_checks_cleanup_task
+from products.logs.backend.tasks import logs_alert_events_cleanup_task
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -491,8 +491,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     sender.add_periodic_task(
         crontab(hour="8", minute="15"),
-        logs_alert_checks_cleanup_task.s(),
-        name="clean up old logs alert checks",
+        logs_alert_events_cleanup_task.s(),
+        name="clean up old logs alert events",
     )
 
     if settings.EE_AVAILABLE:
