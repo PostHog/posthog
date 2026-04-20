@@ -21,7 +21,7 @@ export function WeeklyDigestRecommendationCard({
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { updateUser } = useActions(userLogic)
-    const { refreshRecommendation } = useActions(recommendationsTabLogic)
+    const { scheduleRefreshOnUpdate } = useActions(recommendationsTabLogic)
 
     const enabled = recommendation.meta.enabled
 
@@ -38,6 +38,7 @@ export function WeeklyDigestRecommendationCard({
         // and `error_tracking_weekly_digest` can get reset to `false`.
         // We deliberately don't touch `all_weekly_digest_disabled` — that's a global preference
         // the user set elsewhere and isn't ours to override.
+        scheduleRefreshOnUpdate(recommendation.id)
         updateUser({
             notification_settings: {
                 ...user.notification_settings,
@@ -48,7 +49,6 @@ export function WeeklyDigestRecommendationCard({
                 },
             },
         })
-        refreshRecommendation(recommendation.id)
     }
 
     return (

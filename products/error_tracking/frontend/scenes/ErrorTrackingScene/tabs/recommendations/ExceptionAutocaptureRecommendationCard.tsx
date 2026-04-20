@@ -23,7 +23,7 @@ export function ExceptionAutocaptureRecommendationCard({
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
-    const { refreshRecommendation } = useActions(recommendationsTabLogic)
+    const { scheduleRefreshOnUpdate } = useActions(recommendationsTabLogic)
 
     const enabled = recommendation.meta.enabled
 
@@ -36,9 +36,9 @@ export function ExceptionAutocaptureRecommendationCard({
             product_type: ProductKey.ERROR_TRACKING,
             intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
         })
+        scheduleRefreshOnUpdate(recommendation.id)
         updateCurrentTeam({ autocapture_exceptions_opt_in: true })
         reportAutocaptureExceptionsToggled(true)
-        refreshRecommendation(recommendation.id)
     }
 
     return (

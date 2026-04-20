@@ -1,7 +1,9 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionSubTemplateIdType } from '~/types'
 
@@ -16,6 +18,10 @@ import type {
 
 export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'tabs', 'recommendations', 'logic']),
+
+    connect(() => ({
+        actions: [userLogic, ['updateUserSuccess'], teamLogic, ['updateCurrentTeamSuccess']],
+    })),
 
     loaders({
         recommendations: [
@@ -48,6 +54,11 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         toggleDismissedExpanded: true,
         toggleCompletedExpanded: true,
         setOpenAlertTriggerKey: (triggerKey: HogFunctionSubTemplateIdType | null) => ({ triggerKey }),
+        // Queue a refresh for this recommendation to fire as soon as the next
+        // `updateUserSuccess` / `updateCurrentTeamSuccess` lands. Without waiting for the
+        // update to persist, refreshing immediately would re-read stale state and the
+        // recommendation meta would bounce back to "not enabled" until the next auto-refresh.
+        scheduleRefreshOnUpdate: (id: string) => ({ id }),
     }),
 
     reducers({
@@ -69,7 +80,28 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                 setOpenAlertTriggerKey: (_, { triggerKey }) => triggerKey,
             },
         ],
+        pendingRefreshRecommendationId: [
+            null as string | null,
+            {
+                scheduleRefreshOnUpdate: (_, { id }) => id,
+                refreshRecommendationSuccess: () => null,
+                refreshRecommendationFailure: () => null,
+            },
+        ],
     }),
+
+    listeners(({ actions, values }) => ({
+        updateUserSuccess: () => {
+            if (values.pendingRefreshRecommendationId) {
+                actions.refreshRecommendation(values.pendingRefreshRecommendationId)
+            }
+        },
+        updateCurrentTeamSuccess: () => {
+            if (values.pendingRefreshRecommendationId) {
+                actions.refreshRecommendation(values.pendingRefreshRecommendationId)
+            }
+        },
+    })),
 
     selectors({
         pendingRecommendations: [
