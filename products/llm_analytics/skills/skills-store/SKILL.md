@@ -2,8 +2,8 @@
 name: skills-store
 description: >-
   Discover and use shared team skills stored in PostHog.
-  Use when the user asks to list, browse, load, or manage reusable skills,
-  or references "skills store", "skill store", or "skills".
+  Use when the user asks to list, browse, load, or manage "shared skills",
+  "team skills", or references the "skills store" / "skill store".
 ---
 
 # PostHog Skills Store
