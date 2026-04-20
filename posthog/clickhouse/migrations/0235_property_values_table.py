@@ -1,27 +1,5 @@
-from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.clickhouse.property_values import (
-    DISTRIBUTED_PROPERTY_VALUES_TABLE_SQL,
-    PROPERTY_VALUES_MV_SQL,
-    PROPERTY_VALUES_TABLE_SQL,
-    WRITABLE_PROPERTY_VALUES_TABLE_SQL,
-)
+# This migration originally created the property_values tables.
+# They were dropped in 0236_drop_property_values_table due to write pressure issues.
+# Kept as a no-op to preserve migration ordering.
 
-operations = [
-    run_sql_with_exceptions(
-        PROPERTY_VALUES_TABLE_SQL(),
-        node_roles=[NodeRole.AUX],
-    ),
-    run_sql_with_exceptions(
-        WRITABLE_PROPERTY_VALUES_TABLE_SQL(),
-        node_roles=[NodeRole.DATA],
-    ),
-    run_sql_with_exceptions(
-        PROPERTY_VALUES_MV_SQL(),
-        node_roles=[NodeRole.DATA],
-    ),
-    run_sql_with_exceptions(
-        DISTRIBUTED_PROPERTY_VALUES_TABLE_SQL(),
-        node_roles=[NodeRole.DATA],
-    ),
-]
+operations: list = []

@@ -1,6 +1,7 @@
-from typing import cast
+from typing import ClassVar, cast
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.printer.base import BasePrinter
 
 
@@ -11,6 +12,8 @@ class HogQLPrinter(BasePrinter):
     syntax (nullish access, cohort ops, placeholder arguments) rather than
     lowering the tree to a target SQL dialect.
     """
+
+    DIALECT_NAME: ClassVar[HogQLDialect] = "hogql"
 
     def _render_aggregation_name(self, node: ast.Call, func_meta) -> str:
         return node.name
