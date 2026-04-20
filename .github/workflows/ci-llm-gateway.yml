@@ -81,7 +81,7 @@ jobs:
               if: always()
               with:
                   name: junit-results-llm-gateway
-                  path: junit.xml
+                  path: services/llm-gateway/junit.xml
 
     # Single required status check for branch protection. Add future LLM
     # services test jobs to `needs` here rather than reconfiguring GitHub.
