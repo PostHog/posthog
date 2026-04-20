@@ -30,14 +30,12 @@ const ANALYTICS_TILES = [
 ]
 
 export const WebAnalyticsMenu = (): JSX.Element => {
-    const { shouldFilterTestAccounts, hiddenTiles, productTab } = useValues(webAnalyticsLogic)
+    const { hiddenTiles, productTab } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { setShouldFilterTestAccounts, setTileVisibility } = useActions(webAnalyticsLogic)
+    const { setTileVisibility } = useActions(webAnalyticsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
-    const useFiltersV2 =
-        !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || !!featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
 
     return (
@@ -47,22 +45,6 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                     <IconSearch /> Session Attribution Explorer
                 </Link>
             </ScenePanelActionsSection>
-            {!useFiltersV2 && (
-                <>
-                    <ScenePanelDivider />
-                    <ScenePanelActionsSection>
-                        <ButtonPrimitive
-                            menuItem
-                            onClick={() => {
-                                setShouldFilterTestAccounts(!shouldFilterTestAccounts)
-                            }}
-                        >
-                            <LemonSwitch checked={shouldFilterTestAccounts} size="xsmall" />
-                            Filter out internal and test users
-                        </ButtonPrimitive>
-                    </ScenePanelActionsSection>
-                </>
-            )}
             {showTileToggles && availableTiles.length > 0 && (
                 <>
                     <ScenePanelDivider />
