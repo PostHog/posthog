@@ -143,6 +143,7 @@ case "$RS_SVC" in
     export ADDRESS=0.0.0.0:3001
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    export ALLOW_DETAILED_ANALYSIS_WITHOUT_TOKEN=true
     ;;
 
   hypercache-server)

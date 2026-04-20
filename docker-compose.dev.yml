@@ -475,6 +475,7 @@ services:
             FLAGS_REDIS_URL: 'redis://redis7:6379/1'
             FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
             REDIS_COMPRESSION_ENABLED: 'true'
+            ALLOW_DETAILED_ANALYSIS_WITHOUT_TOKEN: 'true'
 
     # Temporal containers
     elasticsearch:
