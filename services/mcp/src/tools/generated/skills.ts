@@ -58,7 +58,7 @@ const skillGet = (): ToolBase<typeof SkillGetSchema, Schemas.LLMSkill> => ({
 
 const SkillCreateSchema = LlmSkillsCreateBody
 
-const skillCreate = (): ToolBase<typeof SkillCreateSchema, Schemas.LLMSkill> => ({
+const skillCreate = (): ToolBase<typeof SkillCreateSchema, Schemas.LLMSkillCreate> => ({
     name: 'skill-create',
     schema: SkillCreateSchema,
     handler: async (context: Context, params: z.infer<typeof SkillCreateSchema>) => {
@@ -88,7 +88,7 @@ const skillCreate = (): ToolBase<typeof SkillCreateSchema, Schemas.LLMSkill> => 
         if (params.files !== undefined) {
             body['files'] = params.files
         }
-        const result = await context.api.request<Schemas.LLMSkill>({
+        const result = await context.api.request<Schemas.LLMSkillCreate>({
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_skills/`,
             body,

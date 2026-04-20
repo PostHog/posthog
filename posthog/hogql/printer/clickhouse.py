@@ -1,6 +1,6 @@
 import re
 from datetime import date, datetime
-from typing import Literal, Union, cast
+from typing import ClassVar, Literal, Union, cast
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -9,7 +9,7 @@ from posthog.schema import PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
@@ -86,15 +86,7 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 
 
 class ClickHousePrinter(BasePrinter):
-    def __init__(
-        self,
-        context: HogQLContext,
-        dialect: Literal["clickhouse"],
-        stack: list[AST] | None = None,
-        settings: HogQLGlobalSettings | None = None,
-        pretty: bool = False,
-    ):
-        super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+    DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
 
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         return str(self._limit_percent_constant_value(limit))
@@ -1268,12 +1260,7 @@ class ClickHousePrinter(BasePrinter):
 
             if isinstance(column, ast.Call) and not dropped_hidden_alias:
                 with self.context.timings.measure("printer"):
-                    column_alias = safe_identifier(
-                        HogQLPrinter(
-                            context=self.context,
-                            dialect="hogql",
-                        ).visit(column)
-                    )
+                    column_alias = safe_identifier(HogQLPrinter(context=self.context).visit(column))
                 # ClickHouse rejects duplicate aliases for different expressions in the
                 # same SELECT. This can happen after "*" expansion if a subquery already
                 # exposes a generated expression name like `toDate(period_end)`.
