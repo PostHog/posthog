@@ -78,6 +78,26 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         help_text="List of team IDs and corresponding access levels to private projects.",
         validators=[validate_private_project_access],
     )
+    guest_resources = models.JSONField(
+        default=list,
+        help_text=(
+            "List of {team_id, resource, resource_id} dicts describing resource grants the invitee "
+            "should receive on acceptance. A non-empty list marks the invite as a guest invite."
+        ),
+    )
+    bypass_sso = models.BooleanField(
+        default=False,
+        help_text=(
+            "If true, the membership created on acceptance can authenticate with password even when "
+            "the organization enforces SSO. Meaningful for guest invites where the invitee is external "
+            "and may not be in the SSO directory."
+        ),
+    )
+
+    @property
+    def is_guest_invite(self) -> bool:
+        """True when the invite carries at least one guest resource grant."""
+        return bool(self.guest_resources)
 
     def validate(
         self,
