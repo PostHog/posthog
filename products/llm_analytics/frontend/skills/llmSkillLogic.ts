@@ -3,12 +3,19 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router } from 'kea-router'
 
-import api from '~/lib/api'
+import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from '~/scenes/urls'
-import { Breadcrumb, LLMSkill, LLMSkillVersionSummary } from '~/types'
+import { Breadcrumb } from '~/types'
 
+import {
+    llmSkillsCreate,
+    llmSkillsNameArchiveCreate,
+    llmSkillsNamePartialUpdate,
+    llmSkillsResolveNameRetrieve,
+} from '../generated/api'
+import type { LLMSkillApi, LLMSkillListApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
 import type { llmSkillLogicType } from './llmSkillLogicType'
 import { llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
 
@@ -32,12 +39,12 @@ export interface SkillFormValues {
     compatibility: string
 }
 
-export interface ResolvedLLMSkill extends LLMSkill {
-    versions: LLMSkillVersionSummary[]
+export interface ResolvedLLMSkill extends LLMSkillApi {
+    versions: LLMSkillVersionSummaryApi[]
     has_more: boolean
 }
 
-export function isSkill(skill: LLMSkill | ResolvedLLMSkill | SkillFormValues | null): skill is ResolvedLLMSkill {
+export function isSkill(skill: LLMSkillApi | ResolvedLLMSkill | SkillFormValues | null): skill is ResolvedLLMSkill {
     return skill !== null && 'id' in skill
 }
 
@@ -56,7 +63,7 @@ async function fetchResolvedSkill(
     skillName: string,
     params?: { version?: number; offset?: number; before_version?: number; limit?: number }
 ): Promise<ResolvedLLMSkill> {
-    const response = await api.llmSkills.resolveByName(skillName, {
+    const response = await llmSkillsResolveNameRetrieve(String(ApiConfig.getCurrentTeamId()), skillName, {
         ...params,
         limit: params?.limit ?? SKILL_VERSIONS_LIMIT,
     })
@@ -67,7 +74,7 @@ async function fetchResolvedSkill(
     }
 }
 
-function getSkillFormDefaults(skill: LLMSkill): SkillFormValues {
+function getSkillFormDefaults(skill: LLMSkillApi): SkillFormValues {
     return {
         name: skill.name,
         description: skill.description,
@@ -77,7 +84,7 @@ function getSkillFormDefaults(skill: LLMSkill): SkillFormValues {
     }
 }
 
-function findExistingSkill(skillName: string): LLMSkill | undefined {
+function findExistingSkill(skillName: string): LLMSkillListApi | undefined {
     return llmSkillsLogic.findMounted()?.values.skills.results.find((s) => s.name === skillName)
 }
 
@@ -166,10 +173,10 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 const isNew = props.skillName === 'new'
 
                 try {
-                    let savedSkill: LLMSkill
+                    let savedSkill: LLMSkillApi
 
                     if (isNew) {
-                        savedSkill = await api.llmSkills.create({
+                        savedSkill = await llmSkillsCreate(String(ApiConfig.getCurrentTeamId()), {
                             name: formValues.name,
                             description: formValues.description,
                             body: formValues.body,
@@ -186,15 +193,19 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             throw new Error('Cannot publish skill version: skill data not loaded')
                         }
 
-                        savedSkill = await api.llmSkills.update(props.skillName, {
-                            body: formValues.body,
-                            description: formValues.description,
-                            license: formValues.license || undefined,
-                            compatibility: formValues.compatibility || undefined,
-                            allowed_tools: currentSkill.allowed_tools,
-                            metadata: currentSkill.metadata,
-                            base_version: currentSkill.latest_version,
-                        })
+                        savedSkill = await llmSkillsNamePartialUpdate(
+                            String(ApiConfig.getCurrentTeamId()),
+                            props.skillName,
+                            {
+                                body: formValues.body,
+                                description: formValues.description,
+                                license: formValues.license || undefined,
+                                compatibility: formValues.compatibility || undefined,
+                                allowed_tools: currentSkill.allowed_tools,
+                                metadata: currentSkill.metadata,
+                                base_version: currentSkill.latest_version,
+                            }
+                        )
                         llmSkillsLogic.findMounted()?.actions.loadSkills(false)
                         lemonToast.success('Skill version published successfully')
 
@@ -265,7 +276,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
 
         breadcrumbs: [
             (s) => [s.skill, router.selectors.searchParams],
-            (skill: LLMSkill | SkillFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
+            (skill: LLMSkillApi | SkillFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Skills',
                     path: combineUrl(urls.llmAnalyticsSkills(), searchParams).url,
@@ -293,7 +304,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             (mode, props) => props.skillName === 'new' || mode === SkillMode.Edit,
         ],
 
-        versions: [(s) => [s.skill], (skill): LLMSkillVersionSummary[] => (isSkill(skill) ? skill.versions : [])],
+        versions: [(s) => [s.skill], (skill): LLMSkillVersionSummaryApi[] => (isSkill(skill) ? skill.versions : [])],
 
         canLoadMoreVersions: [(s) => [s.skill], (skill) => (isSkill(skill) ? skill.has_more : false)],
     }),
@@ -302,7 +313,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         deleteSkill: async () => {
             if (props.skillName !== 'new' && values.skill && isSkill(values.skill)) {
                 try {
-                    await api.llmSkills.archiveByName(values.skill.name)
+                    await llmSkillsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), values.skill.name)
                     lemonToast.info(`${values.skill.name || 'Skill'} has been archived.`)
                     llmSkillsLogic.findMounted()?.actions.loadSkills(false)
                     router.actions.replace(urls.llmAnalyticsSkills(), {
@@ -375,9 +386,18 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             const existingSkill = findExistingSkill(props.skillName)
 
             if (existingSkill) {
+                // The list endpoint omits body and files for progressive disclosure; pad
+                // them so the cached preview satisfies the full shape until loadSkill runs.
+                const paddedSkill: ResolvedLLMSkill = {
+                    ...existingSkill,
+                    body: '',
+                    files: [],
+                    versions: [],
+                    has_more: false,
+                }
                 return {
-                    skill: { ...existingSkill, versions: [], has_more: false },
-                    skillForm: getSkillFormDefaults(existingSkill),
+                    skill: paddedSkill,
+                    skillForm: getSkillFormDefaults(paddedSkill),
                     versionsLoading: false,
                 }
             }

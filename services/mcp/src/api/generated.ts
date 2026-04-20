@@ -19579,18 +19579,10 @@ export namespace Schemas {
      */
     export type LLMSkillMetadata = {[key: string]: unknown};
 
-    export interface LLMSkillFileInput {
-      /**
-       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-       * @maxLength 500
-       */
+    export interface LLMSkillFileManifest {
+      /** @maxLength 500 */
       path: string;
-      /** Text content of the file. */
-      content: string;
-      /**
-       * MIME type of the file content.
-       * @maxLength 100
-       */
+      /** @maxLength 100 */
       content_type?: string;
     }
 
@@ -19622,6 +19614,70 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
+      /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+      readonly files: readonly LLMSkillFileManifest[];
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly deleted: boolean;
+      readonly is_latest: boolean;
+      readonly latest_version: number;
+      readonly version_count: number;
+      readonly first_version_created_at: string;
+    }
+
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type LLMSkillCreateMetadata = {[key: string]: unknown};
+
+    export interface LLMSkillFileInput {
+      /**
+       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+       * @maxLength 500
+       */
+      path: string;
+      /** Text content of the file. */
+      content: string;
+      /**
+       * MIME type of the file content.
+       * @maxLength 100
+       */
+      content_type?: string;
+    }
+
+    /**
+     * Create serializer — accepts bundled files as write-only input on POST.
+     */
+    export interface LLMSkillCreate {
+      readonly id: string;
+      /**
+       * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+       * @maxLength 64
+       */
+      name: string;
+      /**
+       * What this skill does and when to use it. Max 4096 characters.
+       * @maxLength 4096
+       */
+      description: string;
+      /** The SKILL.md instruction content (markdown). */
+      body: string;
+      /**
+       * License name or reference to a bundled license file.
+       * @maxLength 255
+       */
+      license?: string;
+      /**
+       * Environment requirements (intended product, system packages, network access, etc.).
+       * @maxLength 500
+       */
+      compatibility?: string;
+      /** List of pre-approved tools the skill may use. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata. */
+      metadata?: LLMSkillCreateMetadata;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       readonly version: number;
@@ -19657,7 +19713,7 @@ export namespace Schemas {
     export type LLMSkillListMetadata = {[key: string]: unknown};
 
     /**
-     * List serializer that omits the body field for progressive disclosure (Level 1).
+     * List serializer that omits body and file manifest — progressive disclosure (Level 1).
      */
     export interface LLMSkillList {
       readonly id: string;
@@ -19685,8 +19741,6 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
-      /** Bundled files to include with the initial version (scripts, references, assets). */
-      files?: LLMSkillFileInput[];
       readonly version: number;
       readonly created_by: UserBasic;
       readonly created_at: string;

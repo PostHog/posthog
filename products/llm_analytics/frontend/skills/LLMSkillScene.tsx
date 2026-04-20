@@ -19,16 +19,12 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import api from '~/lib/api'
+import { ApiConfig } from '~/lib/api'
 import { ProductKey } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    LLMSkillFile,
-    LLMSkillFileManifestEntry,
-    LLMSkillVersionSummary,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { llmSkillsNameFilesRetrieve } from '../generated/api'
+import type { LLMSkillFileApi, LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
 import { SKILL_NAME_MAX_LENGTH, SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 
@@ -403,7 +399,7 @@ function SkillFileViewer({
     version,
 }: {
     skillName: string
-    file: LLMSkillFileManifestEntry
+    file: LLMSkillFileManifestApi
     version?: number
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
@@ -418,9 +414,12 @@ function SkillFileViewer({
         if (content === null) {
             setLoading(true)
             try {
-                const fileData: LLMSkillFile = await api.llmSkills.getFile(skillName, file.path, {
-                    version,
-                })
+                const fileData: LLMSkillFileApi = await llmSkillsNameFilesRetrieve(
+                    String(ApiConfig.getCurrentTeamId()),
+                    skillName,
+                    file.path,
+                    { version }
+                )
                 setContent(fileData.content)
             } catch {
                 setContent('Failed to load file content.')
@@ -551,7 +550,7 @@ function SkillVersionSidebar({
 }: {
     skillName: string
     skill: { id: string; version: number; version_count: number } | null
-    versions: LLMSkillVersionSummary[]
+    versions: LLMSkillVersionSummaryApi[]
     versionsLoading: boolean
     canLoadMoreVersions: boolean
     loadMoreVersions: () => void

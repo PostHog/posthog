@@ -18,8 +18,9 @@ import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, LLMSkill } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import type { LLMSkillListApi } from '../generated/api.schemas'
 import { SKILL_NAME_MAX_LENGTH } from './llmSkillLogic'
 import { SKILLS_PER_PAGE, llmSkillsLogic } from './llmSkillsLogic'
 import { openArchiveSkillDialog } from './skillSceneComponents'
@@ -36,7 +37,7 @@ export function LLMSkillsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.llmAnalyticsSkill(name), searchParams).url
 
-    const columns: LemonTableColumns<LLMSkill> = [
+    const columns: LemonTableColumns<LLMSkillListApi> = [
         {
             title: 'Name',
             dataIndex: 'name',
@@ -82,7 +83,10 @@ export function LLMSkillsScene(): JSX.Element {
                 return <span className="text-muted-alt">{skill.version_count}</span>
             },
         },
-        atColumn('created_at', 'Latest version created') as LemonTableColumn<LLMSkill, keyof LLMSkill | undefined>,
+        atColumn('created_at', 'Latest version created') as LemonTableColumn<
+            LLMSkillListApi,
+            keyof LLMSkillListApi | undefined
+        >,
         {
             width: 0,
             render: function renderMore(_, skill) {

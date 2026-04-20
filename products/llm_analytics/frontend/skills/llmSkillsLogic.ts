@@ -2,7 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api, { CountedPaginatedResponse } from '~/lib/api'
+import { ApiConfig } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
@@ -11,8 +11,9 @@ import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
-import { LLMSkill } from '~/types'
 
+import { llmSkillsList, llmSkillsNameArchiveCreate, llmSkillsNameDuplicateCreate } from '../generated/api'
+import type { PaginatedLLMSkillListListApi } from '../generated/api.schemas'
 import { cleanPagedSearchOrderParams } from '../utils'
 import type { llmSkillsLogicType } from './llmSkillsLogicType'
 
@@ -69,7 +70,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
 
     loaders(({ values }) => ({
         skills: [
-            { results: [], count: 0, offset: 0 } as CountedPaginatedResponse<LLMSkill>,
+            { results: [], count: 0 } as PaginatedLLMSkillListListApi,
             {
                 loadSkills: async ({ debounce }, breakpoint) => {
                     if (debounce && values.skills.results.length > 0) {
@@ -93,7 +94,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                         window.scrollTo(0, 0)
                     }
 
-                    return await api.llmSkills.list(params)
+                    return await llmSkillsList(String(ApiConfig.getCurrentTeamId()), params)
                 },
             },
         ],
@@ -105,7 +106,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             (rawFilters: Partial<SkillFilters> | null): SkillFilters => cleanFilters(rawFilters || {}),
         ],
 
-        count: [(s) => [s.skills], (skills: CountedPaginatedResponse<LLMSkill>) => skills.count],
+        count: [(s) => [s.skills], (skills: PaginatedLLMSkillListListApi) => skills.count],
 
         sorting: [
             (s) => [s.filters],
@@ -153,7 +154,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
 
         deleteSkill: async ({ skillName }) => {
             try {
-                await api.llmSkills.archiveByName(skillName)
+                await llmSkillsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), skillName)
                 lemonToast.info(`${skillName || 'Skill'} has been archived.`)
                 await asyncActions.loadSkills(false)
             } catch {
@@ -163,7 +164,9 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
 
         duplicateSkill: async ({ skillName, newName }) => {
             try {
-                await api.llmSkills.duplicateByName(skillName, newName)
+                await llmSkillsNameDuplicateCreate(String(ApiConfig.getCurrentTeamId()), skillName, {
+                    new_name: newName,
+                })
                 lemonToast.success(`Skill duplicated as "${newName}".`)
                 router.actions.push(urls.llmAnalyticsSkill(newName))
             } catch {

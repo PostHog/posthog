@@ -3,6 +3,7 @@ from typing import Any
 
 from django.db import transaction
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -219,11 +220,8 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         default=dict,
         help_text="Arbitrary key-value metadata.",
     )
-    files = LLMSkillFileInputSerializer(
-        many=True,
-        required=False,
-        write_only=True,
-        help_text="Bundled files to include with the initial version (scripts, references, assets).",
+    files = serializers.SerializerMethodField(
+        help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
     )
 
     class Meta:
@@ -250,6 +248,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "files",
             "version",
             "created_by",
             "created_at",
@@ -290,14 +289,15 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             return value
         return value.isoformat().replace("+00:00", "Z")
 
+    @extend_schema_field(LLMSkillFileManifestSerializer(many=True))
+    def get_files(self, instance: LLMSkill) -> list[dict[str, Any]]:
+        return list(LLMSkillFile.objects.filter(skill=instance).values("path", "content_type"))
+
     def validate_name(self, value: str) -> str:
         return validate_skill_name_value(value)
 
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
-
-    def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return _validate_files(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
@@ -315,6 +315,23 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             )
 
         return attrs
+
+
+class LLMSkillCreateSerializer(LLMSkillSerializer):
+    """Create serializer — accepts bundled files as write-only input on POST."""
+
+    files = LLMSkillFileInputSerializer(
+        many=True,
+        required=False,
+        write_only=True,
+        help_text="Bundled files to include with the initial version (scripts, references, assets).",
+    )
+
+    class Meta(LLMSkillSerializer.Meta):
+        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f != "files"]
+
+    def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return _validate_files(value)
 
     def create(self, validated_data: dict[str, Any]) -> LLMSkill:
         request = self.context["request"]
@@ -344,11 +361,11 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 
 
 class LLMSkillListSerializer(LLMSkillSerializer):
-    """List serializer that omits the body field for progressive disclosure (Level 1)."""
+    """List serializer that omits body and file manifest — progressive disclosure (Level 1)."""
 
     class Meta(LLMSkillSerializer.Meta):
-        fields = [f for f in LLMSkillSerializer.Meta.fields if f != "body"]
-        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f != "body"]
+        fields = [f for f in LLMSkillSerializer.Meta.fields if f not in ("body", "files")]
+        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("body", "files")]
 
 
 class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):
