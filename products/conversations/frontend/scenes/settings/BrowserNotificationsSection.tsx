@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
-import { browserNotificationLogic } from '../browserNotificationLogic'
+import { browserNotificationLogic } from '../../browserNotificationLogic'
 
 export function BrowserNotificationsSection(): JSX.Element | null {
     const { isSupported, permission, enabled, isPermissionDenied } = useValues(browserNotificationLogic)

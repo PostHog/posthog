@@ -61,15 +61,15 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
 
+                if (sceneSidePanelContext.settings_section) {
+                    tabs.push(SidePanelTab.Settings)
+                }
+
                 // Exports and Support are openable programmatically but not shown in the nav bar
                 tabs.push(SidePanelTab.Exports)
 
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
-                }
-
-                if (sceneSidePanelContext.settings_section) {
-                    tabs.push(SidePanelTab.Settings)
                 }
 
                 if (!currentTeam) {
