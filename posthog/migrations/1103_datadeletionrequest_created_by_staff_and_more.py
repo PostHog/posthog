@@ -5,9 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "1101_activitylog_client"),
-    ]
+    dependencies = [("posthog", "1102_organizationmembership_org_joined_idx")]
 
     operations = [
         migrations.AddField(
@@ -41,12 +39,16 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="datadeletionrequest",
             name="person_drop_profiles",
-            field=models.BooleanField(blank=True, help_text="Drop person profiles.", null=True),
+            field=models.BooleanField(
+                blank=True, help_text="Drop person profiles.", null=True
+            ),
         ),
         migrations.AddField(
             model_name="datadeletionrequest",
             name="person_drop_recordings",
-            field=models.BooleanField(blank=True, help_text="Drop person recordings.", null=True),
+            field=models.BooleanField(
+                blank=True, help_text="Drop person recordings.", null=True
+            ),
         ),
         migrations.AlterField(
             model_name="datadeletionrequest",

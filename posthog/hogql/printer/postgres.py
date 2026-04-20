@@ -36,6 +36,18 @@ class PostgresPrinter(BasePrinter):
         self._used_truncated_identifiers: set[str] = set()
         self._connection_supported_functions = self._get_connection_supported_functions()
 
+    def _min_function_name(self) -> str:
+        return "least"
+
+    def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
+        return f"{limit_str} %"
+
+    def _render_select_query_limit_clause(self, limit: ast.Expr, is_percent: bool) -> str:
+        rendered = f"LIMIT {self.visit(limit)}"
+        if is_percent:
+            rendered += " %"
+        return rendered
+
     def visit_field(self, node: ast.Field):
         if node.type is None:
             field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])

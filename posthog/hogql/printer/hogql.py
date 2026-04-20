@@ -1,3 +1,4 @@
+from posthog.hogql import ast
 from posthog.hogql.printer.base import BasePrinter
 
 
@@ -9,4 +10,5 @@ class HogQLPrinter(BasePrinter):
     lowering the tree to a target SQL dialect.
     """
 
-    pass
+    def _render_aggregation_name(self, node: ast.Call, func_meta) -> str:
+        return node.name
