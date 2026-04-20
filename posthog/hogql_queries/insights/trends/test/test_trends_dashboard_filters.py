@@ -9,6 +9,7 @@ from posthog.schema import (
     BreakdownFilter,
     CompareFilter,
     DashboardFilter,
+    DataWarehouseNode,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -464,3 +465,33 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.compareFilter == CompareFilter(
             compare=False
         )  # There's no previous period for the "all time" date range
+
+    def test_dashboard_property_filters_are_ignored_for_data_warehouse_series(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                DataWarehouseNode(
+                    id="warehouse_orders",
+                    table_name="warehouse_orders",
+                    name="Orders",
+                    timestamp_field="created_at",
+                    id_field="order_id",
+                    distinct_id_field="customer_id",
+                )
+            ],
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(
+                date_from="2024-07-07",
+                date_to="2024-07-14",
+                properties=[EventPropertyFilter(key="dashboard", value="filter", operator="exact")],
+            )
+        )
+
+        assert query_runner.query.dateRange is not None
+        assert query_runner.query.dateRange.date_from == "2024-07-07"
+        assert query_runner.query.dateRange.date_to == "2024-07-14"
+        assert query_runner.query.properties is None
