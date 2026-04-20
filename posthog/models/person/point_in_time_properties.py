@@ -127,6 +127,9 @@ def build_person_properties_at_time(
     if not isinstance(team_id, int) or team_id <= 0:
         raise ValueError("team_id must be a positive integer")
 
+    if not isinstance(timestamp, datetime):
+        raise ValueError("timestamp must be a datetime object")
+
     if not isinstance(distinct_ids, list) or not distinct_ids:
         raise ValueError("distinct_ids must be a non-empty list")
 
