@@ -309,7 +309,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 """,
                 {"org_ids": list(org_ids)},
             )
-            return {str(row[0]): int(row[1]) for row in rows}
+            return {str(row[0]): round(float(row[1])) for row in rows}
         except Exception:
             logger.warning("Failed to fetch org MRR from billing tables, skipping")
             return {}
