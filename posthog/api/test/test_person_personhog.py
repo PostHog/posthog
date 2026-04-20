@@ -235,6 +235,13 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         )
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 2
+        assert data["persons_deleted"] == 2
+        assert data["deletion_errors"] == []
+        assert data["events_queued_for_deletion"] is False
+        assert data["recordings_queued_for_deletion"] is False
+
         calls = self._assert_personhog_called("delete_persons")
         if calls:
             assert calls[0].request.team_id == self.team.pk
@@ -254,6 +261,11 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         )
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 2
+        assert data["persons_deleted"] == 2
+        assert data["deletion_errors"] == []
+
         calls = self._assert_personhog_called("delete_persons")
         if calls:
             assert calls[0].request.team_id == self.team.pk
@@ -271,6 +283,11 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         )
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 1
+        assert data["persons_deleted"] == 0
+        assert data["events_queued_for_deletion"] is True
+        assert data["deletion_errors"] == []
         assert Person.objects.filter(team_id=self.team.pk, uuid=p1.uuid).count() == 1
         self._assert_personhog_not_called("delete_persons")
 
@@ -287,9 +304,43 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         )
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 1
+        assert data["persons_deleted"] == 1
+        assert data["deletion_errors"] == []
+
         calls = self._assert_personhog_called("delete_persons")
         if calls:
             assert calls[0].request.team_id == self.team.pk
             assert list(calls[0].request.person_uuids) == [str(p1.uuid)]
         # Other team's person should be untouched
         assert Person.objects.filter(team_id=other_team.pk, uuid=other_person.uuid).count() == 1
+
+    @mock.patch("posthog.api.person.delete_person")
+    def test_bulk_delete_partial_failure_only_deletes_successful_from_postgres(self, mock_delete_person):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+        p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])
+
+        mock_delete_person.side_effect = [Exception("CH write failed"), None]
+
+        resp = self.client.post(
+            "/api/person/bulk_delete/",
+            {"ids": [str(p1.uuid), str(p2.uuid)]},
+        )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 2
+        assert data["persons_deleted"] == 1
+        assert len(data["deletion_errors"]) == 1
+        assert data["deletion_errors"][0]["person_uuid"] == str(p1.uuid)
+
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            # Only the successful person should be sent to personhog for PG deletion
+            assert list(calls[0].request.person_uuids) == [str(p2.uuid)]
+
+        if not self.personhog:
+            # p1 should still exist (CH delete failed), p2 should be gone
+            assert Person.objects.filter(team_id=self.team.pk, uuid=p1.uuid).count() == 1
+            assert Person.objects.filter(team_id=self.team.pk, uuid=p2.uuid).count() == 0
