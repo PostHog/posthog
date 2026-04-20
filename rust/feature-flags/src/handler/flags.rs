@@ -151,12 +151,12 @@ pub async fn fetch_and_filter(
     // Apply override flag definitions if provided
     if let Some(override_defs) = override_flags_definitions {
         let mut overridden_keys = Vec::new();
-        tracing::info!("Processing {} override definitions", override_defs.len());
+        tracing::debug!("Processing {} override definitions", override_defs.len());
         for (flag_key, override_def) in override_defs {
-            tracing::info!("Processing override for flag: {}", flag_key);
+            tracing::debug!("Processing override for flag: {}", flag_key);
             // Find the flag to override
             if let Some(flag) = flags.iter_mut().find(|f| &f.key == flag_key) {
-                tracing::info!(
+                tracing::trace!(
                     "Found flag to override: {}, current filters: {:?}",
                     flag_key,
                     flag.filters
@@ -164,7 +164,7 @@ pub async fn fetch_and_filter(
                 // Parse and apply the override definition
                 match serde_json::from_value::<FeatureFlag>(override_def.clone()) {
                     Ok(override_flag) => {
-                        tracing::info!(
+                        tracing::trace!(
                             "Successfully parsed override flag: {}, new filters: {:?}",
                             flag_key,
                             override_flag.filters

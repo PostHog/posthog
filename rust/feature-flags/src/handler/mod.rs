@@ -186,6 +186,12 @@ async fn process_request_inner(
 
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
+            let override_defs = if authentication::is_internal_request(&context) {
+                request.override_flags_definitions.as_ref()
+            } else {
+                None
+            };
+
             let filtered_flags = flags::fetch_and_filter(
                 &flag_service,
                 team.id,
@@ -193,7 +199,7 @@ async fn process_request_inner(
                 &context.headers,
                 request.evaluation_runtime,
                 request.evaluation_contexts.as_ref(),
-                request.override_flags_definitions.as_ref(),
+                override_defs,
             )
             .await?;
 
@@ -227,7 +233,11 @@ async fn process_request_inner(
                         Some(false)
                     }
                 },
-                context.meta.only_use_override_person_properties,
+                if authentication::is_internal_request(&context) {
+                    context.meta.only_use_override_person_properties
+                } else {
+                    None
+                },
             )
             .await?;
 

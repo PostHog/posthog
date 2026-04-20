@@ -1034,6 +1034,21 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-assignment-rules-create": {
+        "description": "Create an error tracking assignment rule for the current project. Provide `filters` to match incoming errors and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking assignment rule",
+        "title": "Create error tracking assignment rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with id, status, name, first seen timestamp, and assignee info.",
         "category": "Error tracking",
