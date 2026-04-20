@@ -8,6 +8,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Breadcrumb } from '~/types'
 
 import {
+    visualReviewReposQuarantineCreate,
+    visualReviewReposQuarantineDestroy,
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
     visualReviewRunsTolerateCreate,
@@ -43,6 +45,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         approveChangesFailure: true,
         approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
+        quarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
+        unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
     }),
     reducers({
         selectedSnapshotId: [
@@ -226,6 +230,45 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.loadSnapshots()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
+            }
+        },
+        quarantineSnapshot: async ({ snapshot }) => {
+            const { run } = values
+            if (!run) {
+                return
+            }
+            try {
+                await visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, {
+                    identifier: snapshot.identifier,
+                    run_type: run.run_type,
+                    reason: 'Quarantined from run review UI',
+                })
+                lemonToast.success('Identifier quarantined — future runs will skip gating')
+                actions.loadSnapshots()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to quarantine')
+            }
+        },
+        unquarantineSnapshot: async ({ snapshot }) => {
+            const { run } = values
+            if (!run) {
+                return
+            }
+            try {
+                await visualReviewReposQuarantineDestroy(
+                    String(values.currentProjectId),
+                    run.repo_id,
+                    snapshot.identifier,
+                    {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ run_type: run.run_type }),
+                    }
+                )
+                lemonToast.success('Identifier unquarantined — future runs will gate on it again')
+                actions.loadSnapshots()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to unquarantine')
             }
         },
     })),

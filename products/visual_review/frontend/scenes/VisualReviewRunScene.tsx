@@ -109,8 +109,14 @@ export function VisualReviewRunScene(): JSX.Element {
         repoFullName,
         isApproving,
     } = useValues(visualReviewRunSceneLogic)
-    const { setSelectedSnapshotId, approveChanges, approveSnapshot, markAsTolerated } =
-        useActions(visualReviewRunSceneLogic)
+    const {
+        setSelectedSnapshotId,
+        approveChanges,
+        approveSnapshot,
+        markAsTolerated,
+        quarantineSnapshot,
+        unquarantineSnapshot,
+    } = useActions(visualReviewRunSceneLogic)
 
     if (runLoading || !run) {
         return (
@@ -303,6 +309,8 @@ export function VisualReviewRunScene(): JSX.Element {
                             toleratedHashesLoading={toleratedHashesLoading}
                             onApprove={handleApproveSnapshot}
                             onMarkTolerated={() => markAsTolerated(selectedSnapshot)}
+                            onQuarantine={() => quarantineSnapshot(selectedSnapshot)}
+                            onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
                             repoFullName={repoFullName}
