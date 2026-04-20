@@ -570,7 +570,7 @@
         }
     },
     "subscriptions-test-delivery-create": {
-        "description": "Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, so it produces a real SubscriptionDelivery row you can inspect. Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or subscriptions-deliveries-retrieve for the outcome and per-recipient results. Returns 409 if a test delivery for the same subscription is already in flight.",
+        "description": "Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription is already in flight.",
         "category": "Core",
         "feature": "core",
         "summary": "Send test delivery",
