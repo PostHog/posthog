@@ -150,7 +150,7 @@ class SignalReportTaskSerializer(serializers.ModelSerializer):
 
 
 class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
-    autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
+    autostart_priority = serializers.ChoiceField(choices=AutonomyPriority, required=False, allow_null=True)
 
 
 class SignalReportSerializer(serializers.ModelSerializer):

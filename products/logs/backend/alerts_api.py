@@ -66,7 +66,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         "or filterGroup (property filter group object)."
     )
     threshold_operator = serializers.ChoiceField(
-        choices=LogsAlertConfiguration.ThresholdOperator.choices,
+        choices=LogsAlertConfiguration.ThresholdOperator,
         default=LogsAlertConfiguration.ThresholdOperator.ABOVE,
         help_text="Whether the alert fires when the count is above or below the threshold.",
     )
@@ -257,7 +257,7 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
         help_text="Threshold count to evaluate against.",
     )
     threshold_operator = serializers.ChoiceField(
-        choices=LogsAlertConfiguration.ThresholdOperator.choices,
+        choices=LogsAlertConfiguration.ThresholdOperator,
         help_text="Whether the alert fires when the count is above or below the threshold.",
     )
     window_minutes = serializers.IntegerField(

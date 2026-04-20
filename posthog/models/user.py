@@ -205,7 +205,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     hedgehog_config = models.JSONField(null=True, blank=True)
     allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
     shortcut_position = models.CharField(
-        max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
+        max_length=20, null=True, blank=True, choices=ShortcutPosition, default=ShortcutPosition.ABOVE
     )
     passkeys_enabled_for_2fa = models.BooleanField(
         default=False,

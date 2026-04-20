@@ -71,7 +71,7 @@ class ExportedAsset(models.Model):
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
 
     # Content related fields
-    export_format = models.CharField(max_length=100, choices=ExportFormat.choices)
+    export_format = models.CharField(max_length=100, choices=ExportFormat)
     content = models.BinaryField(null=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     # DateTime after the created_at after which this asset should be deleted

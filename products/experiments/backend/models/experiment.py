@@ -54,7 +54,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False, null=True)
-    type = models.CharField(max_length=40, choices=ExperimentType.choices, null=True, blank=True, default="product")
+    type = models.CharField(max_length=40, choices=ExperimentType, null=True, blank=True, default="product")
     variants = models.JSONField(default=dict, null=True, blank=True)
 
     exposure_criteria = models.JSONField(default=dict, null=True, blank=True)
@@ -74,7 +74,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     status = models.CharField(
         max_length=20,
-        choices=Status.choices,
+        choices=Status,
         default=None,
         null=True,
         blank=True,
@@ -280,7 +280,7 @@ class ExperimentMetricResult(models.Model):
     fingerprint = models.CharField(max_length=64, null=True, blank=True)  # SHA256 hash is 64 chars
     query_from = models.DateTimeField()
     query_to = models.DateTimeField()
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
     result = models.JSONField(null=True, blank=True, default=None)
     query_id = models.CharField(max_length=255, null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -311,7 +311,7 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
     metric = models.JSONField()
     fingerprint = models.CharField(max_length=64)  # SHA256 hash
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
     last_successful_date = models.DateField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

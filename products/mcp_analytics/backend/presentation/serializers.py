@@ -9,7 +9,7 @@ MAX_SUMMARY_LENGTH = 5_000
 class MCPAnalyticsSubmissionSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this submission.")
     kind = serializers.ChoiceField(
-        choices=MCPAnalyticsSubmission.Kind.choices,
+        choices=MCPAnalyticsSubmission.Kind,
         read_only=True,
         help_text="Whether this submission is general feedback or a missing capability report.",
     )
@@ -115,7 +115,7 @@ class MCPFeedbackCreateSerializer(MCPAnalyticsSubmissionContextSerializer):
         help_text="Concrete feedback about the MCP experience, tool result, or workflow friction.",
     )
     category = serializers.ChoiceField(
-        choices=MCPAnalyticsSubmission.FeedbackCategory.choices,
+        choices=MCPAnalyticsSubmission.FeedbackCategory,
         required=False,
         default=MCPAnalyticsSubmission.FeedbackCategory.OTHER,
         help_text="High-level category for the feedback.",

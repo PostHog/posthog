@@ -32,7 +32,7 @@ class MaterializedColumnSlot(UUIDTModel):
         related_query_name="materialized_column_slot",
     )
     # Denormalized from PropertyDefinition for efficient constraints and queries
-    property_type = models.CharField(max_length=50, choices=PropertyType.choices)
+    property_type = models.CharField(max_length=50, choices=PropertyType)
     slot_index = models.PositiveSmallIntegerField()
     state = models.CharField(
         max_length=20,

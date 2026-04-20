@@ -81,7 +81,7 @@ class StreamlitAppSandbox(models.Model):
     version = models.ForeignKey(StreamlitAppVersion, on_delete=models.SET_NULL, null=True, blank=True)
 
     sandbox_id = models.CharField(max_length=255)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTING)
+    status = models.CharField(max_length=20, choices=Status, default=Status.STARTING)
 
     last_error = models.TextField(blank=True, default="")
 

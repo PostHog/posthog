@@ -69,7 +69,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     threshold_operator = models.CharField(
         max_length=10,
-        choices=ThresholdOperator.choices,
+        choices=ThresholdOperator,
         default=ThresholdOperator.ABOVE,
     )
 
@@ -80,7 +80,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     # State
     state = models.CharField(
         max_length=20,
-        choices=State.choices,
+        choices=State,
         default=State.NOT_FIRING,
     )
 

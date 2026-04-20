@@ -324,7 +324,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
         source="revenue_analytics_config_safe", read_only=True
     )
-    access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
+    access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod, read_only=True)
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
 
     class Meta:

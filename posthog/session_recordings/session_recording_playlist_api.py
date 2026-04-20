@@ -219,7 +219,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         help_text="JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them.",
     )
     type = serializers.ChoiceField(
-        choices=SessionRecordingPlaylist.PlaylistType.choices,
+        choices=SessionRecordingPlaylist.PlaylistType,
         required=False,
         allow_null=True,
         help_text="Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.",

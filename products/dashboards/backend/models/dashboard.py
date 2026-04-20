@@ -69,10 +69,10 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         null=True,
         blank=True,
     )
-    creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
+    creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
     restriction_level = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        choices=RestrictionLevel.choices,
+        choices=RestrictionLevel,
     )
     insights = models.ManyToManyField(
         "posthog.Insight",

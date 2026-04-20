@@ -20,7 +20,7 @@ class PreaggregationJob(CreatedMetaFields, UUIDModel):
     query_hash = models.CharField(max_length=64)  # SHA256 hash for quick lookup
 
     # Status tracking
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
     computed_at = models.DateTimeField(null=True, blank=True)
 
     # TTL: when the preaggregated data expires in ClickHouse

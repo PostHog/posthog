@@ -18,7 +18,7 @@ class ScoreDefinition(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
-    kind = models.CharField(max_length=32, choices=Kind.choices)
+    kind = models.CharField(max_length=32, choices=Kind)
     archived = models.BooleanField(default=False)
     current_version = models.ForeignKey(
         "ScoreDefinitionVersion",

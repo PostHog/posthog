@@ -20,7 +20,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         help_text="The ID of the record to modify (e.g. the feature flag ID).",
     )
     model_name = serializers.ChoiceField(
-        choices=ScheduledChange.AllowedModels.choices,
+        choices=ScheduledChange.AllowedModels,
         help_text='The type of record to modify. Currently only "FeatureFlag" is supported.',
     )
     payload = serializers.JSONField(
@@ -39,7 +39,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         help_text="Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules.",
     )
     recurrence_interval = serializers.ChoiceField(
-        choices=ScheduledChange.RecurrenceInterval.choices,
+        choices=ScheduledChange.RecurrenceInterval,
         required=False,
         allow_null=True,
         help_text="How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.",

@@ -638,7 +638,7 @@ class Team(UUIDTClassicModel):
     default_experiment_stats_method = field_access_control(
         models.CharField(
             max_length=20,
-            choices=Organization.DefaultExperimentStatsMethod.choices,
+            choices=Organization.DefaultExperimentStatsMethod,
             default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
             help_text="Default statistical method for new experiments in this environment.",
             null=True,

@@ -97,7 +97,7 @@ class ScoreDefinitionCreateSerializer(serializers.Serializer):
         help_text="Optional human-readable description.",
     )
     kind = serializers.ChoiceField(
-        choices=ScoreDefinition.Kind.choices,
+        choices=ScoreDefinition.Kind,
         help_text="Scorer kind. This cannot be changed after creation.",
     )
     archived = serializers.BooleanField(
@@ -150,7 +150,7 @@ class ScoreDefinitionFilter(django_filters.FilterSet):
     )
     kind = django_filters.ChoiceFilter(
         field_name="kind",
-        choices=ScoreDefinition.Kind.choices,
+        choices=ScoreDefinition.Kind,
         help_text="Filter by scorer kind.",
     )
     archived = django_filters.BooleanFilter(

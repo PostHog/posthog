@@ -1466,7 +1466,7 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         help_text="Display and targeting conditions for the survey.",
     )
     schedule = serializers.ChoiceField(  # type: ignore[assignment]
-        choices=Survey.Schedule.choices,
+        choices=Survey.Schedule,
         required=False,
         allow_null=True,
         help_text=(

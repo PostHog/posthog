@@ -24,7 +24,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     record_id = models.CharField(max_length=200)
-    model_name = models.CharField(max_length=100, choices=AllowedModels.choices)
+    model_name = models.CharField(max_length=100, choices=AllowedModels)
     payload = models.JSONField(default=dict)
     scheduled_at = models.DateTimeField()
     executed_at = models.DateTimeField(null=True, blank=True)
@@ -35,7 +35,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
         max_length=20,
         null=True,
         blank=True,
-        choices=RecurrenceInterval.choices,
+        choices=RecurrenceInterval,
     )
     # Tracks when a recurring schedule last executed successfully (for audit/debugging)
     last_executed_at = models.DateTimeField(null=True, blank=True)

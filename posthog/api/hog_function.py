@@ -115,7 +115,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         help_text="PII masking configuration with TTL, threshold, and hash expression.",
     )
     type = serializers.ChoiceField(
-        choices=HogFunctionType.choices,
+        choices=HogFunctionType,
         required=False,
         allow_null=True,
         help_text="Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.",

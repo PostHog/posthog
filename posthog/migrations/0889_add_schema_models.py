@@ -100,7 +100,7 @@ class Migration(migrations.Migration):
                 (
                     "property_type",
                     models.CharField(
-                        choices=posthog_models_property_definition.PropertyType.choices,
+                        choices=posthog_models_property_definition.PropertyType,
                         max_length=50,
                     ),
                 ),

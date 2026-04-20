@@ -57,7 +57,7 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     system = serializers.CharField(allow_blank=True)
     messages = serializers.ListField(child=serializers.DictField())
     model = serializers.CharField()
-    provider = serializers.ChoiceField(choices=LLMProvider.choices)
+    provider = serializers.ChoiceField(choices=LLMProvider)
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
     top_p = serializers.FloatField(required=False)
