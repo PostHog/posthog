@@ -7,7 +7,7 @@ import { LemonCheckbox, LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } 
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -317,7 +317,7 @@ export function InviteTeamMatesComponent({
     const { appendInviteRow, updateMessage, setIsInviteConfirmed, setIsGuestInvite, setBypassSsoEnforcement } =
         useActions(inviteLogic)
 
-    const guestModeEnabled = useFeatureFlag(FEATURE_FLAGS.GUEST_MODE)
+    const guestModeEnabled = useFeatureFlag('GUEST_MODE')
 
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE && !isGuestInvite
     const areInvitesDeletable = invitesToSend.length > 1

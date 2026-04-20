@@ -424,7 +424,7 @@ function MembersContent(): JSX.Element | null {
 }
 
 export function Members(): JSX.Element {
-    const guestModeEnabled = useFeatureFlag(FEATURE_FLAGS.GUEST_MODE)
+    const guestModeEnabled = useFeatureFlag('GUEST_MODE')
     const [activeTab, setActiveTab] = useState<'members' | 'guests'>('members')
 
     if (!guestModeEnabled) {
