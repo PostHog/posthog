@@ -13,7 +13,7 @@ use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::process::ExitCode;
 
-pub use types::PropVal;
+pub use types::{Bytes, PropVal};
 
 use crate::codec::chunk::{read_chunk_header, write_chunk_header};
 use crate::codec::CodecResult;
@@ -25,10 +25,10 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case(r#""hello""#, PropVal::String("hello".to_string()))]
+    #[case(r#""hello""#, PropVal::String(Bytes(b"hello".to_vec())))]
     #[case(r#"42"#, PropVal::Int(42))]
     #[case(r#"4503599627370496"#, PropVal::Int(4503599627370496))] // 2^52 (NOT_IN_COHORT_ID)
-    #[case(r#"["a","b"]"#, PropVal::Vec(vec!["a".to_string(), "b".to_string()]))]
+    #[case(r#"["a","b"]"#, PropVal::Vec(vec![Bytes(b"a".to_vec()), Bytes(b"b".to_vec())]))]
     #[case(r#"[1, 2, 3]"#, PropVal::VecInt(vec![1, 2, 3]))]
     #[case(r#"[4503599627370496]"#, PropVal::VecInt(vec![4503599627370496]))]
     fn test_propval_deserialization(#[case] json: &str, #[case] expected: PropVal) {
@@ -69,7 +69,12 @@ mod e2e {
         input_buf.write_string("ordered").unwrap();
         // prop_vals: [en]
         input_buf.write_varint(1).unwrap();
-        write_propval(&mut input_buf, &PropVal::String("en".into()), shape).unwrap();
+        write_propval(
+            &mut input_buf,
+            &PropVal::String(Bytes(b"en".to_vec())),
+            shape,
+        )
+        .unwrap();
         // optional_steps: []
         input_buf.write_varint(0).unwrap();
         // value: 3 events
@@ -78,7 +83,12 @@ mod e2e {
             input_buf.write_u8(0).unwrap(); // Nullable(Float64) non-null marker
             input_buf.write_f64_le(ts).unwrap();
             input_buf.write_uuid(uuid).unwrap();
-            write_propval(&mut input_buf, &PropVal::String("en".into()), shape).unwrap();
+            write_propval(
+                &mut input_buf,
+                &PropVal::String(Bytes(b"en".to_vec())),
+                shape,
+            )
+            .unwrap();
             input_buf.write_varint(1).unwrap();
             input_buf.write_i8(step).unwrap();
         }
@@ -107,7 +117,7 @@ mod e2e {
         assert_eq!(step, 2, "reached step index 2 (0-indexed third step)");
 
         let breakdown = read_propval(&mut out, shape).unwrap();
-        assert_eq!(breakdown, PropVal::String("en".into()));
+        assert_eq!(breakdown, PropVal::String(Bytes(b"en".to_vec())));
 
         let timings: Vec<f64> = RowBinaryRead::read_array(&mut out, |r| r.read_f64_le()).unwrap();
         assert_eq!(

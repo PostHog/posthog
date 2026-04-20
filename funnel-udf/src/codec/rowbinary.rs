@@ -51,11 +51,23 @@ pub trait RowBinaryRead: Read {
         Err(CodecError::VarintOverflow)
     }
 
+    // Strict UTF-8. Use only for protocol-controlled fields (e.g. attribution
+    // type, order type) that are written by PostHog-side code and guaranteed
+    // to be UTF-8. Wire-format identical to read_bytes.
     fn read_string(&mut self) -> CodecResult<String> {
+        let buf = self.read_bytes()?;
+        String::from_utf8(buf).map_err(|_| CodecError::InvalidUtf8)
+    }
+
+    // ClickHouse `String` is a byte-typed column. Use this for any value that
+    // could originate from user data (event property, breakdown key, etc.);
+    // enforcing UTF-8 there would crash on arbitrary bytes that CH stores
+    // without complaint.
+    fn read_bytes(&mut self) -> CodecResult<Vec<u8>> {
         let len = self.read_varint()? as usize;
         let mut buf = vec![0u8; len];
         self.read_exact(&mut buf)?;
-        String::from_utf8(buf).map_err(|_| CodecError::InvalidUtf8)
+        Ok(buf)
     }
 
     // ClickHouse stores UUID as two little-endian u64s: high half then low half.
@@ -130,8 +142,12 @@ pub trait RowBinaryWrite: Write {
     }
 
     fn write_string(&mut self, s: &str) -> CodecResult<()> {
-        self.write_varint(s.len() as u64)?;
-        self.write_all(s.as_bytes())?;
+        self.write_bytes(s.as_bytes())
+    }
+
+    fn write_bytes(&mut self, b: &[u8]) -> CodecResult<()> {
+        self.write_varint(b.len() as u64)?;
+        self.write_all(b)?;
         Ok(())
     }
 

@@ -1,26 +1,29 @@
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
-use crate::types::{BreakdownShape, PropVal};
+use crate::types::{BreakdownShape, Bytes, PropVal};
 
 // Read a single breakdown value (event tuple position, or a result slot) in its
 // shape-specific wire form.
 //
-// - NullableString: 1-byte null marker + varint + string. We expect non-null in
-//   practice (funnel.py wraps prop_basic with ifNull(..., '')), so a null marker
-//   is treated as a hard error — matches the behavior of the current JSON path,
-//   which has no PropVal variant for JSON null and would panic on it.
-// - ArrayString: varint + N strings.
+// - NullableString: 1-byte null marker + varint + raw bytes. We expect non-null
+//   in practice (funnel.py wraps prop_basic with ifNull(..., '')), so a null
+//   marker is treated as a hard error — matches the behavior of the JSON path,
+//   which has no PropVal variant for JSON null and would panic on it. Bytes
+//   are read raw because ClickHouse `String` is byte-typed.
+// - ArrayString: varint + N byte strings.
 // - U64: 8 bytes LE.
 pub fn read_propval<R: RowBinaryRead + ?Sized>(
     r: &mut R,
     shape: BreakdownShape,
 ) -> CodecResult<PropVal> {
     match shape {
-        BreakdownShape::NullableString => match r.read_nullable(|r| r.read_string())? {
-            Some(s) => Ok(PropVal::String(s)),
+        BreakdownShape::NullableString => match r.read_nullable(|r| r.read_bytes())? {
+            Some(b) => Ok(PropVal::String(Bytes(b))),
             None => Err(CodecError::UnexpectedNull),
         },
-        BreakdownShape::ArrayString => Ok(PropVal::Vec(r.read_array(|r| r.read_string())?)),
+        BreakdownShape::ArrayString => {
+            Ok(PropVal::Vec(r.read_array(|r| r.read_bytes().map(Bytes))?))
+        }
         BreakdownShape::U64 => Ok(PropVal::Int(r.read_u64_le()?)),
     }
 }
@@ -45,12 +48,12 @@ pub fn write_propval<W: RowBinaryWrite + ?Sized>(
     shape: BreakdownShape,
 ) -> CodecResult<()> {
     match (shape, p) {
-        (BreakdownShape::NullableString, PropVal::String(s)) => {
+        (BreakdownShape::NullableString, PropVal::String(b)) => {
             w.write_u8(0)?; // non-null
-            w.write_string(s)
+            w.write_bytes(&b.0)
         }
         (BreakdownShape::ArrayString, PropVal::Vec(v)) => {
-            w.write_array(v, |w, s| w.write_string(s))
+            w.write_array(v, |w, b| w.write_bytes(&b.0))
         }
         (BreakdownShape::U64, PropVal::Int(n)) => w.write_u64_le(*n),
         _ => Err(CodecError::ShapeMismatch),
@@ -66,13 +69,13 @@ mod tests {
         let mut buf = Vec::new();
         write_propval(
             &mut buf,
-            &PropVal::String("hi".into()),
+            &PropVal::String(Bytes(b"hi".to_vec())),
             BreakdownShape::NullableString,
         )
         .unwrap();
         let mut slice = buf.as_slice();
         let got = read_propval(&mut slice, BreakdownShape::NullableString).unwrap();
-        assert_eq!(got, PropVal::String("hi".into()));
+        assert_eq!(got, PropVal::String(Bytes(b"hi".to_vec())));
     }
 
     #[test]
@@ -80,13 +83,34 @@ mod tests {
         let mut buf = Vec::new();
         write_propval(
             &mut buf,
-            &PropVal::Vec(vec!["a".into(), "b".into()]),
+            &PropVal::Vec(vec![Bytes(b"a".to_vec()), Bytes(b"b".to_vec())]),
             BreakdownShape::ArrayString,
         )
         .unwrap();
         let mut slice = buf.as_slice();
         let got = read_propval(&mut slice, BreakdownShape::ArrayString).unwrap();
-        assert_eq!(got, PropVal::Vec(vec!["a".into(), "b".into()]));
+        assert_eq!(
+            got,
+            PropVal::Vec(vec![Bytes(b"a".to_vec()), Bytes(b"b".to_vec())])
+        );
+    }
+
+    // Regression: ClickHouse `String` can carry non-UTF-8 bytes (JSONEachRow used
+    // to launder these; RowBinary hands them through raw). The reader must not
+    // reject them.
+    #[test]
+    fn non_utf8_bytes_survive_roundtrip() {
+        let bad = vec![0xff, 0xfe, 0x00, 0x80];
+        let mut buf = Vec::new();
+        write_propval(
+            &mut buf,
+            &PropVal::String(Bytes(bad.clone())),
+            BreakdownShape::NullableString,
+        )
+        .unwrap();
+        let mut slice = buf.as_slice();
+        let got = read_propval(&mut slice, BreakdownShape::NullableString).unwrap();
+        assert_eq!(got, PropVal::String(Bytes(bad)));
     }
 
     #[test]

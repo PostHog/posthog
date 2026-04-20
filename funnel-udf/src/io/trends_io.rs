@@ -75,7 +75,7 @@ pub fn write_results<W: RowBinaryWrite + ?Sized>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::PropVal;
+    use crate::types::{Bytes, PropVal};
     use uuid::Uuid;
 
     #[test]
@@ -88,12 +88,15 @@ mod tests {
             conversion_window_limit: 86_400,
             breakdown_attribution_type: "step_1".into(),
             funnel_order_type: "unordered".into(),
-            prop_vals: vec![PropVal::Vec(vec!["a".into(), "b".into()])],
+            prop_vals: vec![PropVal::Vec(vec![
+                Bytes(b"a".to_vec()),
+                Bytes(b"b".to_vec()),
+            ])],
             value: vec![Event {
                 timestamp: 1.5,
                 interval_start: 1_700_000_000,
                 uuid,
-                breakdown: PropVal::Vec(vec!["a".into(), "b".into()]),
+                breakdown: PropVal::Vec(vec![Bytes(b"a".to_vec()), Bytes(b"b".to_vec())]),
                 steps: vec![1, 2, 3],
             }],
         };
@@ -141,7 +144,7 @@ mod tests {
         assert_eq!(round.value[0].uuid, uuid);
         assert_eq!(
             round.value[0].breakdown,
-            PropVal::Vec(vec!["a".into(), "b".into()])
+            PropVal::Vec(vec![Bytes(b"a".to_vec()), Bytes(b"b".to_vec())])
         );
         assert_eq!(round.value[0].steps, vec![1, 2, 3]);
     }

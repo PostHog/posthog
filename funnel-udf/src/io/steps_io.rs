@@ -71,7 +71,7 @@ pub fn write_results<W: RowBinaryWrite + ?Sized>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::PropVal;
+    use crate::types::{Bytes, PropVal};
     use uuid::Uuid;
 
     #[test]
@@ -81,19 +81,22 @@ mod tests {
             conversion_window_limit: 3600,
             breakdown_attribution_type: "first_touch".into(),
             funnel_order_type: "ordered".into(),
-            prop_vals: vec![PropVal::String("en".into()), PropVal::String("fr".into())],
+            prop_vals: vec![
+                PropVal::String(Bytes(b"en".to_vec())),
+                PropVal::String(Bytes(b"fr".to_vec())),
+            ],
             optional_steps: vec![2],
             value: vec![
                 Event {
                     timestamp: 1.5,
                     uuid: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
-                    breakdown: PropVal::String("en".into()),
+                    breakdown: PropVal::String(Bytes(b"en".to_vec())),
                     steps: vec![1, 2],
                 },
                 Event {
                     timestamp: 2.5,
                     uuid: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap(),
-                    breakdown: PropVal::String("fr".into()),
+                    breakdown: PropVal::String(Bytes(b"fr".to_vec())),
                     steps: vec![1],
                 },
             ],
@@ -152,12 +155,12 @@ mod tests {
         let results = vec![
             StepsResult(
                 2,
-                PropVal::String("en".into()),
+                PropVal::String(Bytes(b"en".to_vec())),
                 vec![1.5, 3.0],
                 vec![vec![uuid], vec![uuid], vec![uuid]],
                 7,
             ),
-            StepsResult(-1, PropVal::String(String::new()), vec![], vec![], 0),
+            StepsResult(-1, PropVal::String(Bytes(Vec::new())), vec![], vec![], 0),
         ];
         let mut buf = Vec::new();
         write_results(&mut buf, &results, BreakdownShape::NullableString).unwrap();
@@ -169,6 +172,6 @@ mod tests {
         let r0_step = slice.read_i8().unwrap();
         assert_eq!(r0_step, 2);
         let r0_prop = read_propval(&mut slice, BreakdownShape::NullableString).unwrap();
-        assert_eq!(r0_prop, PropVal::String("en".into()));
+        assert_eq!(r0_prop, PropVal::String(Bytes(b"en".to_vec())));
     }
 }
