@@ -1,6 +1,6 @@
 ---
 name: writing-clickhouse-queries
-description: Guide for writing performant ClickHouse queries in PostHog product code. Use when implementing a query runner extending QueryRunner, writing HogQL in backend Python under posthog/hogql_queries/ or posthog/hogql/, designing ClickHouse tables for a new product, choosing row ID formats (UUIDv7 vs UUID), adding materialized columns or skip indexes (minmax, bloom_filter, ngrambf_v1), testing that skip indexes are used, or debugging slow ClickHouse queries (EXPLAIN PLAN, trace logging, system.query_log). Covers HogQL vs raw SQL, QueryRunner patterns, UUID storage as UInt128, demo data generation, and the performance debugging workflow.
+description: Guide for writing performant ClickHouse queries in PostHog product code. Use when writing HogQL query runners, designing ClickHouse tables for a new product, adding materialized columns or skip indexes, or debugging slow ClickHouse queries.
 ---
 
 # Writing ClickHouse queries for new products
