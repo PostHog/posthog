@@ -144,6 +144,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
     elif name == "INVALID_JOIN_ON_EXPRESSION":
         return CHQueryErrorInvalidJoinOnExpression(err.message, code=err.code, code_name="invalid_join_on_expression")
+    elif name == "UNKNOWN_TABLE":
+        return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
 
     # all other errors
     else:
@@ -248,6 +250,10 @@ class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
     pass
 
 
+class CHQueryErrorUnknownTable(ExposedCHQueryError):
+    pass
+
+
 #
 # From https://github.com/ClickHouse/ClickHouse/blob/v25.8.12.129-lts/src/Common/ErrorCodes.cpp#L17-L650
 #
@@ -341,7 +347,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     59: ErrorCodeMeta(
         "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER", category=QueryErrorCategory.USER_ERROR
     ),  # WHERE/HAVING column is not boolean-convertible
-    60: ErrorCodeMeta("UNKNOWN_TABLE"),
+    60: ErrorCodeMeta("UNKNOWN_TABLE", user_safe=True),
     62: ErrorCodeMeta("SYNTAX_ERROR", category=QueryErrorCategory.USER_ERROR),
     63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION", user_safe=True),
     68: ErrorCodeMeta("CANNOT_GET_SIZE_OF_FIELD"),

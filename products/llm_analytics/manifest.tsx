@@ -43,7 +43,6 @@ export const manifest: ProductManifest = {
             description: 'Test and experiment with LLM prompts in a sandbox environment.',
             layout: 'app-full-scene-height',
             iconType: 'llm_playground',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsDatasets: {
             import: () => import('./frontend/datasets/LLMAnalyticsDatasetsScene'),
@@ -68,7 +67,6 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsEvaluation: {
             import: () => import('./frontend/evaluations/LLMAnalyticsEvaluation'),
@@ -77,7 +75,6 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsEvaluationTemplates: {
             import: () => import('./frontend/evaluations/EvaluationTemplates'),
@@ -86,7 +83,6 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsPrompts: {
             import: () => import('./frontend/prompts/LLMPromptsScene'),
