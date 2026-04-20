@@ -20,6 +20,7 @@ from posthog.api.oauth.cimd import (
     get_or_create_cimd_provisioning_application,
     is_cimd_client_id,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication, find_oauth_access_token
 
 from .signature import _compute_hmac, _get_raw_body, _parse_signature_header
@@ -144,6 +145,17 @@ class ProvisioningAuthentication(BaseAuthentication):
                 app = get_or_create_cimd_provisioning_application(client_id)
             except (CIMDFetchError, CIMDValidationError) as e:
                 logger.warning("provisioning_cimd_resolution_failed", client_id=client_id, error=str(e))
+                return None
+            except Exception as e:
+                # Any other failure (transient DB error during backfill, etc.) must
+                # degrade to unauthenticated rather than 500 — this is a public endpoint.
+                logger.warning(
+                    "provisioning_cimd_resolution_unexpected_error",
+                    client_id=client_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                capture_exception(e)
                 return None
             return app if app.provisioning_active else None
 

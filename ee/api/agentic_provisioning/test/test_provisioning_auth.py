@@ -724,6 +724,26 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         assert app.provisioning_auth_method == "pkce"
         assert app.provisioning_active
 
+    def test_cimd_backfill_db_error_degrades_to_unauthorized(self, _url_mock):
+        with patch(
+            "ee.api.agentic_provisioning.authentication.get_or_create_cimd_provisioning_application",
+            side_effect=RuntimeError("simulated DB error"),
+        ):
+            _, challenge = _pkce_pair()
+            res = self.client.post(
+                "/api/agentic/provisioning/account_requests",
+                data={
+                    "id": "req_cimd_db_err",
+                    "email": "cimd-db-err@example.com",
+                    "client_id": CIMD_PROV_URL,
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                },
+                content_type="application/json",
+                HTTP_API_VERSION="0.1d",
+            )
+        assert res.status_code == 401
+
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_cimd_fetch_failure_returns_unauthorized(self, mock_get, _url_mock):
         mock_get.side_effect = requests_lib.ConnectionError("DNS resolution failed")
