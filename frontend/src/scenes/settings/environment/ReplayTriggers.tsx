@@ -259,7 +259,7 @@ function MobileMinimumDuration(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const minDurationMs = currentTeam?.session_recording_minimum_duration_milliseconds
-    const minDurationSeconds = minDurationMs ? minDurationMs / 1000 : 0
+    const minDurationSeconds = (minDurationMs ?? 0) / 1000
 
     return (
         <div className="flex flex-col gap-2">
