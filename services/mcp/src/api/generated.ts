@@ -14991,41 +14991,58 @@ export namespace Schemas {
 
     export interface EvaluationReport {
       readonly id: string;
+      /** UUID of the evaluation this report config belongs to. */
       evaluation: string;
+      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+    * `scheduled` - Scheduled
+    * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
+      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
       rrule?: string;
-      /** @nullable */
+      /**
+       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * @nullable
+       */
       starts_at?: string | null;
-      /** @maxLength 64 */
+      /**
+       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * @maxLength 64
+       */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
+      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
       delivery_targets?: unknown;
       /**
+       * Max number of evaluation runs included in each report. Defaults to 100.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
+      /** Whether report delivery is active. */
       enabled?: boolean;
+      /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at: string | null;
+      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
       report_prompt_guidance?: string;
       /**
-       * Number of new eval results that triggers a report
+       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between count-triggered reports
+       * Minimum minutes between reports in every_n mode to prevent spam. Min 60.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       cooldown_minutes?: number;
       /**
-       * Maximum count-triggered report runs per calendar day (UTC)
+       * Max reports generated per day. Defaults to 3.
        * @minimum -2147483648
        * @maximum 2147483647
        */
@@ -15036,13 +15053,26 @@ export namespace Schemas {
     }
 
     export interface EvaluationReportRun {
+      /** UUID of this report run. */
       readonly id: string;
+      /** UUID of the report config that generated this run. */
       readonly report: string;
+      /** Generated report content (markdown or structured text). */
       readonly content: unknown;
+      /** Run metadata including model used, token counts, and generation stats. */
       readonly metadata: unknown;
+      /** Start of the evaluation window covered by this report. */
       readonly period_start: string;
+      /** End of the evaluation window covered by this report. */
       readonly period_end: string;
+      /** 'pending', 'delivered', or 'failed'.
+
+    * `pending` - Pending
+    * `delivered` - Delivered
+    * `partial_failure` - Partial Failure
+    * `failed` - Failed */
       readonly delivery_status: DeliveryStatusEnum;
+      /** List of delivery error messages if delivery failed. */
       readonly delivery_errors: unknown;
       readonly created_at: string;
     }
@@ -25226,41 +25256,58 @@ export namespace Schemas {
 
     export interface PatchedEvaluationReport {
       readonly id?: string;
+      /** UUID of the evaluation this report config belongs to. */
       evaluation?: string;
+      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+    * `scheduled` - Scheduled
+    * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
+      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
       rrule?: string;
-      /** @nullable */
+      /**
+       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * @nullable
+       */
       starts_at?: string | null;
-      /** @maxLength 64 */
+      /**
+       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * @maxLength 64
+       */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
+      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
       delivery_targets?: unknown;
       /**
+       * Max number of evaluation runs included in each report. Defaults to 100.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
+      /** Whether report delivery is active. */
       enabled?: boolean;
+      /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at?: string | null;
+      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
       report_prompt_guidance?: string;
       /**
-       * Number of new eval results that triggers a report
+       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between count-triggered reports
+       * Minimum minutes between reports in every_n mode to prevent spam. Min 60.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       cooldown_minutes?: number;
       /**
-       * Maximum count-triggered report runs per calendar day (UTC)
+       * Max reports generated per day. Defaults to 3.
        * @minimum -2147483648
        * @maximum 2147483647
        */
