@@ -128,6 +128,10 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list_quarantined(self, request: Request, pk: str, **kwargs) -> Response:
         """List quarantined identifiers for a repo."""
         entries = api.list_quarantined(UUID(pk), team_id=self.team_id)
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            serializer = QuarantinedIdentifierEntrySerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
         return Response(QuarantinedIdentifierEntrySerializer(instance=entries, many=True).data)
 
     @validated_request(
