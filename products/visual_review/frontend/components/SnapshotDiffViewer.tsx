@@ -1,5 +1,7 @@
+import { useState } from 'react'
+
 import { IconGithub } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -12,6 +14,97 @@ import type {
 } from '../generated/api.schemas'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
+function getThemeSibling(identifier: string): string | null {
+    const parts = identifier.split('--')
+    const theme = parts[parts.length - 1]
+    if (theme === 'dark') {
+        return [...parts.slice(0, -1), 'light'].join('--')
+    }
+    if (theme === 'light') {
+        return [...parts.slice(0, -1), 'dark'].join('--')
+    }
+    return null
+}
+
+function QuarantineAction({
+    identifier,
+    onQuarantine,
+}: {
+    identifier: string
+    onQuarantine: (reason: string, identifiers: string[]) => void
+}): JSX.Element {
+    const [isOpen, setIsOpen] = useState(false)
+    const [reason, setReason] = useState('')
+    const [includeSibling, setIncludeSibling] = useState(true)
+
+    const sibling = getThemeSibling(identifier)
+
+    const handleSubmit = (): void => {
+        const identifiers = [identifier]
+        if (sibling && includeSibling) {
+            identifiers.push(sibling)
+        }
+        onQuarantine(reason, identifiers)
+        setIsOpen(false)
+        setReason('')
+    }
+
+    return (
+        <div>
+            <LemonButton type="secondary" size="small" fullWidth onClick={() => setIsOpen(true)}>
+                Quarantine this identifier
+            </LemonButton>
+            <LemonModal
+                isOpen={isOpen}
+                onClose={() => setIsOpen(false)}
+                title="Quarantine snapshot"
+                footer={
+                    <>
+                        <LemonButton type="secondary" onClick={() => setIsOpen(false)}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            disabledReason={!reason.trim() ? 'Reason is required' : undefined}
+                            onClick={handleSubmit}
+                        >
+                            Quarantine
+                        </LemonButton>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <p className="text-sm text-muted">
+                        This will stop blocking PRs immediately — including pending runs on other branches. Snapshots
+                        are still captured and diffed, just not gated on. You can reverse this at any time.
+                    </p>
+
+                    <div>
+                        <label className="text-sm font-medium mb-1 block">Reason</label>
+                        <LemonInput
+                            placeholder="e.g. Flaky due to animation timing"
+                            value={reason}
+                            onChange={setReason}
+                            autoFocus
+                        />
+                    </div>
+
+                    <div className="text-xs text-muted space-y-1">
+                        <div className="font-mono">{identifier}</div>
+                        {sibling && (
+                            <LemonCheckbox
+                                label={<span className="font-mono text-xs">{sibling}</span>}
+                                checked={includeSibling}
+                                onChange={setIncludeSibling}
+                            />
+                        )}
+                    </div>
+                </div>
+            </LemonModal>
+        </div>
+    )
+}
+
 interface SnapshotDiffViewerProps {
     snapshot: SnapshotApi
     snapshotHistory?: SnapshotHistoryEntryApi[]
@@ -21,7 +114,7 @@ interface SnapshotDiffViewerProps {
     onApprove?: () => void
     onMarkTolerated?: () => void
     quarantineEntry?: QuarantinedIdentifierEntryApi | null
-    onQuarantine?: () => void
+    onQuarantine?: (reason: string, identifiers: string[]) => void
     onUnquarantine?: () => void
     commitSha?: string
     prNumber?: number | null
@@ -305,29 +398,7 @@ export function SnapshotDiffViewer({
 
                     {/* Quarantine */}
                     {hasChanges && !isQuarantined && onQuarantine && (
-                        <div>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                fullWidth
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Quarantine this snapshot?',
-                                        description:
-                                            'This identifier will stop blocking PRs immediately \u2014 including pending runs on other branches. ' +
-                                            'Snapshots are still captured and diffed, just not gated on. ' +
-                                            'You can reverse this at any time.',
-                                        primaryButton: {
-                                            children: 'Quarantine',
-                                            onClick: onQuarantine,
-                                        },
-                                        secondaryButton: { children: 'Cancel' },
-                                    })
-                                }}
-                            >
-                                Quarantine this identifier
-                            </LemonButton>
-                        </div>
+                        <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
                     )}
                 </div>
             </div>

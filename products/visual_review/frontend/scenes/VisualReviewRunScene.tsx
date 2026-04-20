@@ -329,7 +329,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                         (!q.expires_at || new Date(q.expires_at) > new Date())
                                 ) ?? null
                             }
-                            onQuarantine={() => quarantineSnapshot(selectedSnapshot)}
+                            onQuarantine={(reason, identifiers) => quarantineSnapshot(reason, identifiers)}
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}

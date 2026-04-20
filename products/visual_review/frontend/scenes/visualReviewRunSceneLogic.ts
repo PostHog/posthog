@@ -47,7 +47,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         approveChangesFailure: true,
         approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
-        quarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
+        quarantineSnapshot: (reason: string, identifiers: string[]) => ({ reason, identifiers }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
     }),
     reducers({
@@ -257,17 +257,22 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
         },
-        quarantineSnapshot: async ({ snapshot }) => {
+        quarantineSnapshot: async ({ reason, identifiers }) => {
             const { run } = values
             if (!run) {
                 return
             }
             try {
-                await visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, run.run_type, {
-                    identifier: snapshot.identifier,
-                    reason: 'Quarantined from run review UI',
-                })
-                lemonToast.success('Identifier quarantined — future runs will skip gating')
+                await Promise.all(
+                    identifiers.map((identifier) =>
+                        visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, run.run_type, {
+                            identifier,
+                            reason,
+                        })
+                    )
+                )
+                const count = identifiers.length
+                lemonToast.success(`${count} identifier${count > 1 ? 's' : ''} quarantined`)
                 actions.loadQuarantinedIdentifiers()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Failed to quarantine')
