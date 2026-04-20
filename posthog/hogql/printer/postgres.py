@@ -1,10 +1,10 @@
 import re
 import hashlib
-from typing import Literal
+from typing import ClassVar
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import StructDatabaseField
@@ -23,15 +23,16 @@ _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class PostgresPrinter(BasePrinter):
+    DIALECT_NAME: ClassVar[HogQLDialect] = "postgres"
+
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["postgres"],
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
     ):
-        super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+        super().__init__(context=context, stack=stack, settings=settings, pretty=pretty)
         self._truncated_identifiers: dict[str, str] = {}
         self._used_truncated_identifiers: set[str] = set()
         self._connection_supported_functions = self._get_connection_supported_functions()

@@ -176,7 +176,6 @@ def print_prepared_ast(
             case "clickhouse":
                 printer = ClickHousePrinter(
                     context=context,
-                    dialect=dialect,
                     stack=printer_stack,
                     settings=settings,
                     pretty=pretty,
@@ -184,7 +183,6 @@ def print_prepared_ast(
             case "postgres":
                 printer = PostgresPrinter(
                     context=context,
-                    dialect=dialect,
                     stack=printer_stack,
                     settings=settings,
                     pretty=pretty,
@@ -192,7 +190,6 @@ def print_prepared_ast(
             case "hogql":
                 printer = HogQLPrinter(
                     context=context,
-                    dialect=dialect,
                     stack=printer_stack,
                     settings=settings,
                     pretty=pretty,

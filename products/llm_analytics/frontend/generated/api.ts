@@ -28,6 +28,7 @@ import type {
     LLMPromptResolveResponseApi,
     LLMProviderKeyApi,
     LLMSkillApi,
+    LLMSkillCreateApi,
     LLMSkillDuplicateApi,
     LLMSkillFileApi,
     LLMSkillResolveResponseApi,
@@ -1564,14 +1565,14 @@ export const getLlmSkillsCreateUrl = (projectId: string) => {
 
 export const llmSkillsCreate = async (
     projectId: string,
-    lLMSkillApi: NonReadonly<LLMSkillApi>,
+    lLMSkillCreateApi: NonReadonly<LLMSkillCreateApi>,
     options?: RequestInit
-): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsCreateUrl(projectId), {
+): Promise<LLMSkillCreateApi> => {
+    return apiMutator<LLMSkillCreateApi>(getLlmSkillsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(lLMSkillApi),
+        body: JSON.stringify(lLMSkillCreateApi),
     })
 }
 
@@ -1632,14 +1633,11 @@ export const getLlmSkillsNameArchiveCreateUrl = (projectId: string, skillName: s
 export const llmSkillsNameArchiveCreate = async (
     projectId: string,
     skillName: string,
-    lLMSkillApi: NonReadonly<LLMSkillApi>,
     options?: RequestInit
-): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNameArchiveCreateUrl(projectId, skillName), {
+): Promise<void> => {
+    return apiMutator<void>(getLlmSkillsNameArchiveCreateUrl(projectId, skillName), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(lLMSkillApi),
     })
 }
 
