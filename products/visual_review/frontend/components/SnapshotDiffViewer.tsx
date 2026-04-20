@@ -299,7 +299,7 @@ export function SnapshotDiffViewer({
                         <div>
                             <LemonButton
                                 type="secondary"
-                                size="xsmall"
+                                size="small"
                                 fullWidth
                                 onClick={() => {
                                     LemonDialog.open({
