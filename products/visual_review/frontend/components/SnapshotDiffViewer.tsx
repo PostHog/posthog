@@ -298,7 +298,7 @@ export function SnapshotDiffViewer({
                     {hasChanges && !isQuarantined && onQuarantine && (
                         <div>
                             <LemonButton
-                                type="tertiary"
+                                type="secondary"
                                 size="xsmall"
                                 fullWidth
                                 onClick={() => {
