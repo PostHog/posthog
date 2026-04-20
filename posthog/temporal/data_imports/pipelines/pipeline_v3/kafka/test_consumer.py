@@ -61,6 +61,7 @@ class TestKafkaConsumerServiceConfig:
                 ["test-topic"],
                 on_assign=service._on_assign,
                 on_revoke=service._on_revoke,
+                on_lost=service._on_lost,
             )
 
 
@@ -113,15 +114,45 @@ class TestKafkaConsumerServiceCallbacks:
             mock_consumer = MagicMock()
             service._on_revoke(mock_consumer, partitions)
 
-            assert mock_logger.info.call_count == len(partition_data)
-            for topic, partition, offset in partition_data:
-                mock_logger.info.assert_any_call(
-                    "partition_revoked",
-                    topic=topic,
-                    partition=partition,
-                    offset=offset,
-                )
+            expected_partitions = [{"topic": t, "partition": p} for t, p, _ in partition_data]
+            mock_logger.info.assert_any_call(
+                "partition_revocation_starting",
+                revoked_partition_count=len(partition_data),
+                revoked_partitions=expected_partitions,
+            )
+            mock_logger.info.assert_any_call(
+                "partition_revocation_complete",
+                revoked_partition_count=len(partition_data),
+            )
             mock_consumer.commit.assert_called_once_with(asynchronous=False)
+
+    @parameterized.expand(
+        [
+            ("single_partition", [("test-topic", 0, 42)]),
+            ("multiple_partitions", [("test-topic", 0, 10), ("test-topic", 1, 20)]),
+        ]
+    )
+    def test_on_lost_logs_warning_and_does_not_commit(self, _name, partition_data):
+        service = _make_service()
+        partitions = []
+        for topic, partition, offset in partition_data:
+            p = MagicMock()
+            p.topic = topic
+            p.partition = partition
+            p.offset = offset
+            partitions.append(p)
+
+        with patch("posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.consumer.logger") as mock_logger:
+            mock_consumer = MagicMock()
+            service._on_lost(mock_consumer, partitions)
+
+            expected_partitions = [{"topic": t, "partition": p} for t, p, _ in partition_data]
+            mock_logger.warning.assert_called_once_with(
+                "partitions_lost",
+                lost_partition_count=len(partition_data),
+                lost_partitions=expected_partitions,
+            )
+            mock_consumer.commit.assert_not_called()
 
     def test_on_revoke_logs_warning_on_commit_failure(self):
         service = _make_service()

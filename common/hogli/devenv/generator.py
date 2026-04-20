@@ -144,9 +144,18 @@ class MprocsGenerator(ConfigGenerator):
             # Copy config to avoid mutating registry's internal state
             proc_config = proc_config.copy()
 
-            # Remove metadata fields - not mprocs config
-            proc_config.pop("capability", None)
+            # Remove metadata fields - not mprocs config.
+            # (note that capability is kept, because it's used in groups)
             proc_config.pop("ask_skip", None)
+
+            # Give procs without an explicit capability a synthetic one so they
+            # don't all fall into "Ungrouped" when the user groups by capability,
+            # as many important ones are in that category (e.g. backend, frontend).
+            if not proc_config.get("capability"):
+                if name in resolved.always_required:
+                    proc_config["capability"] = "always_required"
+                elif is_manual_start:
+                    proc_config["capability"] = "tools"
 
             # Set autostart: false for skipped processes
             if name in resolved.skip_autostart:

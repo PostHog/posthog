@@ -1582,6 +1582,10 @@ export class ApiRequest {
         return this.organizations().current().addPathComponent('integrations')
     }
 
+    public organizationIntegrationsDetail(id: IntegrationType['id']): ApiRequest {
+        return this.organizationIntegrations().addPathComponent(id)
+    }
+
     // # Organization OAuth Applications
     public organizationOAuthApplications(): ApiRequest {
         return this.organizations().current().addPathComponent('oauth_applications')
@@ -5209,6 +5213,24 @@ const api = {
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
         },
+        async bulkUpdateSchemas(
+            sourceId: ExternalDataSource['id'],
+            schemas: Pick<
+                ExternalDataSourceSchema,
+                | 'id'
+                | 'should_sync'
+                | 'sync_type'
+                | 'incremental_field'
+                | 'incremental_field_type'
+                | 'sync_frequency'
+                | 'sync_time_of_day'
+                | 'cdc_table_mode'
+            >[]
+        ): Promise<ExternalDataSourceSchema[]> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
+                data: { schemas },
+            })
+        },
         async update(
             sourceId: ExternalDataSource['id'],
             data: Partial<ExternalDataSource>
@@ -5636,6 +5658,9 @@ const api = {
     organizationIntegrations: {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().organizationIntegrations().get()
+        },
+        async delete(id: IntegrationType['id']): Promise<void> {
+            await new ApiRequest().organizationIntegrationsDetail(id).delete()
         },
     },
 
