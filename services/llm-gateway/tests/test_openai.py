@@ -240,6 +240,13 @@ class TestUnsupportedModelRejection:
             "vertex_ai/gemini-1.5-pro",
             "vertex_ai-language-models/text-bison",
             "GEMINI/gemini-pro",  # case-insensitive prefix match
+            # Bare gemini-* names (most commonly seen in the pod crash logs).
+            # These may not be in the litellm cost registry yet, so we match
+            # them by name prefix rather than relying on registry lookup.
+            "gemini-3-pro-preview",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash",
+            "Gemini-3-Pro-Preview",  # case-insensitive
         ],
     )
     @patch("llm_gateway.api.openai.litellm.acompletion")
