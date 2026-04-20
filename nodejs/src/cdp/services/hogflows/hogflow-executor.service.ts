@@ -389,11 +389,14 @@ export class HogFlowExecutorService {
 
                 if (handlerResult.finished) {
                     result.finished = true
-                    // Special case for exit - we just track a success metric. This is the happy
-                    // path mirror of `trackExitMetric`: together they guarantee every terminal
-                    // state leaves a metric on the exit action so the "In progress" tile can
-                    // decrement correctly. See `trackExitMetric` for the error and early-exit cases.
                     this.trackActionMetric(result, currentAction, 'succeeded')
+                    // When the exit handler fires, the line above already emits succeeded@exit_node
+                    // (since currentAction.id IS the exit node). For any other handler that returns
+                    // finished:true (e.g. trigger filter re-check no longer matches), we need an
+                    // explicit exit-node marker so the "In progress" tile decrements.
+                    if (currentAction.type !== 'exit') {
+                        this.trackExitMetric(result, 'filtered')
+                    }
                 }
 
                 if (handlerResult.scheduledAt) {
@@ -488,6 +491,7 @@ export class HogFlowExecutorService {
                     'warn',
                     `Skipped: duplicate execution detected for event ${eventUuid}. Another invocation already executed this action.`
                 )
+                this.trackExitMetric(dedupResult, 'filtered')
                 return dedupResult
             }
         } catch (error) {
@@ -621,7 +625,7 @@ export class HogFlowExecutorService {
      */
     private trackExitMetric(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
-        metricName: 'failed' | 'early_exit'
+        metricName: 'failed' | 'early_exit' | 'filtered'
     ): void {
         const exitAction = result.invocation.hogFlow.actions.find((a) => a.type === 'exit')
         if (!exitAction) {

@@ -431,6 +431,35 @@ describe('Hogflow Executor', () => {
             })
         })
 
+        describe('trigger handler filter no-match emits filtered@exit', () => {
+            it('emits filtered@exit when trigger filter re-check does not match', async () => {
+                // Set currentAction to trigger so the trigger handler actually runs
+                // (normally ensureCurrentAction skips the trigger and jumps to the next action)
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: 'not-a-pageview',
+                        properties: { $current_url: 'https://posthog.com' },
+                    },
+                })
+                // Set trigger filter to require $pageview
+                const trigger = hogFlow.actions.find((a) => a.type === 'trigger')!
+                trigger.config = {
+                    type: 'event',
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                }
+                invocation.state.currentAction = {
+                    id: trigger.id,
+                    startedAtTimestamp: DateTime.now().toMillis(),
+                }
+
+                const result = await executor.executeCurrentAction(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.metrics.some((m) => m.metric_name === 'filtered' && m.instance_id === 'exit')).toBe(true)
+            })
+        })
+
         describe('executeTest', () => {
             it('executes only a single step at a time', async () => {
                 const invocation = createExampleHogFlowInvocation(hogFlow, {
@@ -2117,6 +2146,8 @@ describe('Hogflow Executor', () => {
             expect(logMessages).not.toContainEqual(expect.stringContaining('Executing action'))
             // No fetch calls were made (the hog function template uses fetch)
             expect(mockFetch.mock.calls.length).toBe(fetchCallsAfterFirst)
+            // Dedup'd runs must emit filtered@exit so the "In progress" tile decrements
+            expect(result.metrics.some((m) => m.metric_name === 'filtered' && m.instance_id === 'exit')).toBe(true)
         })
 
         it('blocks all 4 ghost runs from the cross-routing incident pattern', async () => {

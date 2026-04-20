@@ -230,13 +230,15 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     // - 'succeeded' is emitted by the happy path (ExitHandler)
                     // - 'failed' is emitted when a run aborts with an error
                     // - 'early_exit' is emitted when a run exits early via the exit condition
-                    // Without subtracting all three, errored and early-exited runs would remain
-                    // pinned on the "In progress" tile forever, misleading operators into thinking
-                    // the runs are still being processed.
+                    // - 'filtered' is emitted when a run is filtered out before doing work
+                    //   (trigger filter re-check no longer matches, or duplicate execution skipped)
+                    // Without subtracting all four, those runs would remain pinned on the
+                    // "In progress" tile forever, misleading operators into thinking the runs
+                    // are still being processed.
                     const exitRequest: AppMetricsTotalsRequest = {
                         ...request,
                         instanceId: EXIT_NODE_ID,
-                        metricName: ['succeeded', 'failed', 'early_exit'],
+                        metricName: ['succeeded', 'failed', 'early_exit', 'filtered'],
                     }
                     const terminatedResponse = await loadAppMetricsTotals(exitRequest, timezone)
                     await breakpoint(10)
