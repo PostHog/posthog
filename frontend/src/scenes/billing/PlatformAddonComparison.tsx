@@ -131,6 +131,40 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
     )
 }
 
+const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
+    const featureTags = (addon.features ?? []).filter((feature) => !feature.entitlement_only).slice(0, 6)
+
+    return (
+        <div className="flex flex-col gap-3 p-5 rounded bg-surface-secondary ring-2 ring-accent">
+            <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                        <h4 className="mb-0 font-bold">{addon.name}</h4>
+                        <LemonTag type="primary" icon={<IconCheckCircle />}>
+                            Subscribed
+                        </LemonTag>
+                        <LemonTag type="warning">Legacy</LemonTag>
+                    </div>
+                    <p className="text-sm text-secondary m-0">
+                        You're subscribed to our legacy {addon.name} plan. Compare plans to see if it makes sense to
+                        switch.
+                    </p>
+                    {featureTags.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                            {featureTags.map((feature) => (
+                                <LemonTag key={feature.key}>{feature.name}</LemonTag>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                <div className="shrink-0">
+                    <BillingProductAddonActions addon={addon} buttonSize="small" align="right" />
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export const PlatformAddonComparison = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const comparableAddons = COMPARISON_ADDONS.map((type) =>
         product.addons?.find((addon) => addon.type === type && !addon.legacy_product)
@@ -140,18 +174,20 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
         return null
     }
 
-    const features = buildComparisonFeatures(comparableAddons)
+    const legacyAddon = product.addons?.find((addon) => addon.legacy_product && addon.subscribed) ?? null
+    const tableAddons = legacyAddon ? [legacyAddon, ...comparableAddons] : comparableAddons
+    const features = buildComparisonFeatures(tableAddons)
     const hasPlatformAddon = comparableAddons.some((addon) => addon.subscribed)
 
     const tableGridStyle = {
-        gridTemplateColumns: `minmax(240px, 1.5fr) repeat(${comparableAddons.length}, 1fr)`,
+        gridTemplateColumns: `minmax(240px, 1.5fr) repeat(${tableAddons.length}, 1fr)`,
     }
 
     const comparisonTable = (
         <div>
             <div className="grid" style={tableGridStyle}>
                 <div className="px-4 py-4 text-sm font-semibold text-secondary">Feature</div>
-                {comparableAddons.map((addon) => (
+                {tableAddons.map((addon) => (
                     <div
                         key={addon.type}
                         className="px-4 py-4 text-sm font-semibold text-secondary text-center border-l border-primary"
@@ -168,7 +204,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
                             <div className="text-xs text-secondary mt-1">{feature.description}</div>
                         )}
                     </div>
-                    {comparableAddons.map((addon) => (
+                    {tableAddons.map((addon) => (
                         <div
                             key={addon.type}
                             className="px-4 py-4 flex items-center justify-center border-l border-primary"
@@ -183,6 +219,8 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
 
     return (
         <div className="flex flex-col gap-4">
+            {legacyAddon && <LegacyPlanHero addon={legacyAddon} />}
+
             <div className="grid gap-3 grid-cols-3">
                 {comparableAddons.map((addon) => (
                     <PlanCard key={addon.type} addon={addon} />
@@ -191,7 +229,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
 
             {features.length > 0 && (
                 <LemonCollapse
-                    defaultActiveKey={hasPlatformAddon ? undefined : 'compare'}
+                    defaultActiveKey={hasPlatformAddon || legacyAddon ? 'compare' : undefined}
                     panels={[
                         {
                             key: 'compare',

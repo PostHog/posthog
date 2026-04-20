@@ -530,22 +530,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {/* Add-ons (hide for product variants) */}
                     {product.addons?.length > 0 && !isProductWithVariants && (
                         <div className="pb-8">
-                            {/* Legacy teams addon */}
-                            {product.type === 'platform_and_support' &&
-                                product.addons.find((addon) => addon.legacy_product && addon.subscribed) && (
-                                    <LemonBanner type="warning" className="my-4" hideIcon>
-                                        <p>
-                                            You're currently subscribed to our legacy{' '}
-                                            {
-                                                product.addons.find((addon) => addon.legacy_product && addon.subscribed)
-                                                    ?.name
-                                            }{' '}
-                                            add-on. If you'd like to move to one of our new add-ons please subscribe
-                                            below.
-                                        </p>
-                                    </LemonBanner>
-                                )}
-
                             {/* Add-ons title */}
                             <h4 className="my-4">Add-ons</h4>
                             {billing?.subscription_level == 'free' && (
@@ -571,11 +555,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <div className="flex flex-col gap-y-4">
                                     <PlatformAddonComparison product={product} />
                                     {visibleAddons
-                                        .filter(
-                                            (addon: BillingProductV2AddonType) =>
-                                                !COMPARISON_ADDONS.includes(addon.type as BillingPlan) ||
-                                                addon.legacy_product
-                                        )
+                                        .filter((addon: BillingProductV2AddonType) => {
+                                            const handledByPlanCard =
+                                                COMPARISON_ADDONS.includes(addon.type as BillingPlan) &&
+                                                !addon.legacy_product
+                                            const handledByLegacyHero = addon.legacy_product && addon.subscribed
+                                            return !handledByPlanCard && !handledByLegacyHero
+                                        })
                                         .map((addon: BillingProductV2AddonType, i: number) => (
                                             <BillingProductAddon key={i} addon={addon} />
                                         ))}
