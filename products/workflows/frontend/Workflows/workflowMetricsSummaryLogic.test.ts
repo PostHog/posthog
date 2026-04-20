@@ -1,6 +1,6 @@
-import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
+import { AppMetricsTimeSeriesResponse, AppMetricsTotalsResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 
-import { subtractSeries, withDisplayName } from './workflowMetricsSummaryLogic'
+import { calculateInProgressTotal, subtractSeries, withDisplayName } from './workflowMetricsSummaryLogic'
 
 const series = (labels: string[], ...namedValues: [string, number[]][]): AppMetricsTimeSeriesResponse => ({
     labels,
@@ -29,6 +29,46 @@ describe('withDisplayName', () => {
         },
     ])('$name', ({ input, displayName, expected }) => {
         expect(withDisplayName(input, displayName)).toEqual(expected)
+    })
+})
+
+describe('calculateInProgressTotal', () => {
+    const totals = (rows: Record<string, number>): AppMetricsTotalsResponse =>
+        Object.fromEntries(Object.entries(rows).map(([key, total]) => [key, { total, breakdowns: [key] }]))
+
+    it.each([
+        {
+            name: 'returns triggered count when nothing has terminated',
+            triggered: totals({ triggered: 10 }),
+            terminated: {},
+            expected: 10,
+        },
+        {
+            name: 'subtracts succeeded from triggered',
+            triggered: totals({ triggered: 10 }),
+            terminated: totals({ succeeded: 7 }),
+            expected: 3,
+        },
+        {
+            name: 'subtracts succeeded + failed + early_exit from triggered',
+            triggered: totals({ triggered: 10 }),
+            terminated: totals({ succeeded: 4, failed: 3, early_exit: 2 }),
+            expected: 1,
+        },
+        {
+            name: 'clamps to zero when terminated exceeds triggered (metric lag)',
+            triggered: totals({ triggered: 5 }),
+            terminated: totals({ succeeded: 3, failed: 4 }),
+            expected: 0,
+        },
+        {
+            name: 'returns zero when both are empty',
+            triggered: {},
+            terminated: {},
+            expected: 0,
+        },
+    ])('$name', ({ triggered, terminated, expected }) => {
+        expect(calculateInProgressTotal(triggered, terminated)).toBe(expected)
     })
 })
 

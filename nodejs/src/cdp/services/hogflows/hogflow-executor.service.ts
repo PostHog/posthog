@@ -323,6 +323,9 @@ export class HogFlowExecutorService {
                 metric_name: 'early_exit',
                 count: 1,
             })
+            // Also record against the exit action so the workflow summary's "In progress" tile
+            // correctly counts early-exited runs as terminated.
+            this.trackExitMetric(earlyExitResult, 'early_exit')
         }
 
         return earlyExitResult
@@ -386,7 +389,10 @@ export class HogFlowExecutorService {
 
                 if (handlerResult.finished) {
                     result.finished = true
-                    // Special case for exit - we just track a success metric
+                    // Special case for exit - we just track a success metric. This is the happy
+                    // path mirror of `trackExitMetric`: together they guarantee every terminal
+                    // state leaves a metric on the exit action so the "In progress" tile can
+                    // decrement correctly. See `trackExitMetric` for the error and early-exit cases.
                     this.trackActionMetric(result, currentAction, 'succeeded')
                 }
 
@@ -410,6 +416,13 @@ export class HogFlowExecutorService {
             result.finished = true // Explicitly set to true to prevent infinite loops
 
             this.maybeContinueToNextActionOnError(result)
+
+            // If we did not continue to a next action, the flow terminates here with an error.
+            // Record a failed metric against the exit action so the workflow summary's "In progress"
+            // tile correctly accounts for this run as terminated rather than pinning it forever.
+            if (result.finished && result.error) {
+                this.trackExitMetric(result, 'failed')
+            }
 
             logger.error(
                 '🦔',
@@ -593,6 +606,32 @@ export class HogFlowExecutorService {
             app_source_id: result.invocation.parentRunId ?? result.invocation.hogFlow.id,
             instance_id: action.id,
             metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
+            metric_name: metricName,
+            count: 1,
+        })
+    }
+
+    /**
+     * Records a terminal metric against the workflow's exit action, so the "In progress" tile on the
+     * workflow metrics summary page correctly counts errored and early-exited runs as terminated.
+     *
+     * The happy path (ExitHandler returning {finished: true}) already emits 'succeeded' against the
+     * exit action via `trackActionMetric`; this helper mirrors that for abort-on-error and early-exit
+     * paths which would otherwise never reach the exit action and so would be misread as in-progress.
+     */
+    private trackExitMetric(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        metricName: 'failed' | 'early_exit'
+    ): void {
+        const exitAction = result.invocation.hogFlow.actions.find((a) => a.type === 'exit')
+        if (!exitAction) {
+            return
+        }
+        result.metrics.push({
+            team_id: result.invocation.hogFlow.team_id,
+            app_source_id: result.invocation.parentRunId ?? result.invocation.hogFlow.id,
+            instance_id: exitAction.id,
+            metric_kind: metricName === 'failed' ? 'failure' : 'other',
             metric_name: metricName,
             count: 1,
         })

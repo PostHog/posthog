@@ -647,7 +647,12 @@ describe('Hogflow Executor', () => {
                 )
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                // Two early_exit metrics: one on the current action (the pre-existing metric) and
+                // one on the exit action (added so the workflow "in progress" tile can decrement).
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'early_exit'])
+                expect(result2.metrics.some((m) => m.metric_name === 'early_exit' && m.instance_id === 'exit')).toBe(
+                    true
+                )
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -689,7 +694,10 @@ describe('Hogflow Executor', () => {
 
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'early_exit'])
+                expect(result2.metrics.some((m) => m.metric_name === 'early_exit' && m.instance_id === 'exit')).toBe(
+                    true
+                )
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched ([Person:person_id|John Doe] no longer matches trigger filters)",
@@ -762,7 +770,10 @@ describe('Hogflow Executor', () => {
 
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'early_exit'])
+                expect(result2.metrics.some((m) => m.metric_name === 'early_exit' && m.instance_id === 'exit')).toBe(
+                    true
+                )
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -896,6 +907,16 @@ describe('Hogflow Executor', () => {
                             ])
                         )
 
+                        // Both the action-level 'failed' metric AND the exit-action 'failed' metric
+                        // should be recorded. The exit-action metric is required for the workflow
+                        // metrics summary "in progress" tile to account for this run as terminated.
+                        expect(
+                            result.metrics.some((m) => m.metric_name === 'failed' && m.instance_id === 'function_id_1')
+                        ).toBe(true)
+                        expect(result.metrics.some((m) => m.metric_name === 'failed' && m.instance_id === 'exit')).toBe(
+                            true
+                        )
+
                         // Check that logger.error was called with the expected log
                         expect(loggerErrorSpy).toHaveBeenCalledWith(
                             '🦔',
@@ -905,6 +926,36 @@ describe('Hogflow Executor', () => {
                             expect.any(Error)
                         )
                         loggerErrorSpy.mockRestore()
+                    })
+
+                    it('continues to next action on error does NOT emit failed@exit metric', async () => {
+                        // If on_error=continue moves the flow to the next action, we must NOT
+                        // record a failed@exit metric — the run has not terminated yet.
+                        const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
+                        action.on_error = 'continue'
+
+                        const functionHandler = executor['actionHandlers']['function']
+                        jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({
+                            error: new Error('Mocked handler error'),
+                        })
+
+                        const invocation = createExampleHogFlowInvocation(hogFlow, {
+                            event: {
+                                ...createHogExecutionGlobals().event,
+                                properties: { name: 'Test User' },
+                            },
+                        })
+                        invocation.state.currentAction = {
+                            id: 'function_id_1',
+                            startedAtTimestamp: DateTime.now().toMillis(),
+                        }
+
+                        const result = await executor.executeCurrentAction(invocation)
+
+                        expect(result.finished).toBe(false)
+                        expect(result.metrics.some((m) => m.metric_name === 'failed' && m.instance_id === 'exit')).toBe(
+                            false
+                        )
                     })
                 })
             })
