@@ -728,6 +728,17 @@ def create_posthog_code_task_for_repo_activity(
     title = user_text[:255] if user_text else "Task from Slack"
     description = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
 
+    from posthog.temporal.ai.posthog_code_slack_attachments import (
+        CLOUD_PROMPT_PREFIX,
+        encode_user_message_with_attachments,
+    )
+
+    event_files = event.get("files") or []
+    encoded_user_message = encode_user_message_with_attachments(
+        user_text, event_files, slack.client.token
+    )
+    has_encoded_attachments = encoded_user_message.startswith(CLOUD_PROMPT_PREFIX)
+
     slack_thread_context = SlackThreadContext(
         integration_id=integration.id,
         channel=channel,
@@ -791,6 +802,12 @@ def create_posthog_code_task_for_repo_activity(
     if task:
         task_run = task.latest_run
         if task_run:
+            if has_encoded_attachments:
+                task_run_state = task_run.state or {}
+                task_run_state["pending_user_message"] = encoded_user_message
+                task_run.state = task_run_state
+                task_run.save(update_fields=["state", "updated_at"])
+
             SlackThreadTaskMapping.objects.update_or_create(
                 integration=integration,
                 channel=channel,
@@ -1078,8 +1095,14 @@ def _resume_task_with_new_run(
         extra_state["slack_pr_opened_notified"] = True
         extra_state["slack_notified_pr_url"] = previous_pr_url
 
+    from posthog.temporal.ai.posthog_code_slack_attachments import encode_user_message_with_attachments
+
     extra_state["initial_prompt_override"] = initial_prompt_override
-    extra_state["pending_user_message"] = initial_prompt_override
+    extra_state["pending_user_message"] = encode_user_message_with_attachments(
+        initial_prompt_override,
+        (inputs.event or {}).get("files") or [],
+        slack.client.token,
+    )
     if user_message_ts:
         extra_state["pending_user_message_ts"] = user_message_ts
 

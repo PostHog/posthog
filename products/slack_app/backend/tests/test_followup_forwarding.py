@@ -215,6 +215,66 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.temporal.ai.posthog_code_slack_attachments._download_slack_file")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_terminal_run_encodes_attachments_into_pending_user_message(
+        self, mock_slack_cls, mock_download, mock_execute_workflow
+    ):
+        import json
+
+        from posthog.temporal.ai.posthog_code_slack_attachments import CLOUD_PROMPT_PREFIX
+
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping()
+
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.token = "xoxb-test"
+        mock_slack_cls.return_value = mock_slack_instance
+        mock_download.return_value = b"log contents"
+
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event={
+                "channel": "C123",
+                "ts": "1234.5678",
+                "user": "U_ALICE",
+                "text": "<@BOT> check this log",
+                "files": [
+                    {
+                        "id": "F_LOG",
+                        "name": "errors.log",
+                        "mimetype": "text/plain",
+                        "url_private_download": "https://files.slack.com/F_LOG/errors.log",
+                    }
+                ],
+            },
+            integration_id=self.integration.id,
+            slack_team_id="T_SLACK",
+        )
+
+        forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> check this log", "1234.5679"
+        )
+
+        new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        new_run = self.TaskRun.objects.get(id=new_run_id)
+        # initial_prompt_override stays as plain text (for agent-side cold-start consumers)
+        assert new_run.state.get("initial_prompt_override") == "check this log"
+        # pending_user_message holds the cloud-prompt encoded payload with attachment
+        encoded = new_run.state.get("pending_user_message", "")
+        assert encoded.startswith(CLOUD_PROMPT_PREFIX)
+        body = json.loads(encoded[len(CLOUD_PROMPT_PREFIX) :])
+        assert body["blocks"][0] == {"type": "text", "text": "check this log"}
+        assert body["blocks"][1] == {
+            "type": "resource",
+            "resource": {
+                "uri": "attachment://F_LOG?label=errors.log",
+                "text": "log contents",
+                "mimeType": "text/plain",
+            },
+        }
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_seeds_pr_url_into_new_run_state(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
