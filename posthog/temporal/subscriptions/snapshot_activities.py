@@ -7,7 +7,9 @@ from prometheus_client import Counter
 from structlog import get_logger
 
 from posthog.models import Insight
+from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, SubscriptionDelivery
+from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
@@ -28,6 +30,15 @@ SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT = Counter(
     "posthog_subscription_ai_summary_skipped_no_ai_consent_total",
     "AI summary skipped because the organization has not approved AI data processing",
 )
+SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED = Counter(
+    "posthog_subscription_ai_summary_image_skipped_total",
+    "AI summary image attachment skipped for an insight",
+    ["reason"],
+)
+
+MAX_SUMMARY_IMAGES = 6
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024
 
 _MAX_LOGGED_KEYS = 15
 
@@ -50,6 +61,7 @@ def _build_states_from_content_snapshot(
     for insight_snap in content_snapshot.get("insights", []):
         insight_id = insight_snap.get("id")
         insight_name = insight_snap.get("name", f"Insight {insight_id}")
+        insight_description = insight_snap.get("description") or ""
         query_results = insight_snap.get("query_results")
 
         raw_query_error = insight_snap.get("query_error")
@@ -85,6 +97,7 @@ def _build_states_from_content_snapshot(
             {
                 "insight_id": insight_id,
                 "insight_name": insight_name,
+                "insight_description": insight_description,
                 "query_kind": query_kind,
                 "results_summary": results_summary,
                 "timestamp": timestamp,
@@ -179,6 +192,61 @@ def _sanitize_prompt_guide(prompt_guide: str) -> str:
     return re.sub(r"</?[a-zA-Z_][^>]*>", "", prompt_guide)
 
 
+def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[int, bytes]:
+    if not exported_asset_ids:
+        return {}
+
+    assets_by_id = {
+        asset.id: asset
+        for asset in ExportedAsset.objects.filter(
+            pk__in=exported_asset_ids,
+            team_id=team_id,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        ).only("id", "insight_id", "content", "content_location")
+    }
+
+    images: dict[int, bytes] = {}
+    total_bytes = 0
+    for asset_id in exported_asset_ids:
+        if len(images) >= MAX_SUMMARY_IMAGES:
+            break
+        asset = assets_by_id.get(asset_id)
+        if asset is None:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="not_found").inc()
+            continue
+        if asset.insight_id is None:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="no_insight_id").inc()
+            continue
+        if asset.insight_id in images:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="duplicate_insight").inc()
+            continue
+
+        content: bytes | None = asset.content
+        if not content and asset.content_location:
+            try:
+                content = object_storage.read_bytes(asset.content_location, missing_ok=True)
+            except Exception:
+                SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="storage_error").inc()
+                continue
+
+        if not content:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="no_content").inc()
+            continue
+
+        if len(content) > MAX_IMAGE_BYTES:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="too_large").inc()
+            continue
+
+        if total_bytes + len(content) > MAX_TOTAL_IMAGE_BYTES:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="total_bytes_exceeded").inc()
+            continue
+
+        images[asset.insight_id] = content
+        total_bytes += len(content)
+
+    return images
+
+
 @temporalio.activity.defn
 async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
     await LOGGER.ainfo(
@@ -245,6 +313,22 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
             snapshot_role="previous",
         )
 
+    temporalio.activity.heartbeat("loading insight images")
+    insight_images: dict[int, bytes] = {}
+    if inputs.exported_asset_ids:
+        try:
+            insight_images = await database_sync_to_async(_load_insight_images, thread_sensitive=False)(
+                inputs.exported_asset_ids, inputs.team_id
+            )
+        except Exception as e:
+            SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="load_failed").inc()
+            await LOGGER.awarning(
+                "snapshot_subscription_insights.image_load_failed",
+                subscription_id=inputs.subscription_id,
+                error=str(e),
+                exc_info=True,
+            )
+
     summary_text: str | None = None
     try:
         temporalio.activity.heartbeat("generating LLM summary")
@@ -256,6 +340,7 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
             prompt_guide=prompt_guide,
             team=subscription.team,
             delivery_id=inputs.delivery_id,
+            insight_images=insight_images or None,
         )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:
@@ -273,6 +358,8 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
         "snapshot_subscription_insights.completed",
         subscription_id=inputs.subscription_id,
         insight_count=len(current_states),
+        image_count=len(insight_images),
+        image_bytes_total=sum(len(b) for b in insight_images.values()),
         has_previous=previous_states is not None,
         has_summary=summary_text is not None,
     )
