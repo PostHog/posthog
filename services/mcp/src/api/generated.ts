@@ -19597,8 +19597,8 @@ export namespace Schemas {
        */
       name: string;
       /**
-       * What this skill does and when to use it. Max 1024 characters.
-       * @maxLength 1024
+       * What this skill does and when to use it. Max 4096 characters.
+       * @maxLength 4096
        */
       description: string;
       /** The SKILL.md instruction content (markdown). */
@@ -19657,8 +19657,8 @@ export namespace Schemas {
        */
       name: string;
       /**
-       * What this skill does and when to use it. Max 1024 characters.
-       * @maxLength 1024
+       * What this skill does and when to use it. Max 4096 characters.
+       * @maxLength 4096
        */
       description: string;
       /**
@@ -25752,12 +25752,17 @@ export namespace Schemas {
       readonly last_used_at?: string | null;
     }
 
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type PatchedLLMSkillPublishMetadata = {[key: string]: unknown};
+
     export interface PatchedLLMSkillPublish {
       /** Full skill body (SKILL.md instruction content) to publish as a new version. */
       body?: string;
       /**
        * Updated description for the new version.
-       * @maxLength 1024
+       * @maxLength 4096
        */
       description?: string;
       /**
@@ -25773,7 +25778,7 @@ export namespace Schemas {
       /** List of pre-approved tools the skill may use. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
-      metadata?: unknown;
+      metadata?: PatchedLLMSkillPublishMetadata;
       /** Bundled files to include with this version. Replaces all files from the previous version. */
       files?: LLMSkillFileInput[];
       /**

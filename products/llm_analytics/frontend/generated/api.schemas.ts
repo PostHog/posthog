@@ -1353,8 +1353,8 @@ export interface LLMSkillListApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 1024 characters.
-     * @maxLength 1024
+     * What this skill does and when to use it. Max 4096 characters.
+     * @maxLength 4096
      */
     description: string
     /**
@@ -1401,8 +1401,8 @@ export interface LLMSkillApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 1024 characters.
-     * @maxLength 1024
+     * What this skill does and when to use it. Max 4096 characters.
+     * @maxLength 4096
      */
     description: string
     /** The SKILL.md instruction content (markdown). */
@@ -1434,12 +1434,17 @@ export interface LLMSkillApi {
     readonly first_version_created_at: string
 }
 
+/**
+ * Arbitrary key-value metadata.
+ */
+export type PatchedLLMSkillPublishApiMetadata = { [key: string]: unknown }
+
 export interface PatchedLLMSkillPublishApi {
     /** Full skill body (SKILL.md instruction content) to publish as a new version. */
     body?: string
     /**
      * Updated description for the new version.
-     * @maxLength 1024
+     * @maxLength 4096
      */
     description?: string
     /**
@@ -1455,7 +1460,7 @@ export interface PatchedLLMSkillPublishApi {
     /** List of pre-approved tools the skill may use. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
-    metadata?: unknown
+    metadata?: PatchedLLMSkillPublishApiMetadata
     /** Bundled files to include with this version. Replaces all files from the previous version. */
     files?: LLMSkillFileInputApi[]
     /**
