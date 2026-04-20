@@ -1,7 +1,6 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
-import { SendMailOptions } from 'nodemailer'
-
 import { DateTime } from 'luxon'
+import { SendMailOptions } from 'nodemailer'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
