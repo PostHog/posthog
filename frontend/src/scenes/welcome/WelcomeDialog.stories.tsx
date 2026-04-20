@@ -123,7 +123,6 @@ const INVITED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
     first_name: 'Fern',
     is_organization_first_user: false,
-    welcome_screen_seen_at: null,
 }
 
 const meta: Meta = {
@@ -138,9 +137,6 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/users/@me/': INVITED_USER,
-            },
-            post: {
-                '/api/users/@me/welcome_screen/dismiss/': { welcome_screen_seen_at: '2026-04-17T12:00:00Z' },
             },
         }),
     ],

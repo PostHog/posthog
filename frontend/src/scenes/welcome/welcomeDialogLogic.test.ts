@@ -13,19 +13,11 @@ import { welcomeDialogLogic } from './welcomeDialogLogic'
 const INVITED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
     is_organization_first_user: false,
-    welcome_screen_seen_at: null,
 }
 
 const ORG_CREATOR_USER: UserType = {
     ...MOCK_DEFAULT_USER,
     is_organization_first_user: true,
-    welcome_screen_seen_at: null,
-}
-
-const DISMISSED_USER: UserType = {
-    ...MOCK_DEFAULT_USER,
-    is_organization_first_user: false,
-    welcome_screen_seen_at: '2026-04-16T12:00:00Z',
 }
 
 const mockPayload = {
@@ -61,15 +53,13 @@ describe('welcomeDialogLogic', () => {
     let logic: ReturnType<typeof welcomeDialogLogic.build>
 
     beforeEach(() => {
-        // closeDialog writes a "looked around" flag to sessionStorage — clear it between tests
-        // so a prior test's closeDialog call doesn't suppress the dialog in the next test.
+        // The dialog persists dismissal in localStorage and "looked around" in sessionStorage —
+        // clear both so a prior test doesn't carry over and suppress the dialog.
+        window.localStorage.clear()
         window.sessionStorage.clear()
         useMocks({
             get: {
                 '/api/organizations/@current/welcome/': mockPayload,
-            },
-            post: {
-                '/api/users/@me/welcome_screen/dismiss/': { welcome_screen_seen_at: '2026-04-16T12:00:00Z' },
             },
         })
         initKeaTests()
@@ -96,7 +86,8 @@ describe('welcomeDialogLogic', () => {
     })
 
     it('does not reopen for a user who has already dismissed', async () => {
-        userLogic.actions.loadUserSuccess(DISMISSED_USER)
+        window.localStorage.setItem(`posthog_welcome_dismissed:${INVITED_USER.uuid}`, '1')
+        userLogic.actions.loadUserSuccess(INVITED_USER)
         logic = welcomeDialogLogic()
         logic.mount()
 
@@ -104,7 +95,18 @@ describe('welcomeDialogLogic', () => {
         await expectLogic(logic).toNotHaveDispatchedActions(['loadWelcomeData'])
     })
 
-    it('closes locally on closeDialog so it does not flash back before the refetch', async () => {
+    it('persists dismissal to localStorage so the dialog does not reopen', async () => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
+        logic.actions.dismissWelcome()
+        expect(window.localStorage.getItem(`posthog_welcome_dismissed:${INVITED_USER.uuid}`)).toBe('1')
+        expect(logic.values.shouldShowDialog).toBe(false)
+    })
+
+    it('closes locally on closeDialog so it does not flash back', async () => {
         userLogic.actions.loadUserSuccess(INVITED_USER)
         logic = welcomeDialogLogic()
         logic.mount()

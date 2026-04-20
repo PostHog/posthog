@@ -350,7 +350,6 @@ export interface UserType extends UserBaseType {
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
     passkeys_enabled_for_2fa?: boolean
-    welcome_screen_seen_at?: string | null
     is_organization_first_user?: boolean
 }
 

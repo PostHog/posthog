@@ -1685,8 +1685,6 @@ export interface UserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
-    /** @nullable */
-    readonly welcome_screen_seen_at: string | null
     readonly is_organization_first_user: boolean
 }
 
@@ -1759,8 +1757,6 @@ export interface PatchedUserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
-    /** @nullable */
-    readonly welcome_screen_seen_at?: string | null
     readonly is_organization_first_user?: boolean
 }
 
@@ -2034,8 +2030,4 @@ export type UsersListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type UsersWelcomeScreenDismissCreate200 = {
-    welcome_screen_seen_at?: string
 }

@@ -55,7 +55,6 @@ import type {
     SubscriptionsListParams,
     UserApi,
     UsersListParams,
-    UsersWelcomeScreenDismissCreate200,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1886,26 +1885,6 @@ export const usersValidate2faCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(userApi),
-    })
-}
-
-/**
- * Mark the requesting user's membership to their current organization as dismissed.
-
-Idempotent — repeat calls are no-ops once the timestamp is set. Only the authenticated
-user can dismiss their own welcome screen (no staff impersonation).
- */
-export const getUsersWelcomeScreenDismissCreateUrl = (uuid: string) => {
-    return `/api/users/${uuid}/welcome_screen/dismiss/`
-}
-
-export const usersWelcomeScreenDismissCreate = async (
-    uuid: string,
-    options?: RequestInit
-): Promise<UsersWelcomeScreenDismissCreate200> => {
-    return apiMutator<UsersWelcomeScreenDismissCreate200>(getUsersWelcomeScreenDismissCreateUrl(uuid), {
-        ...options,
-        method: 'POST',
     })
 }
 

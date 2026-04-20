@@ -20,6 +20,7 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { WelcomeDialog } from 'scenes/welcome/WelcomeDialog'
+import { wasWelcomeDismissed } from 'scenes/welcome/welcomeDialogLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -31,7 +32,7 @@ import { AiFirstHomepage } from './ai-first/AiFirstHomepage'
 /** Only mount the welcome dialog (and its kea logic) for users actually eligible to see it. */
 function MaybeWelcomeDialog(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    if (!user || user.is_organization_first_user !== false || user.welcome_screen_seen_at) {
+    if (!user || user.is_organization_first_user !== false || wasWelcomeDismissed(user.uuid)) {
         return null
     }
     return <WelcomeDialog />

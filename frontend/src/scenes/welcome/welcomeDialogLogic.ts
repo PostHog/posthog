@@ -4,7 +4,6 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
 import type { welcomeDialogLogicType } from './welcomeDialogLogicType'
@@ -72,9 +71,44 @@ const EMPTY_PAYLOAD: WelcomePayload = {
 
 export type WelcomeCardKind = 'members' | 'activity' | 'dashboards' | 'products' | 'next_steps'
 
+// LocalStorage key used to suppress the dialog on subsequent visits after the user has dismissed it.
+// Scoped per-user so dismissal doesn't leak across accounts on a shared browser.
+const LOCAL_DISMISSED_KEY_PREFIX = 'posthog_welcome_dismissed:'
 // SessionStorage key used to suppress the dialog for the remainder of a tab's session after
 // the user clicks "I'll look around" — avoids re-opening on every project-home remount.
 const SESSION_LOOKED_AROUND_KEY = 'posthog_welcome_looked_around'
+
+function dismissedKey(userUuid: string | undefined): string | null {
+    return userUuid ? `${LOCAL_DISMISSED_KEY_PREFIX}${userUuid}` : null
+}
+
+function rememberDismissed(userUuid: string | undefined): void {
+    const key = dismissedKey(userUuid)
+    if (typeof window === 'undefined' || !key) {
+        return
+    }
+    try {
+        window.localStorage.setItem(key, '1')
+    } catch {
+        // localStorage can be unavailable (privacy mode, etc.) — degrade gracefully.
+    }
+}
+
+export function wasWelcomeDismissed(userUuid: string | undefined): boolean {
+    return wasDismissed(userUuid)
+}
+
+function wasDismissed(userUuid: string | undefined): boolean {
+    const key = dismissedKey(userUuid)
+    if (typeof window === 'undefined' || !key) {
+        return false
+    }
+    try {
+        return window.localStorage.getItem(key) === '1'
+    } catch {
+        return false
+    }
+}
 
 function rememberLookedAround(orgId: string | undefined): void {
     if (typeof window === 'undefined' || !orgId) {
@@ -103,7 +137,6 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
 
     connect(() => ({
         values: [userLogic, ['user']],
-        actions: [userLogic, ['loadUser']],
     })),
 
     actions({
@@ -189,7 +222,10 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         shouldShowDialog: [
             (s) => [s.user, s.locallyClosed],
             (user, locallyClosed): boolean => {
-                if (!user || user.is_organization_first_user !== false || user.welcome_screen_seen_at) {
+                if (!user || user.is_organization_first_user !== false) {
+                    return false
+                }
+                if (wasDismissed(user.uuid)) {
                     return false
                 }
                 if (locallyClosed) {
@@ -223,25 +259,14 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             // Persist "I'll look around" across remounts in the same tab.
             rememberLookedAround(values.user?.organization?.id)
         },
-        dismissWelcome: async () => {
+        dismissWelcome: () => {
             const interactedCount = Object.keys(values.interactedCards).length
             const timeOnScreen = values.shownAt ? Date.now() - values.shownAt : null
-            let success = true
-            try {
-                await api.create('api/users/@me/welcome_screen/dismiss/')
-            } catch (error) {
-                success = false
-                console.warn('Failed to dismiss welcome screen', error)
-                lemonToast.warning("Couldn't save your preference — we'll try again next time.")
-            }
-            // Analytics fire AFTER the network call so we don't double-count on retries.
+            rememberDismissed(values.user?.uuid)
             posthog.capture('welcome_screen_dismissed', {
                 time_on_screen_ms: timeOnScreen,
                 cards_interacted_with: interactedCount,
-                success,
             })
-            // Refresh user so welcome_screen_seen_at reflects the new state for next session.
-            actions.loadUser()
         },
         trackCardClick: ({ card, targetHref }) => {
             actions.markCardInteracted(card)

@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1102_organizationmembership_welcome_screen_seen_at"),
+        ("posthog", "1104_alter_organization_is_ai_data_processing_approved"),
     ]
 
     operations = [
