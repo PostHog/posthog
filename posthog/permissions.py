@@ -723,7 +723,7 @@ class PostHogFeatureFlagPermission(BasePermission):
 
                 enabled = posthoganalytics.feature_enabled(
                     required_flag,
-                    user.distinct_id,
+                    str(user.distinct_id),
                     groups={"organization": org_id},
                     group_properties={"organization": {"id": org_id}},
                     only_evaluate_locally=False,

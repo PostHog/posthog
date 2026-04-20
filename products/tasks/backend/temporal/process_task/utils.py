@@ -14,6 +14,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
+from products.tasks.backend.constants import InitialPermissionMode
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task
@@ -67,6 +68,12 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
     ),
     "claude-opus-4-6": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
+    "claude-opus-4-7": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
@@ -153,6 +160,7 @@ class RunState(BaseModel, extra="allow"):
     sandbox_environment_id: str | None = None
     pending_user_message: str | None = None
     pending_user_message_ts: str | None = None
+    initial_permission_mode: InitialPermissionMode | None = None
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
