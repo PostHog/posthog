@@ -1532,8 +1532,16 @@ def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[
 # --- Quarantine ---
 
 
-def list_quarantined_identifiers(repo_id: UUID, team_id: int) -> list[QuarantinedIdentifier]:
-    return list(QuarantinedIdentifier.objects.filter(repo_id=repo_id, team_id=team_id).order_by("-created_at"))
+def list_quarantined_identifiers(
+    repo_id: UUID, team_id: int, identifier: str | None = None
+) -> list[QuarantinedIdentifier]:
+    qs = QuarantinedIdentifier.objects.filter(repo_id=repo_id, team_id=team_id)
+    if identifier:
+        qs = qs.filter(identifier=identifier)
+    else:
+        now = timezone.now()
+        qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+    return list(qs.order_by("-created_at"))
 
 
 def quarantine_identifier(

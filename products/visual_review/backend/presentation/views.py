@@ -123,11 +123,19 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RepoSerializer(instance=repo).data)
 
-    @extend_schema(responses={200: QuarantinedIdentifierEntrySerializer(many=True)})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="identifier", type=str, required=False, description="Filter by identifier (returns full history)"
+            ),
+        ],
+        responses={200: QuarantinedIdentifierEntrySerializer(many=True)},
+    )
     @action(detail=True, methods=["get"], url_path="quarantine")
     def list_quarantined(self, request: Request, pk: str, **kwargs) -> Response:
-        """List quarantined identifiers for a repo."""
-        entries = api.list_quarantined(UUID(pk), team_id=self.team_id)
+        """List quarantined identifiers. Without filter: active only. With identifier: full history."""
+        identifier = request.query_params.get("identifier")
+        entries = api.list_quarantined(UUID(pk), team_id=self.team_id, identifier=identifier)
         page = self.paginate_queryset(entries)
         if page is not None:
             serializer = QuarantinedIdentifierEntrySerializer(instance=page, many=True)
