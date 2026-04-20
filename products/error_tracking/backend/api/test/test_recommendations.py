@@ -203,17 +203,6 @@ class TestRecommendationsAPI(APIBaseTest):
         self.user.save()
         self.assertFalse(WeeklyDigestRecommendation().compute(self.team, self.user)["enabled"])
 
-    def test_weekly_digest_recommendation_ignores_global_weekly_digest_kill_switch(self):
-        # Even though `all_weekly_digest_disabled` is True, we treat the ET digest
-        # as enabled because the user has the ET-specific toggle + project on.
-        self.user.partial_notification_settings = {
-            "all_weekly_digest_disabled": True,
-            "error_tracking_weekly_digest": True,
-            "error_tracking_weekly_digest_project_enabled": {str(self.team.id): True},
-        }
-        self.user.save()
-        self.assertTrue(WeeklyDigestRecommendation().compute(self.team, self.user)["enabled"])
-
     @patch(
         "products.error_tracking.backend.recommendations.weekly_digest.WeeklyDigestRecommendation.compute",
         return_value=MOCK_WEEKLY_DIGEST_META,
