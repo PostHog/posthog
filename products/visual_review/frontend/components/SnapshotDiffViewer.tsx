@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { IconGithub } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 import { dayjs } from 'lib/dayjs'
@@ -16,17 +16,14 @@ import type {
 } from '../generated/api.schemas'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
-function getThemeSibling(identifier: string): string | null {
-    const parts = identifier.split('--')
-    const theme = parts[parts.length - 1]
-    if (theme === 'dark') {
-        return [...parts.slice(0, -1), 'light'].join('--')
-    }
-    if (theme === 'light') {
-        return [...parts.slice(0, -1), 'dark'].join('--')
-    }
-    return null
-}
+const SUGGESTED_REASONS = [
+    'Non-deterministic rendering (animations, timestamps)',
+    'Font hinting varies across environments',
+    'Async content loading race condition',
+    'Known flaky — fix in progress',
+]
+
+const DEFAULT_EXPIRY_DAYS = 30
 
 function QuarantineAction({
     identifier,
@@ -37,20 +34,13 @@ function QuarantineAction({
 }): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const [reason, setReason] = useState('')
-    const [includeSibling, setIncludeSibling] = useState(true)
-    const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(null)
-
-    const sibling = getThemeSibling(identifier)
+    const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(dayjs().add(DEFAULT_EXPIRY_DAYS, 'day'))
 
     const handleSubmit = (): void => {
-        const identifiers = [identifier]
-        if (sibling && includeSibling) {
-            identifiers.push(sibling)
-        }
-        onQuarantine(reason, identifiers, expiresAt ? expiresAt.toISOString() : null)
+        onQuarantine(reason, [identifier], expiresAt ? expiresAt.toISOString() : null)
         setIsOpen(false)
         setReason('')
-        setExpiresAt(null)
+        setExpiresAt(dayjs().add(DEFAULT_EXPIRY_DAYS, 'day'))
     }
 
     return (
@@ -80,43 +70,44 @@ function QuarantineAction({
                 <div className="space-y-4">
                     <p className="text-sm text-muted">
                         This will stop blocking PRs immediately — including pending runs on other branches. Snapshots
-                        are still captured and diffed, just not gated on. You can reverse this at any time.
+                        are still captured and diffed, just not gated on.
                     </p>
+
+                    <div>
+                        <label className="text-sm font-medium mb-1 block">Identifier</label>
+                        <div className="font-mono text-xs text-muted bg-bg-3000 rounded px-2 py-1.5">{identifier}</div>
+                    </div>
 
                     <div>
                         <label className="text-sm font-medium mb-1 block">Reason</label>
                         <LemonInput
-                            placeholder="e.g. Flaky due to animation timing"
+                            placeholder="Why is this snapshot quarantined?"
                             value={reason}
                             onChange={setReason}
                             autoFocus
                         />
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                            {SUGGESTED_REASONS.map((suggestion) => (
+                                <button
+                                    key={suggestion}
+                                    type="button"
+                                    className="text-[11px] text-muted hover:text-default bg-bg-3000 hover:bg-border rounded px-1.5 py-0.5 transition-colors"
+                                    onClick={() => setReason(suggestion)}
+                                >
+                                    {suggestion}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     <div>
-                        <label className="text-sm font-medium mb-1 block">
-                            Expires <span className="text-muted font-normal">(optional)</span>
-                        </label>
+                        <label className="text-sm font-medium mb-1 block">Expires</label>
                         <LemonCalendarSelectInput
                             value={expiresAt}
                             onChange={setExpiresAt}
                             placeholder="No expiry"
                             clearable
                         />
-                    </div>
-
-                    <div>
-                        <label className="text-sm font-medium mb-2 block">Identifiers</label>
-                        <div className="text-xs text-muted space-y-1">
-                            <div className="font-mono">{identifier}</div>
-                            {sibling && (
-                                <LemonCheckbox
-                                    label={<span className="font-mono text-xs">{sibling}</span>}
-                                    checked={includeSibling}
-                                    onChange={setIncludeSibling}
-                                />
-                            )}
-                        </div>
                     </div>
                 </div>
             </LemonModal>
