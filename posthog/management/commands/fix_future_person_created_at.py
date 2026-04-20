@@ -60,7 +60,6 @@ def run(options):
                 is_deleted=False,
                 created_at=person.created_at,
                 version=person.version or 0,
-                sync=True,
             )
 
     logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
