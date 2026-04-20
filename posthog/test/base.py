@@ -9,7 +9,7 @@ from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
 from functools import wraps
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 import pytest
 import unittest
@@ -205,7 +205,7 @@ from products.event_definitions.backend.models.property_definition import (
 )
 
 # Make sure freezegun ignores our utils class that times functions
-freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
+cast(Any, freezegun).configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
@@ -213,6 +213,13 @@ persons_ordering_int: int = 0
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
+
+
+def _get_calling_frame_locals() -> dict[str, Any]:
+    frame = inspect.currentframe()
+    if frame is None or frame.f_back is None:
+        raise RuntimeError("Expected a calling frame")
+    return frame.f_back.f_locals
 
 
 def clean_varying_query_parts(query, replace_all_numbers):
@@ -635,13 +642,15 @@ class PostHogTestCase(SimpleTestCase):
     databases = {"default", "persons_db_writer", "persons_db_reader"}
 
     # Test data definition stubs
-    organization: Organization = None
-    project: Project = None
-    team: Team = None
-    user: User = None
-    organization_membership: OrganizationMembership = None
+    organization: Organization = cast(Organization, None)
+    project: Project = cast(Project, None)
+    team: Team = cast(Team, None)
+    user: User = cast(User, None)
+    organization_membership: OrganizationMembership = cast(OrganizationMembership, None)
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
+        if self.organization is None:
+            raise ValueError("Test organization must be set before creating a user")
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
     @classmethod
@@ -782,6 +791,7 @@ class MemoryLeakTestMixin:
     """How many times to run every test method to check for memory leaks"""
 
     def _callTestMethod(self, method):
+        test_case = cast(unittest.TestCase, self)
         mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
             method()
@@ -794,12 +804,12 @@ class MemoryLeakTestMixin:
         avg_memory_increase_factor = (
             avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
         )
-        self.assertLessEqual(
+        test_case.assertLessEqual(
             avg_memory_test_increase_b,
             self.MEMORY_INCREASE_PER_PARSE_LIMIT_B,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse",
         )
-        self.assertLessEqual(
+        test_case.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
@@ -831,7 +841,7 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         # Override to use CASCADE when truncating tables.
         # Required when models are moved between Django apps, as PostgreSQL
         # needs CASCADE to handle FK constraints across app boundaries.
-        for db_name in self._databases_names(include_mirrors=False):
+        for db_name in cast(Any, self)._databases_names(include_mirrors=False):
             if db_name in ("persons_db_writer", "persons_db_reader"):
                 # Manually truncate persons database tables
                 # Can't use Django's flush because it emits post_migrate signals that try to
@@ -866,7 +876,7 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
         cls.setUpTestData()
 
     def _fixture_teardown(self):
-        for db_name in self._databases_names(include_mirrors=False):
+        for db_name in cast(Any, self)._databases_names(include_mirrors=False):
             conn = connections[db_name]
             with conn.cursor() as cursor:
                 if db_name in ("persons_db_writer", "persons_db_reader"):
@@ -926,6 +936,8 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
 
     def create_personal_api_key_with_scopes(self, scopes: list[str]) -> str:
         """Create a Personal API Key with specified scopes for the current user."""
+        if self.user is None:
+            raise ValueError("Test user must be set before creating a personal API key")
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -1186,7 +1198,7 @@ def also_test_with_materialized_columns(
                     self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
-        frame_locals: Any = inspect.currentframe().f_back.f_locals
+        frame_locals: Any = _get_calling_frame_locals()
         frame_locals[f"{fn.__name__}_materialized"] = fn_with_materialized
 
         return fn
@@ -1924,7 +1936,7 @@ def also_test_with_different_timezones(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals
+    frame_locals: Any = _get_calling_frame_locals()
     frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
@@ -1937,7 +1949,7 @@ def also_test_with_person_on_events_v2(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals
+    frame_locals: Any = _get_calling_frame_locals()
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn

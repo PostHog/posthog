@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.metrics import (
     BATCH_RETRY_EXHAUSTED_TOTAL,
     BATCH_RETRY_TOTAL,
     BATCH_SIZE,
+    BATCH_UTILIZATION,
     DLQ_MESSAGES_TOTAL,
     MESSAGES_PROCESSED_TOTAL,
     OFFSET_COMMITS_TOTAL,
@@ -108,6 +109,7 @@ class KafkaConsumerService:
             [self._config.input_topic],
             on_assign=self._on_assign,
             on_revoke=self._on_revoke,
+            on_lost=self._on_lost,
         )
         return consumer
 
@@ -121,13 +123,19 @@ class KafkaConsumerService:
             )
 
     def _on_revoke(self, consumer: ConfluentConsumer, partitions: list) -> None:
-        for p in partitions:
-            logger.info(
-                "partition_revoked",
-                topic=p.topic,
-                partition=p.partition,
-                offset=p.offset,
-            )
+        """Graceful revoke during a cooperative-sticky rebalance.
+
+        With cooperative-sticky the callback fires only for the partitions
+        actually being revoked; other assignments stay put. The synchronous
+        consume loop calls back here *between* batches, so there's no
+        in-flight processing to drain at this point. Commit stored offsets
+        so the next owner picks up from where we stopped.
+        """
+        logger.info(
+            "partition_revocation_starting",
+            revoked_partition_count=len(partitions),
+            revoked_partitions=[{"topic": p.topic, "partition": p.partition} for p in partitions],
+        )
         try:
             consumer.commit(asynchronous=False)
         except KafkaException as e:
@@ -138,6 +146,20 @@ class KafkaConsumerService:
                 logger.warning("failed_to_commit_on_revoke", error=str(e))
         except Exception as e:
             logger.warning("failed_to_commit_on_revoke", error=str(e))
+        logger.info("partition_revocation_complete", revoked_partition_count=len(partitions))
+
+    def _on_lost(self, consumer: ConfluentConsumer, partitions: list) -> None:
+        """Involuntary partition loss (session timeout, network blip, etc.).
+
+        Do NOT commit: another consumer may already own these partitions,
+        and committing here could cause the new owner to skip messages we
+        never finished processing.
+        """
+        logger.warning(
+            "partitions_lost",
+            lost_partition_count=len(partitions),
+            lost_partitions=[{"topic": p.topic, "partition": p.partition} for p in partitions],
+        )
 
     def _get_dlq_producer(self) -> _KafkaProducer:
         if self._dlq_producer is None:
@@ -213,6 +235,10 @@ class KafkaConsumerService:
                 raw_messages = self._consumer.consume(
                     num_messages=self._config.batch_size,
                     timeout=self._config.batch_timeout_seconds,
+                )
+
+                BATCH_UTILIZATION.labels(group_id=self._config.consumer_group).set(
+                    len(raw_messages) / self._config.batch_size
                 )
 
                 messages: list[tuple[Any, dict]] = []

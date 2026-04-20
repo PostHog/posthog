@@ -58,6 +58,7 @@ def build_initial_content_snapshot(subscription: Subscription) -> dict[str, Any]
                 "id": subscription.insight.id,
                 "short_id": str(subscription.insight.short_id),
                 "name": subscription.insight.name or subscription.insight.derived_name or "",
+                "description": subscription.insight.description or "",
             }
         ]
     return content_snapshot
@@ -82,6 +83,7 @@ def _insight_snapshot_base_metadata(*, insight: Insight, tile: DashboardTile | N
         "id": insight.id,
         "short_id": str(insight.short_id),
         "name": insight.name or insight.derived_name or "",
+        "description": insight.description or "",
         "dashboard_tile_id": tile.id if tile is not None else None,
     }
 
@@ -102,6 +104,23 @@ def _resolve_effective_query_json(insight: Insight, dashboard: Dashboard | None)
     if query_json is None:
         query_json = insight.query_from_filters
     return query_json
+
+
+def _has_comparison_enabled(query_json: Any) -> bool:
+    """True if the insight has 'Compare to previous period' turned on.
+
+    Used to help the AI summary suggest enabling the overlay when it would
+    make the insight easier to interpret, without nagging when it is already
+    configured. Handles TrendsQuery / LifecycleQuery / StickinessQuery and
+    the DataVisualizationNode wrapper shape.
+    """
+    if not isinstance(query_json, dict):
+        return False
+    source = query_json.get("source", query_json)
+    if not isinstance(source, dict):
+        return False
+    compare_filter = source.get("compareFilter")
+    return bool(isinstance(compare_filter, dict) and compare_filter.get("compare"))
 
 
 def _execute_and_serialize_insight_query(
@@ -183,8 +202,10 @@ def build_insight_delivery_snapshot(
             "type": "missing_query",
             "message": "Insight has no query or convertible filters",
         }
+        base["comparison_enabled"] = False
         return base
 
+    base["comparison_enabled"] = _has_comparison_enabled(query_json)
     base.update(
         _execute_and_serialize_insight_query(
             insight=insight,

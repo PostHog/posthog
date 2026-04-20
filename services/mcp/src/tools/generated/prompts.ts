@@ -53,6 +53,7 @@ const promptGet = (): ToolBase<typeof PromptGetSchema, Schemas.LLMPromptPublic> 
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/`,
             query: {
+                content: params.content,
                 version: params.version,
             },
         })
