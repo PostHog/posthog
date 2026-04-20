@@ -34,6 +34,13 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
+# Applied to the row-streaming connection so large result preparation
+# (e.g. filesort on a multi-GB table) doesn't hit MySQL's default 60s
+# net_write_timeout before the first rows are ready. Used for both the
+# client-side PyMySQL read_timeout and the server-side SET SESSION
+# net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
+STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
+
 
 def _safe_convert_date(obj: Any) -> datetime.date | None:
     """Convert MySQL date, returning None for invalid dates like '0000-00-00'."""
@@ -184,6 +191,27 @@ def _build_query(
     return query, {
         "incremental_value": db_incremental_field_last_value,
     }
+
+
+def _explain_query(cursor: Cursor, query: str, query_args: dict[str, Any], logger: FilteringBoundLogger) -> None:
+    """Log the MySQL EXPLAIN output for `query` at debug level.
+
+    Useful for diagnosing sync failures on large tables: reveals whether the
+    optimizer chose a full table scan + filesort (the failure mode where
+    nothing streams back before middlebox/query timeouts) vs. a range scan
+    on the incremental index.
+    """
+    try:
+        explain_query = f"EXPLAIN {query}"
+        logger.debug(f"Running EXPLAIN on: {query}")
+        cursor.execute(explain_query, query_args)
+        rows = cursor.fetchall()
+        column_names = [col[0] for col in cursor.description or []]
+        explain_lines = [str(dict(zip(column_names, row))) for row in rows]
+        logger.debug(f"EXPLAIN result: {' | '.join(explain_lines) if explain_lines else '(empty)'}")
+    except Exception as e:
+        logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
+        capture_exception(e)
 
 
 def _get_rows_to_sync(
@@ -686,10 +714,22 @@ def mysql_source(
                 user=user,
                 password=password,
                 connect_timeout=10,
+                read_timeout=STATEMENT_TIMEOUT_SECONDS,
                 ssl_ca=ssl_ca,
                 init_command=init_command,
                 conv=_MYSQL_SAFE_CONVERSIONS,
             ) as connection:
+                # Bump server-side timeouts for large table scans. The
+                # defaults (60s each) are too low for multi-GB unbuffered
+                # queries — the server drops the connection before the first
+                # rows are ready.
+                try:
+                    with connection.cursor() as setup_cursor:
+                        setup_cursor.execute(
+                            f"SET SESSION net_write_timeout = {STATEMENT_TIMEOUT_SECONDS}, net_read_timeout = {STATEMENT_TIMEOUT_SECONDS}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
                 with connection.cursor(SSCursor) as cursor:
                     query, args = _build_query(
                         schema,
@@ -700,6 +740,13 @@ def mysql_source(
                         db_incremental_field_last_value,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
+
+                    # EXPLAIN before the streaming query to help diagnose
+                    # failures where MySQL picks full scan + filesort over
+                    # the incremental index. _explain_query consumes its
+                    # rows via fetchall(), leaving the cursor in a clean
+                    # state for the streaming execute() below.
+                    _explain_query(cursor, query, args, logger)
 
                     cursor.execute(query, args)
 

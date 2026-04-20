@@ -73,6 +73,7 @@ export const MembersListParams = /* @__PURE__ */ zod.object({
 export const MembersListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order: zod.enum(['-joined_at', 'joined_at']).optional().describe('Sort order. Defaults to `-joined_at`.'),
 })
 
 export const RolesListParams = /* @__PURE__ */ zod.object({
@@ -269,6 +270,7 @@ export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
+export const advancedActivityLogsListQueryClientsDefault = []
 export const advancedActivityLogsListQueryItemIdsDefault = []
 export const advancedActivityLogsListQueryPageSizeDefault = 100
 export const advancedActivityLogsListQueryPageSizeMax = 1000
@@ -278,6 +280,7 @@ export const advancedActivityLogsListQueryUsersDefault = []
 
 export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
     activities: zod.array(zod.string()).default(advancedActivityLogsListQueryActivitiesDefault),
+    clients: zod.array(zod.string()).default(advancedActivityLogsListQueryClientsDefault),
     detail_filters: zod.string().optional(),
     end_date: zod.iso.datetime({}).optional(),
     hogql_filter: zod.string().optional(),

@@ -1417,6 +1417,11 @@ export namespace Schemas {
       was_impersonated?: boolean | null;
       /** @nullable */
       is_system?: boolean | null;
+      /**
+       * @maxLength 32
+       * @nullable
+       */
+      client?: string | null;
       /** @maxLength 79 */
       activity: string;
       /**
@@ -1684,6 +1689,11 @@ export namespace Schemas {
       propertyGroupsMode?: PropertyGroupsMode | null;
       /** @nullable */
       s3TableUseInvalidColumns?: boolean | null;
+      /**
+       * Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.
+       * @nullable
+       */
+      sessionIdPushdown?: boolean | null;
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       /** @nullable */
@@ -5445,8 +5455,13 @@ export namespace Schemas {
       readonly last_checked_at: string | null;
       /** @nullable */
       readonly next_check_at: string | null;
-      /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
+      /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
       readonly checks: readonly AlertCheck[];
+      /**
+       * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+       * @nullable
+       */
+      readonly checks_total: number | null;
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
@@ -5779,6 +5794,8 @@ export namespace Schemas {
       /** @nullable */
       completed_at: string | null;
       is_stale?: boolean;
+      /** @nullable */
+      superseded_by_id?: string | null;
       metadata?: RunMetadata;
     }
 
@@ -5851,6 +5868,8 @@ export namespace Schemas {
 
     export type StaticFiltersActivitiesItem = {[key: string]: unknown};
 
+    export type StaticFiltersClientsItem = {[key: string]: unknown};
+
     export interface StaticFilters {
       /** Users who have logged activity. */
       users: StaticFiltersUsersItem[];
@@ -5858,6 +5877,8 @@ export namespace Schemas {
       scopes: StaticFiltersScopesItem[];
       /** Available activity types. */
       activities: StaticFiltersActivitiesItem[];
+      /** API clients that have generated activity (from x-posthog-client header). */
+      clients: StaticFiltersClientsItem[];
     }
 
     export interface AvailableFiltersResponse {
@@ -7503,7 +7524,11 @@ export namespace Schemas {
       /** @nullable */
       showNullsAsZero?: boolean | null;
       /** @nullable */
+      showPieTotal?: boolean | null;
+      /** @nullable */
       showTotalRow?: boolean | null;
+      /** @nullable */
+      showValuesOnSeries?: boolean | null;
       /** @nullable */
       showXAxisBorder?: boolean | null;
       /** @nullable */
@@ -13303,6 +13328,22 @@ export namespace Schemas {
       Frequentist: 'frequentist',
     } as const;
 
+    /**
+     * * `pending` - Pending
+    * `delivered` - Delivered
+    * `partial_failure` - Partial Failure
+    * `failed` - Failed
+     */
+    export type DeliveryStatusEnum = typeof DeliveryStatusEnum[keyof typeof DeliveryStatusEnum];
+
+
+    export const DeliveryStatusEnum = {
+      Pending: 'pending',
+      Delivered: 'delivered',
+      PartialFailure: 'partial_failure',
+      Failed: 'failed',
+    } as const;
+
     export interface DependentFlag {
       /** Feature flag ID */
       id: number;
@@ -14394,6 +14435,42 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `user` - user
+    * `role` - role
+     */
+    export type Type079Enum = typeof Type079Enum[keyof typeof Type079Enum];
+
+
+    export const Type079Enum = {
+      User: 'user',
+      Role: 'role',
+    } as const;
+
+    export interface ErrorTrackingAssignmentRuleAssigneeRequest {
+      /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
+
+    * `user` - user
+    * `role` - role */
+      type: Type079Enum;
+      /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
+      id: number | string;
+    }
+
+    export interface ErrorTrackingAssignmentRuleCreateRequest {
+      /** Property-group filters that define when this rule matches incoming error events. */
+      filters: PropertyGroupFilterValue;
+      /** User or role to assign matching issues to. */
+      assignee: ErrorTrackingAssignmentRuleAssigneeRequest;
+    }
+
+    export interface ErrorTrackingAssignmentRuleUpdateRequest {
+      /** Property-group filters that define when this rule matches incoming error events. */
+      filters?: PropertyGroupFilterValue | null;
+      /** User or role to assign matching issues to. */
+      assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
     export type ErrorTrackingBreakdownsQueryKind = typeof ErrorTrackingBreakdownsQueryKind[keyof typeof ErrorTrackingBreakdownsQueryKind];
 
 
@@ -14453,8 +14530,24 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ErrorTrackingExternalReferenceIntegrationResult {
+      readonly id: number;
+      readonly kind: string;
+      readonly display_name: string;
+    }
+
+    export interface ErrorTrackingExternalReferenceResult {
+      readonly id: string;
+      readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
+      integration_id: number;
+      config: unknown;
+      issue: string;
+      readonly external_url: string;
+    }
+
     export interface ErrorTrackingFingerprint {
-      fingerprint: string;
+      readonly id: string;
+      readonly fingerprint: string;
       readonly issue_id: string;
       readonly created_at: string;
     }
@@ -14478,6 +14571,8 @@ export namespace Schemas {
       filters: unknown;
       /** @nullable */
       readonly assignee: ErrorTrackingGroupingRuleAssignee;
+      /** @nullable */
+      description?: string | null;
       /**
        * Issue linked to this rule
        * @nullable
@@ -14491,6 +14586,32 @@ export namespace Schemas {
       disabled_data?: unknown | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingGroupingRuleAssigneeRequest {
+      /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
+
+    * `user` - user
+    * `role` - role */
+      type: Type079Enum;
+      /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
+      id: number | string;
+    }
+
+    export interface ErrorTrackingGroupingRuleCreateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. */
+      filters: PropertyGroupFilterValue;
+      /** Optional user or role to assign to issues created by this grouping rule. */
+      assignee?: ErrorTrackingGroupingRuleAssigneeRequest | null;
+      /**
+       * Optional human-readable description of what this grouping rule is for.
+       * @nullable
+       */
+      description?: string | null;
+    }
+
+    export interface ErrorTrackingGroupingRuleListResponse {
+      results: ErrorTrackingGroupingRule[];
     }
 
     export interface ErrorTrackingIssueAssignment {
@@ -14533,7 +14654,7 @@ export namespace Schemas {
       description?: string | null;
       first_seen: string;
       assignee: ErrorTrackingIssueAssignment;
-      external_issues: ErrorTrackingExternalReference[];
+      external_issues: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
       readonly cohort: ErrorTrackingIssueFullCohort;
     }
@@ -14838,6 +14959,76 @@ export namespace Schemas {
       description: string;
       frequency: string;
       example_generation_ids: string[];
+    }
+
+    /**
+     * * `scheduled` - Scheduled
+    * `every_n` - Every N
+     */
+    export type EvaluationReportFrequencyEnum = typeof EvaluationReportFrequencyEnum[keyof typeof EvaluationReportFrequencyEnum];
+
+
+    export const EvaluationReportFrequencyEnum = {
+      Scheduled: 'scheduled',
+      EveryN: 'every_n',
+    } as const;
+
+    export interface EvaluationReport {
+      readonly id: string;
+      evaluation: string;
+      frequency?: EvaluationReportFrequencyEnum;
+      rrule?: string;
+      /** @nullable */
+      starts_at?: string | null;
+      /** @maxLength 64 */
+      timezone_name?: string;
+      /** @nullable */
+      readonly next_delivery_date: string | null;
+      delivery_targets?: unknown;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      max_sample_size?: number;
+      enabled?: boolean;
+      deleted?: boolean;
+      /** @nullable */
+      readonly last_delivered_at: string | null;
+      report_prompt_guidance?: string;
+      /**
+       * Number of new eval results that triggers a report
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      trigger_threshold?: number | null;
+      /**
+       * Minimum minutes between count-triggered reports
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      cooldown_minutes?: number;
+      /**
+       * Maximum count-triggered report runs per calendar day (UTC)
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      daily_run_cap?: number;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+    }
+
+    export interface EvaluationReportRun {
+      readonly id: string;
+      readonly report: string;
+      readonly content: unknown;
+      readonly metadata: unknown;
+      readonly period_start: string;
+      readonly period_end: string;
+      readonly delivery_status: DeliveryStatusEnum;
+      readonly delivery_errors: unknown;
+      readonly created_at: string;
     }
 
     /**
@@ -15628,6 +15819,47 @@ export namespace Schemas {
       readonly cdc_table_mode: CdcTableModeEnum;
     }
 
+    export interface ExternalDataSourceBulkUpdateSchema {
+      /** Schema identifier to update. */
+      id: string;
+      /** Whether the schema should be queryable/synced. */
+      should_sync?: boolean;
+      /** Requested sync mode for the schema.
+
+    * `full_refresh` - full_refresh
+    * `incremental` - incremental
+    * `append` - append
+    * `webhook` - webhook
+    * `cdc` - cdc */
+      sync_type?: SyncTypeEnum | NullEnum | null;
+      /**
+       * Incremental cursor field for incremental or append syncs.
+       * @nullable
+       */
+      incremental_field?: string | null;
+      /**
+       * Type of the incremental cursor field.
+       * @nullable
+       */
+      incremental_field_type?: string | null;
+      /**
+       * Human-readable sync frequency value.
+       * @nullable
+       */
+      sync_frequency?: string | null;
+      /**
+       * UTC anchor time for scheduled syncs.
+       * @nullable
+       */
+      sync_time_of_day?: string | null;
+      /** How CDC-backed tables should be exposed.
+
+    * `consolidated` - consolidated
+    * `cdc_only` - cdc_only
+    * `both` - both */
+      cdc_table_mode?: CdcTableModeEnum | NullEnum | null;
+    }
+
     export interface ExternalDataSourceConnectionOption {
       readonly id: string;
       /** @nullable */
@@ -15788,11 +16020,12 @@ export namespace Schemas {
     * `Granola` - Granola
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
+    * `ClickHouse` - ClickHouse
      */
-    export type SourceType432Enum = typeof SourceType432Enum[keyof typeof SourceType432Enum];
+    export type SourceType9a7Enum = typeof SourceType9a7Enum[keyof typeof SourceType9a7Enum];
 
 
-    export const SourceType432Enum = {
+    export const SourceType9a7Enum = {
       Ashby: 'Ashby',
       Supabase: 'Supabase',
       CustomerIO: 'CustomerIO',
@@ -15934,6 +16167,7 @@ export namespace Schemas {
       Granola: 'Granola',
       BuildBetter: 'BuildBetter',
       Convex: 'Convex',
+      ClickHouse: 'ClickHouse',
     } as const;
 
     /**
@@ -15947,7 +16181,7 @@ export namespace Schemas {
       readonly status: string;
       client_secret: string;
       account_id: string;
-      readonly source_type: SourceType432Enum;
+      readonly source_type: SourceType9a7Enum;
       /** @nullable */
       readonly latest_error: string | null;
       /**
@@ -15966,7 +16200,8 @@ export namespace Schemas {
     * `duckdb` - duckdb
     * `postgres` - postgres */
       readonly engine: EngineEnum | NullEnum | null;
-      readonly last_run_at: string;
+      /** @nullable */
+      readonly last_run_at: string | null;
       readonly schemas: readonly ExternalDataSourceSerializersSchemasItem[];
       job_inputs?: unknown | null;
       readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig;
@@ -16634,22 +16869,6 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
-    /**
-     * * `daily` - Daily
-    * `weekly` - Weekly
-    * `monthly` - Monthly
-    * `yearly` - Yearly
-     */
-    export type FrequencyEnum = typeof FrequencyEnum[keyof typeof FrequencyEnum];
-
-
-    export const FrequencyEnum = {
-      Daily: 'daily',
-      Weekly: 'weekly',
-      Monthly: 'monthly',
-      Yearly: 'yearly',
-    } as const;
-
     export type GenerateRequestStepsItem = {[key: string]: unknown};
 
     export interface GenerateRequest {
@@ -17176,6 +17395,7 @@ export namespace Schemas {
     * `native_email` - native_email
     * `posthog_assignee` - posthog_assignee
     * `posthog_ticket_tags` - posthog_ticket_tags
+    * `posthog_business_hours` - posthog_business_hours
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -17193,6 +17413,7 @@ export namespace Schemas {
       NativeEmail: 'native_email',
       PosthogAssignee: 'posthog_assignee',
       PosthogTicketTags: 'posthog_ticket_tags',
+      PosthogBusinessHours: 'posthog_business_hours',
     } as const;
 
     /**
@@ -19286,6 +19507,17 @@ export namespace Schemas {
       Boolean: 'boolean',
     } as const;
 
+    export interface LLMPromptOutlineEntry {
+      /**
+       * Markdown heading level (1-6).
+       * @minimum 1
+       * @maximum 6
+       */
+      level: number;
+      /** Heading text with markdown link syntax preserved. */
+      text: string;
+    }
+
     export interface LLMPrompt {
       readonly id: string;
       /**
@@ -19304,6 +19536,7 @@ export namespace Schemas {
       readonly latest_version: number;
       readonly version_count: number;
       readonly first_version_created_at: string;
+      readonly outline: readonly LLMPromptOutlineEntry[];
     }
 
     export interface LLMPromptDuplicate {
@@ -19336,6 +19569,7 @@ export namespace Schemas {
       readonly latest_version: number;
       readonly version_count: number;
       readonly first_version_created_at: string;
+      readonly outline: readonly LLMPromptOutlineEntry[];
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
     }
@@ -19343,7 +19577,12 @@ export namespace Schemas {
     export interface LLMPromptPublic {
       id: string;
       name: string;
-      prompt: unknown;
+      /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
+      prompt?: unknown;
+      /** First 160 characters of the prompt. Only present when 'content=preview'. */
+      prompt_preview?: string;
+      /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
+      outline: LLMPromptOutlineEntry[];
       version: number;
       created_at: string;
       updated_at: string;
@@ -19399,6 +19638,215 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       /** @nullable */
       readonly last_used_at: string | null;
+    }
+
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type LLMSkillMetadata = {[key: string]: unknown};
+
+    export interface LLMSkillFileManifest {
+      /** @maxLength 500 */
+      path: string;
+      /** @maxLength 100 */
+      content_type?: string;
+    }
+
+    export interface LLMSkillOutlineEntry {
+      /**
+       * Markdown heading level (1-6).
+       * @minimum 1
+       * @maximum 6
+       */
+      level: number;
+      /** Heading text. */
+      text: string;
+    }
+
+    export interface LLMSkill {
+      readonly id: string;
+      /**
+       * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+       * @maxLength 64
+       */
+      name: string;
+      /**
+       * What this skill does and when to use it. Max 4096 characters.
+       * @maxLength 4096
+       */
+      description: string;
+      /** The SKILL.md instruction content (markdown). */
+      body: string;
+      /**
+       * License name or reference to a bundled license file.
+       * @maxLength 255
+       */
+      license?: string;
+      /**
+       * Environment requirements (intended product, system packages, network access, etc.).
+       * @maxLength 500
+       */
+      compatibility?: string;
+      /** List of pre-approved tools the skill may use. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata. */
+      metadata?: LLMSkillMetadata;
+      /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+      readonly files: readonly LLMSkillFileManifest[];
+      /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+      readonly outline: readonly LLMSkillOutlineEntry[];
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly deleted: boolean;
+      readonly is_latest: boolean;
+      readonly latest_version: number;
+      readonly version_count: number;
+      readonly first_version_created_at: string;
+    }
+
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type LLMSkillCreateMetadata = {[key: string]: unknown};
+
+    export interface LLMSkillFileInput {
+      /**
+       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+       * @maxLength 500
+       */
+      path: string;
+      /** Text content of the file. */
+      content: string;
+      /**
+       * MIME type of the file content.
+       * @maxLength 100
+       */
+      content_type?: string;
+    }
+
+    /**
+     * Create serializer — accepts bundled files as write-only input on POST.
+     */
+    export interface LLMSkillCreate {
+      readonly id: string;
+      /**
+       * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+       * @maxLength 64
+       */
+      name: string;
+      /**
+       * What this skill does and when to use it. Max 4096 characters.
+       * @maxLength 4096
+       */
+      description: string;
+      /** The SKILL.md instruction content (markdown). */
+      body: string;
+      /**
+       * License name or reference to a bundled license file.
+       * @maxLength 255
+       */
+      license?: string;
+      /**
+       * Environment requirements (intended product, system packages, network access, etc.).
+       * @maxLength 500
+       */
+      compatibility?: string;
+      /** List of pre-approved tools the skill may use. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata. */
+      metadata?: LLMSkillCreateMetadata;
+      /** Bundled files to include with the initial version (scripts, references, assets). */
+      files?: LLMSkillFileInput[];
+      /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+      readonly outline: readonly LLMSkillOutlineEntry[];
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly deleted: boolean;
+      readonly is_latest: boolean;
+      readonly latest_version: number;
+      readonly version_count: number;
+      readonly first_version_created_at: string;
+    }
+
+    export interface LLMSkillDuplicate {
+      /**
+       * Name for the duplicated skill. Must be unique.
+       * @maxLength 64
+       */
+      new_name: string;
+    }
+
+    export interface LLMSkillFile {
+      /** @maxLength 500 */
+      path: string;
+      content: string;
+      /** @maxLength 100 */
+      content_type?: string;
+    }
+
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type LLMSkillListMetadata = {[key: string]: unknown};
+
+    /**
+     * List serializer that omits body and file manifest — progressive disclosure (Level 1).
+     */
+    export interface LLMSkillList {
+      readonly id: string;
+      /**
+       * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+       * @maxLength 64
+       */
+      name: string;
+      /**
+       * What this skill does and when to use it. Max 4096 characters.
+       * @maxLength 4096
+       */
+      description: string;
+      /**
+       * License name or reference to a bundled license file.
+       * @maxLength 255
+       */
+      license?: string;
+      /**
+       * Environment requirements (intended product, system packages, network access, etc.).
+       * @maxLength 500
+       */
+      compatibility?: string;
+      /** List of pre-approved tools the skill may use. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata. */
+      metadata?: LLMSkillListMetadata;
+      /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+      readonly outline: readonly LLMSkillOutlineEntry[];
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly deleted: boolean;
+      readonly is_latest: boolean;
+      readonly latest_version: number;
+      readonly version_count: number;
+      readonly first_version_created_at: string;
+    }
+
+    export interface LLMSkillVersionSummary {
+      readonly id: string;
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly is_latest: boolean;
+    }
+
+    export interface LLMSkillResolveResponse {
+      skill: LLMSkill;
+      versions: LLMSkillVersionSummary[];
+      has_more: boolean;
     }
 
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
@@ -19521,6 +19969,11 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at: string | null;
       readonly consecutive_failures: number;
+      /**
+       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+       * @nullable
+       */
+      readonly last_error_message: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
@@ -20565,6 +21018,7 @@ export namespace Schemas {
      * * `error_tracking` - Error Tracking
     * `eval_clusters` - Eval Clusters
     * `user_created` - User Created
+    * `automation` - Automation
     * `slack` - Slack
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
@@ -20577,6 +21031,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
+      Automation: 'automation',
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
@@ -20941,13 +21396,13 @@ export namespace Schemas {
       results: ErrorTrackingAssignmentRule[];
     }
 
-    export interface PaginatedErrorTrackingExternalReferenceList {
+    export interface PaginatedErrorTrackingExternalReferenceResultList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: ErrorTrackingExternalReference[];
+      results: ErrorTrackingExternalReferenceResult[];
     }
 
     export interface PaginatedErrorTrackingFingerprintList {
@@ -20957,15 +21412,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingFingerprint[];
-    }
-
-    export interface PaginatedErrorTrackingGroupingRuleList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ErrorTrackingGroupingRule[];
     }
 
     export interface PaginatedErrorTrackingIssueFullList {
@@ -21038,6 +21484,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Evaluation[];
+    }
+
+    export interface PaginatedEvaluationReportList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EvaluationReport[];
+    }
+
+    export interface PaginatedEvaluationReportRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EvaluationReportRun[];
     }
 
     export interface PaginatedEventSchemaList {
@@ -21271,6 +21735,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LLMProviderKey[];
+    }
+
+    export interface PaginatedLLMSkillListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LLMSkillList[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
@@ -22341,6 +22814,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `daily` - Daily
+    * `weekly` - Weekly
+    * `monthly` - Monthly
+    * `yearly` - Yearly
+     */
+    export type SubscriptionFrequencyEnum = typeof SubscriptionFrequencyEnum[keyof typeof SubscriptionFrequencyEnum];
+
+
+    export const SubscriptionFrequencyEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+      Yearly: 'yearly',
+    } as const;
+
+    /**
      * Standard Subscription serializer.
      */
     export interface Subscription {
@@ -22375,7 +22864,7 @@ export namespace Schemas {
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly */
-      frequency: FrequencyEnum;
+      frequency: SubscriptionFrequencyEnum;
       /**
        * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
        * @minimum -2147483648
@@ -22717,7 +23206,7 @@ export namespace Schemas {
       /** @nullable */
       readonly created_by: number | null;
       readonly status: string;
-      readonly source_type: SourceType432Enum;
+      readonly source_type: SourceType9a7Enum;
     }
 
     export type TableColumnsItem = {[key: string]: unknown};
@@ -22768,6 +23257,48 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaggedItem[];
+    }
+
+    export interface TaskAutomation {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      prompt: string;
+      /** @maxLength 255 */
+      repository: string;
+      /** @nullable */
+      github_integration?: number | null;
+      /** @maxLength 100 */
+      cron_expression: string;
+      /** @maxLength 128 */
+      timezone?: string;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      template_id?: string | null;
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_run_at: string | null;
+      /** @nullable */
+      readonly last_run_status: string | null;
+      /** @nullable */
+      readonly last_task_id: string | null;
+      /** @nullable */
+      readonly last_task_run_id: string | null;
+      /** @nullable */
+      readonly last_error: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedTaskAutomationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskAutomation[];
     }
 
     export interface PaginatedTaskList {
@@ -23536,8 +24067,13 @@ export namespace Schemas {
       readonly last_checked_at?: string | null;
       /** @nullable */
       readonly next_check_at?: string | null;
-      /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
+      /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
       readonly checks?: readonly AlertCheck[];
+      /**
+       * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+       * @nullable
+       */
+      readonly checks_total?: number | null;
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
@@ -24509,13 +25045,11 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
-    export interface PatchedErrorTrackingExternalReference {
-      readonly id?: string;
-      readonly integration?: ErrorTrackingExternalReferenceIntegration;
-      integration_id?: number;
-      config?: unknown;
-      issue?: string;
-      readonly external_url?: string;
+    export interface PatchedErrorTrackingAssignmentRuleUpdateRequest {
+      /** Property-group filters that define when this rule matches incoming error events. */
+      filters?: PropertyGroupFilterValue | null;
+      /** User or role to assign matching issues to. */
+      assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
     }
 
     /**
@@ -24537,6 +25071,8 @@ export namespace Schemas {
       filters?: unknown;
       /** @nullable */
       readonly assignee?: PatchedErrorTrackingGroupingRuleAssignee;
+      /** @nullable */
+      description?: string | null;
       /**
        * Issue linked to this rule
        * @nullable
@@ -24569,7 +25105,7 @@ export namespace Schemas {
       description?: string | null;
       first_seen?: string;
       assignee?: ErrorTrackingIssueAssignment;
-      external_issues?: ErrorTrackingExternalReference[];
+      external_issues?: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
       readonly cohort?: PatchedErrorTrackingIssueFullCohort;
     }
@@ -24640,6 +25176,52 @@ export namespace Schemas {
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
       deleted?: boolean;
+    }
+
+    export interface PatchedEvaluationReport {
+      readonly id?: string;
+      evaluation?: string;
+      frequency?: EvaluationReportFrequencyEnum;
+      rrule?: string;
+      /** @nullable */
+      starts_at?: string | null;
+      /** @maxLength 64 */
+      timezone_name?: string;
+      /** @nullable */
+      readonly next_delivery_date?: string | null;
+      delivery_targets?: unknown;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      max_sample_size?: number;
+      enabled?: boolean;
+      deleted?: boolean;
+      /** @nullable */
+      readonly last_delivered_at?: string | null;
+      report_prompt_guidance?: string;
+      /**
+       * Number of new eval results that triggers a report
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      trigger_threshold?: number | null;
+      /**
+       * Minimum minutes between count-triggered reports
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      cooldown_minutes?: number;
+      /**
+       * Maximum count-triggered report runs per calendar day (UTC)
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      daily_run_cap?: number;
+      /** @nullable */
+      readonly created_by?: number | null;
+      readonly created_at?: string;
     }
 
     export interface PatchedEventSchema {
@@ -24818,6 +25400,11 @@ export namespace Schemas {
       readonly cdc_table_mode?: CdcTableModeEnum;
     }
 
+    export interface PatchedExternalDataSourceBulkUpdateSchemas {
+      /** Schema updates to apply in a single batch. */
+      schemas?: ExternalDataSourceBulkUpdateSchema[];
+    }
+
     export type PatchedExternalDataSourceSerializersSchemasItem = {[key: string]: unknown};
 
     /**
@@ -24831,7 +25418,7 @@ export namespace Schemas {
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
-      readonly source_type?: SourceType432Enum;
+      readonly source_type?: SourceType9a7Enum;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
@@ -24850,7 +25437,8 @@ export namespace Schemas {
     * `duckdb` - duckdb
     * `postgres` - postgres */
       readonly engine?: EngineEnum | NullEnum | null;
-      readonly last_run_at?: string;
+      /** @nullable */
+      readonly last_run_at?: string | null;
       readonly schemas?: readonly PatchedExternalDataSourceSerializersSchemasItem[];
       job_inputs?: unknown | null;
       readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfig;
@@ -25312,6 +25900,42 @@ export namespace Schemas {
       readonly last_used_at?: string | null;
     }
 
+    /**
+     * Arbitrary key-value metadata.
+     */
+    export type PatchedLLMSkillPublishMetadata = {[key: string]: unknown};
+
+    export interface PatchedLLMSkillPublish {
+      /** Full skill body (SKILL.md instruction content) to publish as a new version. */
+      body?: string;
+      /**
+       * Updated description for the new version.
+       * @maxLength 4096
+       */
+      description?: string;
+      /**
+       * License name or reference.
+       * @maxLength 255
+       */
+      license?: string;
+      /**
+       * Environment requirements.
+       * @maxLength 500
+       */
+      compatibility?: string;
+      /** List of pre-approved tools the skill may use. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata. */
+      metadata?: PatchedLLMSkillPublishMetadata;
+      /** Bundled files to include with this version. Replaces all files from the previous version. */
+      files?: LLMSkillFileInput[];
+      /**
+       * Latest version you are editing from. Used for optimistic concurrency checks.
+       * @minimum 1
+       */
+      base_version?: number;
+    }
+
     export interface PatchedLiveDebuggerBreakpoint {
       readonly id?: string;
       /** @nullable */
@@ -25379,6 +26003,11 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at?: string | null;
       readonly consecutive_failures?: number;
+      /**
+       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+       * @nullable
+       */
+      readonly last_error_message?: string | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       /** @nullable */
@@ -26303,7 +26932,7 @@ export namespace Schemas {
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly */
-      frequency?: FrequencyEnum;
+      frequency?: SubscriptionFrequencyEnum;
       /**
        * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
        * @minimum -2147483648
@@ -27038,6 +27667,16 @@ export namespace Schemas {
      */
     export type PatchedTaskLatestRun = {[key: string]: unknown} | null | null;
 
+    /**
+     * * `implementation` - Implementation
+     */
+    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
+
+
+    export const SignalReportTaskRelationshipEnum = {
+      Implementation: 'implementation',
+    } as const;
+
     export interface PatchedTask {
       readonly id?: string;
       /** @nullable */
@@ -27060,6 +27699,7 @@ export namespace Schemas {
       github_integration?: number | null;
       /** @nullable */
       signal_report?: string | null;
+      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
       /** JSON schema for the task. This is used to validate the output of the task. */
       json_schema?: unknown | null;
       /** If true, this task is for internal use and should not be exposed to end users. */
@@ -27077,6 +27717,39 @@ export namespace Schemas {
        * @nullable
        */
       ci_prompt?: string | null;
+    }
+
+    export interface PatchedTaskAutomation {
+      readonly id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      prompt?: string;
+      /** @maxLength 255 */
+      repository?: string;
+      /** @nullable */
+      github_integration?: number | null;
+      /** @maxLength 100 */
+      cron_expression?: string;
+      /** @maxLength 128 */
+      timezone?: string;
+      /**
+       * @maxLength 255
+       * @nullable
+       */
+      template_id?: string | null;
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_run_at?: string | null;
+      /** @nullable */
+      readonly last_run_status?: string | null;
+      /** @nullable */
+      readonly last_task_id?: string | null;
+      /** @nullable */
+      readonly last_task_run_id?: string | null;
+      /** @nullable */
+      readonly last_error?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedTaskRunSetOutputRequest {
@@ -32486,6 +33159,10 @@ export namespace Schemas {
      * Maximum number of check results to return (default 5, max 500). Applied after date filtering.
      */
     checks_limit?: number;
+    /**
+     * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
+     */
+    checks_offset?: number;
     };
 
     export type EnvironmentsBatchExportsListParams = {
@@ -32982,6 +33659,21 @@ export namespace Schemas {
     };
 
     export type EnvironmentsExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
     /**
      * Number of results to return per page.
      */
@@ -34386,17 +35078,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type ErrorTrackingGroupingRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
@@ -34520,6 +35201,28 @@ export namespace Schemas {
     };
 
     export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsEvaluationReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsEvaluationReportsRunsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -34684,7 +35387,7 @@ export namespace Schemas {
 
     export type LlmPromptsListParams = {
     /**
-     * Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
 
     * `full` - full
     * `preview` - preview
@@ -34692,6 +35395,10 @@ export namespace Schemas {
      * @minLength 1
      */
     content?: LlmPromptsListContent;
+    /**
+     * Filter prompts by the ID of the user who created them.
+     */
+    created_by_id?: number;
     /**
      * Number of results to return per page.
      */
@@ -34717,11 +35424,29 @@ export namespace Schemas {
 
     export type LlmPromptsNameRetrieveParams = {
     /**
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+
+    * `full` - full
+    * `preview` - preview
+    * `none` - none
+     * @minLength 1
+     */
+    content?: LlmPromptsNameRetrieveContent;
+    /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
     version?: number;
     };
+
+    export type LlmPromptsNameRetrieveContent = typeof LlmPromptsNameRetrieveContent[keyof typeof LlmPromptsNameRetrieveContent];
+
+
+    export const LlmPromptsNameRetrieveContent = {
+      Full: 'full',
+      Preview: 'preview',
+      None: 'none',
+    } as const;
 
     export type LlmPromptsResolveNameRetrieveParams = {
     /**
@@ -34747,6 +35472,65 @@ export namespace Schemas {
     version?: number;
     /**
      * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
+    version_id?: string;
+    };
+
+    export type LlmSkillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Optional substring filter applied to skill names and descriptions.
+     */
+    search?: string;
+    };
+
+    export type LlmSkillsNameRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
+    export type LlmSkillsNameFilesRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
+    export type LlmSkillsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number;
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    /**
+     * Exact skill version UUID to resolve.
      */
     version_id?: string;
     };
@@ -35032,6 +35816,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string;
     };
 
     export type OauthApplicationsListParams = {
@@ -35459,6 +36247,7 @@ export namespace Schemas {
 
     export type AdvancedActivityLogsListParams = {
     activities?: string[];
+    clients?: string[];
     detail_filters?: string;
     end_date?: string;
     hogql_filter?: string;
@@ -35512,6 +36301,10 @@ export namespace Schemas {
      * Maximum number of check results to return (default 5, max 500). Applied after date filtering.
      */
     checks_limit?: number;
+    /**
+     * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
+     */
+    checks_offset?: number;
     };
 
     export type AnnotationsListParams = {
@@ -36299,6 +37092,21 @@ export namespace Schemas {
     };
 
     export type ExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
     /**
      * Number of results to return per page.
      */
@@ -37983,6 +38791,17 @@ export namespace Schemas {
     };
 
     export type TagsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TaskAutomationsListParams = {
     /**
      * Number of results to return per page.
      */

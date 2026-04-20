@@ -59,6 +59,7 @@ export interface TrendsResultItem {
     data?: number[]
     days?: string[]
     count?: number
+    aggregated_value?: number
     action?: {
         name?: string
     }

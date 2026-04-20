@@ -33,10 +33,12 @@ from .activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
+    InjectFreshTokensOnResumeInput,
     PrepareSandboxForRepositoryInput,
     checkout_branch_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
+    inject_fresh_tokens_on_resume,
     prepare_sandbox_for_repository,
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
@@ -380,6 +382,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
+
+        # Resuming from a filesystem snapshot carries the previous run's
+        # credentials baked into .git/config and any agentsh env file — refresh
+        # them before any sandbox command (diagnostics, fetch, checkout) runs.
+        if prepared.snapshot_external_id:
+            await workflow.execute_activity(
+                inject_fresh_tokens_on_resume,
+                InjectFreshTokensOnResumeInput(
+                    context=self.context,
+                    sandbox_id=created.sandbox_id,
+                    repository=prepared.repository,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.github_integration_id is not None or can_clone_without_integration
