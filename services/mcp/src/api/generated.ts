@@ -13433,6 +13433,18 @@ export namespace Schemas {
       NotIcontains: 'not_icontains',
     } as const;
 
+    /**
+     * * `Up` - Up
+    * `Down` - Down
+     */
+    export type DirectionEnum = typeof DirectionEnum[keyof typeof DirectionEnum];
+
+
+    export const DirectionEnum = {
+      Up: 'Up',
+      Down: 'Down',
+    } as const;
+
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
 
 
@@ -13557,6 +13569,40 @@ export namespace Schemas {
     export interface DraftStatusResponse {
       updated_at: string;
       has_draft: boolean;
+    }
+
+    /**
+     * Period-over-period change metadata for a digest metric.
+     */
+    export interface WoWChange {
+      /** Absolute percentage change, rounded to nearest integer. */
+      percent: number;
+      /** Direction of the change relative to the prior period.
+
+    * `Up` - Up
+    * `Down` - Down */
+      direction: DirectionEnum;
+      /** Hex color indicating whether the change is a positive or negative signal. */
+      color: string;
+      /** Short label, e.g. 'Up 12%'. */
+      text: string;
+      /** Verbose label, e.g. 'Up 12% from prior period'. */
+      long_text: string;
+    }
+
+    /**
+     * A duration metric (human-readable string) with period-over-period change.
+     */
+    export interface DurationMetric {
+      /** Human-readable duration, e.g. '2m 34s'. */
+      current: string;
+      /**
+       * Prior-period duration, e.g. '2m 10s'.
+       * @nullable
+       */
+      previous: string | null;
+      /** Period-over-period change, null when not meaningful. */
+      change: WoWChange | null;
     }
 
     /**
@@ -16697,6 +16743,15 @@ export namespace Schemas {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+    }
+
+    export interface Goal {
+      /** Goal name (action name). */
+      name: string;
+      /** Total conversions in the period. */
+      conversions: number;
+      /** Period-over-period change in conversions, null when not meaningful. */
+      change: WoWChange | null;
     }
 
     export interface Group {
@@ -20275,6 +20330,21 @@ export namespace Schemas {
       /** @nullable */
       source_id: string | null;
       created_at: string;
+    }
+
+    /**
+     * A numeric metric with current value, previous value, and a period-over-period change.
+     */
+    export interface NumericMetric {
+      /** Value for the most recent period. */
+      current: number;
+      /**
+       * Value for the prior period, if available.
+       * @nullable
+       */
+      previous: number | null;
+      /** Period-over-period change, null when not meaningful. */
+      change: WoWChange | null;
     }
 
     export interface NumericScoreDefinitionConfig {
@@ -32215,6 +32285,24 @@ export namespace Schemas {
       metadata: TextReprMetadata;
     }
 
+    export interface TopPage {
+      /** Host for the page, if recorded. */
+      host: string;
+      /** URL path. */
+      path: string;
+      /** Unique visitors in the period. */
+      visitors: number;
+      /** Total pageviews in the period. */
+      pageviews: number;
+    }
+
+    export interface TopSource {
+      /** Initial referring domain. */
+      source: string;
+      /** Unique visitors from this source. */
+      visitors: number;
+    }
+
     export interface TraceReviewCreate {
       /**
        * Trace ID for the review. Only one active review can exist per trace and team.
@@ -32337,6 +32425,30 @@ export namespace Schemas {
       ready_at: string | null;
       /** @nullable */
       failed_at: string | null;
+    }
+
+    /**
+     * Summary of a project's web analytics over the last 7 days.
+     */
+    export interface WeeklyDigestResponse {
+      /** Unique visitors. */
+      visitors: NumericMetric;
+      /** Total pageviews. */
+      pageviews: NumericMetric;
+      /** Total sessions. */
+      sessions: NumericMetric;
+      /** Bounce rate (0–100). */
+      bounce_rate: NumericMetric;
+      /** Average session duration. */
+      avg_session_duration: DurationMetric;
+      /** Top 5 pages by unique visitors. */
+      top_pages: TopPage[];
+      /** Top 5 traffic sources by unique visitors. */
+      top_sources: TopSource[];
+      /** Goal conversions. */
+      goals: Goal[];
+      /** Link to the Web analytics dashboard for this project. */
+      dashboard_url: string;
     }
 
     export interface _DateRange {
@@ -34963,6 +35075,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type WebAnalyticsWeeklyDigestParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     */
+    compare?: boolean;
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number;
     };
 
     export type WebAnalyticsFilterPresetsListParams = {
