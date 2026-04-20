@@ -2,9 +2,13 @@
 
 import json
 import asyncio
+from datetime import timedelta
+
+from django.conf import settings
 
 import temporalio.workflow
 from structlog import get_logger
+from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.eval_reports.activities import (
@@ -44,6 +48,11 @@ from posthog.temporal.llm_analytics.eval_reports.types import (
     ScheduleAllEvalReportsWorkflowInputs,
     StoreReportRunInput,
     UpdateNextDeliveryDateInput,
+)
+
+from products.signals.backend.temporal.emit_eval_report_signal import (
+    EmitEvalReportSignalInputs,
+    EmitEvalReportSignalWorkflow,
 )
 
 logger = get_logger(__name__)
@@ -194,6 +203,40 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             start_to_close_timeout=STORE_ACTIVITY_TIMEOUT,
             retry_policy=STORE_RETRY_POLICY,
         )
+
+        # 3b. Emit a signal for this report run (fire-and-forget).
+        # Runs on the signals worker via VIDEO_EXPORT_TASK_QUEUE so the LLM summary
+        # call doesn't block delivery. Gated by the same SignalSourceConfig(LLM_ANALYTICS,
+        # EVALUATION) row that gates per-result emission — the activity bails out early
+        # for teams/evaluations that haven't opted in.
+        try:
+            await temporalio.workflow.start_child_workflow(
+                EmitEvalReportSignalWorkflow.run,
+                EmitEvalReportSignalInputs(
+                    team_id=context.team_id,
+                    evaluation_id=context.evaluation_id,
+                    evaluation_name=context.evaluation_name,
+                    evaluation_description=context.evaluation_description,
+                    evaluation_prompt=context.evaluation_prompt,
+                    report_id=agent_result.report_id,
+                    report_run_id=store_result.report_run_id,
+                    period_start=agent_result.period_start,
+                    period_end=agent_result.period_end,
+                    content=agent_result.content,
+                ),
+                id=f"emit-eval-report-signal-{context.team_id}-{context.evaluation_id}-{store_result.report_run_id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                execution_timeout=timedelta(minutes=5),
+            )
+        except Exception:
+            temporalio.workflow.logger.exception(
+                "Failed to start eval report signal workflow",
+                evaluation_id=context.evaluation_id,
+                team_id=context.team_id,
+                report_run_id=store_result.report_run_id,
+            )
 
         # 4. Deliver
         await temporalio.workflow.execute_activity(
