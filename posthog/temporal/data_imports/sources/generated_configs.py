@@ -606,6 +606,11 @@ class PlaidSourceConfig(config.Config):
 
 
 @config.config
+class PlainSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class PolarSourceConfig(config.Config):
     pass
 

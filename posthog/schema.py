@@ -2093,6 +2093,7 @@ class ExternalDataSourceType(StrEnum):
     BUILD_BETTER = "BuildBetter"
     CONVEX = "Convex"
     CLICK_HOUSE = "ClickHouse"
+    PLAIN = "Plain"
 
 
 class ExternalQueryErrorCode(StrEnum):
