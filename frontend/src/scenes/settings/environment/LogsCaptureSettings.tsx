@@ -48,7 +48,7 @@ export function LogsJsonParseSettings(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const isJsonParseLogs = currentTeam?.logs_settings?.json_parse_logs ?? true
+    const isJsonParseLogs = currentTeam?.logs_settings?.json_parse_logs ?? false
 
     return (
         <>
