@@ -734,9 +734,13 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
 export interface AssistantRetentionEventsNode {
     type: 'events'
     /**
-     * Event name from the plan.
+     * The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.
      */
-    name: string
+    id: string
+    /**
+     * Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.
+     */
+    name?: string
     /**
      * Custom name for the event if it is needed to be renamed.
      */
@@ -750,13 +754,13 @@ export interface AssistantRetentionEventsNode {
 export interface AssistantRetentionActionsNode {
     type: 'actions'
     /**
-     * Action ID from the plan.
+     * The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.
      */
     id: number
     /**
-     * Action name from the plan.
+     * Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching.
      */
-    name: string
+    name?: string
     /**
      * Property filters for the action.
      */
