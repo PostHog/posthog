@@ -3,6 +3,14 @@
 These properties are emitted by the PostHog SDK on every event when session replay is configured.
 They describe the recording state at the time the event was captured.
 
+**Important:**
+Not all SDKs emit all of these properties.
+A missing property is not an error, it may simply mean the SDK version is older
+or the property isn't relevant on that platform.
+Treat `null`/missing values as "unknown", not "false".
+This skill works best with the current Posthog-JS SDK.
+New diagnostic properties may be added as the SDK evolves.
+
 ## Core signals
 
 | Property                          | Type    | Description                                                   |

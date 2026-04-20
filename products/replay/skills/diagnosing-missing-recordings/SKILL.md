@@ -135,6 +135,11 @@ Based on the verdict, recommend specific actions:
 | Buffering empty | Page closed before first snapshot. Common with very short sessions or single-page navigations. Consider lowering minimum duration     |
 | Unknown         | Direct user to troubleshooting docs: https://posthog.com/docs/session-replay/troubleshooting                                          |
 
+## Examples
+
+See [real-world diagnostic examples](./references/examples.md) showing how signal combinations
+map to verdicts. Use these to calibrate your interpretation of query results.
+
 ## Tips
 
 - If `$lib_version` is very old, some diagnostic signals won't be present.
