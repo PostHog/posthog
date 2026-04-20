@@ -265,7 +265,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                 )}
                             </div>
                         </div>
-                        {(isAIFirst ? isUsingDefaultDashboard : isUsingProjectDefault) && (
+                        {(isAIFirst ? isUsingDefaultDashboard || isUsingProjectDefault : isUsingProjectDefault) && (
                             <section className="space-y-3 bg-surface-secondary rounded-lg p-3 border">
                                 <div className="flex flex-col">
                                     <h4 className="text-base font-semibold text-primary m-0">
