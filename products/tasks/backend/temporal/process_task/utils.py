@@ -171,7 +171,7 @@ MCP_TOKEN_REFRESH_INTERVAL_SECONDS = 30 * 60
 
 
 def _mcp_token_issued_cache_key(run_id: str) -> str:
-    return f"task-run-mcp-token-issued:{run_id}"
+    return f"posthog_ai:task-run-mcp-token-issued:{run_id}"
 
 
 def mark_mcp_token_issued(run_id: str) -> None:
