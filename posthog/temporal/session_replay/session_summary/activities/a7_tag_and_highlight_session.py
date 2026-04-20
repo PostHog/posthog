@@ -6,12 +6,17 @@ The tagging LLM call happens in A4 as a follow-up turn in the same conversation
 that produced the consolidation. This activity only handles the Kafka produce.
 """
 
+from datetime import timedelta
+
 import structlog
 import temporalio
 
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models.event.util import format_clickhouse_timestamp
+from posthog.models.team.team import Team
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.session_summary.types.video import (
     SessionTaggingOutput,
     VideoSummarySingleSessionInputs,
@@ -27,7 +32,19 @@ async def tag_and_highlight_session_activity(
 ) -> None:
     """Write session tags and highlight flag to ClickHouse via Kafka."""
     try:
-        _produce_to_kafka(inputs, tagging)
+        team = await Team.objects.aget(id=inputs.team_id)
+        metadata = await database_sync_to_async(SessionReplayEvents().get_metadata)(
+            session_id=inputs.session_id,
+            team=team,
+        )
+        if not metadata or not metadata.get("start_time"):
+            logger.warning(
+                f"No metadata for session {inputs.session_id}, skipping tag write",
+                session_id=inputs.session_id,
+                signals_type="session-summaries",
+            )
+            return
+        _produce_to_kafka(inputs, tagging, metadata["start_time"])
     except Exception:
         logger.exception(
             f"Failed to write tags to Kafka for session {inputs.session_id}",
@@ -37,23 +54,29 @@ async def tag_and_highlight_session_activity(
         raise
 
 
-def _produce_to_kafka(inputs: VideoSummarySingleSessionInputs, tagging: SessionTaggingOutput) -> None:
+def _produce_to_kafka(
+    inputs: VideoSummarySingleSessionInputs,
+    tagging: SessionTaggingOutput,
+    session_start_time,
+) -> None:
     """Produce a Kafka message to write tags and highlight flag to ClickHouse.
 
     All non-tagging fields use identity values for their aggregate functions
     so they don't affect existing data:
-    - Timestamps use now() so min(first_timestamp) keeps the real earlier value
-      and argMin(first_url) won't pick our null over the real value
+    - Timestamps use session_start + 1µs so min/max/argMin all keep real values
+      (using now() previously poisoned max_last_timestamp)
+    - block_url is None so groupArray drops it (empty string previously
+      polluted block_urls and broke the length-match check in listBlocks)
     - sum() fields use 0, any() fields use empty string
     """
-    now = format_clickhouse_timestamp(None)
+    phantom_ts = format_clickhouse_timestamp(session_start_time + timedelta(microseconds=1))
     data = {
         "session_id": inputs.session_id,
         "team_id": inputs.team_id,
         "distinct_id": "",
-        "first_timestamp": now,
-        "last_timestamp": now,
-        "block_url": "",
+        "first_timestamp": phantom_ts,
+        "last_timestamp": phantom_ts,
+        "block_url": None,
         "first_url": None,
         "urls": [],
         "click_count": 0,
