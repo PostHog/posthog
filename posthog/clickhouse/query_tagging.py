@@ -168,7 +168,6 @@ class QueryTags(BaseModel):
     # ai events rollout
     ai_query_source: Optional[str] = None
 
-    # Set centrally in sync_execute from team_id; do not tag manually.
     ai_data_processing_approved: Optional[bool] = None
 
     # experiments
