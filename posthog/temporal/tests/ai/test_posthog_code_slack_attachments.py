@@ -1,5 +1,6 @@
 import json
 import base64
+
 from unittest.mock import patch
 
 from posthog.temporal.ai.posthog_code_slack_attachments import (
