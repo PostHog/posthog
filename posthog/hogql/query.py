@@ -282,7 +282,15 @@ class HogQLQueryExecutor:
             # the outer LIMIT trims -- e.g. `A UNION ALL B LIMIT 100` would scan up to
             # 100k rows per branch. UNION DISTINCT / INTERSECT / EXCEPT are excluded
             # because dedup and set operations need the full per-branch input.
-            if isinstance(self.select_query, ast.SelectSetQuery) and self.select_query.limit is not None:
+            # LIMIT PERCENT / WITH TIES are excluded because the set-level limit expression
+            # has different semantics at the branch level (e.g. `LIMIT 10 PERCENT` on the
+            # set cannot be translated to a row cap per branch).
+            if (
+                isinstance(self.select_query, ast.SelectSetQuery)
+                and self.select_query.limit is not None
+                and not self.select_query.limit_percent
+                and not self.select_query.limit_with_ties
+            ):
                 if self.select_query.offset is not None:
                     branch_cap: ast.Expr = ast.ArithmeticOperation(
                         left=self.select_query.limit,

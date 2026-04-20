@@ -2077,54 +2077,60 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
-        def test_select_union_all_trailing_limit_hoisted(self):
-            """A bare trailing LIMIT after an unparenthesized last branch is hoisted to the
-            SelectSetQuery so it applies to the union as a whole -- matching standard SQL."""
-            self.assertEqual(
-                self._select("select 1 union all select 2 limit 10"),
-                ast.SelectSetQuery(
-                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
-                    subsequent_select_queries=[
-                        SelectSetNode(
-                            set_operator="UNION ALL",
-                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
-                        )
-                    ],
-                    limit=ast.Constant(value=10),
+        @parameterized.expand(
+            [
+                # A bare trailing LIMIT after an unparenthesized last branch is hoisted to the
+                # SelectSetQuery so it applies to the union as a whole -- matching standard SQL.
+                (
+                    "trailing_limit_hoisted",
+                    "select 1 union all select 2 limit 10",
+                    ast.SelectSetQuery(
+                        initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                        subsequent_select_queries=[
+                            SelectSetNode(
+                                set_operator="UNION ALL",
+                                select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
+                            )
+                        ],
+                        limit=ast.Constant(value=10),
+                    ),
                 ),
-            )
-
-        def test_select_union_all_trailing_limit_offset_hoisted(self):
-            self.assertEqual(
-                self._select("select 1 union all select 2 limit 10 offset 5"),
-                ast.SelectSetQuery(
-                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
-                    subsequent_select_queries=[
-                        SelectSetNode(
-                            set_operator="UNION ALL",
-                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
-                        )
-                    ],
-                    limit=ast.Constant(value=10),
-                    offset=ast.Constant(value=5),
+                (
+                    "trailing_limit_offset_hoisted",
+                    "select 1 union all select 2 limit 10 offset 5",
+                    ast.SelectSetQuery(
+                        initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                        subsequent_select_queries=[
+                            SelectSetNode(
+                                set_operator="UNION ALL",
+                                select_query=ast.SelectQuery(select=[ast.Constant(value=2)]),
+                            )
+                        ],
+                        limit=ast.Constant(value=10),
+                        offset=ast.Constant(value=5),
+                    ),
                 ),
-            )
-
-        def test_select_union_all_parenthesized_limit_stays_on_branch(self):
-            """An explicitly parenthesized last branch keeps its LIMIT branch-scoped --
-            the user opted in to branch-level semantics."""
-            self.assertEqual(
-                self._select("select 1 union all (select 2 limit 10)"),
-                ast.SelectSetQuery(
-                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
-                    subsequent_select_queries=[
-                        SelectSetNode(
-                            set_operator="UNION ALL",
-                            select_query=ast.SelectQuery(select=[ast.Constant(value=2)], limit=ast.Constant(value=10)),
-                        )
-                    ],
+                # An explicitly parenthesized last branch keeps its LIMIT branch-scoped --
+                # the user opted in to branch-level semantics.
+                (
+                    "parenthesized_limit_stays_on_branch",
+                    "select 1 union all (select 2 limit 10)",
+                    ast.SelectSetQuery(
+                        initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                        subsequent_select_queries=[
+                            SelectSetNode(
+                                set_operator="UNION ALL",
+                                select_query=ast.SelectQuery(
+                                    select=[ast.Constant(value=2)], limit=ast.Constant(value=10)
+                                ),
+                            )
+                        ],
+                    ),
                 ),
-            )
+            ]
+        )
+        def test_select_union_all_trailing_limit_hoisting(self, _name, query, expected):
+            self.assertEqual(self._select(query), expected)
 
         def test_select_set_order_by(self):
             self.assertEqual(

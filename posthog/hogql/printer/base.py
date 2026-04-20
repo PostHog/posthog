@@ -156,7 +156,9 @@ class HogQLPrinter(Visitor[str]):
 
         # A bare trailing `LIMIT`/`OFFSET` after a UNION/INTERSECT/EXCEPT binds only to the last
         # branch in ClickHouse. Wrap the union in `SELECT * FROM (...)` so a set-level limit/offset
-        # applies to the whole result.
+        # applies to the whole result. Postgres follows the SQL standard where a bare
+        # `UNION ... LIMIT N` already applies to the whole result, so no wrapper is needed there
+        # (and a bare `SELECT * FROM (...)` is actually invalid Postgres without a derived-table alias).
         has_set_level_limit = node.limit is not None or node.offset is not None
         if has_set_level_limit:
             limit_suffix = ""
@@ -178,7 +180,9 @@ class HogQLPrinter(Visitor[str]):
                 offset_str = self.visit(node.offset)
                 limit_suffix += f" OFFSET {offset_str}"
 
-            if self.pretty:
+            if self.dialect == "postgres":
+                ret = f"{ret.rstrip() if self.pretty else ret.strip()}{limit_suffix}"
+            elif self.pretty:
                 ret = f"SELECT * FROM (\n{ret.rstrip()}\n){limit_suffix}"
             else:
                 ret = f"SELECT * FROM ({ret.strip()}){limit_suffix}"
