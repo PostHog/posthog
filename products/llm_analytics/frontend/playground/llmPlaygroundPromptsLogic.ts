@@ -14,7 +14,7 @@ import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
 import { getApiErrorDetail, llmPromptLogic } from '../prompts/llmPromptLogic'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
-import { normalizeRole } from '../utils'
+import { normalizeRole, safeStringify } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
 import { isTraceLikeSelection } from './playgroundModelMatching'
 
@@ -181,18 +181,6 @@ enum InputMessageRole {
     Assistant = 'assistant',
     AI = 'ai',
     Model = 'model',
-}
-
-// `JSON.stringify` throws on circular references and BigInt values. Tool-call arguments and
-// tool-result payloads are supposed to be serialisable, but these are rendered in UI code and we
-// don't want a malformed trace to take the playground down — fall back to `String(value)` which
-// always produces something.
-function safeStringify(value: unknown, indent: number = 2): string {
-    try {
-        return JSON.stringify(value, null, indent) ?? String(value)
-    } catch {
-        return String(value)
-    }
 }
 
 // Formats a typed content block (one with a `type` field) into readable text.
