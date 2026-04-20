@@ -162,7 +162,9 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["delete"], url_path=r"quarantine/(?P<run_type>[^/]+)/(?P<identifier>.+)")
     def unquarantine(self, request: Request, pk: str, run_type: str, identifier: str, **kwargs) -> Response:
         """Remove an identifier from quarantine."""
-        api.unquarantine_identifier(repo_id=UUID(pk), identifier=identifier, run_type=run_type, team_id=self.team_id)
+        api.unquarantine_identifier(
+            repo_id=UUID(pk), identifier=identifier.rstrip("/"), run_type=run_type, team_id=self.team_id
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
