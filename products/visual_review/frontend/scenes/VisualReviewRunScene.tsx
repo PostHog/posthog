@@ -32,7 +32,9 @@ function SnapshotThumbnail({
     onClick: () => void
 }): JSX.Element {
     const parts = snapshot.identifier.split('--')
-    const shortName = parts[0] || snapshot.identifier
+    const theme = parts[parts.length - 1]
+    const isTheme = theme === 'dark' || theme === 'light'
+    const shortName = parts.length > 1 ? parts.slice(1, isTheme ? -1 : undefined).join(' · ') : snapshot.identifier
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
 
@@ -127,11 +129,11 @@ export function VisualReviewRunScene(): JSX.Element {
     const reviewApproved = snapshots.filter((s: SnapshotApi) => s.review_state === 'approved').length
     const reviewTolerated = snapshots.filter((s: SnapshotApi) => s.review_state === 'tolerated').length
 
-    // Diff summary (server-side counts, subtract human-tolerated to avoid double counting)
+    // Diff summary (server-side counts)
     const diffChanged = run.summary.changed
     const diffNew = run.summary.new
     const diffRemoved = run.summary.removed
-    const autoTolerated = Math.max(0, (run.summary.tolerated_matched ?? 0) - reviewTolerated)
+    const diffTolerated = Math.max(0, (run.summary.tolerated_matched ?? 0) - reviewTolerated)
 
     // If server counts are higher than loaded, show "+" to hint at pagination
     const totalActionable = diffChanged + diffNew + diffRemoved
@@ -235,7 +237,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                         {diffRemoved} removed
                                     </span>
                                 ),
-                                autoTolerated > 0 && <span key="tol">{autoTolerated} auto-tolerated</span>,
+                                diffTolerated > 0 && <span key="tol">{diffTolerated} auto-tolerated</span>,
                             ]
                                 .filter(Boolean)
                                 .reduce<React.ReactNode[]>((acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]), [])}

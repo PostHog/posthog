@@ -753,12 +753,16 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
 def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
     run = get_run_with_snapshots(run_id)
 
-    snapshots = list(run.snapshots.all())
+    snapshots = list(run.snapshots.select_related("tolerated_hash_match").all())
 
     changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED)
     new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW)
     removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED)
-    tolerated_match_count = sum(1 for s in snapshots if s.tolerated_hash_match_id is not None)
+    tolerated_match_count = sum(
+        1
+        for s in snapshots
+        if s.tolerated_hash_match is not None and s.tolerated_hash_match.reason == ToleratedReason.HUMAN
+    )
 
     run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
     run.error_message = error_message
@@ -1487,8 +1491,12 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     snapshot.tolerated_hash_match = tolerated
     snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "tolerated_hash_match"])
 
-    # Update tolerated_match_count
-    tolerated_count = RunSnapshot.objects.using(WRITER_DB).filter(run=run, tolerated_hash_match__isnull=False).count()
+    # Update tolerated_match_count (only human-tolerated, not auto-threshold)
+    tolerated_count = (
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run=run, tolerated_hash_match__isnull=False, tolerated_hash_match__reason=ToleratedReason.HUMAN)
+        .count()
+    )
     Run.objects.using(WRITER_DB).filter(id=run.id).update(tolerated_match_count=tolerated_count)
 
     return snapshot
