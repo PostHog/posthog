@@ -918,7 +918,11 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         default=None,
         allow_blank=False,
         write_only=True,
-        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+        help_text=(
+            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
+            "this field remains supported for callers that still manage their own tokens."
+        ),
     )
     initial_permission_mode = serializers.ChoiceField(
         choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -1232,7 +1236,11 @@ class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
         default=None,
         allow_blank=False,
         write_only=True,
-        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+        help_text=(
+            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
+            "this field remains supported for callers that still manage their own tokens."
+        ),
     )
 
 

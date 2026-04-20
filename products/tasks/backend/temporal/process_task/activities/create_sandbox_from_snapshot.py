@@ -76,6 +76,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                         ctx.github_integration_id,
                         run_id=ctx.run_id,
                         state=ctx.state,
+                        created_by=task.created_by,
                     )
                     or ""
                 )
