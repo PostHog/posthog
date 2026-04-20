@@ -5,25 +5,13 @@
 # CLAUDE_ENV_FILE is only available in SessionStart hooks:
 # https://code.claude.com/docs/en/hooks#sessionstart
 
-# Records the hook's exit path as env vars so future sessions can inspect
-# what happened via `echo $POSTHOG_FLOX_HOOK_EXIT` — cheap breadcrumb for
-# diagnosing failures like the cross-worktree cache pollution we hit before.
-mark_exit() {
-  if [ -n "$CLAUDE_ENV_FILE" ]; then
-    printf 'export POSTHOG_FLOX_HOOK_EXIT=%q\n' "$1" >> "$CLAUDE_ENV_FILE"
-    printf 'export POSTHOG_FLOX_HOOK_STARTED=%q\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$CLAUDE_ENV_FILE"
-  fi
-}
-
-# Skip on Claude web (no flox there); skip if CLAUDE_ENV_FILE is unset since
-# we'd have nowhere to write the captured env anyway.
+# Skip on Claude web (no flox there) or if CLAUDE_ENV_FILE isn't set
 if [ "$CLAUDE_CODE_REMOTE" = "true" ] || [ -z "$CLAUDE_ENV_FILE" ]; then
   exit 0
 fi
 
 # Skip if flox isn't installed
 if ! command -v flox &>/dev/null; then
-  mark_exit no_flox
   exit 0
 fi
 
@@ -58,7 +46,6 @@ if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   if [ "$CACHED_HASH" = "$MANIFEST_HASH" ]; then
     tail -n +2 "$CACHE_FILE" >> "$CLAUDE_ENV_FILE"
     append_worktree_local_env
-    mark_exit cache_hit
     exit 0
   fi
 fi
@@ -68,7 +55,6 @@ FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/
 
 if [ $? -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
   echo "Warning: flox activate failed, skipping env setup" >&2
-  mark_exit flox_failed
   exit 0
 fi
 
@@ -86,5 +72,4 @@ printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
 
 append_worktree_local_env
 
-mark_exit fresh_snapshot
 exit 0
