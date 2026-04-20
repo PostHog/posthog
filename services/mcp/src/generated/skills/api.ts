@@ -32,7 +32,7 @@ export const LlmSkillsCreateParams = /* @__PURE__ */ zod.object({
 
 export const llmSkillsCreateBodyNameMax = 64
 
-export const llmSkillsCreateBodyDescriptionMax = 1024
+export const llmSkillsCreateBodyDescriptionMax = 4096
 
 export const llmSkillsCreateBodyLicenseMax = 255
 
@@ -51,7 +51,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod.object({
     description: zod
         .string()
         .max(llmSkillsCreateBodyDescriptionMax)
-        .describe('What this skill does and when to use it. Max 1024 characters.'),
+        .describe('What this skill does and when to use it. Max 4096 characters.'),
     body: zod.string().describe('The SKILL.md instruction content (markdown).'),
     license: zod
         .string()
@@ -64,7 +64,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Environment requirements (intended product, system packages, network access, etc.).'),
     allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
-    metadata: zod.unknown().optional().describe('Arbitrary key-value metadata.'),
+    metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
     files: zod
         .array(
             zod.object({
@@ -114,7 +114,7 @@ export const LlmSkillsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
     skill_name: zod.string().regex(llmSkillsNamePartialUpdatePathSkillNameRegExp),
 })
 
-export const llmSkillsNamePartialUpdateBodyDescriptionMax = 1024
+export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
 
 export const llmSkillsNamePartialUpdateBodyLicenseMax = 255
 
@@ -146,7 +146,7 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Environment requirements.'),
     allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
-    metadata: zod.unknown().optional().describe('Arbitrary key-value metadata.'),
+    metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
     files: zod
         .array(
             zod.object({
