@@ -82,7 +82,7 @@ def _connect_instructions(provider: str) -> ConnectInstructions:
     if provider == GITHUB_PROVIDER:
         return {
             "connect_flow": "github_link",
-            "connect_path": "/api/linked_accounts/github/start/",
+            "connect_path": "/api/users/@me/linked_accounts/github/start/",
         }
     if provider == "saml":
         return {"connect_flow": None, "connect_path": None}
@@ -145,7 +145,7 @@ class LinkedAccountUpdateSerializer(serializers.Serializer):
 
 
 class LinkedAccountsViewSet(viewsets.ViewSet):
-    """``/api/linked_accounts/`` — list/update/delete and kick off GitHub link.
+    """``/api/users/@me/linked_accounts/`` — list/update/delete and kick off GitHub link.
 
     Session-only: identity mapping is sensitive and must never be mutated by
     personal API keys or OAuth bearer tokens. Implicitly scoped to ``request.user``.
@@ -338,12 +338,25 @@ def _revoke_github_user_authorization(identity: UserSocialIdentity) -> None:
 @require_http_methods(["GET"])
 @session_auth_required
 def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
-    """GitHub OAuth callback for the link-only flow.
+    """GitHub OAuth callback for the identity link flow.
 
-    Creates a ``UserSocialIdentity`` row (identity-only, no login). Multiple
-    PostHog users may link to the same GitHub uid this way. If the user already
-    had a ``UserSocialAuth`` for a *different* GitHub uid, that stale login row
-    is removed.
+    Creates a ``UserSocialIdentity`` row and stashes the user-to-server tokens
+    returned by the exchange — those later power user-authored PostHog Code
+    runs. No ``UserSocialAuth`` row is created here, so linking does not grant
+    sign-in rights by itself (the user opts into login separately via the
+    Settings toggle).
+
+    Multiple PostHog users may link to the same GitHub uid this way. If the user
+    already had a ``UserSocialAuth`` for a *different* GitHub uid, that stale
+    login row is removed.
+
+    Note: this is GitHub's *authorization* endpoint, not a second *installation*
+    flow — the user sees a consent screen, not a repo picker. The returned
+    user-to-server token's scope is computed at call time as (App installations
+    the user has permission to use) ∩ (the user's GitHub permissions). Repo
+    coverage is governed by the team ``Integration``'s installation selection;
+    if the user has GitHub access to a repo that the team installation covers,
+    the UTS works there with no extra consent.
     """
     error_redirect = redirect(f"{LINKED_ACCOUNTS_SETTINGS_PATH}?github_link_error=1")
 
@@ -362,9 +375,16 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     if authorization is None:
         return error_redirect
 
-    # Invalidate any stale login row pointing at a different GitHub account.
+    # Invalidate any stale login row pointing at a different GitHub account. Skip the delete
+    # if it would strand a user whose only sign-in method is this UserSocialAuth — they'd have
+    # no way back into PostHog after the redirect. The Settings UI surfaces this as an actionable
+    # error so they can set a password or link another provider first.
     old_sa = UserSocialAuth.objects.filter(user=request.user, provider=GITHUB_PROVIDER).first()
     if old_sa and old_sa.uid != str(authorization.gh_id):
+        if not request.user.has_usable_password():
+            has_other_login = request.user.social_auth.exclude(provider=GITHUB_PROVIDER).exists()
+            if not has_other_login:
+                return redirect(f"{LINKED_ACCOUNTS_SETTINGS_PATH}?github_link_error=would_disable_only_login")
         old_sa.delete()
 
     identity, _ = UserSocialIdentity.objects.get_or_create(

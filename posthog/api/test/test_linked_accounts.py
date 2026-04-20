@@ -385,6 +385,43 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
         self.assertIn("github_link_error", response["Location"])
         self.assertFalse(UserSocialIdentity.objects.filter(user=self.user, provider="github").exists())
 
+    def test_github_link_refuses_to_strand_github_only_user(self):
+        # User signed in only via GitHub (no password, no other social_auth) re-links a different
+        # GitHub account. Deleting the stale UserSocialAuth would lock them out — we refuse instead.
+        self.user.set_unusable_password()
+        self.user.save()
+        # Changing the password rotates the session auth hash; refresh login for the test client.
+        self.client.force_login(self.user)
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="11", extra_data={"login": "old"})
+        cache.set("github_link_state:STATE1", {"user_id": self.user.id}, timeout=60)
+        with patch(
+            "posthog.api.linked_accounts.GitHubIntegration.github_user_from_code",
+            return_value=_authorization(gh_id=99, gh_login="octocat"),
+        ):
+            response = self.client.get("/complete/github-link/?code=abc&state=STATE1")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("github_link_error=would_disable_only_login", response["Location"])
+        # Old login row preserved; new identity NOT created.
+        self.assertTrue(UserSocialAuth.objects.filter(user=self.user, provider="github", uid="11").exists())
+        self.assertFalse(UserSocialIdentity.objects.filter(user=self.user, provider="github").exists())
+
+    def test_github_link_allows_rotating_account_when_other_login_method_exists(self):
+        # Same stranding scenario but the user has a usable password — deletion is safe.
+        self.user.set_password("x")
+        self.user.save()
+        self.client.force_login(self.user)
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="11", extra_data={"login": "old"})
+        cache.set("github_link_state:STATE1", {"user_id": self.user.id}, timeout=60)
+        with patch(
+            "posthog.api.linked_accounts.GitHubIntegration.github_user_from_code",
+            return_value=_authorization(gh_id=99, gh_login="octocat"),
+        ):
+            response = self.client.get("/complete/github-link/?code=abc&state=STATE1")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("github_link_success", response["Location"])
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="github", uid="11").exists())
+        self.assertTrue(UserSocialIdentity.objects.filter(user=self.user, provider="github", uid="99").exists())
+
 
 class TestGetGithubLoginPrecedence(APIBaseTest):
     """Precedence: UserSocialIdentity > UserSocialAuth > integration."""

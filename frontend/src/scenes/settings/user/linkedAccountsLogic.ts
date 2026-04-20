@@ -57,19 +57,19 @@ export const linkedAccountsLogic = kea<linkedAccountsLogicType>([
             [] as LinkedAccount[],
             {
                 loadLinkedAccounts: async () => {
-                    const response = await api.get<LinkedAccountsResponse>('api/linked_accounts/')
+                    const response = await api.get<LinkedAccountsResponse>('api/users/@me/linked_accounts/')
                     actions.setSsoEnforcementProvider(response.sso_enforcement_provider_name)
                     return response.results
                 },
                 setLoginEnabled: async ({ provider, loginEnabled }) => {
-                    const updated = await api.update<LinkedAccount>(`api/linked_accounts/${provider}/`, {
+                    const updated = await api.update<LinkedAccount>(`api/users/@me/linked_accounts/${provider}/`, {
                         login_enabled: loginEnabled,
                     })
                     return values.linkedAccounts.map((a) => (a.provider === provider ? updated : a))
                 },
                 disconnect: async ({ provider, displayName }) => {
                     // The DELETE endpoint returns the refreshed list so we don't need a follow-up GET.
-                    const response: Response = await api.delete(`api/linked_accounts/${provider}/`)
+                    const response: Response = await api.delete(`api/users/@me/linked_accounts/${provider}/`)
                     const body = (await response.json()) as LinkedAccountsResponse
                     actions.setSsoEnforcementProvider(body.sso_enforcement_provider_name)
                     lemonToast.success(`Disconnected ${displayName}`)
@@ -107,11 +107,13 @@ export const linkedAccountsLogic = kea<linkedAccountsLogicType>([
                 lemonToast.success('GitHub account linked.')
             } else if (params.has('github_link_error')) {
                 const reason = params.get('github_link_error')
-                lemonToast.error(
+                const message =
                     reason === 'already_linked'
                         ? 'That GitHub account is already linked to another PostHog account.'
-                        : 'Could not link GitHub account. Please try again.'
-                )
+                        : reason === 'would_disable_only_login'
+                          ? 'Linking a different GitHub account would lock you out. Set a password or link another sign-in method first.'
+                          : 'Could not link GitHub account. Please try again.'
+                lemonToast.error(message)
             }
         },
     })),
