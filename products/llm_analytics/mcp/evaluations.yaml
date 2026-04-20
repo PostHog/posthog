@@ -77,7 +77,7 @@ tools:
         annotations:
             readOnly: false
             destructive: true
-            idempotent: false
+            idempotent: true
         title: Delete evaluation
         description: >
             Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views.

@@ -166,7 +166,7 @@ const evaluationDelete = (): ToolBase<typeof EvaluationDeleteSchema, Schemas.Eva
 
 const EvaluationTestHogSchema = EvaluationsTestHogCreateBody
 
-const evaluationTestHog = (): ToolBase<typeof EvaluationTestHogSchema, Schemas.Evaluation> => ({
+const evaluationTestHog = (): ToolBase<typeof EvaluationTestHogSchema, Schemas.TestHogResponse> => ({
     name: 'evaluation-test-hog',
     schema: EvaluationTestHogSchema,
     handler: async (context: Context, params: z.infer<typeof EvaluationTestHogSchema>) => {
@@ -184,7 +184,7 @@ const evaluationTestHog = (): ToolBase<typeof EvaluationTestHogSchema, Schemas.E
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
-        const result = await context.api.request<Schemas.Evaluation>({
+        const result = await context.api.request<Schemas.TestHogResponse>({
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/test_hog/`,
             body,

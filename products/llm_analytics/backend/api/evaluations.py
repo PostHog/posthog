@@ -286,6 +286,23 @@ class TestHogRequestSerializer(serializers.Serializer):
     )
 
 
+class TestHogResultItemSerializer(serializers.Serializer):
+    event_uuid = serializers.CharField(help_text="UUID of the $ai_generation event.")
+    trace_id = serializers.CharField(allow_null=True, required=False, help_text="Trace ID if available.")
+    input_preview = serializers.CharField(help_text="First 200 chars of the generation input.")
+    output_preview = serializers.CharField(help_text="First 200 chars of the generation output.")
+    result = serializers.BooleanField(allow_null=True, help_text="True = pass, False = fail, null = N/A or error.")
+    reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
+    error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
+
+
+class TestHogResponseSerializer(serializers.Serializer):
+    results = TestHogResultItemSerializer(many=True)
+    message = serializers.CharField(
+        required=False, help_text="Optional message, e.g. when no recent events were found."
+    )
+
+
 @extend_schema(tags=["llm_analytics"])
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
@@ -467,7 +484,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
-    @extend_schema(request=TestHogRequestSerializer, tags=["llm_analytics"])
+    @extend_schema(request=TestHogRequestSerializer, responses=TestHogResponseSerializer)
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog evaluation code against sample events without saving."""

@@ -32883,6 +32883,41 @@ export namespace Schemas {
       conditions?: TestHogRequestConditionsItem[];
     }
 
+    export interface TestHogResultItem {
+      /** UUID of the $ai_generation event. */
+      event_uuid: string;
+      /**
+       * Trace ID if available.
+       * @nullable
+       */
+      trace_id?: string | null;
+      /** First 200 chars of the generation input. */
+      input_preview: string;
+      /** First 200 chars of the generation output. */
+      output_preview: string;
+      /**
+       * True = pass, False = fail, null = N/A or error.
+       * @nullable
+       */
+      result: boolean | null;
+      /**
+       * Hog evaluation reasoning string, if any.
+       * @nullable
+       */
+      reasoning: string | null;
+      /**
+       * Error message if the Hog code raised an exception.
+       * @nullable
+       */
+      error: string | null;
+    }
+
+    export interface TestHogResponse {
+      results: TestHogResultItem[];
+      /** Optional message, e.g. when no recent events were found. */
+      message?: string;
+    }
+
     export interface TextReprMetadata {
       event_type?: string;
       event_id?: string;

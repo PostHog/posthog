@@ -85,6 +85,7 @@ import type {
     SummarizeRequestApi,
     SummarizeResponseApi,
     TestHogRequestApi,
+    TestHogResponseApi,
     TextReprRequestApi,
     TextReprResponseApi,
     TraceReviewApi,
@@ -251,8 +252,8 @@ export const evaluationsTestHogCreate = async (
     projectId: string,
     testHogRequestApi: TestHogRequestApi,
     options?: RequestInit
-): Promise<EvaluationApi> => {
-    return apiMutator<EvaluationApi>(getEvaluationsTestHogCreateUrl(projectId), {
+): Promise<TestHogResponseApi> => {
+    return apiMutator<TestHogResponseApi>(getEvaluationsTestHogCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
