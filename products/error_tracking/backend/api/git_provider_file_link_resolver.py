@@ -3,7 +3,7 @@
 The canonical location is now `products.error_tracking.backend.presentation`.
 """
 
-from products.error_tracking.backend.presentation.views import (
+from products.error_tracking.backend.presentation.git_provider_file_link_resolver import (
     GitProviderFileLinksViewSet,
     get_github_file_url,
     get_gitlab_file_url,
