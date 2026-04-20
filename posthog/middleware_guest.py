@@ -23,6 +23,9 @@ ALWAYS_ALLOWED_PATTERNS: list[re.Pattern] = [
     re.compile(r"^/_preflight/?$"),
     re.compile(r"^/static/.*$"),
     re.compile(r"^/favicon\.ico$"),
+    # The guest landing page itself must be allowed — otherwise deflection redirects to /guest
+    # which gets deflected again, causing an infinite loop.
+    re.compile(r"^/guest(/.*)?$"),
 ]
 
 
@@ -161,6 +164,10 @@ class GuestDeflectionMiddleware:
         if request.path.startswith("/api/"):
             return JsonResponse({"detail": "Not found"}, status=404)
         # SPA route → redirect to the guest landing (/guest). Frontend PR #3 renders it.
+        # Defensive: if we're already on /guest, we must NOT redirect again (infinite loop).
+        # This shouldn't happen because /guest is in ALWAYS_ALLOWED_PATTERNS, but belt-and-suspenders.
+        if request.path.startswith("/guest"):
+            return JsonResponse({"detail": "Not found"}, status=404)
         from django.shortcuts import redirect
 
         return redirect("/guest")
