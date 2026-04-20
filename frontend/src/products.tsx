@@ -47,6 +47,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
+    CIMonitoringDashboard: () => import('../../products/ci_monitoring/frontend/scenes/CIMonitoringDashboardScene'),
+    CIMonitoringTestDetail: () => import('../../products/ci_monitoring/frontend/scenes/CIMonitoringTestDetailScene'),
     SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
     SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
@@ -128,6 +130,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
     '/transformations': ['Transformations', 'transformations'],
+    '/ci_monitoring': ['CIMonitoringDashboard', 'ciMonitoringDashboard'],
+    '/ci_monitoring/tests/:testId': ['CIMonitoringTestDetail', 'ciMonitoringTestDetail'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
@@ -279,6 +283,8 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'HogFunction',
         iconType: 'data_pipeline',
     },
+    CIMonitoringDashboard: { name: 'CI monitoring', projectBased: true, iconType: 'ci_monitoring' },
+    CIMonitoringTestDetail: { name: 'CI monitoring test', projectBased: true, iconType: 'ci_monitoring' },
     SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
@@ -549,6 +555,8 @@ export const productUrls = {
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
     transformations: (): string => '/transformations',
+    ciMonitoringDashboard: (): string => '/ci_monitoring',
+    ciMonitoringTestDetail: (testId: string): string => `/ci_monitoring/tests/${testId}`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
@@ -1209,6 +1217,16 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
+    {
+        path: 'CI monitoring',
+        intents: [ProductKey.CI_MONITORING],
+        category: 'Unreleased',
+        href: urls.ciMonitoringDashboard(),
+        iconType: 'ci_monitoring' as FileSystemIconType,
+        tags: ['alpha'],
+        sceneKey: 'CIMonitoringDashboard',
+        sceneKeys: ['CIMonitoringDashboard', 'CIMonitoringTestDetail'],
+    },
     {
         path: 'Clusters',
         intents: [ProductKey.LLM_CLUSTERS],

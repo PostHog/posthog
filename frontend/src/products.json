@@ -8,6 +8,13 @@
             "intents": ["site_apps"]
         },
         {
+            "path": "CI monitoring",
+            "category": "Unreleased",
+            "iconType": null,
+            "type": null,
+            "intents": ["ci_monitoring"]
+        },
+        {
             "path": "Support",
             "category": "Behavior",
             "iconType": "conversations",
