@@ -109,9 +109,7 @@ class LLMSkillViewSet(
         return get_active_skill_queryset(self.team)
 
     def get_throttles(self):
-        if self.action == "update_by_name":
-            return [BurstRateThrottle(), SustainedRateThrottle()]
-        if self.action in ["get_by_name", "resolve_by_name"]:
+        if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
 
@@ -240,6 +238,10 @@ class LLMSkillViewSet(
                 files=payload.validated_data.get("files"),
                 base_version=payload.validated_data["base_version"],
             )
+        except IntegrityError as err:
+            if "unique_skill_file_path" in str(err):
+                raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")
+            raise
         except LLMSkillNotFoundError:
             return self._skill_not_found_response(skill_name)
         except LLMSkillVersionConflictError as err:
@@ -441,12 +443,15 @@ class LLMSkillViewSet(
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            skill = serializer.save()
+            self.perform_create(serializer)
         except IntegrityError as err:
+            err_str = str(err)
             if any(
-                constraint_name in str(err)
+                constraint_name in err_str
                 for constraint_name in ["unique_llm_skill_latest_per_team", "unique_llm_skill_version_per_team"]
             ):
                 raise serializers.ValidationError({"name": "A skill with this name already exists."}, code="unique")
+            if "unique_skill_file_path" in err_str:
+                raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")
             raise
-        return Response(self._serialize_skill(skill), status=status.HTTP_201_CREATED)
+        return Response(self._serialize_skill(serializer.instance), status=status.HTTP_201_CREATED)

@@ -40,6 +40,13 @@ def validate_skill_name_value(value: str) -> str:
     return value
 
 
+def _validate_unique_file_paths(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    paths = [f["path"] for f in files]
+    if len(paths) != len(set(paths)):
+        raise serializers.ValidationError("Duplicate file paths are not allowed.")
+    return files
+
+
 def validate_skill_body_size(body: str) -> str:
     body_bytes = len(body.encode("utf-8"))
     if body_bytes > MAX_SKILL_BODY_BYTES:
@@ -167,6 +174,9 @@ class LLMSkillPublishSerializer(serializers.Serializer):
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
 
+    def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return _validate_unique_file_paths(value)
+
     def validate_metadata(self, value: Any) -> Any:
         if not isinstance(value, dict):
             raise serializers.ValidationError("Metadata must be a JSON object.")
@@ -257,6 +267,9 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
 
+    def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return _validate_unique_file_paths(value)
+
     def validate_metadata(self, value: Any) -> Any:
         if not isinstance(value, dict):
             raise serializers.ValidationError("Metadata must be a JSON object.")
@@ -312,28 +325,6 @@ class LLMSkillListSerializer(LLMSkillSerializer):
     class Meta(LLMSkillSerializer.Meta):
         fields = [f for f in LLMSkillSerializer.Meta.fields if f != "body"]
         read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f != "body"]
-
-
-class LLMSkillPublicSerializer(serializers.Serializer):
-    """Serializer for the cached public get_by_name endpoint (Level 2)."""
-
-    id = serializers.UUIDField()
-    name = serializers.CharField()
-    description = serializers.CharField()
-    body = serializers.CharField()
-    license = serializers.CharField(allow_blank=True)
-    compatibility = serializers.CharField(allow_blank=True)
-    allowed_tools = serializers.JSONField()
-    metadata = serializers.JSONField()
-    version = serializers.IntegerField()
-    created_at = serializers.DateTimeField()
-    updated_at = serializers.DateTimeField()
-    deleted = serializers.BooleanField()
-    is_latest = serializers.BooleanField()
-    latest_version = serializers.IntegerField()
-    version_count = serializers.IntegerField()
-    first_version_created_at = serializers.DateTimeField()
-    files = LLMSkillFileManifestSerializer(many=True, required=False)
 
 
 class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):

@@ -134,13 +134,17 @@ def publish_skill_version(
         )
 
         if files is not None:
-            for file_data in files:
-                LLMSkillFile.objects.create(
-                    skill=published_skill,
-                    path=file_data["path"],
-                    content=file_data["content"],
-                    content_type=file_data.get("content_type", "text/plain"),
-                )
+            LLMSkillFile.objects.bulk_create(
+                [
+                    LLMSkillFile(
+                        skill=published_skill,
+                        path=file_data["path"],
+                        content=file_data["content"],
+                        content_type=file_data.get("content_type", "text/plain"),
+                    )
+                    for file_data in files
+                ]
+            )
         else:
             _copy_files(current_latest, published_skill)
 
@@ -149,13 +153,18 @@ def publish_skill_version(
 
 
 def _copy_files(source_skill: LLMSkill, target_skill: LLMSkill) -> None:
-    source_files = LLMSkillFile.objects.filter(skill=source_skill)
-    for f in source_files:
-        LLMSkillFile.objects.create(
-            skill=target_skill,
-            path=f.path,
-            content=f.content,
-            content_type=f.content_type,
+    source_files = list(LLMSkillFile.objects.filter(skill=source_skill))
+    if source_files:
+        LLMSkillFile.objects.bulk_create(
+            [
+                LLMSkillFile(
+                    skill=target_skill,
+                    path=f.path,
+                    content=f.content,
+                    content_type=f.content_type,
+                )
+                for f in source_files
+            ]
         )
 
 
