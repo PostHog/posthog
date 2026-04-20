@@ -830,51 +830,10 @@ def mysql_source(
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-    def _force_index_fallback() -> Iterator[Any]:
-        """Re-run the streaming query with FORCE INDEX after a bad-plan timeout.
-
-        Opens a fresh short-lived connection (the streaming one is dead), probes
-        for an index whose leading column is the cursor field, and streams with
-        a `FORCE INDEX` hint. If no suitable index exists, re-raises the
-        original exception so Temporal's retry policy can surface it.
-        """
-        if not should_use_incremental_field or not incremental_field:
-            # Without an incremental field there's no cursor to force an index on.
-            logger.warning(
-                "Bad-plan timeout hit, but sync has no incremental field — cannot apply FORCE INDEX fallback."
-            )
-            raise
-
-        with tunnel() as (host, port):
-            with pymysql.connect(
-                host=host,
-                port=port,
-                database=database,
-                user=user,
-                password=password,
-                connect_timeout=10,
-                ssl_ca=ssl_ca,
-                conv=_MYSQL_SAFE_CONVERSIONS,
-            ) as probe_connection:
-                with probe_connection.cursor() as probe_cursor:
-                    force_index_name = _find_index_for_cursor(
-                        probe_cursor, schema, table_name, incremental_field, logger
-                    )
-
-        if not force_index_name:
-            logger.warning(
-                f"Bad-plan timeout hit and no usable index on "
-                f"{schema}.{table_name}.{incremental_field} — cannot apply FORCE INDEX fallback. "
-                f"Customer should add an index on the incremental field."
-            )
-            raise
-
-        logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad-plan timeout")
-        yield from _stream_with_optional_force_index(force_index_name)
-
     def get_rows() -> Iterator[Any]:
         try:
             yield from _stream_with_optional_force_index(force_index_name=None)
+            return
         except pymysql.err.OperationalError as e:
             if not _is_bad_plan_timeout(e):
                 raise
@@ -882,7 +841,39 @@ def mysql_source(
                 f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}). "
                 f"Attempting FORCE INDEX fallback."
             )
-            yield from _force_index_fallback()
+            if not should_use_incremental_field or not incremental_field:
+                # Without an incremental field there's no cursor to force an index on.
+                logger.warning(
+                    "Bad-plan timeout hit, but sync has no incremental field — cannot apply FORCE INDEX fallback."
+                )
+                raise
+
+            with tunnel() as (host, port):
+                with pymysql.connect(
+                    host=host,
+                    port=port,
+                    database=database,
+                    user=user,
+                    password=password,
+                    connect_timeout=10,
+                    ssl_ca=ssl_ca,
+                    conv=_MYSQL_SAFE_CONVERSIONS,
+                ) as probe_connection:
+                    with probe_connection.cursor() as probe_cursor:
+                        force_index_name = _find_index_for_cursor(
+                            probe_cursor, schema, table_name, incremental_field, logger
+                        )
+
+            if not force_index_name:
+                logger.warning(
+                    f"Bad-plan timeout hit and no usable index on "
+                    f"{schema}.{table_name}.{incremental_field} — cannot apply FORCE INDEX fallback. "
+                    f"Customer should add an index on the incremental field."
+                )
+                raise
+
+            logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad-plan timeout")
+            yield from _stream_with_optional_force_index(force_index_name)
 
     name = NamingConvention.normalize_identifier(table_name)
 
