@@ -287,17 +287,11 @@ function useReRankedGroupedItems(
         incumbentRef.current = null
     }
 
-    return useMemo(() => {
+    const result = useMemo(() => {
         const firstGroup = groupedItems.find((g) => g.items.length > 0)
         const firstItem = firstGroup?.items[0]
 
-        if (!enabled || !firstItem) {
-            incumbentRef.current = firstItem?.id ?? null
-            return groupedItems
-        }
-
-        if (!incumbentRef.current) {
-            incumbentRef.current = firstItem.id
+        if (!enabled || !firstItem || !incumbentRef.current) {
             return groupedItems
         }
 
@@ -322,25 +316,31 @@ function useReRankedGroupedItems(
         }
 
         if (!found) {
-            incumbentRef.current = firstItem.id
             return groupedItems
         }
 
         // Promote: move incumbent to front of its group, move group to front
-        const result = [...groupedItems]
-        const group = { ...result[found.groupIdx], items: [...result[found.groupIdx].items] }
+        const promoted = [...groupedItems]
+        const group = { ...promoted[found.groupIdx], items: [...promoted[found.groupIdx].items] }
         group.items.splice(found.itemIdx, 1)
         group.items.unshift(found.item)
 
         if (found.groupIdx > 0) {
-            result.splice(found.groupIdx, 1)
-            result.unshift(group)
+            promoted.splice(found.groupIdx, 1)
+            promoted.unshift(group)
         } else {
-            result[0] = group
+            promoted[0] = group
         }
 
-        return result
+        return promoted
     }, [groupedItems, enabled])
+
+    useEffect(() => {
+        const firstGroup = result.find((g) => g.items.length > 0)
+        incumbentRef.current = firstGroup?.items[0]?.id ?? null
+    }, [result])
+
+    return result
 }
 
 // ============================================================================
