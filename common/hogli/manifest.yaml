@@ -609,7 +609,7 @@ tools:
         description: Python linter and formatter with virtualenv auto-activation
     tool:ty:
         bin_script: ty.py
-        description: Type checker with mypy-baseline filtering and sync
+        description: Type checker with ty baseline filtering and sync
         hidden: true
     tool:turbo:
         bin_script: turbo

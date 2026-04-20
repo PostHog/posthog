@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 import s3fs
 import pyarrow as pa
+import deltalake as deltalake
 import structlog
 import pyarrow.compute as pc
 import posthoganalytics
@@ -12,7 +13,10 @@ from posthog.temporal.data_imports.pipelines.common.load import run_post_load_op
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from posthog.temporal.data_imports.pipelines.pipeline.utils import append_partition_key_to_table
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    append_partition_key_to_table,
+    pyarrow_schema_from_arrow_exportable,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import ExportSignalMessage, SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
@@ -31,7 +35,7 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models import ExternalDataJob
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
@@ -47,8 +51,11 @@ def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_
 
 
 def _apply_partitioning(
-    export_signal: ExportSignalMessage, pa_table: Any, existing_delta_table: Any, schema: Any
-) -> Any:
+    export_signal: ExportSignalMessage,
+    pa_table: pa.Table,
+    existing_delta_table: deltalake.DeltaTable | None,
+    schema: ExternalDataSchema,
+) -> pa.Table:
     """Apply partitioning to the table if configured."""
     partition_keys = export_signal.partition_keys
 
@@ -98,8 +105,8 @@ def _apply_partitioning(
 async def _handle_partial_data_loading(
     export_signal: ExportSignalMessage,
     job: ExternalDataJob,
-    schema: Any,
-    delta_table: Any,
+    schema: ExternalDataSchema,
+    delta_table: deltalake.DeltaTable,
     previous_file_uris: list[str],
     internal_schema: HogQLSchema,
 ) -> None:
@@ -192,7 +199,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
         pa_table = read_parquet(export_signal.s3_path)
         internal_schema = HogQLSchema()
-        internal_schema.add_pyarrow_schema(pa.schema(delta_table.schema().to_arrow()))
+        internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
         internal_schema.add_pyarrow_table(pa_table)
         table_schema_dict = internal_schema.to_hogql_types()
 
@@ -446,7 +453,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
         # all batches, then overlay the current batch for JSON detection.
-        internal_schema.add_pyarrow_schema(pa.schema(delta_table.schema().to_arrow()))  # type: ignore[arg-type]  # arro3 Schema implements the Arrow C Data Interface
+        internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
         internal_schema.add_pyarrow_table(pa_table)
 
         logger.debug(

@@ -2550,6 +2550,96 @@
             "readOnlyHint": true
         }
     },
+    "skill-list": {
+        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use skill-get to fetch full content).",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "List skills",
+        "title": "List skills",
+        "required_scopes": ["llm_skill:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-get": {
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io).",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill",
+        "title": "Get skill",
+        "required_scopes": ["llm_skill:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-create": {
+        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Create skill",
+        "title": "Create skill",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-update": {
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided is carried forward from the current latest version. Requires base_version for optimistic concurrency. If files are provided, they replace all files from the previous version; if omitted, files are carried forward.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Update skill",
+        "title": "Update skill",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-duplicate": {
+        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Duplicate skill",
+        "title": "Duplicate skill",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-get": {
+        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill file",
+        "title": "Get skill file",
+        "required_scopes": ["llm_skill:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "surveys-get-all": {
         "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
         "category": "Surveys",

@@ -343,10 +343,7 @@ class PostgresPrinter(BasePrinter):
 
     def _print_table(self, table) -> str:
         if isinstance(table, DirectPostgresTable):
-            return (
-                f"{escape_postgres_identifier(table.postgres_schema)}."
-                f"{escape_postgres_identifier(table.postgres_table_name)}"
-            )
+            return table.to_printed_postgres(self.context)
         if hasattr(table, "to_printed_postgres"):
             return table.to_printed_postgres(self.context)
         return table.to_printed_clickhouse(self.context)
