@@ -76,9 +76,6 @@ export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
     insight: number
     snoozed_until?: string | null
     detector_config?: DetectorConfig | null
-    investigation_agent_enabled?: boolean
-    investigation_gates_notifications?: boolean
-    investigation_inconclusive_action?: InvestigationInconclusiveAction
 }
 
 export type InvestigationStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'

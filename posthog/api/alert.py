@@ -764,6 +764,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     triggered_points__isnull=False,
                 )
                 .exclude(triggered_points=[])
+                .select_related("investigation_notebook")
                 .order_by("-created_at")
             )
             checks_by_alert: dict[str, list] = {str(a.id): [] for a in alerts}

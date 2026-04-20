@@ -77,6 +77,8 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "schedule_restriction": None,
             "last_value": None,
             "investigation_agent_enabled": False,
+            "investigation_gates_notifications": False,
+            "investigation_inconclusive_action": "notify",
         }
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json
@@ -851,32 +853,41 @@ class TestInvestigationAgentValidation(APIBaseTest):
             "investigation_agent_enabled": enabled,
         }
 
-    def test_investigation_rejected_without_detector_config(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts",
-            self._base_alert_body(detector_config=None, enabled=True),
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "investigation_agent_enabled" in response.json().get("attr", "")
-
-    def test_investigation_accepted_with_detector_config(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts",
-            self._base_alert_body(
-                detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
-                enabled=True,
+    @parameterized.expand(
+        [
+            ("enabled_without_detector_config", None, True, status.HTTP_400_BAD_REQUEST, "investigation_agent_enabled"),
+            ("disabled_without_detector_config", None, False, status.HTTP_201_CREATED, None),
+            (
+                "enabled_with_detector_config",
+                {"type": "zscore", "threshold": 0.95, "window": 30},
+                True,
+                status.HTTP_201_CREATED,
+                None,
             ),
-        )
-        assert response.status_code == status.HTTP_201_CREATED, response.content
-        assert response.json()["investigation_agent_enabled"] is True
-
-    def test_investigation_disabled_allowed_without_detector_config(self) -> None:
+        ]
+    )
+    def test_investigation_agent_enabled_validation(
+        self,
+        _name: str,
+        detector_config: dict[str, Any] | None,
+        enabled: bool,
+        expected_status: int,
+        expected_error_attr: str | None,
+    ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
-            self._base_alert_body(detector_config=None, enabled=False),
+            self._base_alert_body(detector_config=detector_config, enabled=enabled),
         )
-        assert response.status_code == status.HTTP_201_CREATED, response.content
-        assert response.json()["investigation_agent_enabled"] is False
+        assert response.status_code == expected_status, response.content
+        if expected_error_attr:
+            assert expected_error_attr in response.json().get("attr", "")
+
+    def test_investigation_gates_notifications_rejected_without_agent_enabled(self) -> None:
+        body = self._base_alert_body(detector_config=None, enabled=False)
+        body["investigation_gates_notifications"] = True
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", body)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "investigation_gates_notifications" in response.json().get("attr", "")
 
 
 class TestAlertSimulate(APIBaseTest):
