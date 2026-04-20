@@ -28,8 +28,14 @@ export interface HogQLEditorProps {
 const BREAKDOWN_LABEL_HINT_MIN_LENGTH = 20
 
 function hasBreakdownLabel(expression: string): boolean {
-    // Detects a trailing `AS name` alias or `-- name` comment label.
-    return /\bAS\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i.test(expression) || /--\s*\S+.*$/m.test(expression)
+    // Strip quoted string literals first so a `--` sequence inside a string value
+    // (e.g. `if(x = '--disabled', ...)`) doesn't falsely look like a SQL comment.
+    const stripped = expression
+        .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+        .replace(/`(?:[^`\\]|\\.)*`/g, '``')
+    // Detects a trailing `AS name` alias or a trailing `-- name` comment label.
+    return /\bAS\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i.test(stripped) || /--\s*\S+[^\n]*$/.test(stripped)
 }
 
 export function HogQLEditor({
