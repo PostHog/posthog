@@ -45,7 +45,7 @@ from posthog.models.integration import (
     StripeIntegration,
     TwilioIntegration,
 )
-from posthog.models.user_social_identity import UserSocialIdentity
+from posthog.models.user_social_identity import UserSocialIdentity, apply_github_authorization
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -171,23 +171,33 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
 
             # If the frontend forwarded an OAuth code from "Request user authorization during installation",
-            # exchange it for the connecting user's GitHub identity. Store the login on the integration
-            # (shown on the integration card) and upsert a UserSocialIdentity so the install
-            # acts as a free identity-link for assignments, task attribution, etc.
+            # exchange it for the connecting user's GitHub identity + user-to-server tokens. Store the
+            # login on the integration (shown on the integration card) and upsert a UserSocialIdentity
+            # so the same install powers attribution and user-authored pull requests.
             code = config.get("code")
             if code:
-                gh_user = GitHubIntegration.github_user_from_code(code)
-                if gh_user is not None:
-                    gh_id, gh_login = gh_user
-                    instance.config["connecting_user_github_login"] = gh_login
+                authorization = GitHubIntegration.github_user_from_code(code)
+                if authorization is not None:
+                    instance.config["connecting_user_github_login"] = authorization.gh_login
                     instance.save(update_fields=["config"])
 
-                    # Identity-only upsert. Multiple PostHog users may point at the same
-                    # GitHub uid for identity purposes, so no cross-user collision check needed.
-                    UserSocialIdentity.objects.update_or_create(
+                    # Multiple PostHog users may point at the same GitHub uid, so no cross-user
+                    # collision check is needed on the identity row itself.
+                    identity, _ = UserSocialIdentity.objects.get_or_create(
                         user=request.user,
                         provider="github",
-                        defaults={"uid": str(gh_id), "extra_data": {"login": gh_login, "id": gh_id}},
+                        defaults={"uid": str(authorization.gh_id)},
+                    )
+                    if identity.uid != str(authorization.gh_id):
+                        identity.uid = str(authorization.gh_id)
+                    apply_github_authorization(
+                        identity,
+                        gh_id=authorization.gh_id,
+                        gh_login=authorization.gh_login,
+                        access_token=authorization.access_token,
+                        refresh_token=authorization.refresh_token,
+                        access_token_expires_in=authorization.access_token_expires_in,
+                        refresh_token_expires_in=authorization.refresh_token_expires_in,
                     )
 
             return instance

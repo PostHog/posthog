@@ -76,9 +76,9 @@ from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_tas
 from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_task_processing_workflow
 from .temporal.process_task.utils import (
     PrAuthorshipMode,
-    cache_github_user_token,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
+    get_user_github_identity,
     parse_run_state,
 )
 
@@ -275,7 +275,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         runtime_adapter = request.validated_data.get("runtime_adapter")
         model = request.validated_data.get("model")
         reasoning_effort = request.validated_data.get("reasoning_effort")
-        github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
 
         runtime_state_fields = {
@@ -355,9 +354,24 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        # Only require a user token when the task has a repo (no-repo cloud runs skip GitHub operations)
-        if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
-            return Response({"detail": "github_user_token is required for user-authored cloud runs"}, status=400)
+        # User-authored cloud runs need the task creator's GitHub App authorization stored
+        # server-side (see posthog/models/user_social_identity.py). No-repo runs skip this gate
+        # since they never touch GitHub.
+        if pr_authorship_mode == PrAuthorshipMode.USER and task.repository:
+            github_identity = get_user_github_identity(task.created_by)
+            if github_identity is None or github_identity.refresh_token_expired() or not github_identity.refresh_token:
+                return Response(
+                    {
+                        "type": "validation_error",
+                        "code": "github_authorization_required",
+                        "detail": (
+                            "The task creator must link a GitHub account with repo access "
+                            "from Settings → Linked accounts before running user-authored tasks."
+                        ),
+                        "attr": "pr_authorship_mode",
+                    },
+                    status=400,
+                )
 
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
@@ -380,9 +394,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
         task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
-
-        if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
-            cache_github_user_token(str(task_run.id), github_user_token)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
 

@@ -393,8 +393,6 @@ export interface ClaudeTaskRunCreateSchemaApi {
 * `high` - high
 * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
-    github_user_token?: string
     /** Initial permission mode for Claude runtimes.
 
 * `default` - default
@@ -474,8 +472,6 @@ export interface CodexTaskRunCreateSchemaApi {
 * `high` - high
 * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
-    github_user_token?: string
     /** Initial permission mode for Codex runtimes.
 
 * `auto` - auto
@@ -514,8 +510,6 @@ export interface TaskRunResumeRequestSchemaApi {
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
-    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
-    github_user_token?: string
 }
 
 export type TaskRunCreateRequestSchemaApi =

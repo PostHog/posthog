@@ -1922,6 +1922,25 @@ class GitHubCommitAuthor:
 GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS = 60 * 60 * 6
 
 
+@dataclass(frozen=True)
+class GitHubUserAuthorization:
+    """Outcome of a successful GitHub App user authorization code exchange."""
+
+    gh_id: int
+    gh_login: str
+    access_token: str
+    refresh_token: str | None
+    access_token_expires_in: int | None
+    refresh_token_expires_in: int | None
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 class GitHubIntegration:
     integration: Integration
 
@@ -2004,13 +2023,15 @@ class GitHubIntegration:
     @classmethod
     def github_login_from_code(cls, code: str) -> str | None:
         result = cls.github_user_from_code(code)
-        return result[1] if result else None
+        return result.gh_login if result else None
 
     @classmethod
-    def github_user_from_code(cls, code: str) -> tuple[int, str] | None:
-        """Exchange an OAuth code from the GitHub App user authorization flow for the user's (id, login).
+    def github_user_from_code(cls, code: str) -> "GitHubUserAuthorization | None":
+        """Exchange an OAuth code from the GitHub App user authorization flow.
 
-        Returns ``None`` if the exchange fails or the response lacks an id/login.
+        Returns a :class:`GitHubUserAuthorization` with the user's id/login plus the
+        user-to-server access/refresh tokens and their expirations, or ``None`` if
+        the exchange fails or the response lacks an id/login.
         """
         client_id = settings.GITHUB_APP_OAUTH_CLIENT_ID
         client_secret = settings.GITHUB_APP_OAUTH_CLIENT_SECRET
@@ -2055,7 +2076,14 @@ class GitHubIntegration:
             gh_login = payload.get("login")
             if gh_id is None or not gh_login:
                 return None
-            return int(gh_id), str(gh_login)
+            return GitHubUserAuthorization(
+                gh_id=int(gh_id),
+                gh_login=str(gh_login),
+                access_token=str(access_token),
+                refresh_token=token_data.get("refresh_token") or None,
+                access_token_expires_in=_coerce_int(token_data.get("expires_in")),
+                refresh_token_expires_in=_coerce_int(token_data.get("refresh_token_expires_in")),
+            )
         except Exception:
             logger.warning("GitHubIntegration: failed to exchange code for github user", exc_info=True)
             return None

@@ -144,6 +144,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                         github_integration_id,
                         run_id=ctx.run_id,
                         state=ctx.state,
+                        created_by=task.created_by,
                     )
                     or ""
                 )

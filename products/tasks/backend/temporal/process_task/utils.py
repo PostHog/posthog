@@ -6,17 +6,24 @@ from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.core.cache import cache
 
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.user_social_identity import (
+    GITHUB_PROVIDER,
+    ReauthorizationRequired,
+    UserGitHubIdentity,
+    UserSocialIdentity,
+)
 from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.constants import InitialPermissionMode
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
+
     from products.tasks.backend.models import Task
 
 
@@ -170,9 +177,6 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
     return RunState.model_validate(state or {})
 
 
-GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
-
-
 @dataclass(frozen=True)
 class McpServerConfig:
     """Configuration for a remote MCP server matching the ACP McpServer schema.
@@ -284,31 +288,38 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     return github_integration.integration.access_token or None
 
 
-def _github_user_token_cache_key(run_id: str) -> str:
-    return f"task-run-github-user-token:{run_id}"
-
-
-def cache_github_user_token(run_id: str, github_user_token: str) -> None:
-    cache.set(_github_user_token_cache_key(run_id), github_user_token, timeout=GITHUB_USER_TOKEN_CACHE_TTL_SECONDS)
-
-
-def get_cached_github_user_token(run_id: str) -> str | None:
-    token = cache.get(_github_user_token_cache_key(run_id))
-    return token if isinstance(token, str) and token else None
+def get_user_github_identity(user: User | None) -> UserGitHubIdentity | None:
+    """Return the requesting user's GitHub identity wrapper, if linked."""
+    if user is None:
+        return None
+    identity = UserSocialIdentity.objects.filter(user=user, provider=GITHUB_PROVIDER).first()
+    if identity is None:
+        return None
+    return UserGitHubIdentity(identity)
 
 
 def get_sandbox_github_token(
-    github_integration_id: int | None, *, run_id: str, state: dict[str, Any] | None = None
+    github_integration_id: int | None,
+    *,
+    run_id: str,
+    state: dict[str, Any] | None = None,
+    created_by: User | None = None,
 ) -> str | None:
+    """Resolve the GitHub token used inside a task sandbox.
+
+    - ``USER`` authorship reads the stored user-to-server token off the task
+      creator's ``UserSocialIdentity``, refreshing on demand.
+    - ``BOT`` authorship falls back to the team's ``Integration`` installation
+      token (existing behavior).
+    """
     run_state = parse_run_state(state)
     if run_state.pr_authorship_mode == PrAuthorshipMode.USER:
-        github_user_token = get_cached_github_user_token(run_id)
-        if not github_user_token:
-            raise ValueError(
-                f"Missing GitHub user token for user-authored run {run_id} "
-                f"(token may have expired after {GITHUB_USER_TOKEN_CACHE_TTL_SECONDS // 3600}h TTL)"
+        github_identity = get_user_github_identity(created_by)
+        if github_identity is None:
+            raise ReauthorizationRequired(
+                f"User-authored run {run_id} requires a linked GitHub account with repo access."
             )
-        return github_user_token
+        return github_identity.get_usable_access_token()
 
     if github_integration_id is None:
         return None

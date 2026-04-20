@@ -4,6 +4,8 @@ from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
 
+from posthog.helpers.encrypted_fields import EncryptedJSONField
+
 
 class Migration(migrations.Migration):
 
@@ -27,6 +29,7 @@ class Migration(migrations.Migration):
                 ("provider", models.CharField(max_length=32)),
                 ("uid", models.CharField(max_length=255)),
                 ("extra_data", models.JSONField(default=dict)),
+                ("sensitive_config", EncryptedJSONField(default=dict, ignore_decrypt_errors=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (

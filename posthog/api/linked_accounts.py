@@ -26,6 +26,8 @@ from django.shortcuts import redirect
 from django.utils.crypto import get_random_string
 from django.views.decorators.http import require_http_methods
 
+import requests
+import structlog
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -39,12 +41,15 @@ from posthog.models.user import User
 from posthog.models.user_social_identity import (
     GITHUB_PROVIDER,
     UserSocialIdentity,
+    apply_github_authorization,
     available_providers_for_user,
     can_disconnect_provider,
     can_user_enable_login_for,
     sso_enforcement_for,
 )
 from posthog.rate_limit import UserAuthenticationThrottle
+
+logger = structlog.get_logger(__name__)
 
 GITHUB_LINK_STATE_CACHE_PREFIX = "github_link_state:"
 GITHUB_LINK_STATE_TTL_SECONDS = 10 * 60
@@ -265,6 +270,8 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
         if sa is not None:
             sa.delete()
         if identity is not None:
+            if provider == GITHUB_PROVIDER:
+                _revoke_github_user_authorization(identity)
             identity.delete()
 
         return Response(
@@ -302,6 +309,32 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
         return Response({"authorize_url": f"https://github.com/login/oauth/authorize?{params}"})
 
 
+def _revoke_github_user_authorization(identity: UserSocialIdentity) -> None:
+    """Best-effort revoke of the stored GitHub user token on disconnect.
+
+    Row deletion is the source of truth; revoke failures are swallowed so a
+    transient GitHub outage doesn't block the user from disconnecting.
+    """
+    access_token = identity.access_token
+    client_id = settings.GITHUB_APP_OAUTH_CLIENT_ID
+    client_secret = settings.GITHUB_APP_OAUTH_CLIENT_SECRET
+    if not access_token or not client_id or not client_secret:
+        return
+    try:
+        requests.delete(
+            f"https://api.github.com/applications/{client_id}/grant",
+            auth=(client_id, client_secret),
+            json={"access_token": access_token},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=5,
+        )
+    except Exception:
+        logger.warning("linked_accounts: failed to revoke GitHub user authorization", exc_info=True)
+
+
 @require_http_methods(["GET"])
 @session_auth_required
 def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
@@ -325,19 +358,30 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
         return error_redirect
     cache.delete(cache_key)
 
-    result = GitHubIntegration.github_user_from_code(code)
-    if result is None:
+    authorization = GitHubIntegration.github_user_from_code(code)
+    if authorization is None:
         return error_redirect
-    gh_id, gh_login = result
 
     # Invalidate any stale login row pointing at a different GitHub account.
     old_sa = UserSocialAuth.objects.filter(user=request.user, provider=GITHUB_PROVIDER).first()
-    if old_sa and old_sa.uid != str(gh_id):
+    if old_sa and old_sa.uid != str(authorization.gh_id):
         old_sa.delete()
 
-    UserSocialIdentity.objects.update_or_create(
+    identity, _ = UserSocialIdentity.objects.get_or_create(
         user=request.user,
         provider=GITHUB_PROVIDER,
-        defaults={"uid": str(gh_id), "extra_data": {"login": gh_login, "id": gh_id}},
+        defaults={"uid": str(authorization.gh_id)},
+    )
+    # Keep uid in sync if the user re-authorized with a different GitHub account.
+    if identity.uid != str(authorization.gh_id):
+        identity.uid = str(authorization.gh_id)
+    apply_github_authorization(
+        identity,
+        gh_id=authorization.gh_id,
+        gh_login=authorization.gh_login,
+        access_token=authorization.access_token,
+        refresh_token=authorization.refresh_token,
+        access_token_expires_in=authorization.access_token_expires_in,
+        refresh_token_expires_in=authorization.refresh_token_expires_in,
     )
     return redirect(f"{LINKED_ACCOUNTS_SETTINGS_PATH}?github_link_success=1")

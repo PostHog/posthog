@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -10,6 +10,7 @@ from social_core.exceptions import AuthFailed
 from social_django.models import UserSocialAuth
 
 from posthog.models import OrganizationDomain, User
+from posthog.models.integration import GitHubUserAuthorization
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_social_identity import (
     UserSocialIdentity,
@@ -19,6 +20,17 @@ from posthog.models.user_social_identity import (
 )
 
 from ee.api.authentication import social_auth_allowed
+
+
+def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuthorization:
+    return GitHubUserAuthorization(
+        gh_id=gh_id,
+        gh_login=gh_login,
+        access_token="gho_access",
+        refresh_token="ghr_refresh",
+        access_token_expires_in=28800,
+        refresh_token_expires_in=15897600,
+    )
 
 
 class TestHelpers(APIBaseTest):
@@ -307,11 +319,11 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
             response = self.client.post("/api/linked_accounts/github/start/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_github_link_creates_identity_only(self):
+    def test_github_link_persists_identity_and_tokens(self):
         cache.set("github_link_state:STATE1", {"user_id": self.user.id}, timeout=60)
         with patch(
             "posthog.api.linked_accounts.GitHubIntegration.github_user_from_code",
-            return_value=(99, "octocat"),
+            return_value=_authorization(),
         ):
             response = self.client.get("/complete/github-link/?code=abc&state=STATE1")
         self.assertEqual(response.status_code, 302)
@@ -319,7 +331,11 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
         identity = UserSocialIdentity.objects.get(user=self.user, provider="github")
         self.assertEqual(identity.uid, "99")
         self.assertEqual(identity.extra_data["login"], "octocat")
-        # No UserSocialAuth created — identity-only.
+        self.assertEqual(identity.access_token, "gho_access")
+        self.assertEqual(identity.refresh_token, "ghr_refresh")
+        self.assertIn("access_token_expires_at", identity.extra_data)
+        self.assertIn("refresh_token_expires_at", identity.extra_data)
+        # No UserSocialAuth created — link flow does not grant login rights.
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="github").exists())
 
     def test_github_link_allows_same_uid_linked_to_other_user(self):
@@ -329,7 +345,7 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
         cache.set("github_link_state:STATE1", {"user_id": self.user.id}, timeout=60)
         with patch(
             "posthog.api.linked_accounts.GitHubIntegration.github_user_from_code",
-            return_value=(99, "octocat"),
+            return_value=_authorization(),
         ):
             response = self.client.get("/complete/github-link/?code=abc&state=STATE1")
         self.assertEqual(response.status_code, 302)
@@ -344,7 +360,7 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
         cache.set("github_link_state:STATE1", {"user_id": self.user.id}, timeout=60)
         with patch(
             "posthog.api.linked_accounts.GitHubIntegration.github_user_from_code",
-            return_value=(99, "octocat"),
+            return_value=_authorization(),
         ):
             self.client.get("/complete/github-link/?code=abc&state=STATE1")
         self.assertTrue(UserSocialAuth.objects.filter(user=self.user, provider="github", uid="99").exists())
@@ -356,7 +372,7 @@ class TestLinkedAccountsEndpoints(APIBaseTest):
         cache.set("github_link_state:STATE1", {"user_id": self.user.id}, timeout=60)
         with patch(
             "posthog.api.linked_accounts.GitHubIntegration.github_user_from_code",
-            return_value=(99, "octocat"),
+            return_value=_authorization(),
         ):
             self.client.get("/complete/github-link/?code=abc&state=STATE1")
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="github", uid="11").exists())
@@ -459,6 +475,38 @@ class TestSocialAuthAllowedLoginDisabledGate(APIBaseTest):
             response={"id": 999},
         )
 
+    def test_rejects_even_when_identity_has_stored_tokens(self):
+        """Token storage on the identity row must not weaken the login gate.
+
+        A user who connected GitHub from Linked accounts (identity + tokens, no login)
+        must still be blocked from signing in via GitHub until they flip the login toggle.
+        """
+        UserSocialIdentity.objects.create(
+            user=self.user,
+            provider="github",
+            uid="777",
+            extra_data={"login": "octocat", "id": 777, "refreshed_at": 1},
+            sensitive_config={"access_token": "gho_test", "refresh_token": "ghr_test"},
+        )
+        with self.assertRaises(AuthFailed) as ctx:
+            social_auth_allowed(
+                backend=type("MockBackend", (), {"name": "github"})(),
+                details={"email": self.user.email},
+                response={"id": 777},
+            )
+        self.assertEqual(ctx.exception.args[0], "github_login_disabled_for_account")
+
+    def test_accepts_uid_from_kwargs_when_response_lacks_id(self):
+        UserSocialIdentity.objects.create(user=self.user, provider="github", uid="555", extra_data={"login": "octo"})
+        with self.assertRaises(AuthFailed) as ctx:
+            social_auth_allowed(
+                backend=type("MockBackend", (), {"name": "github"})(),
+                details={"email": self.user.email},
+                response={},
+                uid="555",
+            )
+        self.assertEqual(ctx.exception.args[0], "github_login_disabled_for_account")
+
 
 class TestGitHubAppInstallIdentityUpsert(APIBaseTest):
     """GitHub App install creates a UserSocialIdentity (identity-only)."""
@@ -493,7 +541,7 @@ class TestGitHubAppInstallIdentityUpsert(APIBaseTest):
             ),
             patch(
                 "posthog.api.integration.GitHubIntegration.github_user_from_code",
-                return_value=(99, "octocat"),
+                return_value=_authorization(),
             ),
         ):
             response = self._post_install()
@@ -501,7 +549,61 @@ class TestGitHubAppInstallIdentityUpsert(APIBaseTest):
         identity = UserSocialIdentity.objects.get(user=self.user, provider="github")
         self.assertEqual(identity.uid, "99")
         self.assertEqual(identity.extra_data["login"], "octocat")
+        # The install flow captures tokens too, not just identity.
+        self.assertEqual(identity.access_token, "gho_access")
+        self.assertEqual(identity.refresh_token, "ghr_refresh")
+        self.assertIn("refresh_token_expires_at", identity.extra_data)
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="github").exists())
+
+    def test_install_updates_uid_on_subsequent_install_with_different_account(self):
+        """Re-installing while logged in with a different GitHub account rotates the identity uid."""
+        UserSocialIdentity.objects.create(
+            user=self.user,
+            provider="github",
+            uid="11",
+            extra_data={"login": "old", "id": 11},
+            sensitive_config={"access_token": "old_access", "refresh_token": "old_refresh"},
+        )
+        with (
+            patch(
+                "posthog.api.integration.GitHubIntegration.integration_from_installation_id",
+                return_value=type(
+                    "FakeIntegration",
+                    (),
+                    {"config": {}, "save": lambda self, **_: None, "id": 1, "team_id": self.team.id, "kind": "github"},
+                )(),
+            ),
+            patch(
+                "posthog.api.integration.GitHubIntegration.github_user_from_code",
+                return_value=_authorization(),
+            ),
+        ):
+            response = self._post_install()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        identity = UserSocialIdentity.objects.get(user=self.user, provider="github")
+        self.assertEqual(identity.uid, "99")
+        self.assertEqual(identity.access_token, "gho_access")
+
+    def test_install_without_oauth_code_still_creates_integration(self):
+        """Installs that don't forward an OAuth code skip identity creation without 500ing."""
+        with patch(
+            "posthog.api.integration.GitHubIntegration.integration_from_installation_id",
+            return_value=type(
+                "FakeIntegration",
+                (),
+                {"config": {}, "save": lambda self, **_: None, "id": 1, "team_id": self.team.id, "kind": "github"},
+            )(),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/integrations",
+                {
+                    "kind": "github",
+                    "config": {"installation_id": "12345", "state": "STATE-X"},
+                },
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(UserSocialIdentity.objects.filter(user=self.user, provider="github").exists())
 
     def test_install_allows_identity_when_other_user_has_same_uid(self):
         # Unlike the old model, identity-only linking never collides across users.
@@ -518,10 +620,358 @@ class TestGitHubAppInstallIdentityUpsert(APIBaseTest):
             ),
             patch(
                 "posthog.api.integration.GitHubIntegration.github_user_from_code",
-                return_value=(99, "octocat"),
+                return_value=_authorization(),
             ),
         ):
             response = self._post_install()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(UserSocialIdentity.objects.filter(user=self.user, provider="github", uid="99").exists())
         self.assertTrue(UserSocialIdentity.objects.filter(user=other, provider="github", uid="99").exists())
+
+
+class TestUserGitHubIdentity(APIBaseTest):
+    """Refresh / expiry behavior on user-to-server tokens stored per user."""
+
+    def _create_identity(
+        self,
+        *,
+        access_token: str = "gho_access",
+        refresh_token: str | None = "ghr_refresh",
+        access_ttl: int = 28800,
+        refresh_ttl: int = 15897600,
+    ) -> UserSocialIdentity:
+        import time
+
+        now = int(time.time())
+        return UserSocialIdentity.objects.create(
+            user=self.user,
+            provider="github",
+            uid="99",
+            extra_data={
+                "login": "octocat",
+                "id": 99,
+                "refreshed_at": now,
+                "access_token_expires_at": now + access_ttl,
+                "refresh_token_expires_at": now + refresh_ttl,
+            },
+            sensitive_config={"access_token": access_token, "refresh_token": refresh_token},
+        )
+
+    def test_access_token_expired_returns_true_past_halfway(self):
+        import time
+
+        from posthog.models.user_social_identity import UserGitHubIdentity
+
+        identity = self._create_identity(access_ttl=100)
+        identity.extra_data["refreshed_at"] = int(time.time()) - 90
+        identity.extra_data["access_token_expires_at"] = int(time.time()) + 10
+        identity.save(update_fields=["extra_data"])
+        self.assertTrue(UserGitHubIdentity(identity).access_token_expired())
+
+    def test_access_token_expired_returns_false_when_fresh(self):
+        from posthog.models.user_social_identity import UserGitHubIdentity
+
+        identity = self._create_identity()
+        self.assertFalse(UserGitHubIdentity(identity).access_token_expired())
+
+    @override_settings(GITHUB_APP_OAUTH_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    def test_refresh_access_token_updates_credentials(self):
+        from posthog.models.user_social_identity import UserGitHubIdentity
+
+        identity = self._create_identity()
+        response = MagicMock()
+        response.json.return_value = {
+            "access_token": "gho_new",
+            "refresh_token": "ghr_new",
+            "expires_in": 28800,
+            "refresh_token_expires_in": 15897600,
+        }
+        with patch("posthog.models.user_social_identity.requests.post", return_value=response):
+            UserGitHubIdentity(identity).refresh_access_token()
+
+        identity.refresh_from_db()
+        self.assertEqual(identity.access_token, "gho_new")
+        self.assertEqual(identity.refresh_token, "ghr_new")
+
+    @override_settings(GITHUB_APP_OAUTH_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    def test_refresh_access_token_discards_row_on_unrecoverable_error(self):
+        from posthog.models.user_social_identity import ReauthorizationRequired, UserGitHubIdentity
+
+        identity = self._create_identity()
+        response = MagicMock()
+        response.json.return_value = {"error": "bad_refresh_token"}
+        with patch("posthog.models.user_social_identity.requests.post", return_value=response):
+            with self.assertRaises(ReauthorizationRequired):
+                UserGitHubIdentity(identity).refresh_access_token()
+
+        self.assertFalse(UserSocialIdentity.objects.filter(pk=identity.pk).exists())
+
+    def test_get_usable_access_token_raises_when_refresh_token_expired(self):
+        import time
+
+        from posthog.models.user_social_identity import ReauthorizationRequired, UserGitHubIdentity
+
+        identity = self._create_identity()
+        identity.extra_data["refresh_token_expires_at"] = int(time.time()) - 1
+        identity.save(update_fields=["extra_data"])
+        with self.assertRaises(ReauthorizationRequired):
+            UserGitHubIdentity(identity).get_usable_access_token()
+        self.assertFalse(UserSocialIdentity.objects.filter(pk=identity.pk).exists())
+
+    def test_get_usable_access_token_returns_cached_when_fresh(self):
+        from posthog.models.user_social_identity import UserGitHubIdentity
+
+        identity = self._create_identity()
+        with patch("posthog.models.user_social_identity.requests.post") as mock_post:
+            token = UserGitHubIdentity(identity).get_usable_access_token()
+        self.assertEqual(token, "gho_access")
+        mock_post.assert_not_called()
+
+    @override_settings(GITHUB_APP_OAUTH_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    def test_get_usable_access_token_refreshes_when_expired(self):
+        import time
+
+        from posthog.models.user_social_identity import UserGitHubIdentity
+
+        identity = self._create_identity()
+        identity.extra_data["refreshed_at"] = int(time.time()) - 28800
+        identity.extra_data["access_token_expires_at"] = int(time.time()) + 10
+        identity.save(update_fields=["extra_data"])
+
+        response = MagicMock()
+        response.json.return_value = {
+            "access_token": "gho_fresh",
+            "refresh_token": "ghr_fresh",
+            "expires_in": 28800,
+            "refresh_token_expires_in": 15897600,
+        }
+        with patch("posthog.models.user_social_identity.requests.post", return_value=response) as mock_post:
+            token = UserGitHubIdentity(identity).get_usable_access_token()
+        self.assertEqual(token, "gho_fresh")
+        mock_post.assert_called_once()
+
+    def test_refresh_access_token_preserves_refresh_when_github_omits_it(self):
+        """GitHub rotates refresh tokens by default but may omit them; keep the old one."""
+        from posthog.models.user_social_identity import UserGitHubIdentity
+
+        identity = self._create_identity(refresh_token="ghr_keep")
+        response = MagicMock()
+        response.json.return_value = {"access_token": "gho_fresh", "expires_in": 28800}
+        with override_settings(GITHUB_APP_OAUTH_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret"):
+            with patch("posthog.models.user_social_identity.requests.post", return_value=response):
+                UserGitHubIdentity(identity).refresh_access_token()
+        identity.refresh_from_db()
+        self.assertEqual(identity.refresh_token, "ghr_keep")
+
+    def test_refresh_access_token_without_stored_refresh_raises(self):
+        from posthog.models.user_social_identity import ReauthorizationRequired, UserGitHubIdentity
+
+        identity = self._create_identity(refresh_token=None)
+        with override_settings(GITHUB_APP_OAUTH_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret"):
+            with self.assertRaises(ReauthorizationRequired):
+                UserGitHubIdentity(identity).refresh_access_token()
+        self.assertFalse(UserSocialIdentity.objects.filter(pk=identity.pk).exists())
+
+    def test_non_github_provider_raises_in_constructor(self):
+        from posthog.models.user_social_identity import UserGitHubIdentity
+
+        identity = UserSocialIdentity.objects.create(
+            user=self.user, provider="google-oauth2", uid="1", extra_data={"email": "x@x"}
+        )
+        with self.assertRaises(Exception):
+            UserGitHubIdentity(identity)
+
+
+class TestApplyGithubAuthorization(APIBaseTest):
+    def test_writes_identity_and_credentials(self):
+        from posthog.models.user_social_identity import apply_github_authorization
+
+        identity = UserSocialIdentity.objects.create(user=self.user, provider="github", uid="99")
+        apply_github_authorization(
+            identity,
+            gh_id=99,
+            gh_login="octocat",
+            access_token="gho_tok",
+            refresh_token="ghr_tok",
+            access_token_expires_in=28800,
+            refresh_token_expires_in=15897600,
+        )
+        identity.refresh_from_db()
+        self.assertEqual(identity.extra_data["login"], "octocat")
+        self.assertEqual(identity.extra_data["id"], 99)
+        self.assertIn("refreshed_at", identity.extra_data)
+        self.assertIn("access_token_expires_at", identity.extra_data)
+        self.assertIn("refresh_token_expires_at", identity.extra_data)
+        self.assertEqual(identity.access_token, "gho_tok")
+        self.assertEqual(identity.refresh_token, "ghr_tok")
+
+    def test_overwrites_previous_tokens(self):
+        from posthog.models.user_social_identity import apply_github_authorization
+
+        identity = UserSocialIdentity.objects.create(
+            user=self.user,
+            provider="github",
+            uid="99",
+            extra_data={"login": "old", "id": 99},
+            sensitive_config={"access_token": "stale", "refresh_token": "stale"},
+        )
+        apply_github_authorization(
+            identity,
+            gh_id=99,
+            gh_login="octocat",
+            access_token="fresh_access",
+            refresh_token="fresh_refresh",
+            access_token_expires_in=28800,
+            refresh_token_expires_in=15897600,
+        )
+        identity.refresh_from_db()
+        self.assertEqual(identity.access_token, "fresh_access")
+        self.assertEqual(identity.refresh_token, "fresh_refresh")
+        self.assertEqual(identity.extra_data["login"], "octocat")
+
+    def test_handles_missing_expiry_fields(self):
+        """GitHub Enterprise or legacy configs may omit expiry fields; skip them silently."""
+        from posthog.models.user_social_identity import apply_github_authorization
+
+        identity = UserSocialIdentity.objects.create(user=self.user, provider="github", uid="99")
+        apply_github_authorization(
+            identity,
+            gh_id=99,
+            gh_login="octocat",
+            access_token="tok",
+            refresh_token=None,
+            access_token_expires_in=None,
+            refresh_token_expires_in=None,
+        )
+        identity.refresh_from_db()
+        self.assertEqual(identity.access_token, "tok")
+        self.assertIsNone(identity.refresh_token)
+        self.assertNotIn("access_token_expires_at", identity.extra_data)
+        self.assertNotIn("refresh_token_expires_at", identity.extra_data)
+
+
+class TestGithubUserFromCode(APIBaseTest):
+    """Verify ``GitHubIntegration.github_user_from_code`` captures the full token bundle."""
+
+    @override_settings(GITHUB_APP_OAUTH_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    def test_returns_full_authorization_including_tokens(self):
+        from posthog.models.integration import GitHubIntegration
+
+        token_response = MagicMock()
+        token_response.json.return_value = {
+            "access_token": "gho_access",
+            "refresh_token": "ghr_refresh",
+            "expires_in": 28800,
+            "refresh_token_expires_in": 15897600,
+        }
+        user_response = MagicMock()
+        user_response.status_code = 200
+        user_response.json.return_value = {"id": 99, "login": "octocat"}
+
+        with patch("posthog.models.integration.requests.post", return_value=token_response):
+            with patch("posthog.models.integration.requests.get", return_value=user_response):
+                result = GitHubIntegration.github_user_from_code("abc")
+
+        assert result is not None
+        self.assertEqual(result.gh_id, 99)
+        self.assertEqual(result.gh_login, "octocat")
+        self.assertEqual(result.access_token, "gho_access")
+        self.assertEqual(result.refresh_token, "ghr_refresh")
+        self.assertEqual(result.access_token_expires_in, 28800)
+        self.assertEqual(result.refresh_token_expires_in, 15897600)
+
+    @override_settings(GITHUB_APP_OAUTH_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    def test_returns_none_when_github_rejects_code(self):
+        from posthog.models.integration import GitHubIntegration
+
+        token_response = MagicMock()
+        token_response.json.return_value = {"error": "bad_verification_code"}
+        with patch("posthog.models.integration.requests.post", return_value=token_response):
+            result = GitHubIntegration.github_user_from_code("abc")
+        self.assertIsNone(result)
+
+    @override_settings(GITHUB_APP_OAUTH_CLIENT_ID="", GITHUB_APP_OAUTH_CLIENT_SECRET="")
+    def test_returns_none_when_oauth_not_configured(self):
+        from posthog.models.integration import GitHubIntegration
+
+        self.assertIsNone(GitHubIntegration.github_user_from_code("abc"))
+
+    @override_settings(GITHUB_APP_OAUTH_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    def test_github_login_from_code_unwraps_login(self):
+        """``github_login_from_code`` remains a thin helper for legacy callers."""
+        from posthog.models.integration import GitHubIntegration
+
+        token_response = MagicMock()
+        token_response.json.return_value = {"access_token": "tok"}
+        user_response = MagicMock()
+        user_response.status_code = 200
+        user_response.json.return_value = {"id": 99, "login": "octocat"}
+        with patch("posthog.models.integration.requests.post", return_value=token_response):
+            with patch("posthog.models.integration.requests.get", return_value=user_response):
+                self.assertEqual(GitHubIntegration.github_login_from_code("abc"), "octocat")
+
+
+class TestGithubDisconnectRevokesAuthorization(APIBaseTest):
+    """Disconnect makes a best-effort revoke call to GitHub before deleting the row."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    @override_settings(GITHUB_APP_OAUTH_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    def test_disconnect_revokes_stored_token(self):
+        UserSocialIdentity.objects.create(
+            user=self.user,
+            provider="github",
+            uid="42",
+            extra_data={"login": "octocat", "id": 42},
+            sensitive_config={"access_token": "gho_rev", "refresh_token": "ghr_rev"},
+        )
+        with patch("posthog.api.linked_accounts.requests.delete") as mock_delete:
+            response = self.client.delete("/api/linked_accounts/github/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_delete.assert_called_once()
+        call = mock_delete.call_args
+        self.assertIn("cid", call.args[0])
+        self.assertEqual(call.kwargs["json"], {"access_token": "gho_rev"})
+        self.assertFalse(UserSocialIdentity.objects.filter(user=self.user, provider="github").exists())
+
+    @override_settings(GITHUB_APP_OAUTH_CLIENT_ID="cid", GITHUB_APP_OAUTH_CLIENT_SECRET="secret")
+    def test_disconnect_succeeds_even_when_github_revoke_fails(self):
+        UserSocialIdentity.objects.create(
+            user=self.user,
+            provider="github",
+            uid="42",
+            extra_data={"login": "octocat", "id": 42},
+            sensitive_config={"access_token": "gho_rev", "refresh_token": "ghr_rev"},
+        )
+        with patch(
+            "posthog.api.linked_accounts.requests.delete", side_effect=Exception("github is down")
+        ) as mock_delete:
+            response = self.client.delete("/api/linked_accounts/github/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_delete.assert_called_once()
+        self.assertFalse(UserSocialIdentity.objects.filter(user=self.user, provider="github").exists())
+
+    def test_disconnect_skips_revoke_when_oauth_not_configured(self):
+        UserSocialIdentity.objects.create(
+            user=self.user,
+            provider="github",
+            uid="42",
+            extra_data={"login": "octocat", "id": 42},
+            sensitive_config={"access_token": "gho_rev", "refresh_token": "ghr_rev"},
+        )
+        with override_settings(GITHUB_APP_OAUTH_CLIENT_ID="", GITHUB_APP_OAUTH_CLIENT_SECRET=""):
+            with patch("posthog.api.linked_accounts.requests.delete") as mock_delete:
+                response = self.client.delete("/api/linked_accounts/github/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_delete.assert_not_called()
+
+    def test_disconnect_non_github_provider_does_not_call_revoke(self):
+        UserSocialIdentity.objects.create(
+            user=self.user, provider="google-oauth2", uid="42", extra_data={"email": self.user.email}
+        )
+        with patch("posthog.api.linked_accounts.requests.delete") as mock_delete:
+            response = self.client.delete("/api/linked_accounts/google-oauth2/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_delete.assert_not_called()
