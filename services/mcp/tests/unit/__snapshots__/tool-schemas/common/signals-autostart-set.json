@@ -1,0 +1,32 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "autostart_priority": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4",
+                            "enum": ["P0", "P1", "P2", "P3", "P4"],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Minimum priority at which PostHog Code will autostart work on signal reports assigned to this user. One of P0, P1, P2, P3, P4. Set to null to inherit the team default. P0 is the broadest (autostart on any priority), P4 is the narrowest (only highest priority).\n\n* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4"
+        },
+        "user_id": {
+            "default": "@me",
+            "description": "PostHog user identifier. Use `@me` to target the currently authenticated user; staff users can pass another user's primary key.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "user_id": {
+            "default": "@me",
+            "description": "PostHog user identifier. Use `@me` to target the currently authenticated user; staff users can pass another user's primary key.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
