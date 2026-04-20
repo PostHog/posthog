@@ -43,6 +43,7 @@ import type {
     LlmPromptsNameRetrieveParams,
     LlmPromptsResolveNameRetrieveParams,
     LlmSkillsListParams,
+    LlmSkillsNameFilesRetrieveParams,
     LlmSkillsNameRetrieveParams,
     LlmSkillsResolveNameRetrieveParams,
     PaginatedClusteringJobListApi,
@@ -1660,17 +1661,35 @@ export const llmSkillsNameDuplicateCreate = async (
     })
 }
 
-export const getLlmSkillsNameFilesRetrieveUrl = (projectId: string, skillName: string, filePath: string) => {
-    return `/api/environments/${projectId}/llm_skills/name/${skillName}/files/${filePath}/`
+export const getLlmSkillsNameFilesRetrieveUrl = (
+    projectId: string,
+    skillName: string,
+    filePath: string,
+    params?: LlmSkillsNameFilesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_skills/name/${skillName}/files/${filePath}/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_skills/name/${skillName}/files/${filePath}/`
 }
 
 export const llmSkillsNameFilesRetrieve = async (
     projectId: string,
     skillName: string,
     filePath: string,
+    params?: LlmSkillsNameFilesRetrieveParams,
     options?: RequestInit
 ): Promise<LLMSkillFileApi> => {
-    return apiMutator<LLMSkillFileApi>(getLlmSkillsNameFilesRetrieveUrl(projectId, skillName, filePath), {
+    return apiMutator<LLMSkillFileApi>(getLlmSkillsNameFilesRetrieveUrl(projectId, skillName, filePath, params), {
         ...options,
         method: 'GET',
     })

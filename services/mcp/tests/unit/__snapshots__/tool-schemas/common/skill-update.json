@@ -24,7 +24,7 @@
         },
         "description": {
             "description": "Updated description for the new version.",
-            "maxLength": 1024,
+            "maxLength": 4096,
             "type": "string"
         },
         "files": {
@@ -58,7 +58,12 @@
             "type": "string"
         },
         "metadata": {
-            "description": "Arbitrary key-value metadata."
+            "additionalProperties": {},
+            "description": "Arbitrary key-value metadata.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
         },
         "skill_name": {
             "pattern": "^[^/]+$",

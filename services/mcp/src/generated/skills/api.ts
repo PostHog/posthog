@@ -203,3 +203,11 @@ export const LlmSkillsNameFilesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
     skill_name: zod.string().regex(llmSkillsNameFilesRetrievePathSkillNameRegExp),
 })
+
+export const LlmSkillsNameFilesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Specific skill version to fetch. If omitted, the latest version is returned.'),
+})

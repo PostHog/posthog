@@ -8,6 +8,7 @@ import {
     LlmSkillsNameDuplicateCreateBody,
     LlmSkillsNameDuplicateCreateParams,
     LlmSkillsNameFilesRetrieveParams,
+    LlmSkillsNameFilesRetrieveQueryParams,
     LlmSkillsNamePartialUpdateBody,
     LlmSkillsNamePartialUpdateParams,
     LlmSkillsNameRetrieveParams,
@@ -161,7 +162,9 @@ const skillDuplicate = (): ToolBase<typeof SkillDuplicateSchema, Schemas.LLMSkil
     },
 })
 
-const SkillFileGetSchema = LlmSkillsNameFilesRetrieveParams.omit({ project_id: true })
+const SkillFileGetSchema = LlmSkillsNameFilesRetrieveParams.omit({ project_id: true }).extend(
+    LlmSkillsNameFilesRetrieveQueryParams.shape
+)
 
 const skillFileGet = (): ToolBase<typeof SkillFileGetSchema, Schemas.LLMSkillFile> => ({
     name: 'skill-file-get',
@@ -171,6 +174,9 @@ const skillFileGet = (): ToolBase<typeof SkillFileGetSchema, Schemas.LLMSkillFil
         const result = await context.api.request<Schemas.LLMSkillFile>({
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/files/${encodeURIComponent(String(params.file_path))}/`,
+            query: {
+                version: params.version,
+            },
         })
         return result
     },

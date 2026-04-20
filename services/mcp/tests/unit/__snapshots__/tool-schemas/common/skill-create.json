@@ -18,8 +18,8 @@
             "type": "string"
         },
         "description": {
-            "description": "What this skill does and when to use it. Max 1024 characters.",
-            "maxLength": 1024,
+            "description": "What this skill does and when to use it. Max 4096 characters.",
+            "maxLength": 4096,
             "type": "string"
         },
         "files": {
@@ -53,7 +53,12 @@
             "type": "string"
         },
         "metadata": {
-            "description": "Arbitrary key-value metadata."
+            "additionalProperties": {},
+            "description": "Arbitrary key-value metadata.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
         },
         "name": {
             "description": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.",
