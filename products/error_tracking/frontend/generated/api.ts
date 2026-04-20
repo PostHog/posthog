@@ -13,7 +13,7 @@ import type {
     ErrorTrackingAssignmentRuleCreateRequestApi,
     ErrorTrackingAssignmentRuleUpdateRequestApi,
     ErrorTrackingAssignmentRulesListParams,
-    ErrorTrackingExternalReferenceApi,
+    ErrorTrackingExternalReferenceResultApi,
     ErrorTrackingExternalReferencesListParams,
     ErrorTrackingFingerprintApi,
     ErrorTrackingFingerprintsListParams,
@@ -40,7 +40,7 @@ import type {
     ErrorTrackingSymbolSetsList2Params,
     ErrorTrackingSymbolSetsListParams,
     PaginatedErrorTrackingAssignmentRuleListApi,
-    PaginatedErrorTrackingExternalReferenceListApi,
+    PaginatedErrorTrackingExternalReferenceResultListApi,
     PaginatedErrorTrackingFingerprintListApi,
     PaginatedErrorTrackingIssueFullListApi,
     PaginatedErrorTrackingRecommendationListApi,
@@ -231,8 +231,8 @@ export const errorTrackingExternalReferencesList = async (
     projectId: string,
     params?: ErrorTrackingExternalReferencesListParams,
     options?: RequestInit
-): Promise<PaginatedErrorTrackingExternalReferenceListApi> => {
-    return apiMutator<PaginatedErrorTrackingExternalReferenceListApi>(
+): Promise<PaginatedErrorTrackingExternalReferenceResultListApi> => {
+    return apiMutator<PaginatedErrorTrackingExternalReferenceResultListApi>(
         getErrorTrackingExternalReferencesListUrl(projectId, params),
         {
             ...options,
@@ -247,14 +247,14 @@ export const getErrorTrackingExternalReferencesCreateUrl = (projectId: string) =
 
 export const errorTrackingExternalReferencesCreate = async (
     projectId: string,
-    errorTrackingExternalReferenceApi: ErrorTrackingExternalReferenceApi,
+    errorTrackingExternalReferenceResultApi: NonReadonly<ErrorTrackingExternalReferenceResultApi>,
     options?: RequestInit
-): Promise<ErrorTrackingExternalReferenceApi> => {
-    return apiMutator<ErrorTrackingExternalReferenceApi>(getErrorTrackingExternalReferencesCreateUrl(projectId), {
+): Promise<ErrorTrackingExternalReferenceResultApi> => {
+    return apiMutator<ErrorTrackingExternalReferenceResultApi>(getErrorTrackingExternalReferencesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingExternalReferenceApi),
+        body: JSON.stringify(errorTrackingExternalReferenceResultApi),
     })
 }
 
@@ -266,11 +266,14 @@ export const errorTrackingExternalReferencesRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<ErrorTrackingExternalReferenceApi> => {
-    return apiMutator<ErrorTrackingExternalReferenceApi>(getErrorTrackingExternalReferencesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<ErrorTrackingExternalReferenceResultApi> => {
+    return apiMutator<ErrorTrackingExternalReferenceResultApi>(
+        getErrorTrackingExternalReferencesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
