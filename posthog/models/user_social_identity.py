@@ -174,11 +174,13 @@ class UserGitHubIntegration:
         Deletes the identity row and raises :class:`ReauthorizationRequired`
         when GitHub signals the refresh token can't produce a new access token.
         """
-        client_id = settings.GITHUB_APP_OAUTH_CLIENT_ID
+        client_id = settings.GITHUB_APP_CLIENT_ID
         client_secret = settings.GITHUB_APP_OAUTH_CLIENT_SECRET
         refresh_token = self.refresh_token
         if not client_id or not client_secret:
-            raise Exception("GITHUB_APP_OAUTH_CLIENT_ID/SECRET not configured, cannot refresh user token")
+            raise Exception(
+                "GITHUB_APP_CLIENT_ID / GITHUB_APP_OAUTH_CLIENT_SECRET not configured, cannot refresh user token"
+            )
         if not refresh_token:
             self._discard("no refresh token stored")
             raise ReauthorizationRequired("No refresh token stored for this GitHub identity.")

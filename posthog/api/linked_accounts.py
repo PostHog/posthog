@@ -289,7 +289,7 @@ class LinkedAccountsViewSet(viewsets.ViewSet):
     )
     def github_start(self, request: Request) -> Response:
         """Initiates a link-only GitHub OAuth flow. Returns ``{authorize_url}``."""
-        client_id = settings.GITHUB_APP_OAUTH_CLIENT_ID
+        client_id = settings.GITHUB_APP_CLIENT_ID
         if not client_id:
             raise exceptions.ValidationError("GitHub linking is not configured on this instance.")
 
@@ -316,7 +316,7 @@ def _revoke_github_user_authorization(identity: UserSocialIdentity) -> None:
     transient GitHub outage doesn't block the user from disconnecting.
     """
     access_token = identity.access_token
-    client_id = settings.GITHUB_APP_OAUTH_CLIENT_ID
+    client_id = settings.GITHUB_APP_CLIENT_ID
     client_secret = settings.GITHUB_APP_OAUTH_CLIENT_SECRET
     if not access_token or not client_id or not client_secret:
         return

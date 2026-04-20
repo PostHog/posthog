@@ -2026,10 +2026,12 @@ class GitHubIntegration:
         user-to-server access/refresh tokens and their expirations, or ``None`` if
         the exchange fails or the response lacks an id/login.
         """
-        client_id = settings.GITHUB_APP_OAUTH_CLIENT_ID
+        client_id = settings.GITHUB_APP_CLIENT_ID
         client_secret = settings.GITHUB_APP_OAUTH_CLIENT_SECRET
         if not client_id or not client_secret:
-            logger.warning("GitHubIntegration: GITHUB_APP_OAUTH_CLIENT_ID/SECRET not configured, cannot exchange code")
+            logger.warning(
+                "GitHubIntegration: GITHUB_APP_CLIENT_ID / GITHUB_APP_OAUTH_CLIENT_SECRET not configured, cannot exchange code"
+            )
             return None
 
         try:

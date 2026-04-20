@@ -35,9 +35,10 @@ LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
 
 GITHUB_APP_CLIENT_ID = get_from_env("GITHUB_APP_CLIENT_ID", "")
 GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
-# OAuth credentials for the GitHub App's user authorization flow (different from the App ID / private key above).
-# Used to exchange an authorization code for a user access token during "Request user authorization during installation".
-GITHUB_APP_OAUTH_CLIENT_ID = get_from_env("GITHUB_APP_OAUTH_CLIENT_ID", "")
+# OAuth *secret* for the same GitHub App as above — generated on the App's settings page alongside
+# the client ID. Used with GITHUB_APP_CLIENT_ID to exchange an authorization code for a user access
+# token during "Request user authorization during installation" (separate from the private key,
+# which is used for App-as-App JWT signing).
 GITHUB_APP_OAUTH_CLIENT_SECRET = get_from_env("GITHUB_APP_OAUTH_CLIENT_SECRET", "")
 
 ZENDESK_ADMIN_EMAIL = get_from_env("ZENDESK_ADMIN_EMAIL", "")
