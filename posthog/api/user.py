@@ -567,26 +567,22 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
 @extend_schema_view(
     retrieve=extend_schema(
         description=(
-            "Retrieve a user. Pass `@me` as the UUID to fetch the authenticated user. "
-            "Returns the user's profile, notification preferences, UI settings, current organization and team, and the list of "
-            "organizations and projects the user belongs to."
+            "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; "
+            "non-staff callers may only access their own account."
         ),
     ),
     update=extend_schema(
         description=(
-            "Replace the authenticated user's profile and settings. Use `@me` as the UUID to update the authenticated user. "
-            "Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided. Requires the "
-            "`user:write` scope."
+            "Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated "
+            "user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided."
         ),
     ),
     partial_update=extend_schema(
         description=(
-            "Update the authenticated user's profile and settings. Use `@me` as the UUID to update the authenticated user. "
-            "Supports updating profile fields (first_name, last_name, email), UI preferences (theme_mode, shortcut_position, "
-            "toolbar_mode, allow_sidebar_suggestions, events_column_config), privacy settings (anonymize_data, "
-            "allow_impersonation), 2FA preferences (passkeys_enabled_for_2fa), onboarding tracking (has_seen_product_intro_for), "
-            "and notification preferences (notification_settings). To switch the active workspace, set `set_current_organization` "
-            "and/or `set_current_team`. Password changes also require `current_password`. Requires the `user:write` scope."
+            "Update one or more of the authenticated user's profile fields or settings. Pass `@me` as the UUID; "
+            "non-staff callers may only update their own account. Only the fields included in the request body are "
+            "changed. `notification_settings` merges key-by-key. Changing `password` also requires `current_password`; "
+            "changing `email` triggers a verification flow."
         ),
     ),
 )

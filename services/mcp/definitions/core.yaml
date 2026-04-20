@@ -91,16 +91,10 @@ tools:
             idempotent: true
         title: Get project
         description: >
-            Retrieve a project and all of its settings. Returns the project metadata (name, timezone, access_control),
-            ingestion controls (app_urls, anonymize_ips, autocapture settings, session_recording_opt_in,
-            capture_console_log_opt_in, heatmaps_opt_in, surveys_opt_in), session replay configuration, taxonomy defaults
-            (data_attributes, person_display_name_properties, test_account_filters, path_cleaning_filters), feature flag
-            defaults, and analytics configuration. Pass `@current` as the ID to fetch the user's active project.
+            Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.
         param_overrides:
             id:
-                description: >
-                    Project ID. Pass `@current` to fetch the caller's active project. Returned from list tools as `id` or
-                    `project_id`.
+                description: Project ID, or `@current` to fetch the caller's active project.
         response:
             exclude:
                 - secret_api_token
@@ -121,30 +115,11 @@ tools:
             idempotent: true
         title: Update project settings
         description: >
-            Update one or more settings for a project using PATCH semantics — only the fields you include in the request
-            body are changed. Writable fields cover:
-            • Metadata: name, product_description, timezone, week_start_day, business_model, base_currency.
-            • Ingestion controls: app_urls (allowed origins for posthog-js), recording_domains, anonymize_ips,
-              autocapture_opt_out, autocapture_exceptions_opt_in, autocapture_web_vitals_opt_in, capture_console_log_opt_in,
-              capture_performance_opt_in, capture_dead_clicks, heatmaps_opt_in, surveys_opt_in, session_recording_opt_in.
-            • Session replay: session_recording_sample_rate (decimal string 0.00–1.00), session_recording_minimum_duration_milliseconds,
-              session_recording_linked_flag, session_recording_network_payload_capture_config, session_recording_masking_config,
-              session_recording_url_trigger_config, session_recording_url_blocklist_config, session_recording_event_trigger_config,
-              session_recording_trigger_match_type_config, session_recording_trigger_groups, session_recording_retention_period,
-              session_replay_config.
-            • Taxonomy defaults: test_account_filters, test_account_filters_default_checked, path_cleaning_filters,
-              data_attributes, person_display_name_properties, correlation_config.
-            • Feature flag defaults: flags_persistence_default, feature_flag_confirmation_enabled, feature_flag_confirmation_message,
-              default_evaluation_contexts_enabled, require_evaluation_contexts.
-            • Analytics config: revenue_analytics_config, marketing_analytics_config, customer_analytics_config,
-              web_analytics_pre_aggregated_tables_enabled.
-            • Access control and dashboards: access_control (legacy), primary_dashboard.
-            Always confirm destructive changes (e.g. toggling autocapture_opt_out, session_recording_opt_in, or anonymize_ips)
-            with the user before applying. Requires the `project:write` scope.
+            Update a project's settings using PATCH semantics — only the fields included in the request body are changed.
+            Use `project-get` first to inspect current settings. Always confirm changes with the user before applying.
         param_overrides:
             id:
-                description: >
-                    Project ID. Pass `@current` to target the caller's active project.
+                description: Project ID, or `@current` to target the caller's active project.
         exclude_params:
             - uuid
             - created_at
@@ -608,16 +583,11 @@ tools:
             idempotent: true
         title: Get user
         description: >
-            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — that is the only
-            value a non-staff caller can access. Returns profile fields (first_name, last_name, email), UI preferences
-            (theme_mode, shortcut_position, toolbar_mode, allow_sidebar_suggestions, events_column_config), privacy settings
-            (anonymize_data, allow_impersonation), 2FA status, notification_settings, onboarding flags, and the list of
-            organizations and projects the user belongs to.
+            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user —
+            non-staff callers may only access their own account.
         param_overrides:
             uuid:
-                description: >
-                    User UUID. Pass `@me` (including the `@`) to target the authenticated user — this is the only value most
-                    callers are allowed to use.
+                description: User UUID, or `@me` to target the authenticated user.
         response:
             exclude:
                 - is_impersonated
@@ -638,25 +608,14 @@ tools:
             idempotent: true
         title: Update user settings
         description: >
-            Update the authenticated user's profile and settings using PATCH semantics — only fields included in the body are
-            changed. Pass `@me` as the UUID to target the authenticated user (non-staff callers may only update their own
-            account). Writable fields cover:
-            • Profile: first_name, last_name, email (changing email triggers a verification flow).
-            • UI preferences: theme_mode, shortcut_position, toolbar_mode, allow_sidebar_suggestions, events_column_config.
-            • Privacy: anonymize_data, allow_impersonation.
-            • 2FA: passkeys_enabled_for_2fa (requires at least one passkey registered).
-            • Onboarding: has_seen_product_intro_for, role_at_organization.
-            • Notifications: notification_settings — a map whose values are merged key-by-key with existing preferences
-              (boolean switches or per-ID boolean maps for digest opt-outs, plus `data_pipeline_error_threshold` as a
-              0.0–1.0 float).
-            • Workspace switching: set_current_organization and/or set_current_team (IDs the user already belongs to).
-            • Password change: password plus current_password (required when a usable password is already set).
-            Always confirm destructive changes (email change, password change, workspace switches) with the user first.
-            Requires the `user:write` scope.
+            Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the
+            request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account.
+            Use `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email`
+            triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes
+            with the user before applying.
         param_overrides:
             uuid:
-                description: >
-                    User UUID. Pass `@me` to update the authenticated user — this is the only value most callers may use.
+                description: User UUID, or `@me` to target the authenticated user.
         exclude_params:
             - date_joined
             - uuid

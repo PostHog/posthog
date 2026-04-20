@@ -652,32 +652,19 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 @extend_schema_view(
     retrieve=extend_schema(
         description=(
-            "Retrieve a project and its settings. Returns all ingestion, autocapture, session replay, heatmap, survey, "
-            "access control, and analytics configuration associated with the project (and its primary environment)."
+            "Retrieve a project and its settings — ingestion, autocapture, session replay, heatmap, survey, access "
+            "control, and analytics configuration associated with the project's primary environment."
         ),
     ),
     update=extend_schema(
         description=(
-            "Replace a project and its settings. Prefer the PATCH endpoint for partial updates — PUT requires every writable "
-            "field to be provided. Requires the `project:write` scope."
+            "Replace a project and its settings. Prefer the PATCH endpoint for partial updates — PUT requires every "
+            "writable field to be provided."
         ),
     ),
     partial_update=extend_schema(
         description=(
-            "Update a project's settings. Writable fields include basic metadata (name, product_description, timezone, "
-            "week_start_day, business_model, base_currency), ingestion controls (app_urls, recording_domains, anonymize_ips, "
-            "autocapture_opt_out, autocapture_exceptions_opt_in, autocapture_web_vitals_opt_in, capture_console_log_opt_in, "
-            "capture_performance_opt_in, capture_dead_clicks, heatmaps_opt_in, surveys_opt_in, session_recording_opt_in), "
-            "session replay configuration (session_recording_sample_rate, session_recording_minimum_duration_milliseconds, "
-            "session_recording_linked_flag, session_recording_network_payload_capture_config, session_recording_masking_config, "
-            "session_recording_url_trigger_config, session_recording_url_blocklist_config, session_recording_event_trigger_config, "
-            "session_recording_trigger_match_type_config, session_recording_trigger_groups, session_recording_retention_period, "
-            "session_replay_config), taxonomy defaults (test_account_filters, test_account_filters_default_checked, "
-            "path_cleaning_filters, data_attributes, person_display_name_properties, correlation_config), feature flag defaults "
-            "(flags_persistence_default, feature_flag_confirmation_enabled, feature_flag_confirmation_message, "
-            "default_evaluation_contexts_enabled, require_evaluation_contexts), and analytics settings "
-            "(revenue_analytics_config, marketing_analytics_config, customer_analytics_config, "
-            "web_analytics_pre_aggregated_tables_enabled). Requires the `project:write` scope for API/OAuth clients."
+            "Update one or more of a project's settings. Only the fields included in the request body are changed."
         ),
     ),
 )
