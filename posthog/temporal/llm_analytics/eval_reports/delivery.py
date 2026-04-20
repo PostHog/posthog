@@ -408,6 +408,16 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     total_attempts = email_attempts + slack_attempts
     all_failed = had_any_target and total_attempts > 0 and len(all_errors) >= total_attempts
 
+    from posthog.temporal.llm_analytics.eval_reports.metrics import increment_delivery
+
+    for _t in email_targets:
+        email_addrs = [addr.strip() for addr in _t.get("value", "").split(",") if addr.strip()]
+        for _addr in email_addrs:
+            increment_delivery("email", "failed" if any(_addr in e for e in all_errors) else "delivered")
+    for _t in slack_targets:
+        channel = _t.get("channel", "")
+        increment_delivery("slack", "failed" if any(channel in e for e in all_errors) else "delivered")
+
     if not had_any_target:
         report_run.delivery_status = EvaluationReportRun.DeliveryStatus.PENDING
     elif all_failed:
@@ -419,6 +429,16 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
 
     report_run.delivery_errors = all_errors
     report_run.save(update_fields=["delivery_status", "delivery_errors"])
+
+    logger.info(
+        "llma_eval_reports_delivery_completed",
+        report_id=report_id,
+        report_run_id=report_run_id,
+        delivery_status=report_run.delivery_status,
+        email_targets=len(email_targets),
+        slack_targets=len(slack_targets),
+        error_count=len(all_errors),
+    )
 
     if all_failed:
         # Raise so the Temporal activity fails and retries fire per DELIVER_RETRY_POLICY.
