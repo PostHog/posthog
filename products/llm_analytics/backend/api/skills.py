@@ -467,4 +467,4 @@ class LLMSkillViewSet(
             if "unique_skill_file_path" in err_str:
                 raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")
             raise
-        return Response(self._serialize_skill(serializer.instance), status=status.HTTP_201_CREATED)
+        return Response(self._serialize_skill(cast(LLMSkill, serializer.instance)), status=status.HTTP_201_CREATED)
