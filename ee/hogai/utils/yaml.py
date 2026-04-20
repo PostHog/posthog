@@ -26,15 +26,12 @@ class YamlOutputParser(BaseOutputParser):
         return "Return valid YAML format that can be parsed into a dictionary or list."
 
 
-def load_yaml_from_raw_llm_content(raw_content: str, final_validation: bool = False) -> dict | list:
+def load_yaml_from_raw_llm_content(raw_content: str) -> dict | list:
     yaml_parser = YamlOutputParser()
     try:
         content = yaml_parser.parse(raw_content)
         return content
     except OutputParserException:
-        if not final_validation:
-            # In-the-middle-of-stream chunks could be invalid, no need to fix them
-            raise
         # Try to fix with OutputFixingParser
         llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.1)
         fixing_parser = OutputFixingParser.from_llm(parser=yaml_parser, llm=llm, max_retries=1)

@@ -92,20 +92,15 @@ def _convert_llm_content_to_session_summary(
     summary_prompt: str,
     session_start_time_str: str,
     session_duration: int,
-    final_validation: bool = False,
 ) -> SessionSummarySerializer | None:
     """Parse and enrich LLM YAML output, returning a schema object."""
-    # Try to parse the accumulated text as YAML
     raw_session_summary = load_raw_session_summary_from_llm_content(
         raw_content=content,
         allowed_event_ids=allowed_event_ids,
         session_id=session_id,
-        final_validation=final_validation,
     )
     if not raw_session_summary:
-        # If parsing fails, this chunk is incomplete or call response is hallucinated, so skipping it.
         return None
-    # Enrich session summary with events metadata
     session_summary = enrich_raw_session_summary_with_meta(
         raw_session_summary=raw_session_summary,
         simplified_events_mapping=simplified_events_mapping,
@@ -116,11 +111,10 @@ def _convert_llm_content_to_session_summary(
         session_start_time_str=session_start_time_str,
         session_duration=session_duration,
         session_id=session_id,
-        final_validation=final_validation,
     )
 
     # Track generation for history of experiments. Don't run in tests.
-    if final_validation and os.environ.get("LOCAL_SESSION_SUMMARY_RESULTS_DIR") and not os.environ.get("TEST"):
+    if os.environ.get("LOCAL_SESSION_SUMMARY_RESULTS_DIR") and not os.environ.get("TEST"):
         _track_session_summary_generation(
             summary_prompt=summary_prompt,
             raw_session_summary=json.dumps(raw_session_summary.data, indent=4),
@@ -267,7 +261,6 @@ async def get_llm_single_session_summary(
             session_start_time_str=session_start_time_str,
             session_duration=session_duration,
             summary_prompt=summary_prompt,
-            final_validation=True,
         )
         if not session_summary:
             msg = f"Failed to parse LLM response for session summary, session_id {session_id}: {raw_content}"
