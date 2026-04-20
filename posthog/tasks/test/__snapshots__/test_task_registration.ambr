@@ -13,6 +13,7 @@
     'posthog.tasks.alerts.checks.check_alert_task',
     'posthog.tasks.alerts.checks.check_alerts_task',
     'posthog.tasks.alerts.checks.checks_cleanup_task',
+    'posthog.tasks.alerts.checks.investigation_notification_safety_net_task',
     'posthog.tasks.alerts.checks.reset_stuck_alerts_task',
     'posthog.tasks.async_migrations.run_async_migration',
     'posthog.tasks.auth_token_cache_verification.verify_and_fix_auth_token_cache_task',
