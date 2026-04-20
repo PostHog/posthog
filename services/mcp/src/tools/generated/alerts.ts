@@ -48,6 +48,7 @@ const alertGet = (): ToolBase<typeof AlertGetSchema, Schemas.Alert> => ({
                 checks_date_from: params.checks_date_from,
                 checks_date_to: params.checks_date_to,
                 checks_limit: params.checks_limit,
+                checks_offset: params.checks_offset,
             },
         })
         return result

@@ -149,24 +149,29 @@ func LoadIntentMap() (*IntentMapConfig, error) {
 	return &IntentMapConfig{Intents: intents}, nil
 }
 
-// findIntentMapPath walks up from the working directory looking for
-// devenv/intent-map.yaml. Falls back to the cwd-relative path.
-func findIntentMapPath() (string, error) {
+// findFileUpward walks up from the working directory looking for relPath.
+// Returns the absolute path if found, or an error if the filesystem root
+// is reached without a match.
+func findFileUpward(relPath string) (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("get working directory: %w", err)
 	}
 	for {
-		candidate := filepath.Join(dir, "devenv", "intent-map.yaml")
+		candidate := filepath.Join(dir, relPath)
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return filepath.Join("devenv", "intent-map.yaml"), nil
+			return "", fmt.Errorf("%s not found", relPath)
 		}
 		dir = parent
 	}
+}
+
+func findIntentMapPath() (string, error) {
+	return findFileUpward(filepath.Join("devenv", "intent-map.yaml"))
 }
 
 // PosthogConfig represents the _posthog section embedded in generated mprocs configs.
@@ -189,6 +194,17 @@ func LoadPosthogConfig(configPath string) (*PosthogConfig, error) {
 		return nil, err
 	}
 	return wrapper.Posthog, nil
+}
+
+// LoadRegistry finds and parses the full process registry (bin/mprocs.yaml)
+// by walking up from the working directory. Returns nil (no error) if the
+// registry cannot be found.
+func LoadRegistry() (*Config, error) {
+	path, err := findFileUpward(filepath.Join("bin", "mprocs.yaml"))
+	if err != nil {
+		return nil, nil
+	}
+	return Load(path)
 }
 
 // OrderedNames returns process names in a stable, predictable order.

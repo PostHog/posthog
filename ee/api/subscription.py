@@ -30,6 +30,7 @@ from posthog.models import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
+from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.security.url_validation import is_url_allowed
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
@@ -429,7 +430,13 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         request=None,
         responses={202: OpenApiResponse(description="Test delivery workflow started")},
     )
-    @action(methods=["POST"], detail=True, url_path="test-delivery")
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="test-delivery",
+        throttle_classes=[SubscriptionTestDeliveryThrottle],
+        required_scopes=["subscription:write"],
+    )
     def test_delivery(self, request, **kwargs):
         subscription = self.get_object()
         if subscription.deleted:

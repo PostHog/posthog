@@ -24,6 +24,7 @@ export interface SlowestQuery {
     team_id: number
     team_name: string | null
     organization_name: string | null
+    organization_mrr: number | null
     query_type: string
     experiment_name: string
     experiment_metric_name: string
