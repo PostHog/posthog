@@ -72,6 +72,7 @@ from products.llm_analytics.backend.api import (
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMAnalyticsTranslateViewSet,
+    LLMEvaluationDescriptionViewSet,
     LLMEvaluationSummaryViewSet,
     LLMModelsViewSet,
     LLMProviderKeyValidationViewSet,
@@ -1321,6 +1322,13 @@ environments_router.register(
     r"llm_analytics/evaluation_summary",
     LLMEvaluationSummaryViewSet,
     "environment_llm_analytics_evaluation_summary",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/evaluation_description",
+    LLMEvaluationDescriptionViewSet,
+    "environment_llm_analytics_evaluation_description",
     ["team_id"],
 )
 

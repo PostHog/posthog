@@ -3,7 +3,7 @@ import { Field, Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconArrowLeft, IconInfo, IconPlay, IconTrends, IconWarning } from '@posthog/icons'
+import { IconArrowLeft, IconInfo, IconPlay, IconSparkles, IconTrends, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -57,6 +57,8 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         activeTab,
         canEnable,
         canEnableReason,
+        generatedDescriptionLoading,
+        canGenerateDescription,
     } = useValues(llmEvaluationLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -71,6 +73,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         setEvaluationType,
         setSignalEmission,
         setActiveTab,
+        generateEvaluationDescription,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
@@ -385,13 +388,48 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                                 )}
                                             </p>
 
-                                            <Field name="description" label="Description (optional)">
+                                            <Field
+                                                name="description"
+                                                label={
+                                                    <div className="flex items-center justify-between w-full gap-2">
+                                                        <span>Description (optional)</span>
+                                                        <Tooltip
+                                                            title={
+                                                                canGenerateDescription
+                                                                    ? evaluation.description
+                                                                        ? 'Rewrite the description based on the current configuration'
+                                                                        : 'Generate a description based on the current configuration'
+                                                                    : isHog
+                                                                      ? 'Add a name or Hog code first to generate a description'
+                                                                      : 'Add a name or judge prompt first to generate a description'
+                                                            }
+                                                        >
+                                                            <span>
+                                                                <LemonButton
+                                                                    type="secondary"
+                                                                    size="xsmall"
+                                                                    icon={<IconSparkles />}
+                                                                    onClick={generateEvaluationDescription}
+                                                                    loading={generatedDescriptionLoading}
+                                                                    disabled={!canGenerateDescription}
+                                                                    data-attr="llma-evaluation-generate-description"
+                                                                >
+                                                                    {evaluation.description
+                                                                        ? 'Regenerate with AI'
+                                                                        : 'Generate with AI'}
+                                                                </LemonButton>
+                                                            </span>
+                                                        </Tooltip>
+                                                    </div>
+                                                }
+                                            >
                                                 <LemonTextArea
                                                     value={evaluation.description || ''}
                                                     onChange={setEvaluationDescription}
-                                                    placeholder="Describe what this evaluation checks for..."
+                                                    placeholder="Describe what this evaluation checks for, or click 'Generate with AI' to fill it in automatically."
                                                     rows={2}
                                                     maxLength={500}
+                                                    disabled={generatedDescriptionLoading}
                                                 />
                                             </Field>
 

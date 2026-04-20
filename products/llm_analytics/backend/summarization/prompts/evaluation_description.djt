@@ -1,0 +1,43 @@
+You are an expert at writing concise, clear descriptions for LLM evaluations. Your task is to write a short description (1-3 sentences) that explains what an evaluation checks for, based on its configuration.
+
+## Evaluation Context
+
+{% if evaluation_name %}**Name:** {{ evaluation_name }}
+{% endif %}
+**Type:** {{ evaluation_type_label }}
+
+{% if allows_na %}This evaluation may return "Not applicable" when the criteria doesn't apply to a given generation.
+{% endif %}
+{% if evaluation_type == "llm_judge" %}
+**Judge Prompt (used by the LLM judge to decide pass/fail):**
+```
+{{ evaluation_prompt }}
+```
+{% elif evaluation_type == "hog" %}
+**Hog Source Code (deterministic code run against each generation):**
+```
+{{ evaluation_source }}
+```
+{% endif %}
+
+{% if existing_description %}
+**Current Description (may be outdated or incomplete; rewrite to reflect the current configuration):**
+```
+{{ existing_description }}
+```
+{% endif %}
+
+## Guidelines
+
+- Write 1-3 sentences, plain English, no jargon
+- Focus on WHAT the evaluation checks for, not HOW it does it
+- Do not mention "LLM judge" or "Hog code" in the description — users already know the evaluation type from context
+- Do not start with "This evaluation..." — be direct
+- Do not include Markdown, quotes, or code blocks
+- Keep under 400 characters
+- If the configuration is empty or nonsensical, return a short placeholder like "Checks quality of LLM responses."
+
+Return JSON matching this schema:
+{
+  "description": "A concise description of what the evaluation checks for."
+}

@@ -119,6 +119,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         toggleSummaryExpanded: true,
         regenerateEvaluationSummary: true,
         trackSummarizeClicked: true,
+
+        // Description generation actions
+        generateEvaluationDescription: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -173,6 +176,40 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         evaluationId: props.evaluationId,
                         forceRefresh: values.isForceRefresh,
                     })
+                },
+            },
+        ],
+        generatedDescription: [
+            null as string | null,
+            {
+                runGenerateEvaluationDescription: async (_, breakpoint): Promise<string | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const evaluation = values.evaluation
+                    if (!evaluation) {
+                        return null
+                    }
+
+                    const body: Record<string, unknown> = {
+                        evaluation_type: evaluation.evaluation_type,
+                        name: evaluation.name,
+                        allows_na: evaluation.output_config?.allows_na ?? false,
+                        existing_description: evaluation.description || '',
+                    }
+                    if (evaluation.evaluation_type === 'hog') {
+                        body.source = evaluation.evaluation_config.source || ''
+                    } else {
+                        body.prompt = evaluation.evaluation_config.prompt || ''
+                    }
+
+                    const response = await api.create(
+                        `/api/environments/${teamId}/llm_analytics/evaluation_description/`,
+                        body
+                    )
+                    breakpoint()
+                    return typeof response?.description === 'string' ? response.description : null
                 },
             },
         ],
@@ -433,6 +470,29 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             actions.generateEvaluationSummary({ forceRefresh: true })
         },
 
+        generateEvaluationDescription: () => {
+            const evaluation = values.evaluation
+            if (!evaluation) {
+                return
+            }
+            posthog.capture('llma evaluation description generate clicked', {
+                evaluation_type: evaluation.evaluation_type,
+                has_existing_description: !!(evaluation.description || '').trim(),
+            })
+            actions.runGenerateEvaluationDescription()
+        },
+
+        runGenerateEvaluationDescriptionSuccess: ({ generatedDescription }) => {
+            if (generatedDescription && typeof generatedDescription === 'string') {
+                actions.setEvaluationDescription(generatedDescription)
+            }
+        },
+
+        runGenerateEvaluationDescriptionFailure: ({ errorObject }) => {
+            const message = evaluationErrorMessage(errorObject, 'Failed to generate description')
+            lemonToast.error(message)
+        },
+
         trackSummarizeClicked: () => {
             posthog.capture('llma evaluation summarize clicked', {
                 filter: values.evaluationSummaryFilter,
@@ -589,6 +649,21 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     selectors({
         isNewEvaluation: [(_, props) => [props.evaluationId], (evaluationId: string) => evaluationId === 'new'],
+
+        canGenerateDescription: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): boolean => {
+                if (!evaluation) {
+                    return false
+                }
+                const hasName = evaluation.name.trim().length > 0
+                const hasConfig =
+                    evaluation.evaluation_type === 'hog'
+                        ? (evaluation.evaluation_config.source || '').trim().length > 0
+                        : (evaluation.evaluation_config.prompt || '').trim().length > 0
+                return hasName || hasConfig
+            },
+        ],
 
         signalEmissionEnabled: [
             (s, props) => [s.signalEmissionOptimistic, s.sourceConfigs, props.evaluationId],

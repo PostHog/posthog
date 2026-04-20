@@ -3,6 +3,7 @@ from .clustering_config import ClusteringConfigViewSet
 from .clustering_job import ClusteringJobViewSet
 from .datasets import DatasetItemViewSet, DatasetViewSet
 from .evaluation_config import EvaluationConfigViewSet
+from .evaluation_description import LLMEvaluationDescriptionViewSet
 from .evaluation_reports import EvaluationReportViewSet
 from .evaluation_runs import EvaluationRunViewSet
 from .evaluation_summary import LLMEvaluationSummaryViewSet
@@ -28,6 +29,7 @@ __all__ = [
     "LLMAnalyticsSummarizationViewSet",
     "LLMAnalyticsTranslateViewSet",
     "LLMEvaluationSummaryViewSet",
+    "LLMEvaluationDescriptionViewSet",
     "SUPPORTED_MODELS_WITH_THINKING",
     "DatasetViewSet",
     "DatasetItemViewSet",
