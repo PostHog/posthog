@@ -255,7 +255,6 @@ function useDebouncedGroupedItems(
     if (searchValue !== prevSearchRef.current) {
         prevSearchRef.current = searchValue
         searchJustChangedRef.current = true
-        setStable(groupedItems)
     }
 
     useEffect(() => {
@@ -265,13 +264,18 @@ function useDebouncedGroupedItems(
         }
         if (searchJustChangedRef.current) {
             searchJustChangedRef.current = false
+            setStable(groupedItems)
             return
         }
         const timer = setTimeout(() => setStable(groupedItems), SEARCH_DEBOUNCE_DELAY)
         return () => clearTimeout(timer)
-    }, [groupedItems, enabled])
+    }, [groupedItems, enabled, searchValue])
 
-    return enabled ? stable : groupedItems
+    if (!enabled || searchJustChangedRef.current) {
+        return groupedItems
+    }
+
+    return stable
 }
 
 function useReRankedGroupedItems(
