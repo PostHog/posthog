@@ -12,10 +12,17 @@ import { Breadcrumb } from '~/types'
 import {
     llmSkillsCreate,
     llmSkillsNameArchiveCreate,
+    llmSkillsNameFilesRetrieve,
     llmSkillsNamePartialUpdate,
     llmSkillsResolveNameRetrieve,
 } from '../generated/api'
-import type { LLMSkillApi, LLMSkillListApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
+import type {
+    LLMSkillApi,
+    LLMSkillFileApi,
+    LLMSkillFileInputApi,
+    LLMSkillListApi,
+    LLMSkillVersionSummaryApi,
+} from '../generated/api.schemas'
 import type { llmSkillLogicType } from './llmSkillLogicType'
 import { llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
 import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from './skillConstants'
@@ -32,12 +39,19 @@ export interface SkillLogicProps {
     tabId?: string
 }
 
+export interface SkillFormFileValues {
+    path: string
+    content: string
+    content_type: string
+}
+
 export interface SkillFormValues {
     name: string
     description: string
     body: string
     license: string
     compatibility: string
+    files: SkillFormFileValues[]
 }
 
 export interface ResolvedLLMSkill extends LLMSkillApi {
@@ -55,6 +69,7 @@ const DEFAULT_SKILL_FORM_VALUES: SkillFormValues = {
     body: '',
     license: '',
     compatibility: '',
+    files: [],
 }
 
 const SKILL_VERSIONS_LIMIT = 50
@@ -74,14 +89,33 @@ async function fetchResolvedSkill(
     }
 }
 
-function getSkillFormDefaults(skill: LLMSkillApi): SkillFormValues {
+function getSkillFormDefaults(skill: LLMSkillApi, fileContents?: LLMSkillFileApi[]): SkillFormValues {
+    const files: SkillFormFileValues[] = fileContents
+        ? fileContents.map((f) => ({ path: f.path, content: f.content, content_type: f.content_type || 'text/plain' }))
+        : skill.files.map((f) => ({ path: f.path, content: '', content_type: f.content_type || 'text/plain' }))
     return {
         name: skill.name,
         description: skill.description,
         body: skill.body,
         license: skill.license || '',
         compatibility: skill.compatibility || '',
+        files,
     }
+}
+
+async function fetchAllFileContents(skillName: string, skill: LLMSkillApi): Promise<LLMSkillFileApi[]> {
+    if (!skill.files || skill.files.length === 0) {
+        return []
+    }
+    const teamId = String(ApiConfig.getCurrentTeamId())
+    const results = await Promise.all(
+        skill.files.map((f) =>
+            llmSkillsNameFilesRetrieve(teamId, skillName, f.path, {
+                version: skill.is_latest ? undefined : skill.version,
+            })
+        )
+    )
+    return results
 }
 
 function findExistingSkill(skillName: string): LLMSkillListApi | undefined {
@@ -101,6 +135,9 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         loadMoreVersions: true,
         setVersionsLoading: (versionsLoading: boolean) => ({ versionsLoading }),
         setMode: (mode: SkillMode) => ({ mode }),
+        loadFileContents: true,
+        setFileContentsLoading: (loading: boolean) => ({ loading }),
+        toggleOutlineExpanded: true,
     }),
 
     reducers(({ props }) => ({
@@ -124,6 +161,19 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 loadMoreVersions: () => true,
                 setVersionsLoading: (_, { versionsLoading }) => versionsLoading,
                 loadSkillSuccess: () => false,
+            },
+        ],
+        fileContentsLoading: [
+            false,
+            {
+                loadFileContents: () => true,
+                setFileContentsLoading: (_, { loading }) => loading,
+            },
+        ],
+        isOutlineExpanded: [
+            false,
+            {
+                toggleOutlineExpanded: (state) => !state,
             },
         ],
         mode: [
@@ -165,6 +215,15 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 try {
                     let savedSkill: LLMSkillApi
 
+                    const filesToSend: LLMSkillFileInputApi[] | undefined =
+                        formValues.files.length > 0
+                            ? formValues.files.map((f) => ({
+                                  path: f.path,
+                                  content: f.content,
+                                  content_type: f.content_type || undefined,
+                              }))
+                            : undefined
+
                     if (isNew) {
                         savedSkill = await llmSkillsCreate(String(ApiConfig.getCurrentTeamId()), {
                             name: formValues.name,
@@ -172,6 +231,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             body: formValues.body,
                             license: formValues.license || undefined,
                             compatibility: formValues.compatibility || undefined,
+                            files: filesToSend,
                         })
                         llmSkillsLogic.findMounted()?.actions.loadSkills(false)
                         lemonToast.success('Skill created successfully')
@@ -194,6 +254,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                                 allowed_tools: currentSkill.allowed_tools,
                                 metadata: currentSkill.metadata,
                                 base_version: currentSkill.latest_version,
+                                files: filesToSend,
                             }
                         )
                         llmSkillsLogic.findMounted()?.actions.loadSkills(false)
@@ -348,6 +409,39 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 lemonToast.error('Failed to load more versions')
             } finally {
                 actions.setVersionsLoading(false)
+            }
+        },
+
+        loadFileContents: async () => {
+            const skill = values.skill
+            if (!isSkill(skill) || !skill.files || skill.files.length === 0) {
+                actions.setFileContentsLoading(false)
+                return
+            }
+            try {
+                const fileContents = await fetchAllFileContents(props.skillName, skill)
+                actions.setSkillFormValues({
+                    files: fileContents.map((f) => ({
+                        path: f.path,
+                        content: f.content,
+                        content_type: f.content_type || 'text/plain',
+                    })),
+                })
+            } catch (e) {
+                console.error('Failed to load file contents for editing', e)
+            } finally {
+                actions.setFileContentsLoading(false)
+            }
+        },
+
+        setMode: ({ mode }) => {
+            if (
+                mode === SkillMode.Edit &&
+                isSkill(values.skill) &&
+                values.skill.files &&
+                values.skill.files.length > 0
+            ) {
+                actions.loadFileContents()
             }
         },
 

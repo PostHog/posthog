@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
-import { IconChevronRight, IconDocument, IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { IconChevronRight, IconDocument, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -23,8 +23,10 @@ import { ApiConfig } from '~/lib/api'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { MarkdownOutline } from '../components/MarkdownOutline'
 import { llmSkillsNameFilesRetrieve } from '../generated/api'
 import type { LLMSkillFileApi, LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
+import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
@@ -54,6 +56,7 @@ export function LLMSkillScene(): JSX.Element {
         isHistoricalVersion,
         versions,
         canLoadMoreVersions,
+        fileContentsLoading,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
 
@@ -223,7 +226,10 @@ export function LLMSkillScene(): JSX.Element {
 
                 <div className="flex flex-col gap-6 xl:flex-row">
                     <div className="min-w-0 flex-1">
-                        <SkillEditForm isHistoricalVersion={isHistoricalVersion} />
+                        <SkillEditForm
+                            isHistoricalVersion={isHistoricalVersion}
+                            fileContentsLoading={fileContentsLoading}
+                        />
                     </div>
 
                     {!isNewSkill && (
@@ -245,7 +251,9 @@ export function LLMSkillScene(): JSX.Element {
 }
 
 function SkillViewDetails(): JSX.Element {
-    const { skill } = useValues(llmSkillLogic)
+    const { skill, isOutlineExpanded } = useValues(llmSkillLogic)
+    const { toggleOutlineExpanded } = useActions(llmSkillLogic)
+    const markdownContainerRef = useRef<HTMLDivElement | null>(null)
 
     if (!skill || !isSkill(skill)) {
         return <></>
@@ -313,9 +321,21 @@ function SkillViewDetails(): JSX.Element {
 
             <div>
                 <label className="text-xs font-semibold uppercase text-secondary">Skill body</label>
-                <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
-                    {skill.body}
-                </LemonMarkdown>
+                <MarkdownOutline
+                    markdownText={skill.body}
+                    containerRef={markdownContainerRef}
+                    className="mt-2"
+                    label="Skill outline"
+                    tooltipText="Navigate the sections of this skill. Click a heading to scroll to it."
+                    dataAttrPrefix="llma-skill"
+                    isExpanded={isOutlineExpanded}
+                    onToggleExpanded={toggleOutlineExpanded}
+                />
+                <div ref={markdownContainerRef}>
+                    <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
+                        {skill.body}
+                    </LemonMarkdown>
+                </div>
             </div>
 
             {skill.files && skill.files.length > 0 && (
@@ -472,8 +492,43 @@ function SkillFileViewer({
     )
 }
 
-function SkillEditForm({ isHistoricalVersion }: { isHistoricalVersion: boolean }): JSX.Element {
-    const { isNewSkill } = useValues(llmSkillLogic)
+const COMMON_CONTENT_TYPES = [
+    { value: 'text/plain', label: 'text/plain' },
+    { value: 'text/markdown', label: 'text/markdown' },
+    { value: 'text/x-python', label: 'text/x-python' },
+    { value: 'text/x-shellscript', label: 'text/x-shellscript' },
+    { value: 'application/json', label: 'application/json' },
+    { value: 'text/yaml', label: 'text/yaml' },
+    { value: 'text/javascript', label: 'text/javascript' },
+    { value: 'text/typescript', label: 'text/typescript' },
+]
+
+function SkillEditForm({
+    isHistoricalVersion,
+    fileContentsLoading,
+}: {
+    isHistoricalVersion: boolean
+    fileContentsLoading: boolean
+}): JSX.Element {
+    const { isNewSkill, skillForm } = useValues(llmSkillLogic)
+    const { setSkillFormValues } = useActions(llmSkillLogic)
+
+    const addFile = (): void => {
+        setSkillFormValues({
+            files: [...skillForm.files, { path: '', content: '', content_type: 'text/plain' }],
+        })
+    }
+
+    const removeFile = (index: number): void => {
+        setSkillFormValues({
+            files: skillForm.files.filter((_, i) => i !== index),
+        })
+    }
+
+    const updateFile = (index: number, field: keyof SkillFormFileValues, value: string): void => {
+        const updated = skillForm.files.map((f, i) => (i === index ? { ...f, [field]: value } : f))
+        setSkillFormValues({ files: updated })
+    }
 
     return (
         <div className="mt-4 max-w-3xl space-y-4">
@@ -537,6 +592,127 @@ function SkillEditForm({ isHistoricalVersion }: { isHistoricalVersion: boolean }
             >
                 <LemonInput placeholder="Requires git, docker, and internet access" maxLength={500} fullWidth />
             </LemonField>
+
+            <div>
+                <div className="mb-2 flex items-center justify-between">
+                    <div>
+                        <label className="text-sm font-semibold">Bundled files</label>
+                        <p className="text-xs text-secondary">
+                            Scripts, references, or assets bundled with this skill. Files are sent to agents alongside
+                            the skill body.
+                        </p>
+                    </div>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconPlus />}
+                        size="small"
+                        onClick={addFile}
+                        data-attr="llma-skill-add-file-button"
+                    >
+                        Add file
+                    </LemonButton>
+                </div>
+
+                {fileContentsLoading ? (
+                    <div className="space-y-2 rounded border p-3">
+                        <LemonSkeleton active className="h-3 w-1/3" />
+                        <LemonSkeleton active className="h-3 w-full" />
+                        <LemonSkeleton active className="h-3 w-2/3" />
+                    </div>
+                ) : skillForm.files.length === 0 ? (
+                    <div className="rounded border border-dashed p-4 text-center text-sm text-secondary">
+                        No bundled files. Click "Add file" to include scripts or references.
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {skillForm.files.map((file, index) => (
+                            <SkillFileEditor
+                                key={index}
+                                file={file}
+                                index={index}
+                                onUpdate={updateFile}
+                                onRemove={removeFile}
+                            />
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+}
+
+function SkillFileEditor({
+    file,
+    index,
+    onUpdate,
+    onRemove,
+}: {
+    file: SkillFormFileValues
+    index: number
+    onUpdate: (index: number, field: keyof SkillFormFileValues, value: string) => void
+    onRemove: (index: number) => void
+}): JSX.Element {
+    const [collapsed, setCollapsed] = useState(false)
+
+    return (
+        <div className="rounded border">
+            <div className="flex items-center gap-2 border-b px-3 py-2">
+                <button
+                    type="button"
+                    className="flex cursor-pointer items-center border-none bg-transparent p-0"
+                    onClick={() => setCollapsed(!collapsed)}
+                >
+                    <IconChevronRight
+                        className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${!collapsed ? 'rotate-90' : ''}`}
+                    />
+                </button>
+                <IconDocument className="h-3.5 w-3.5 shrink-0 text-muted" />
+                <span className="font-mono flex-1 text-sm">{file.path || 'New file'}</span>
+                <LemonButton
+                    icon={<IconX />}
+                    size="xsmall"
+                    status="danger"
+                    onClick={() => onRemove(index)}
+                    tooltip="Remove file"
+                    data-attr={`llma-skill-remove-file-${index}`}
+                />
+            </div>
+            {!collapsed && (
+                <div className="space-y-3 p-3">
+                    <div className="flex gap-3">
+                        <div className="flex-1">
+                            <label className="mb-1 block text-xs font-medium text-secondary">Path</label>
+                            <LemonInput
+                                value={file.path}
+                                onChange={(val) => onUpdate(index, 'path', val)}
+                                placeholder="scripts/setup.sh"
+                                fullWidth
+                                size="small"
+                            />
+                        </div>
+                        <div className="w-48">
+                            <label className="mb-1 block text-xs font-medium text-secondary">Content type</label>
+                            <LemonSelect
+                                value={file.content_type}
+                                onChange={(val) => onUpdate(index, 'content_type', val)}
+                                options={COMMON_CONTENT_TYPES}
+                                size="small"
+                                fullWidth
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="mb-1 block text-xs font-medium text-secondary">Content</label>
+                        <LemonTextArea
+                            value={file.content}
+                            onChange={(val) => onUpdate(index, 'content', val)}
+                            placeholder="File content..."
+                            minRows={4}
+                            className="font-mono"
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
