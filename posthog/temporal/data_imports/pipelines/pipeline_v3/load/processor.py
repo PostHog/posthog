@@ -58,7 +58,7 @@ def _apply_partitioning(
         return pa_table
 
     if existing_delta_table:
-        delta_schema = cast(pa.Schema, existing_delta_table.schema().to_arrow())
+        delta_schema = existing_delta_table.schema().to_arrow()
         if PARTITION_KEY not in delta_schema.names:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
@@ -193,7 +193,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
         pa_table = read_parquet(export_signal.s3_path)
         internal_schema = HogQLSchema()
-        internal_schema.add_pyarrow_schema(cast(pa.Schema, delta_table.schema().to_arrow()))
+        internal_schema.add_pyarrow_schema(pa.schema(cast(Any, delta_table.schema().to_arrow())))
         internal_schema.add_pyarrow_table(pa_table)
         table_schema_dict = internal_schema.to_hogql_types()
 
@@ -451,7 +451,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
         # all batches, then overlay the current batch for JSON detection.
-        internal_schema.add_pyarrow_schema(cast(pa.Schema, delta_table.schema().to_arrow()))
+        internal_schema.add_pyarrow_schema(pa.schema(cast(Any, delta_table.schema().to_arrow())))
         internal_schema.add_pyarrow_table(pa_table)
 
         logger.debug(
