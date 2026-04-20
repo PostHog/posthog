@@ -123,7 +123,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         return cohortMembershipChanges
     }
 
-    public async start(): Promise<void> {
+    public override async start(): Promise<void> {
         await super.start()
 
         logger.info('🚀', `${this.name} starting...`)
@@ -140,7 +140,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         })
     }
 
-    public async stop(): Promise<void> {
+    public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.kafkaConsumer.disconnect()
 
