@@ -4,6 +4,14 @@ config:
     team: '2'
     repo: 3d760a0a-0763-477d-89ee-f1e4e92cdd78
 snapshots:
+    components-account-project-switcher--no-pending-invite--dark:
+        hash: v1.k794b7964.5f203887ff9a239125bdb45e8dc5ba454afc6faaa1bdfd654882d7f9a09c0877.74sdd_pCedB1iDbL0rWfaOddFdnPaYoaNwf6CNU7Eoc
+    components-account-project-switcher--no-pending-invite--light:
+        hash: v1.k794b7964.8899741723bfc5b944141c8b95b9f8e3d2e850c2fdbe4a0904fadd4329fc4acb.vVGT8AetW968ZvjDxR_64wozTUQSDKqiAC1Kw-tdjDY
+    components-account-project-switcher--with-pending-invite--dark:
+        hash: v1.k794b7964.1c2b6746563eff0bf29bfd5ac60f9141bbc9e84a2b8ac43e5ab8ff0caa0b3666.xFoAORdGZvjIIZrt5kMSEpsbA6YTTuInoRtHVNA9I6w
+    components-account-project-switcher--with-pending-invite--light:
+        hash: v1.k794b7964.9338115a45b136ebec429f793a9bd880e09912986e0e2717541940e4824c2028.orXz8Mk9A5SFhhPUNQO_EQdUWojrVJIJY52dfC59Mjw
     components-activitylog--data-management-activity--dark:
         hash: v1.k794b7964.f49e99304c77e24633cdf0b1520b2e794e432e4ade7159f48d9500294dfafc9d.ewQ2Diu0YLmZcTQkOYFyB2ZNX0JDXctVouOX9Yc_HDc
     components-activitylog--data-management-activity--light:
