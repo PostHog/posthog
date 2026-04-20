@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from functools import cached_property, lru_cache
+from functools import cached_property
 from typing import Generic, Optional, TypeVar
 
 import structlog
@@ -17,8 +17,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import replace_placeholders
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
@@ -39,36 +37,6 @@ from .utils import convert_team_conversion_goals_to_objects
 logger = structlog.get_logger(__name__)
 
 ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
-
-
-# parse_select on this ~10 KB UNION takes ~2 s in HogQL's Python parser.
-# Replacing the date literals with placeholders makes the template stable
-# across date ranges and compare-mode periods, so all hit the same cache entry.
-# 32 covers the ~30 adapter combinations observed in prod.
-@lru_cache(maxsize=32)
-def _cached_parse_union_template(union_template: str) -> ast.SelectQuery | ast.SelectSetQuery:
-    parsed = parse_select(union_template)
-    assert isinstance(parsed, ast.SelectQuery | ast.SelectSetQuery)
-    return parsed
-
-
-def _parse_adapter_union_query(
-    union_query_string: str,
-    date_from_str: str,
-    date_to_str: str,
-) -> ast.SelectQuery | ast.SelectSetQuery:
-    template = union_query_string.replace(f"'{date_from_str}'", "{date_from}").replace(f"'{date_to_str}'", "{date_to}")
-
-    cached = _cached_parse_union_template(template)
-    substituted = replace_placeholders(
-        cached,
-        {
-            "date_from": ast.Constant(value=date_from_str),
-            "date_to": ast.Constant(value=date_to_str),
-        },
-    )
-    assert isinstance(substituted, ast.SelectQuery | ast.SelectSetQuery)
-    return substituted
 
 
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
@@ -115,7 +83,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             logger.exception("Error getting marketing source adapters", error=str(e))
             return []
 
-    def _build_campaign_cost_select(self, union_query_string: str) -> ast.SelectQuery:
+    def _build_campaign_cost_select(self, union_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
         """Build the campaign_costs CTE SELECT query"""
         # Build GROUP BY using configuration - this will be overridden in aggregated queries
         group_by_exprs: list[ast.Expr] = self._get_group_by_expressions()
@@ -274,11 +242,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             ]
         )
 
-        union_subquery = _parse_adapter_union_query(
-            union_query_string,
-            date_from_str=self.query_date_range.date_from_str,
-            date_to_str=self.query_date_range.date_to_str,
-        )
         union_join_expr = ast.JoinExpr(table=union_subquery)
 
         # Build the CTE SELECT query
@@ -460,7 +423,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         )
 
     def _build_complete_query_ast(
-        self, union_query_string: str, processors: list, date_range: QueryDateRange
+        self,
+        union_subquery: ast.SelectQuery | ast.SelectSetQuery,
+        processors: list,
+        date_range: QueryDateRange,
     ) -> ast.SelectQuery:
         """Build the complete query with CTEs using AST expressions"""
 
@@ -474,7 +440,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         ctes: dict[str, ast.CTE] = {}
 
         # Add campaign_costs CTE
-        campaign_cost_select = self._build_campaign_cost_select(union_query_string)
+        campaign_cost_select = self._build_campaign_cost_select(union_subquery)
         campaign_cost_cte = ast.CTE(
             name=self.config.campaign_costs_cte_name, expr=campaign_cost_select, cte_type="subquery"
         )
@@ -533,8 +499,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Get marketing source adapters
             adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
 
-            # Build the union query using the factory
-            union_query_string = self._factory(date_range=self.query_date_range).build_union_query(adapters)
+            # Build the union query using the factory (AST form to skip parse_select).
+            union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
 
             # Get conversion goals and filter out invalid ones
             conversion_goals = self._get_team_conversion_goals()
@@ -548,7 +514,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
 
             # Build the complete query with CTEs using AST
-            return self._build_complete_query_ast(union_query_string, processors, self.query_date_range)
+            return self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
 
     def _generate_aggregated_conversion_goals_cte(self, conversion_aggregator, date_range) -> Optional[ast.CTE]:
         """Generate aggregated conversion goals CTE without GROUP BY for aggregated queries"""
