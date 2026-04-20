@@ -929,14 +929,79 @@ describe('llmPlaygroundLogic', () => {
             }
         })
 
-        it('should map OpenAI tool role to user fallback', () => {
+        it('should merge tool-role messages into the preceding assistant turn', () => {
+            const input = [
+                { role: 'user', content: 'What year was Python created?' },
+                {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_abc',
+                            function: { name: 'research', arguments: '{"question":"..."}' },
+                        },
+                    ],
+                },
+                { role: 'tool', tool_call_id: 'call_abc', content: 'Python was created in 1991.' },
+                { role: 'assistant', content: 'Python was created in 1991.' },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            const messages = llmPlaygroundPromptsLogic.values.messages
+            expect(messages).toHaveLength(3)
+            expect(messages[0]).toEqual({ role: 'user', content: 'What year was Python created?' })
+            expect(messages[1].role).toBe('assistant')
+            expect(messages[1].content).toContain('[Tool call: research]')
+            expect(messages[1].content).toContain('[Tool result for call_abc]')
+            expect(messages[1].content).toContain('Python was created in 1991.')
+            expect(messages[2]).toEqual({ role: 'assistant', content: 'Python was created in 1991.' })
+        })
+
+        it('should merge Anthropic-style tool_result user messages into the preceding assistant turn', () => {
+            const input = [
+                { role: 'user', content: 'Search cats' },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'tool_use', id: 'tu_1', name: 'search', input: { query: 'cats' } }],
+                },
+                {
+                    role: 'user',
+                    content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'Found 42 cats' }],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            const messages = llmPlaygroundPromptsLogic.values.messages
+            expect(messages).toHaveLength(2)
+            expect(messages[0]).toEqual({ role: 'user', content: 'Search cats' })
+            expect(messages[1].role).toBe('assistant')
+            expect(messages[1].content).toContain('[Tool call: search]')
+            expect(messages[1].content).toContain('[Tool result for tu_1]')
+            expect(messages[1].content).toContain('Found 42 cats')
+        })
+
+        it('should fall back to a user turn for a tool message without a preceding assistant', () => {
             const input = [{ role: 'tool', tool_call_id: 'call_123', content: 'Weather in Paris: 22°C' }]
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
             expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
             expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
-            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Weather in Paris: 22°C')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe(
+                '[Tool result for call_123]\nWeather in Paris: 22°C'
+            )
+        })
+
+        it('should drop the "for …" suffix when a tool message has no tool_call_id', () => {
+            const input = [{ role: 'tool', content: 'Some result' }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('[Tool result]\nSome result')
         })
 
         it('should not produce "null" string for messages with null content', () => {
@@ -947,6 +1012,155 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).not.toBe('null')
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('')
+        })
+
+        it('should not crash when content contains circular references or BigInt values', () => {
+            const circular: Record<string, unknown> = { foo: 'bar' }
+            circular.self = circular
+            const input = [
+                { role: 'user', content: circular },
+                { role: 'assistant', content: [{ type: 'tool_use', name: 'x', input: { big: 1n } }] },
+            ]
+
+            expect(() => llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })).not.toThrow()
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
+            // Fallbacks are stringified via String(), not empty — we just verify content exists.
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).not.toBe('')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: x]')
+        })
+
+        it('should append output as assistant messages alongside input', () => {
+            const input = [{ role: 'user', content: 'Hello' }]
+            const output = [{ role: 'assistant', content: 'Hi there!' }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi there!' },
+            ])
+        })
+
+        it('should append output with structured content blocks', () => {
+            const input = [{ role: 'user', content: 'Search for cats' }]
+            const output = [
+                {
+                    role: 'assistant',
+                    content: [
+                        { type: 'text', text: 'Let me search.' },
+                        { type: 'tool_use', id: 'tu_1', name: 'search', input: { query: 'cats' } },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
+            expect(llmPlaygroundPromptsLogic.values.messages[1].role).toBe('assistant')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Let me search.')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: search]')
+        })
+
+        it('should handle OpenAI Responses API output (type: "message" with output_text content blocks)', () => {
+            const input = [{ role: 'user', content: 'hello' }]
+            // Shape matches $ai_output_choices from a real gpt-5 Responses API trace: the outer array
+            // elements carry `type: "message"` and `role: "assistant"` at the top level, and the text
+            // lives in `output_text` content blocks (not `text`). This exercises the generic object
+            // branch of flattenOutputMessages (no `choices`/`message` wrapper) plus formatContentBlock's
+            // output_text case.
+            const output = [
+                {
+                    type: 'message',
+                    role: 'assistant',
+                    status: 'completed',
+                    content: [
+                        {
+                            type: 'output_text',
+                            text: 'Hi! What are you shopping for today?',
+                            annotations: [],
+                            logprobs: [],
+                        },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'hello' },
+                { role: 'assistant', content: 'Hi! What are you shopping for today?' },
+            ])
+        })
+
+        it('should unwrap OpenAI choices-shaped output', () => {
+            const input = [{ role: 'user', content: 'Hi' }]
+            const output = {
+                choices: [
+                    {
+                        finish_reason: 'stop',
+                        index: 0,
+                        message: { role: 'assistant', content: 'Hello!' },
+                    },
+                ],
+            }
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Hi' },
+                { role: 'assistant', content: 'Hello!' },
+            ])
+        })
+
+        it('should not stack-overflow on deeply nested message wrappers in output', () => {
+            // Simulate a pathological `{ message: { message: … } }` chain deeper than the cap.
+            let output: unknown = { role: 'assistant', content: 'buried' }
+            for (let i = 0; i < 500; i++) {
+                output = { message: output }
+            }
+            const input = [{ role: 'user', content: 'hi' }]
+
+            expect(() => llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })).not.toThrow()
+            // The wrapper chain is longer than MAX_OUTPUT_FLATTEN_DEPTH (100), so the output is
+            // dropped entirely and only the input message remains.
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0]).toEqual({ role: 'user', content: 'hi' })
+        })
+
+        it('should default output messages without a role to assistant', () => {
+            const output = [{ content: 'Standalone reply' }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0]).toEqual({
+                role: 'assistant',
+                content: 'Standalone reply',
+            })
+        })
+
+        it('should format OpenAI-style top-level tool_calls in output', () => {
+            const input = [{ role: 'user', content: 'What is the weather in Paris?' }]
+            const output = [
+                {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_abc',
+                            function: { name: 'get_weather', arguments: '{"city": "Paris"}' },
+                        },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
+            expect(llmPlaygroundPromptsLogic.values.messages[1].role).toBe('assistant')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: get_weather]')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Paris')
         })
 
         it('should reset to default system prompt when none provided', () => {

@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { combineUrl } from 'kea-router'
+import { lazy, Suspense, useRef } from 'react'
 
-import { IconChevronRight, IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMarkdown, slugifyHeading } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { urls } from 'scenes/urls'
 
@@ -16,128 +16,11 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
 import { LLMPrompt, LLMPromptVersionSummary } from '~/types'
 
+import { MarkdownOutline } from '../components/MarkdownOutline'
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
 import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
-
-interface HeadingEntry {
-    level: number
-    text: string
-    slug: string
-}
-
-interface HeadingTreeNode {
-    heading: HeadingEntry
-    children: HeadingTreeNode[]
-}
-
-function parseMarkdownHeadings(markdown: string): HeadingEntry[] {
-    const headings: HeadingEntry[] = []
-    for (const line of markdown.split('\n')) {
-        const match = /^(#{1,6})\s+(.+)$/.exec(line.trim())
-        if (match) {
-            const raw = match[2].trim()
-            const textForSlug = raw.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-            headings.push({ level: match[1].length, text: raw, slug: slugifyHeading(textForSlug) })
-        }
-    }
-    return headings
-}
-
-function buildHeadingTree(headings: HeadingEntry[]): HeadingTreeNode[] {
-    const root: HeadingTreeNode[] = []
-    const stack: HeadingTreeNode[] = []
-
-    for (const heading of headings) {
-        const node: HeadingTreeNode = { heading, children: [] }
-        while (stack.length > 0 && stack[stack.length - 1].heading.level >= heading.level) {
-            stack.pop()
-        }
-        if (stack.length === 0) {
-            root.push(node)
-        } else {
-            stack[stack.length - 1].children.push(node)
-        }
-        stack.push(node)
-    }
-    return root
-}
-
-function collectNodeKeys(nodes: HeadingTreeNode[]): Set<string> {
-    const keys = new Set<string>()
-    for (const node of nodes) {
-        if (node.children.length > 0) {
-            keys.add(node.heading.slug)
-            for (const key of collectNodeKeys(node.children)) {
-                keys.add(key)
-            }
-        }
-    }
-    return keys
-}
-
-function OutlineNode({
-    node,
-    expandedNodes,
-    toggleNode,
-    onHeadingClick,
-    depth,
-}: {
-    node: HeadingTreeNode
-    expandedNodes: Set<string>
-    toggleNode: (slug: string) => void
-    onHeadingClick: (slug: string) => void
-    depth: number
-}): JSX.Element {
-    const hasChildren = node.children.length > 0
-    const isNodeExpanded = expandedNodes.has(node.heading.slug)
-
-    return (
-        <li className="relative">
-            {depth > 0 && <span className="absolute top-0 bottom-0 -left-[11px] border-l border-secondary/30" />}
-            <div className="flex items-center gap-0.5">
-                {hasChildren ? (
-                    <button
-                        type="button"
-                        className="flex shrink-0 cursor-pointer items-center border-none bg-transparent p-0.5 text-muted hover:text-primary"
-                        onClick={() => toggleNode(node.heading.slug)}
-                        data-attr="llma-prompt-outline-toggle"
-                    >
-                        <IconChevronRight
-                            className={`h-3 w-3 transition-transform ${isNodeExpanded ? 'rotate-90' : ''}`}
-                        />
-                    </button>
-                ) : (
-                    <span className="w-4 shrink-0" />
-                )}
-                <button
-                    type="button"
-                    className="cursor-pointer truncate border-none bg-transparent py-0.5 text-left text-sm text-primary hover:text-link"
-                    onClick={() => onHeadingClick(node.heading.slug)}
-                    title={node.heading.text}
-                    data-attr="llma-prompt-outline-heading"
-                >
-                    {node.heading.text}
-                </button>
-            </div>
-            {hasChildren && isNodeExpanded && (
-                <ul className="m-0 ml-4 list-none border-l-0 pl-0">
-                    {node.children.map((child, i) => (
-                        <OutlineNode
-                            key={i}
-                            node={child}
-                            expandedNodes={expandedNodes}
-                            toggleNode={toggleNode}
-                            onHeadingClick={onHeadingClick}
-                            depth={depth + 1}
-                        />
-                    ))}
-                </ul>
-            )}
-        </li>
-    )
-}
 
 function PromptOutline({
     promptText,
@@ -150,122 +33,18 @@ function PromptOutline({
 }): JSX.Element | null {
     const { isOutlineExpanded } = useValues(llmPromptLogic)
     const { toggleOutlineExpanded } = useActions(llmPromptLogic)
-    const headings = useMemo(() => parseMarkdownHeadings(promptText), [promptText])
-    const tree = useMemo(() => buildHeadingTree(headings), [headings])
-    const allExpandableKeys = useMemo(() => collectNodeKeys(tree), [tree])
-    const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => new Set(allExpandableKeys))
-
-    const toggleNode = useCallback((slug: string) => {
-        setExpandedNodes((prev) => {
-            const next = new Set(prev)
-            if (next.has(slug)) {
-                next.delete(slug)
-            } else {
-                next.add(slug)
-            }
-            return next
-        })
-    }, [])
-
-    const expandAll = useCallback(() => setExpandedNodes(new Set(allExpandableKeys)), [allExpandableKeys])
-    const collapseAll = useCallback(() => setExpandedNodes(new Set()), [])
-
-    const handleHeadingClick = useCallback(
-        (slug: string) => {
-            const container = containerRef.current
-            if (!container) {
-                return
-            }
-            const target = container.querySelector(`#${CSS.escape(slug)}`)
-            if (target) {
-                target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                // Update URL hash via kea-router so its location state stays in sync
-                // (direct history.replaceState would leave router.values.location.hash stale)
-                router.actions.replace(router.values.location.pathname, router.values.searchParams, `#${slug}`)
-            }
-        },
-        [containerRef]
-    )
-
-    // On mount (and when the hash changes), scroll to the heading referenced by the URL hash.
-    // This enables deep links like /llm-analytics/prompts/<name>#research-agent.
-    useEffect(() => {
-        const scrollToHash = (): void => {
-            const rawHash = window.location.hash.slice(1)
-            if (!rawHash) {
-                return
-            }
-            // Guard against malformed percent-encoding (e.g. `#%`) which would throw URIError
-            let slug: string
-            try {
-                slug = decodeURIComponent(rawHash)
-            } catch {
-                return
-            }
-            const container = containerRef.current
-            if (!container) {
-                return
-            }
-            const target = container.querySelector(`#${CSS.escape(slug)}`)
-            if (target) {
-                target.scrollIntoView({ block: 'start' })
-            }
-        }
-
-        scrollToHash()
-        window.addEventListener('hashchange', scrollToHash)
-        return () => window.removeEventListener('hashchange', scrollToHash)
-    }, [containerRef, promptText])
-
-    if (headings.length === 0) {
-        return null
-    }
-
-    const allExpanded = expandedNodes.size >= allExpandableKeys.size
 
     return (
-        <div className={`mb-3 rounded border bg-bg-light ${className ?? ''}`} data-attr="llma-prompt-outline">
-            <div className="flex items-center justify-between px-3 py-2">
-                <button
-                    type="button"
-                    className="flex cursor-pointer items-center gap-1.5 border-none bg-transparent p-0 text-left text-xs font-semibold text-secondary"
-                    onClick={toggleOutlineExpanded}
-                    data-attr="llma-prompt-outline-expand"
-                >
-                    <IconChevronRight
-                        className={`h-3 w-3 transition-transform ${isOutlineExpanded ? 'rotate-90' : ''}`}
-                    />
-                    <Tooltip title="Navigate the sections of your prompt. Click a heading to scroll to it.">
-                        <span>Prompt outline</span>
-                    </Tooltip>
-                    <span className="font-normal">({headings.length})</span>
-                </button>
-                {isOutlineExpanded && allExpandableKeys.size > 0 && (
-                    <button
-                        type="button"
-                        className="cursor-pointer border-none bg-transparent p-0 text-xs text-muted hover:text-primary"
-                        onClick={allExpanded ? collapseAll : expandAll}
-                        data-attr="llma-prompt-outline-expand-all"
-                    >
-                        {allExpanded ? 'Collapse all' : 'Expand all'}
-                    </button>
-                )}
-            </div>
-            {isOutlineExpanded && (
-                <ul className="m-0 list-none border-t px-3 py-2">
-                    {tree.map((node, i) => (
-                        <OutlineNode
-                            key={i}
-                            node={node}
-                            expandedNodes={expandedNodes}
-                            toggleNode={toggleNode}
-                            onHeadingClick={handleHeadingClick}
-                            depth={0}
-                        />
-                    ))}
-                </ul>
-            )}
-        </div>
+        <MarkdownOutline
+            markdownText={promptText}
+            containerRef={containerRef}
+            className={className}
+            label="Prompt outline"
+            tooltipText="Navigate the sections of your prompt. Click a heading to scroll to it."
+            dataAttrPrefix="llma-prompt"
+            isExpanded={isOutlineExpanded}
+            onToggleExpanded={toggleOutlineExpanded}
+        />
     )
 }
 

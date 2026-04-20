@@ -1,6 +1,6 @@
 # LLM Gateway
 
-A standalone microservice for proxying LLM requests to Anthropic, OpenAI, Google Gemini, OpenRouter, and Fireworks AI APIs.
+A standalone microservice for proxying LLM requests to Anthropic, OpenAI, OpenRouter, and Fireworks AI APIs.
 
 ## Quick start
 
@@ -149,7 +149,7 @@ The product name is extracted from the first path segment and recorded as `ai_pr
 
 ## Supported models
 
-All OpenAI, Anthropic, Gemini, OpenRouter, and Fireworks AI chat models are supported.
+All OpenAI, Anthropic, OpenRouter, and Fireworks AI chat models are supported.
 OpenRouter and Fireworks models use the OpenAI-compatible `/v1/chat/completions` endpoint with model prefixes (`openrouter/` and `fireworks_ai/`).
 The `/v1/models` endpoint returns provider-specific model IDs from LiteLLM's model map.
 
@@ -290,7 +290,7 @@ from posthog.llm.gateway_client import get_llm_client
 
 client = get_llm_client()
 response = client.chat.completions.create(
-    model="claude-opus-4-5",  # or any supported OpenAI, Anthropic, Gemini, OpenRouter, or Fireworks AI model
+    model="claude-opus-4-5",  # or any supported OpenAI, Anthropic, OpenRouter, or Fireworks AI model
     messages=[...],
     user=request.user.distinct_id,  # user for analytics and rate limiting
 )
