@@ -305,8 +305,9 @@ export function SnapshotDiffViewer({
                                     LemonDialog.open({
                                         title: 'Quarantine this snapshot?',
                                         description:
-                                            'Marks this identifier as known-flaky for all future runs. ' +
-                                            'Diffs are still captured for metrics but won\u2019t block PRs.',
+                                            'This identifier will stop blocking PRs immediately \u2014 including pending runs on other branches. ' +
+                                            'Snapshots are still captured and diffed, just not gated on. ' +
+                                            'You can reverse this at any time.',
                                         primaryButton: {
                                             children: 'Quarantine',
                                             onClick: onQuarantine,
