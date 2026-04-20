@@ -128,7 +128,7 @@ class TestSessionSummariesAPI(APIBaseTest):
             min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
             extra_summary_context=mock_execute.call_args[1]["extra_summary_context"],
-            video_validation_enabled=False,
+            video_based=False,
             summary_title="Group summary",
         )
         # Check extra_summary_context separately
@@ -210,7 +210,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     def test_create_summaries_feature_disabled(self, mock_feature_enabled: Mock) -> None:
-        """Test error when ai-session-summary feature is disabled"""
+        """Test error when replay-video-based-summarization feature is disabled"""
         mock_feature_enabled.return_value = False
         response = self._make_api_request(session_ids=["session1"])
         self.assertEqual(response.status_code, 400)
