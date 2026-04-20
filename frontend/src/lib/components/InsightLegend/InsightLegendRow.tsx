@@ -4,9 +4,7 @@ import { useEffect, useRef } from 'react'
 
 import { getSeriesBackgroundColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel, getTrendResultCustomizationKey } from 'scenes/insights/utils'
@@ -98,39 +96,19 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                     onChange={() => toggleResultHidden(item)}
                     fullWidth
                     label={
-                        showPathCleaningHighlight ? (
-                            <div className="flex items-center gap-2">
-                                {!isSingleSeriesDefinition && (
-                                    <InsightLabel
-                                        key={item.id}
-                                        seriesColor={mainColor}
-                                        action={item.action}
-                                        fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                        hasMultipleSeries={!isSingleSeriesDefinition}
-                                        hideBreakdown
-                                        compareValue={isPrevious ? formatCompareLabel(item) : undefined}
-                                        hideIcon
-                                        showSingleName
-                                    />
-                                )}
-                                <LemonTag className="tag-pill">
-                                    <span className="inline-flex">{parseAliasToReadable(formattedBreakdownValue)}</span>
-                                </LemonTag>
-                            </div>
-                        ) : (
-                            <InsightLabel
-                                key={item.id}
-                                seriesColor={mainColor}
-                                action={item.action}
-                                fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                hasMultipleSeries={!isSingleSeriesDefinition}
-                                breakdownValue={formattedBreakdownValue}
-                                compareValue={isPrevious ? formatCompareLabel(item) : undefined}
-                                pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
-                                hideIcon
-                                showSingleName
-                            />
-                        )
+                        <InsightLabel
+                            key={item.id}
+                            seriesColor={mainColor}
+                            action={item.action}
+                            fallbackName={item.breakdown_value === '' ? 'None' : item.label}
+                            hasMultipleSeries={!isSingleSeriesDefinition}
+                            breakdownValue={formattedBreakdownValue}
+                            compareValue={isPrevious ? formatCompareLabel(item) : undefined}
+                            pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
+                            showPathCleaningHighlight={showPathCleaningHighlight}
+                            hideIcon
+                            showSingleName
+                        />
                     }
                     disabledReason={!canEditInsight ? 'You need editor access to modify this insight.' : undefined}
                 />
