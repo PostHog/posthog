@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import F
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
@@ -88,11 +89,12 @@ from .services.staged_artifacts import (
     STAGED_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
     build_task_run_artifact_storage_path,
+    build_task_staged_artifact_cache_key,
     build_task_staged_artifact_storage_path,
     cache_task_staged_artifact,
-    consume_task_staged_artifacts,
     get_safe_artifact_name,
     get_task_run_artifacts_by_id,
+    get_task_staged_artifacts,
     tag_task_artifact,
 )
 from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
@@ -556,14 +558,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
             )
 
-        logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
-
-        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
-
+        staged_artifacts: list[dict[str, Any]] = []
         if pending_user_artifact_ids:
-            staged_artifacts, missing_artifact_ids = consume_task_staged_artifacts(task, pending_user_artifact_ids)
+            staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, pending_user_artifact_ids)
             if missing_artifact_ids:
-                task_run.delete()
                 return Response(
                     {
                         "detail": "Some pending_user_artifact_ids are invalid or expired",
@@ -572,6 +570,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
+
+        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+
+        if pending_user_artifact_ids:
             run_artifacts: list[dict] = []
             for staged_artifact in staged_artifacts:
                 run_storage_path = build_task_run_artifact_storage_path(
@@ -592,6 +595,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             task_run.artifacts = run_artifacts
             task_run.save(update_fields=["artifacts", "updated_at"])
+
+            for artifact_id in pending_user_artifact_ids:
+                cache.delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
 
         if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
             cache_github_user_token(str(task_run.id), github_user_token)
