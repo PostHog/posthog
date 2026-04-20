@@ -3197,7 +3197,7 @@ class TestExperimentService(APIBaseTest):
                 },
             ],
         )
-        assert len(experiment.metrics) == 1
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
         assert experiment.metrics[0]["metric_type"] == "funnel"
 
     def test_funnel_metric_with_nonexistent_action_in_series_raises(self):
