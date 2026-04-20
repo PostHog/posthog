@@ -1432,10 +1432,10 @@ async fn test_flag_definitions_rate_limit_enforced() {
         .await
         .unwrap();
 
-    // Create config with very low rate limit for this specific team (1 request per second)
+    // Create config with very low rate limit for this specific team (1 request per minute)
     let mut config = Config::default_test_config();
     config.flag_definitions_rate_limits =
-        format!(r#"{{"{}": "1/second"}}"#, team.id).parse().unwrap();
+        format!(r#"{{"{}": "1/minute"}}"#, team.id).parse().unwrap();
 
     // Populate cache to avoid 503 errors
     let redis_client =
@@ -1494,7 +1494,6 @@ async fn test_flag_definitions_rate_limit_enforced() {
 async fn test_flag_definitions_custom_rate_limit_overrides_default() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
-    use tokio::time::{sleep, Duration};
 
     let context = TestContext::new(None).await;
 
@@ -1508,10 +1507,10 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
         .await
         .unwrap();
 
-    // Create config with custom rate limit for custom_team (2 requests per second)
-    // Default is 600/minute (10/second), so custom should be more restrictive
+    // Create config with custom rate limit for custom_team (2 requests per minute)
+    // Default is 600/minute, so custom should be more restrictive
     let mut config = Config::default_test_config();
-    config.flag_definitions_rate_limits = format!(r#"{{"{}": "2/second"}}"#, custom_team.id)
+    config.flag_definitions_rate_limits = format!(r#"{{"{}": "2/minute"}}"#, custom_team.id)
         .parse()
         .unwrap();
 
@@ -1530,7 +1529,7 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
     let server = common::ServerHandle::for_config(config.clone()).await;
     let client = reqwest::Client::new();
 
-    // Test custom rate limit (2/second)
+    // Test custom rate limit (2/minute)
     // Send all 3 requests concurrently to ensure they hit the rate limiter simultaneously
     let requests = (0..3).map(|_| {
         client
@@ -1550,13 +1549,10 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
 
     assert_eq!(
         success_count, 2,
-        "Should allow exactly 2 requests per second for custom team"
+        "Should allow exactly 2 requests per minute for custom team"
     );
 
-    // Wait for rate limit to reset
-    sleep(Duration::from_millis(1100)).await;
-
-    // Test default rate limit (600/minute = 10/second)
+    // Test default rate limit (600/minute)
     // Should allow more requests than custom limit
     // Send all 5 requests concurrently to ensure they hit the rate limiter simultaneously
     let requests = (0..5).map(|_| {
@@ -1577,7 +1573,7 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
 
     assert!(
         default_success_count > 2,
-        "Default team should allow more than 2 requests per second. Got: {default_success_count}"
+        "Default team should allow more than 2 requests per minute. Got: {default_success_count}"
     );
 }
 
@@ -1597,7 +1593,7 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
     // Create config with very low rate limit for this specific team
     let mut config = Config::default_test_config();
     config.flag_definitions_rate_limits =
-        format!(r#"{{"{}": "1/second"}}"#, team.id).parse().unwrap();
+        format!(r#"{{"{}": "1/minute"}}"#, team.id).parse().unwrap();
     config.enable_metrics = true; // Enable metrics collection
 
     // Populate cache
@@ -2166,7 +2162,7 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 1: allowlisted team bypasses rate limit ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
 
@@ -2218,7 +2214,7 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 2: non-allowlisted team gets rate limited ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
 
@@ -2269,7 +2265,7 @@ async fn test_db_rate_limit_allowlist() {
     {
         let mut config = Config::default_test_config();
         config.flag_definitions_rate_limits = format!(
-            r#"{{"{}": "1/second", "{}": "1/second"}}"#,
+            r#"{{"{}": "1/minute", "{}": "1/minute"}}"#,
             team1.id, team2.id
         )
         .parse()
@@ -2340,7 +2336,7 @@ async fn test_db_rate_limit_allowlist() {
     {
         // Configure team1 as allowlisted via the env var (set at server startup)
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
         config.rate_limiting_allow_list_teams = team1.id.to_string().parse().unwrap();
@@ -2394,7 +2390,7 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 5: null DB value treated as empty allowlist ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
 
@@ -2445,7 +2441,7 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 6: invalid team IDs skipped, valid ones kept ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
 
@@ -2500,7 +2496,7 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 7: Django-format JSON-encoded string ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
 
