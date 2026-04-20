@@ -309,7 +309,7 @@ export const QueryWrapperToolConfigSchema = z
         property_defaults: z.record(z.string(), z.unknown()).optional(),
         /**
          * Override the URL enrichment prefix. When set, `_posthogUrl` uses
-         * `{baseUrl}{url_prefix}` instead of the default `/insights/new?q=...`.
+         * `{baseUrl}{url_prefix}` instead of the default `/insights/new#q=...`.
          */
         url_prefix: z.string().optional(),
     })
