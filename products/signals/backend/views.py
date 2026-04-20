@@ -6,6 +6,7 @@ from typing import cast
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import (
+    BooleanField,
     Case,
     CharField,
     Count,
@@ -354,6 +355,8 @@ class SignalReportViewSet(
         "signal_count": "signal_count",
         "total_weight": "total_weight",
         "priority": "priority_rank",
+        # Ready + actionable before ready + not_actionable; see _annotate_actionability_ready_rank
+        "actionability_ready_rank": "actionability_ready_rank",
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
@@ -369,6 +372,8 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
+        qs = self._annotate_latest_actionability_value(qs)
+        qs = self._annotate_actionability_ready_rank(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
         return qs
@@ -492,6 +497,50 @@ class SignalReportViewSet(
             priority_rank=Coalesce(latest_priority, Value("~"), output_field=CharField()),
         )
 
+    def _annotate_latest_actionability_value(self, queryset):
+        # Latest actionability_judgment: coalesce json "actionability" and legacy "choice" (matches serializer).
+        latest_actionability = Subquery(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                content__startswith="{",
+            )
+            .order_by("-created_at")
+            .annotate(
+                _actionability_val=Coalesce(
+                    Func(
+                        Cast(F("content"), output_field=JSONField()),
+                        Value("actionability"),
+                        function="jsonb_extract_path_text",
+                        output_field=CharField(),
+                    ),
+                    Func(
+                        Cast(F("content"), output_field=JSONField()),
+                        Value("choice"),
+                        function="jsonb_extract_path_text",
+                        output_field=CharField(),
+                    ),
+                    output_field=CharField(),
+                ),
+            )
+            .values("_actionability_val")[:1],
+            output_field=CharField(),
+        )
+        return queryset.annotate(latest_actionability_value=latest_actionability)
+
+    def _annotate_actionability_ready_rank(self, queryset):
+        # Within status=ready, sort actionable (0) before not_actionable (1) for priority-style lists.
+        return queryset.annotate(
+            actionability_ready_rank=Case(
+                When(
+                    Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable"),
+                    then=Value(1),
+                ),
+                default=Value(0),
+                output_field=IntegerField(),
+            )
+        )
+
     def _prefetch_signal_report_priority_artefacts(self, queryset):
         return queryset.prefetch_related(
             Prefetch(
@@ -514,22 +563,31 @@ class SignalReportViewSet(
         # Annotate is_suggested_reviewer by resolving the current user's GitHub login
         # and checking jsonb containment on the artefact content list. This stays fresh
         # even when a user connects their GitHub account after the report was generated.
+        # Never true for ready + not_actionable — there is nothing actionable to review.
         github_login = self._get_github_login(self.request.user)
         if not github_login:
             return queryset.annotate(is_suggested_reviewer=Value(False))
 
         # github_login comes from our own UserSocialAuth DB, not user input.
-        return queryset.annotate(
-            is_suggested_reviewer=Exists(
-                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-                SignalReportArtefact.objects.filter(
-                    report_id=OuterRef("id"),
-                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                ).extra(
-                    where=["content::jsonb @> %s::jsonb"],
-                    params=[json.dumps([{"github_login": github_login}])],
-                )
+        suggested_exists = Exists(
+            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            ).extra(
+                where=["content::jsonb @> %s::jsonb"],
+                params=[json.dumps([{"github_login": github_login}])],
             )
+        )
+        return queryset.annotate(
+            is_suggested_reviewer=Case(
+                When(
+                    Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable"),
+                    then=Value(False),
+                ),
+                default=suggested_exists,
+                output_field=BooleanField(),
+            ),
         )
 
     def filter_queryset(self, queryset):

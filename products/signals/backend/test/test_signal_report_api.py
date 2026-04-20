@@ -122,6 +122,17 @@ class TestSignalReportListAPI(APIBaseTest):
             art.save()
         return art
 
+    def _actionability_artefact(self, report: SignalReport, *, actionability: str) -> SignalReportArtefact:
+        payload = {"explanation": "x", "actionability": actionability, "already_addressed": False}
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps(payload),
+        )
+        art.save()
+        return art
+
     # --- priority ---
 
     def test_list_includes_priority_from_priority_artefact(self):
@@ -282,3 +293,55 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(high_candidate.id)) < ids.index(str(low_ready.id))
+
+    def test_priority_ordering_actionable_ready_before_not_actionable(self):
+        """Inbox-style ordering: actionable ready reports before not_actionable, then by priority."""
+        r_non_actionable = self._create_report(
+            title="Not actionable",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+        r_actionable = self._create_report(
+            title="Actionable",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+        self._priority_artefact(r_non_actionable, priority="P0")
+        self._priority_artefact(r_actionable, priority="P4")
+        self._actionability_artefact(r_non_actionable, actionability="not_actionable")
+        self._actionability_artefact(r_actionable, actionability="immediately_actionable")
+
+        response = self.client.get(
+            self._list_url(
+                status="ready",
+                ordering="status,actionability_ready_rank,-is_suggested_reviewer,priority",
+            )
+        )
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(r_actionable.id)) < ids.index(str(r_non_actionable.id))
+
+    def test_is_suggested_reviewer_false_when_not_actionable_ready(self):
+        from social_django.models import UserSocialAuth
+
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="github",
+            uid="github-test-not-actionable",
+            extra_data={"login": "suggestedgh"},
+        )
+        report = self._create_report()
+        self._actionability_artefact(report, actionability="not_actionable")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "suggestedgh"}]),
+        )
+
+        response = self.client.get(self._list_url(status="ready"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["is_suggested_reviewer"] is False
