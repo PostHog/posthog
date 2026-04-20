@@ -98,6 +98,13 @@ class BasePrinter(Visitor[str]):
         """
         return "min2"
 
+    def _expands_placeholder_macros(self) -> bool:
+        """Whether placeholder-argument macros should be expanded into their SQL rendering.
+
+        SQL dialects expand (default); HogQL leaves them in their original form for round-trip printing.
+        """
+        return True
+
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         """Render the LIMIT value for a set-operation query when `LIMIT … PERCENT` was used.
 
@@ -402,8 +409,13 @@ class BasePrinter(Visitor[str]):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType,
     ):
-        if self.dialect != "hogql":
-            raise NotImplementedError("BasePrinter._ensure_team_id_where_clause not overridden")
+        """Inject a ``team_id`` guard into the WHERE clause for SQL-lowering dialects.
+
+        Fail-fast by default: every SQL dialect must override this to enforce team isolation.
+        ``HogQLPrinter`` overrides to a no-op because it never produces a real query; CH and PG
+        enforce the guard.
+        """
+        raise NotImplementedError("BasePrinter._ensure_team_id_where_clause not overridden")
 
     def _get_table_predicates(
         self,
@@ -419,9 +431,22 @@ class BasePrinter(Visitor[str]):
         return [resolve_types(clone_expr(pred), self.context, self.dialect, [scope]) for pred in predicates]
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
-        if self.dialect == "hogql":
-            return table_type.table.to_printed_hogql()
-        raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
+        """Print a table reference. Fail-fast by default: each dialect must override.
+
+        ``HogQLPrinter`` returns the HogQL identifier; SQL dialects resolve to real table names.
+        """
+        raise ImpossibleASTError(f"Unsupported dialect {type(self).__name__}")
+
+    def _render_lazy_table_join_expr(self, node: ast.JoinExpr) -> str:
+        """Render a ``LazyTableType`` join target. SQL dialects resolve these before printing."""
+        table_type = cast(ast.LazyTableType, node.type)
+        raise ImpossibleASTError(f"Unexpected LazyTableType for: {table_type.table.to_printed_hogql()}")
+
+    def _render_untyped_join_expr(self, node: ast.JoinExpr) -> list[str]:
+        """Render a join target that isn't a known resolved type. SQL dialects reject; HogQL renders the raw node."""
+        raise QueryError(
+            f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
+        )
 
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
         # Constraints to add to the SELECT's WHERE clause (for most join types)
@@ -527,19 +552,10 @@ class BasePrinter(Visitor[str]):
             join_strings.append(alias_str)
 
         elif isinstance(node.type, ast.LazyTableType):
-            if self.dialect == "hogql":
-                join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
-            else:
-                raise ImpossibleASTError(f"Unexpected LazyTableType for: {node.type.table.to_printed_hogql()}")
+            join_strings.append(self._render_lazy_table_join_expr(node))
 
-        elif self.dialect == "hogql":
-            join_strings.append(self.visit(node.table))
-            if node.alias is not None:
-                join_strings.append(f"AS {self._print_identifier(node.alias)}")
         else:
-            raise QueryError(
-                f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
-            )
+            join_strings.extend(self._render_untyped_join_expr(node))
 
         if node.column_aliases and not isinstance(node.type, ast.SelectQueryAliasType):
             if self.dialect == "postgres":
@@ -649,7 +665,7 @@ class BasePrinter(Visitor[str]):
     def visit_tuple_access(self, node: ast.TupleAccess):
         visited_tuple = self.visit(node.tuple)
         visited_index = int(str(node.index))
-        symbol = "?." if self.dialect == "hogql" and node.nullish else "."
+        symbol = self._tuple_access_separator(bool(node.nullish))
         if isinstance(node.tuple, ast.Field) or isinstance(node.tuple, ast.Tuple) or isinstance(node.tuple, ast.Call):
             return f"{visited_tuple}{symbol}{visited_index}"
         return f"({visited_tuple}){symbol}{visited_index}"
@@ -658,8 +674,16 @@ class BasePrinter(Visitor[str]):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        symbol = "?." if self.dialect == "hogql" and node.nullish else ""
+        symbol = self._array_access_prefix(bool(node.nullish))
         return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
+
+    def _tuple_access_separator(self, nullish: bool) -> str:
+        """Separator for tuple-access expressions. HogQL overrides to emit nullish ``?.`` when requested."""
+        return "."
+
+    def _array_access_prefix(self, nullish: bool) -> str:
+        """Prefix applied before ``[...]`` in array-access expressions. HogQL overrides for nullish ``?.``."""
+        return ""
 
     def visit_array_slice(self, node: ast.ArraySlice):
         raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
@@ -743,14 +767,14 @@ class BasePrinter(Visitor[str]):
             return f"less({left}, {right})"
         elif op == ast.CompareOperationOp.LtEq:
             return f"lessOrEquals({left}, {right})"
-        # only used for hogql direct printing (no prepare called)
-        elif op == ast.CompareOperationOp.InCohort and self.dialect == "hogql":
-            return f"{left} IN COHORT {right}"
-        # only used for hogql direct printing (no prepare called)
-        elif op == ast.CompareOperationOp.NotInCohort and self.dialect == "hogql":
-            return f"{left} NOT IN COHORT {right}"
-        else:
-            raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
+        cohort = self._render_cohort_compare_op(op, left, right)
+        if cohort is not None:
+            return cohort
+        raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
+
+    def _render_cohort_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str | None:
+        """Render ``InCohort`` / ``NotInCohort`` comparisons. Only HogQL supports these; others return None."""
+        return None
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         left = self.visit(node.left)
@@ -833,8 +857,8 @@ class BasePrinter(Visitor[str]):
                     )
 
             # Handle format strings in function names before checking function type
-            # For HogQL, don't expand the macro, just display it in its original shape.
-            if func_meta.using_placeholder_arguments and self.dialect != "hogql":
+            # HogQL preserves the macro in its original shape; SQL dialects expand it.
+            if func_meta.using_placeholder_arguments and self._expands_placeholder_macros():
                 return self._render_placeholder_macro(
                     node=node,
                     clickhouse_name=func_meta.clickhouse_name,
@@ -941,8 +965,9 @@ class BasePrinter(Visitor[str]):
 
             return self._render_posthog_function_call(node, func_meta)
         else:
-            if self.dialect == "hogql" and node.name.lower() in self._get_connection_supported_functions():
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+            passthrough = self._render_connection_supported_function(node)
+            if passthrough is not None:
+                return passthrough
 
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
@@ -950,6 +975,13 @@ class BasePrinter(Visitor[str]):
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
                 )
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
+
+    def _render_connection_supported_function(self, node: "ast.Call") -> str | None:
+        """Pass a function call through unchanged if the underlying connection supports it.
+
+        Only HogQL (used against a direct-Postgres connection) opts in; other dialects return None.
+        """
+        return None
 
     def _render_function_call(self, node: "ast.Call", func_meta) -> str:
         """Render a standard HogQL function call. Default is the HogQL/pass-through shape; CH overrides."""

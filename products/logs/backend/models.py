@@ -75,7 +75,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
 
     # Window & scheduling
     window_minutes = models.PositiveIntegerField(default=5)
-    check_interval_minutes = models.PositiveIntegerField(default=1)
+    check_interval_minutes = models.PositiveIntegerField(default=5)
 
     # State
     state = models.CharField(
