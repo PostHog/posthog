@@ -2,6 +2,8 @@ from unittest.mock import patch
 
 from django.test import Client
 
+from parameterized import parameterized
+
 from posthog.models.proxy_record import ProxyRecord
 from posthog.test.base import BaseTest
 
@@ -25,37 +27,24 @@ class TestRobotsTxt(BaseTest):
         assert b"Disallow: /e/" in response.content
         assert b"Disallow: /shared_dashboard/" in response.content
 
+    @parameterized.expand(
+        [
+            ("valid_proxy_domain", "proxy.example.com", ProxyRecord.Status.VALID, b"User-agent: *\nDisallow: /"),
+            ("non_proxy_domain", "app.posthog.com", None, b"Disallow: /e/"),
+            ("waiting_proxy_domain", "pending.example.com", ProxyRecord.Status.WAITING, b"Disallow: /e/"),
+        ]
+    )
     @patch("posthog.views.is_cloud", return_value=True)
-    def test_managed_proxy_domain_disallows_all(self, _mock_is_cloud):
-        ProxyRecord.objects.create(
-            organization=self.organization,
-            domain="proxy.example.com",
-            target_cname="target.posthog.com",
-            status=ProxyRecord.Status.VALID,
-        )
+    def test_cloud_proxy_handling(self, _name, host, proxy_status, expected_content, _mock_is_cloud):
+        if proxy_status is not None:
+            ProxyRecord.objects.create(
+                organization=self.organization,
+                domain=host,
+                target_cname="target.posthog.com",
+                status=proxy_status,
+            )
 
-        response = self.client.get("/robots.txt", HTTP_HOST="proxy.example.com")
+        response = self.client.get("/robots.txt", HTTP_HOST=host)
 
         assert response.status_code == 200
-        assert response.content == b"User-agent: *\nDisallow: /"
-
-    @patch("posthog.views.is_cloud", return_value=True)
-    def test_non_proxy_domain_returns_cloud_robots(self, _mock_is_cloud):
-        response = self.client.get("/robots.txt", HTTP_HOST="app.posthog.com")
-
-        assert response.status_code == 200
-        assert b"Disallow: /e/" in response.content
-
-    @patch("posthog.views.is_cloud", return_value=True)
-    def test_non_valid_proxy_record_returns_cloud_robots(self, _mock_is_cloud):
-        ProxyRecord.objects.create(
-            organization=self.organization,
-            domain="pending.example.com",
-            target_cname="target.posthog.com",
-            status=ProxyRecord.Status.WAITING,
-        )
-
-        response = self.client.get("/robots.txt", HTTP_HOST="pending.example.com")
-
-        assert response.status_code == 200
-        assert b"Disallow: /e/" in response.content
+        assert expected_content in response.content
