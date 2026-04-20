@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Mixin for serializers to add user access control fields",
+    "properties": {
+        "account_id": {
+            "type": "string"
+        },
+        "client_secret": {
+            "type": "string"
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "job_inputs": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "prefix": {
+            "anyOf": [
+                {
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        }
+    },
+    "required": ["client_secret", "account_id"],
+    "type": "object"
+}
