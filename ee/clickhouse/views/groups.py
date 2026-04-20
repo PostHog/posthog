@@ -813,6 +813,8 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
         fields = ("id", "name", "format", "interval", "display", "filters", "math", "math_property")
 
     def validate(self, data):
+        data = super().validate(data)
+
         math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
         math_property = data.get("math_property", self.instance.math_property if self.instance else None)
 
