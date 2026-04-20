@@ -14,6 +14,7 @@ lives here only:
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import structlog
@@ -34,6 +35,17 @@ logger = structlog.get_logger(__name__)
 def _json_safe_value(val: Any) -> Any:
     """Coerce to JSONField-safe Python (dict/list/scalars); unknown types use fallback, not pass-through."""
     return to_jsonable_python(val, fallback=lambda x: str(x))
+
+
+def _scrub_non_finite_floats(value: Any) -> Any:
+    """Recursively coerce NaN / ±Inf to ``None`` — Postgres JSONB rejects those tokens."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _scrub_non_finite_floats(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_scrub_non_finite_floats(v) for v in value]
+    return value
 
 
 def build_initial_content_snapshot(subscription: Subscription) -> dict[str, Any]:
@@ -65,17 +77,21 @@ def build_initial_content_snapshot(subscription: Subscription) -> dict[str, Any]
 
 
 def _serialize_insight_result(result: InsightResult) -> dict[str, Any]:
-    return {
-        "result": result.result,
-        "columns": result.columns,
-        "types": result.types,
-        "resolved_date_range": _json_safe_value(result.resolved_date_range),
-        "last_refresh": result.last_refresh.isoformat() if result.last_refresh else None,
-        "is_cached": result.is_cached,
-        "timezone": result.timezone,
-        "has_more": result.has_more,
-        "query_status": _json_safe_value(result.query_status),
-    }
+    # Scrub at the return boundary so every field is protected uniformly — both raw
+    # `result` payloads and pydantic-coerced fields like `query_status` can contain NaN.
+    return _scrub_non_finite_floats(
+        {
+            "result": result.result,
+            "columns": result.columns,
+            "types": result.types,
+            "resolved_date_range": _json_safe_value(result.resolved_date_range),
+            "last_refresh": result.last_refresh.isoformat() if result.last_refresh else None,
+            "is_cached": result.is_cached,
+            "timezone": result.timezone,
+            "has_more": result.has_more,
+            "query_status": _json_safe_value(result.query_status),
+        }
+    )
 
 
 def _insight_snapshot_base_metadata(*, insight: Insight, tile: DashboardTile | None) -> dict[str, Any]:
