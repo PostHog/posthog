@@ -69,13 +69,98 @@ tool-augmented generation. The UI's cost cells and both the
 `traces_query_runner` and `trace_query_runner` sum `$ai_total_cost_usd`
 over `event IN ('$ai_generation', '$ai_embedding')`; mirror that.
 
-Note: `$ai_trace` and `$ai_span` events do **not** carry cost. To get a trace's
-total cost, sum `$ai_total_cost_usd` across its `$ai_generation` and
-`$ai_embedding` events (matched by `$ai_trace_id`).
+Note: `$ai_trace` and `$ai_span` events do **not** carry cost for rollup
+purposes. To get a trace's total cost, sum `$ai_total_cost_usd` across its
+`$ai_generation` and `$ai_embedding` events (matched by `$ai_trace_id`).
+Some framework wrappers (e.g. the Claude Agent SDK integration in
+`posthog-python`) duplicate `$ai_total_cost_usd` onto `$ai_trace` as a
+convenience, but the query runners still aggregate over
+`event IN ('$ai_generation', '$ai_embedding')` — don't mix event sets or
+you'll double-count.
 
 `distinct_id` is the canonical user dimension — customers typically set it in
 the SDK. Use person properties (e.g. `email`, `company_tier`) for richer
 per-user breakdowns; discover what exists with `read-data-schema`.
+
+## How costs get set: SDK, custom pricing, ingestion
+
+Costs can arrive on the event in three ways; ingestion applies them in this
+precedence (see `nodejs/src/ingestion/ai/costs/index.ts` and
+[the docs](https://posthog.com/docs/llm-analytics/calculating-costs)):
+
+1. **Pre-calculated** — the SDK / manual capture sets `$ai_input_cost_usd`,
+   `$ai_output_cost_usd`, `$ai_request_cost_usd`, `$ai_web_search_cost_usd`
+   directly. Ingestion preserves them and fills `$ai_total_cost_usd` as the
+   sum. Use when the caller already knows the cost.
+2. **Custom pricing** — the SDK sets `$ai_input_token_price` /
+   `$ai_output_token_price` (required pair) plus optionally
+   `$ai_cache_read_token_price`, `$ai_cache_write_token_price`,
+   `$ai_request_price`, `$ai_web_search_price`. Ingestion multiplies by the
+   token counts. Token prices are **per token**, not per million.
+3. **Automatic model matching** — ingestion looks up pricing by
+   `$ai_model` + `$ai_provider` (OpenRouter first, manual fallback).
+
+Three metadata properties tell you which path was taken — read them whenever
+a cost looks wrong:
+
+| Property                  | Meaning                                                                     |
+| ------------------------- | --------------------------------------------------------------------------- |
+| `$ai_model_cost_used`     | Canonical model id the pricing lookup matched (may differ from `$ai_model`) |
+| `$ai_cost_model_source`   | `openrouter` \| `manual` \| `custom` \| `passthrough`                       |
+| `$ai_cost_model_provider` | Provider the lookup used                                                    |
+
+When `$ai_total_cost_usd` is null or zero for a model, group by
+`$ai_cost_model_source` to distinguish an unmatched model (no source) from
+an explicitly-zero custom price:
+
+```sql
+posthog:execute-sql
+SELECT
+    properties.$ai_model AS model,
+    properties.$ai_cost_model_source AS source,
+    count() AS calls,
+    countIf(toFloat(properties.$ai_total_cost_usd) = 0 OR properties.$ai_total_cost_usd IS NULL) AS zero_cost_calls
+FROM events
+WHERE event = '$ai_generation'
+    AND timestamp >= now() - INTERVAL 7 DAY
+GROUP BY model, source
+ORDER BY zero_cost_calls DESC
+```
+
+## Cache token accounting (exclusive vs inclusive)
+
+Providers report cache tokens two ways, and the skill's cache-hit-rate math
+changes accordingly:
+
+- **Exclusive** (Anthropic / Claude) — `$ai_input_tokens` does **not**
+  include cache tokens. Total input volume is
+  `input_tokens + cache_read + cache_creation`.
+- **Inclusive** (OpenAI and most others) — `$ai_input_tokens` already
+  includes cache tokens.
+
+Ingestion auto-detects from `$ai_provider` / `$ai_model` and writes the
+resolved value to `$ai_cache_reporting_exclusive` (boolean) on the event
+(`nodejs/src/ingestion/ai/costs/input-costs.ts`). Callers can override with
+`$ai_cache_reporting_exclusive: true|false` when manually capturing. When
+computing a cache-hit rate, split by that flag:
+
+```sql
+posthog:execute-sql
+SELECT
+    properties.$ai_model AS model,
+    if(properties.$ai_cache_reporting_exclusive = 'true',
+       sum(toInt(properties.$ai_cache_read_input_tokens))
+         / nullIf(sum(toInt(properties.$ai_input_tokens))
+                + sum(toInt(properties.$ai_cache_read_input_tokens))
+                + sum(toInt(properties.$ai_cache_creation_input_tokens)), 0),
+       sum(toInt(properties.$ai_cache_read_input_tokens))
+         / nullIf(sum(toInt(properties.$ai_input_tokens)), 0)
+    ) AS cache_hit_rate
+FROM events
+WHERE event = '$ai_generation'
+    AND timestamp >= now() - INTERVAL 30 DAY
+GROUP BY model, properties.$ai_cache_reporting_exclusive
+```
 
 ## Workflow: answer "how much are we spending?"
 
@@ -423,10 +508,12 @@ Always surface a UI link so the user can verify visually.
 
 - Always set a time range — cost queries without one scan the full events table
 - Always include `$ai_embedding` alongside `$ai_generation` when summing cost; embeddings are cheap per-call but add up at scale
-- Costs are written at ingestion from the model+provider lookup — if `$ai_total_cost_usd` is missing or zero, the model wasn't recognised (unusual custom model, fine-tune). Grep for nulls: `countIf(properties.$ai_total_cost_usd IS NULL)` per model
+- Costs are written at ingestion (see [Calculating LLM costs](https://posthog.com/docs/llm-analytics/calculating-costs)) — if `$ai_total_cost_usd` is missing or zero, read `$ai_cost_model_source` first: `passthrough` means the SDK supplied costs; `custom` means custom token prices; `openrouter` / `manual` mean automatic lookup; missing means the model wasn't matched (unusual custom model, fine-tune). Grep: `countIf(properties.$ai_total_cost_usd IS NULL)` per `(model, source)`
+- Custom pricing uses **per-token** prices, not per-million — if a custom-priced model looks ~1M× too expensive or too cheap, that's almost always the bug
 - Exclude errored calls from cost totals only when explicitly asked — providers still charge for many error modes, and including them gives the truthful bill
 - For per-user totals, exclude rows where `distinct_id = properties.$ai_trace_id` — some SDKs default distinct_id to the trace ID when no user is set
-- Cost is additive across `$ai_generation` + `$ai_embedding` events within a trace; summing on `$ai_span` or `$ai_trace` gives zero
+- Cost is additive across `$ai_generation` + `$ai_embedding` events within a trace; summing on `$ai_span` gives zero. `$ai_trace` may carry `$ai_total_cost_usd` from some SDK wrappers (e.g. Claude Agent SDK) — don't include it in rollups or you'll double-count
+- Cache-hit rate depends on `$ai_cache_reporting_exclusive` — Anthropic reports exclusively, OpenAI inclusively. Use the split formula above, not a single divisor, when comparing across providers
 - When answering "why is X expensive?", show the cost **and** the token split — the user almost always wants to know whether to shrink prompts, shrink outputs, or switch models
 - Before building a custom dashboard, check whether the stock `/llm-analytics/dashboard` tiles already answer the question — re-creating them is churn
 - For large tenants, materialize common cost queries as insights and reuse via `insight-query`; ad-hoc SQL is fine for one-offs but re-running it on every dashboard load is expensive
