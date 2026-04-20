@@ -73,10 +73,10 @@ AS SELECT
     toUInt64(1) as property_count,
     _timestamp as last_seen
 FROM {database}.{kafka_table}
-WHERE length(property_key) > 0
-  AND length(property_key) <= 400  -- matches Django PropertyDefinition.name max_length
-  AND length(property_value) > 0
-  AND length(property_value) < 256
+WHERE lengthUTF8(property_key) > 0
+  AND lengthUTF8(property_key) <= 400  -- matches Django PropertyDefinition.name max_length
+  AND lengthUTF8(property_value) > 0
+  AND lengthUTF8(property_value) < 256
 """.format(
         mv_name=MV_NAME,
         table_name=TABLE_NAME,
