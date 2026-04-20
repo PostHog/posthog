@@ -277,9 +277,9 @@ export interface PatchedTaskApi {
  * * `interactive` - interactive
  * `background` - background
  */
-export type ModeA07EnumApi = (typeof ModeA07EnumApi)[keyof typeof ModeA07EnumApi]
+export type Mode051EnumApi = (typeof Mode051EnumApi)[keyof typeof Mode051EnumApi]
 
-export const ModeA07EnumApi = {
+export const Mode051EnumApi = {
     Interactive: 'interactive',
     Background: 'background',
 } as const
@@ -355,7 +355,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: ModeA07EnumApi
+    mode?: Mode051EnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -436,7 +436,7 @@ export interface CodexTaskRunCreateSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: ModeA07EnumApi
+    mode?: Mode051EnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -489,7 +489,7 @@ export interface TaskRunResumeRequestSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: ModeA07EnumApi
+    mode?: Mode051EnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
