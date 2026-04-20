@@ -649,14 +649,16 @@ tools:
         description: >
             List delivery history for a subscription — one row per send attempt. Each entry
             includes status (starting, completed, failed, skipped), trigger_type (scheduled,
-            manual, target_change), timestamps (created_at, finished_at), per-recipient results,
-            and any error payload. Filter with status=failed to quickly surface failed deliveries.
-            Results are cursor-paginated newest first. The full content_snapshot can be very
-            large, so it is excluded here — use subscriptions-deliveries-retrieve to fetch it
-            for a single delivery when needed.
+            manual, target_change), and timestamps (created_at, finished_at). Filter with
+            status=failed to quickly surface failed deliveries. Results are cursor-paginated
+            newest first. content_snapshot, recipient_results, and error are excluded to
+            match what the web UI exposes and to avoid leaking recipient identifiers or
+            upstream response bodies that may contain tokens / PII.
         response:
             exclude:
                 - content_snapshot
+                - recipient_results
+                - error
     subscriptions-deliveries-retrieve:
         operation: subscriptions_deliveries_retrieve
         enabled: true
@@ -668,11 +670,15 @@ tools:
             idempotent: true
         title: Get subscription delivery
         description: >
-            Fetch a single subscription delivery attempt by id. Returns the delivery row
-            including status, trigger_type, timestamps, per-recipient results, and any
-            top-level error payload. The content_snapshot (frozen dashboard/insight metadata
-            and query results) is excluded by default to avoid leaking PII from historical
-            insight results; fetch it through a separate path only when explicitly needed.
+            Fetch a single subscription delivery attempt by id. Returns status,
+            trigger_type, target_type, target_value, timestamps, workflow/idempotency
+            metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight
+            state at send time) is not returned — use the insight/dashboard tools for
+            current state. recipient_results and error are also excluded to match what the
+            web UI exposes and to avoid leaking recipient identifiers or upstream response
+            bodies that may contain tokens / PII.
         response:
             exclude:
                 - content_snapshot
+                - recipient_results
+                - error
