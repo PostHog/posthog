@@ -56,9 +56,7 @@ function EditTextValueComponent({
     initialValue: any
     onChange: (newValue: any) => void
 }): JSX.Element {
-    const startsAsText =
-        typeof initialValue === 'string' || typeof initialValue === 'number' || typeof initialValue === 'bigint'
-    const [value, setValue] = useState(startsAsText ? String(initialValue) : '')
+    const [value, setValue] = useState(String(initialValue))
 
     return (
         <LemonInput
