@@ -2,10 +2,11 @@ import os
 import json
 import uuid
 import logging
+import builtins
 import traceback
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import models, transaction
@@ -926,7 +927,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
     @staticmethod
-    def _find_artifact_manifest_entry(manifest: "list[dict]", artifact_id: str, storage_path: str) -> dict | None:
+    def _find_artifact_manifest_entry(
+        manifest: builtins.list[dict[str, Any]], artifact_id: str, storage_path: str
+    ) -> dict[str, Any] | None:
         return next(
             (
                 entry
@@ -937,7 +940,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     @staticmethod
-    def _save_artifact_manifest(task_run: TaskRun, manifest: "list[dict]") -> None:
+    def _save_artifact_manifest(task_run: TaskRun, manifest: builtins.list[dict[str, Any]]) -> None:
         task_run.artifacts = manifest
         task_run.save(update_fields=["artifacts", "updated_at"])
 

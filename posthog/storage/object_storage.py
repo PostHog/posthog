@@ -78,6 +78,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def copy(self, bucket: str, source_key: str, target_key: str) -> None:
+        pass
+
+    @abc.abstractmethod
     def delete(self, bucket: str, key: str) -> None:
         pass
 
@@ -123,6 +127,9 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
+        pass
+
+    def copy(self, bucket: str, source_key: str, target_key: str) -> None:
         pass
 
     def delete(self, bucket: str, key: str) -> None:
