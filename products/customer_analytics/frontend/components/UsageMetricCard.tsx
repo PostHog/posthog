@@ -54,14 +54,18 @@ const formatValue = (metric: UsageMetric): string => {
 }
 
 const TrendIndicator = ({ metric }: { metric: UsageMetric }): JSX.Element | null => {
-    const trend = getTrendFromPercentageChange(metric.change_from_previous_pct)
-    if (!trend || metric.change_from_previous_pct === null) {
+    const changePct = metric.change_from_previous_pct
+    if (changePct === null) {
+        return null
+    }
+    const trend = getTrendFromPercentageChange(changePct)
+    if (!trend) {
         return null
     }
     return (
         <span className="inline-flex items-center gap-0.5" style={{ color: trend.color }}>
             <trend.icon color={trend.color} />
-            {formatPercentage(metric.change_from_previous_pct)}
+            {formatPercentage(changePct)}
         </span>
     )
 }

@@ -847,7 +847,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(timeseries)
         self.assertEqual(sum(timeseries), 2.0)
         zero_count = sum(1 for v in timeseries if v == 0.0)
-        self.assertGreaterEqual(zero_count, 5)
+        self.assertEqual(zero_count, len(timeseries) - 2)
 
     @freeze_time("2025-10-09T12:11:00")
     def test_sparkline_sum_aggregation(self):
