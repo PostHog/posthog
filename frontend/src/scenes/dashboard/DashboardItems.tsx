@@ -28,6 +28,7 @@ const DRAG_AUTO_SCROLL_SPEED = 50
 
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
+const CONTAINER_PADDING: [number, number] = [0, 0]
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -147,6 +148,13 @@ export function DashboardItems(): JSX.Element {
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = BASE_MARGIN.map((m) => m * spacingFactor) as [number, number]
 
+    const requireDashboardId = (action: string): number => {
+        if (!dashboard) {
+            throw new Error(`must be on a dashboard to ${action}`)
+        }
+        return dashboard.id
+    }
+
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
             {dashboardMode === DashboardMode.Edit && isMobileView && (
@@ -163,7 +171,7 @@ export function DashboardItems(): JSX.Element {
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
                             rowHeight={rowHeight}
                             margin={margin}
-                            containerPadding={[0, 0]}
+                            containerPadding={CONTAINER_PADDING}
                             rows="auto"
                             height={containerHeight} // kept in sync via ResizeObserver
                             color="var(--color-bg-surface-secondary)"
@@ -315,16 +323,10 @@ export function DashboardItems(): JSX.Element {
                                     : undefined,
                                 showEditingControls: isEditablePlacement || dashboardMode === DashboardMode.Edit,
                                 moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                                    if (!dashboard) {
-                                        throw new Error('must be on a dashboard to move this tile')
-                                    }
-                                    moveToDashboard(tile, dashboard.id, id, name)
+                                    moveToDashboard(tile, requireDashboardId('move this tile'), id, name)
                                 },
                                 copyToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                                    if (!dashboard) {
-                                        throw new Error('must be on a dashboard to copy this tile')
-                                    }
-                                    copyToDashboard(tile, dashboard.id, id, name)
+                                    copyToDashboard(tile, requireDashboardId('copy this tile'), id, name)
                                 },
                                 removeFromDashboard: () => removeTile(tile),
                             }
@@ -382,19 +384,13 @@ export function DashboardItems(): JSX.Element {
                                         tile={tile}
                                         placement={placement}
                                         dashboardId={dashboard?.id}
-                                        isDragging={isDragging.current}
                                         onEdit={() => {
                                             if (dashboard?.id) {
                                                 push(urls.dashboardTextTile(dashboard.id, tile.id))
                                             }
                                         }}
                                         onMoveToDashboard={commonTileProps.moveToDashboard}
-                                        onCopyToDashboard={({ id, name }) => {
-                                            if (!dashboard) {
-                                                throw new Error('must be on a dashboard to copy this tile')
-                                            }
-                                            copyToDashboard(tile, dashboard.id, id, name)
-                                        }}
+                                        onCopyToDashboard={commonTileProps.copyToDashboard}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
                                         showResizeHandles={commonTileProps.showResizeHandles}
