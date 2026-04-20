@@ -180,10 +180,11 @@ describe('EditorFilters', () => {
     it('expands advanced options section on click', async () => {
         setupAndRender(makeFunnelsQuery())
 
-        expect(screen.queryByText('Use person properties from query time')).not.toBeInTheDocument()
+        const advancedButton = screen.getByRole('button', { name: /Advanced options/ })
+        expect(advancedButton).toHaveAttribute('title', 'Show more')
 
-        await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
-
+        await userEvent.click(advancedButton)
+        expect(advancedButton).toHaveAttribute('title', 'Show less')
         expect(screen.getByText('Use person properties from query time')).toBeInTheDocument()
     })
 
