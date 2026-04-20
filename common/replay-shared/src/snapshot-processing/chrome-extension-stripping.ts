@@ -4,6 +4,7 @@ import { EventType } from '@posthog/rrweb-types'
 import { serializedNodeWithId } from '@posthog/rrweb-types'
 
 import { RecordingSnapshot } from '../types'
+import { isObject } from '../utils'
 
 export const CHROME_EXTENSION_DENY_LIST: Record<string, string> = {
     'dji-sru': 'snap and read',
@@ -26,7 +27,11 @@ function safelyCheckCSSAttribute(
     needles: string[],
     matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
-    const hasAttributes = 'attributes' in node && attribute in node.attributes && !!node.attributes[attribute]
+    const hasAttributes =
+        'attributes' in node &&
+        isObject(node.attributes) &&
+        attribute in node.attributes &&
+        !!node.attributes[attribute]
     if (!hasAttributes) {
         return false
     }
@@ -51,7 +56,8 @@ function safelyCheckClassAttribute(
     needle: string,
     matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
-    const hasAttributes = 'attributes' in node && 'class' in node.attributes && !!node.attributes['class']
+    const hasAttributes =
+        'attributes' in node && isObject(node.attributes) && 'class' in node.attributes && !!node.attributes['class']
     if (!hasAttributes) {
         return false
     }
@@ -108,7 +114,8 @@ function safelyCheckIDAttribute(
     needles: string[],
     matchedExtensions: Set<string>
 ): node is IsStrippable & serializedNodeWithId {
-    const hasID = 'attributes' in node && 'id' in node.attributes && !!node.attributes['id']
+    const hasID =
+        'attributes' in node && isObject(node.attributes) && 'id' in node.attributes && !!node.attributes['id']
     if (!hasID) {
         return false
     }
