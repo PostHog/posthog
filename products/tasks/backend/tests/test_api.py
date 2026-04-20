@@ -279,7 +279,6 @@ class TestTaskAPI(BaseTaskAPITest):
             relationship=SignalReportTask.Relationship.IMPLEMENTATION,
         )
         self.assertEqual(str(link.task_id), data["id"])
-        self.assertEqual(link.relationship, SignalReportTask.Relationship.IMPLEMENTATION)
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport
