@@ -170,21 +170,8 @@ describe('infiniteListLogic', () => {
                     })
             })
 
-            it('shows "All events" when the search query is a prefix of its name', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setSearchQuery('All e')
-                })
-                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
-                    .toFinishAllListeners()
-                    .toMatchValues({
-                        localItems: partial({
-                            count: 1,
-                            results: [{ name: 'All events', value: null }],
-                        }),
-                    })
-            })
-
             it.each([
+                ['All e', 'prefix'],
                 ['all events', 'lowercase'],
                 ['ALL EVENTS', 'uppercase'],
                 ['All Events', 'title case'],
