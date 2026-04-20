@@ -46,6 +46,34 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
+export interface QuarantinedIdentifierEntryApi {
+    id: string
+    identifier: string
+    run_type: string
+    reason: string
+    /** @nullable */
+    expires_at: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedQuarantinedIdentifierEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: QuarantinedIdentifierEntryApi[]
+}
+
+export interface QuarantineInputApi {
+    identifier: string
+    run_type: string
+    reason: string
+    /** @nullable */
+    expires_at?: string | null
+}
+
 export interface RunSummaryApi {
     total: number
     changed: number
@@ -210,6 +238,7 @@ export interface SnapshotApi {
     approved_hash: string
     /** @nullable */
     tolerated_hash_id?: string | null
+    is_quarantined?: boolean
     metadata?: SnapshotApiMetadata
 }
 
@@ -253,6 +282,17 @@ export interface ReviewStateCountsApi {
 }
 
 export type VisualReviewReposListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewReposQuarantineListParams = {
     /**
      * Number of results to return per page.
      */

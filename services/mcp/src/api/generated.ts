@@ -21844,6 +21844,26 @@ export namespace Schemas {
       results: ProjectSecretAPIKey[];
     }
 
+    export interface QuarantinedIdentifierEntry {
+      id: string;
+      identifier: string;
+      run_type: string;
+      reason: string;
+      /** @nullable */
+      expires_at: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+
+    export interface PaginatedQuarantinedIdentifierEntryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: QuarantinedIdentifierEntry[];
+    }
+
     export interface QueryTabState {
       readonly id: string;
       /** 
@@ -22433,6 +22453,7 @@ export namespace Schemas {
       approved_hash: string;
       /** @nullable */
       tolerated_hash_id?: string | null;
+      is_quarantined?: boolean;
       metadata?: SnapshotMetadata;
     }
 
@@ -28492,6 +28513,14 @@ export namespace Schemas {
       results: ProxyRecord[];
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
+    }
+
+    export interface QuarantineInput {
+      identifier: string;
+      run_type: string;
+      reason: string;
+      /** @nullable */
+      expires_at?: string | null;
     }
 
     /**
@@ -38483,6 +38512,17 @@ export namespace Schemas {
     };
 
     export type VisualReviewReposListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type VisualReviewReposQuarantineListParams = {
     /**
      * Number of results to return per page.
      */

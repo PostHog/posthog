@@ -324,13 +324,17 @@ class ToleratedHash(models.Model):
 
 class QuarantinedIdentifier(models.Model):
     """
-    Marks a snapshot identifier as known-flaky within a repo.
+    Tracks quarantine events for snapshot identifiers.
 
-    Quarantined snapshots are still captured, classified, and diffed (for metrics),
-    but excluded from the gate — they don't block PRs or affect commit status.
+    Each row is a quarantine event — multiple rows per identifier form
+    a history. The active quarantine is the latest row where expires_at
+    is NULL or in the future. Unquarantining sets expires_at = now()
+    rather than deleting, preserving the audit trail.
 
-    Evaluated at run finalization and frozen on RunSnapshot.is_quarantined so
-    historical runs remain stable even if quarantine policy changes later.
+    Quarantined snapshots are still captured, classified, and diffed
+    (for metrics), but excluded from the gate at run finalization.
+    The decision is frozen on RunSnapshot.is_quarantined so historical
+    runs remain stable even if quarantine policy changes later.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -347,12 +351,6 @@ class QuarantinedIdentifier(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["repo", "identifier", "run_type"],
-                name="unique_quarantined_identifier",
-            ),
-        ]
         indexes = [
             models.Index(fields=["repo", "run_type", "identifier"], name="quarantine_lookup"),
         ]

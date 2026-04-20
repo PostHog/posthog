@@ -32,13 +32,6 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        migrations.AddConstraint(
-            model_name="quarantinedidentifier",
-            constraint=models.UniqueConstraint(
-                fields=["repo", "identifier", "run_type"],
-                name="unique_quarantined_identifier",
-            ),
-        ),
         migrations.AddIndex(
             model_name="quarantinedidentifier",
             index=models.Index(fields=["repo", "run_type", "identifier"], name="quarantine_lookup"),

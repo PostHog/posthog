@@ -1535,24 +1535,24 @@ def quarantine_identifier(
     team_id: int,
     expires_at: datetime | None = None,
 ) -> QuarantinedIdentifier:
-    entry, created = QuarantinedIdentifier.objects.update_or_create(
+    return QuarantinedIdentifier.objects.create(
         repo_id=repo_id,
         identifier=identifier,
         run_type=run_type,
-        defaults={
-            "team_id": team_id,
-            "reason": reason,
-            "expires_at": expires_at,
-            "created_by_id": user_id,
-        },
+        team_id=team_id,
+        reason=reason,
+        expires_at=expires_at,
+        created_by_id=user_id,
     )
-    return entry
 
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
     QuarantinedIdentifier.objects.filter(
-        repo_id=repo_id, identifier=identifier, run_type=run_type, team_id=team_id
-    ).delete()
+        repo_id=repo_id,
+        identifier=identifier,
+        run_type=run_type,
+        team_id=team_id,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).update(expires_at=timezone.now())
 
 
 def update_snapshot_diff(
