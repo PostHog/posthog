@@ -2049,7 +2049,11 @@ class GitHubIntegration:
             access_token = token_data.get("access_token")
             if not access_token:
                 logger.warning(
-                    "GitHubIntegration: code exchange returned no access_token", error=token_data.get("error")
+                    "GitHubIntegration: code exchange returned no access_token",
+                    status_code=token_response.status_code,
+                    error=token_data.get("error"),
+                    error_description=token_data.get("error_description"),
+                    error_uri=token_data.get("error_uri"),
                 )
                 return None
 

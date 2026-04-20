@@ -358,22 +358,38 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     if the user has GitHub access to a repo that the team installation covers,
     the UTS works there with no extra consent.
     """
-    error_redirect = redirect(f"{LINKED_ACCOUNTS_SETTINGS_PATH}?github_link_error=1")
+
+    def _error(reason: str) -> HttpResponseRedirect:
+        logger.warning("github_link: redirecting with error", reason=reason, user_id=request.user.id)
+        return redirect(f"{LINKED_ACCOUNTS_SETTINGS_PATH}?github_link_error={reason}")
+
+    # GitHub appends ?error=... when the user denied consent or the authorize call itself failed.
+    # Surface that directly rather than pretending we got a bad code.
+    if github_error := request.GET.get("error"):
+        logger.warning(
+            "github_link: GitHub returned error on callback",
+            error=github_error,
+            description=request.GET.get("error_description"),
+            user_id=request.user.id,
+        )
+        return _error(github_error if github_error == "access_denied" else "github_oauth_error")
 
     code = request.GET.get("code")
     state = request.GET.get("state")
     if not code or not state:
-        return error_redirect
+        return _error("missing_params")
 
     cache_key = f"{GITHUB_LINK_STATE_CACHE_PREFIX}{state}"
     state_payload = cache.get(cache_key)
     if not state_payload or state_payload.get("user_id") != request.user.id:
-        return error_redirect
+        return _error("invalid_state")
     cache.delete(cache_key)
 
     authorization = GitHubIntegration.github_user_from_code(code)
     if authorization is None:
-        return error_redirect
+        # github_user_from_code logs the specific GitHub response reason as a warning; check
+        # the web process logs for the exact `error=` value returned by api.github.com.
+        return _error("exchange_failed")
 
     # Invalidate any stale login row pointing at a different GitHub account. Skip the delete
     # if it would strand a user whose only sign-in method is this UserSocialAuth — they'd have

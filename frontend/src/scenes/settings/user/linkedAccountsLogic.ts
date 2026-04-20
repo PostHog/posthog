@@ -163,7 +163,17 @@ export const linkedAccountsLogic = kea<linkedAccountsLogicType>([
                         ? 'That GitHub account is already linked to another PostHog account.'
                         : reason === 'would_disable_only_login'
                           ? 'Linking a different GitHub account would lock you out. Set a password or link another sign-in method first.'
-                          : 'Could not link GitHub account. Please try again.'
+                          : reason === 'access_denied'
+                            ? 'GitHub authorization was canceled.'
+                            : reason === 'github_oauth_error'
+                              ? 'GitHub rejected the authorization. Please try again.'
+                              : reason === 'missing_params'
+                                ? "GitHub didn't send back the expected parameters. Please try again."
+                                : reason === 'invalid_state'
+                                  ? 'The GitHub link request expired or could not be verified. Please try again.'
+                                  : reason === 'exchange_failed'
+                                    ? 'GitHub rejected the authorization code. Check that GITHUB_APP_CLIENT_ID and GITHUB_APP_OAUTH_CLIENT_SECRET are configured correctly (server logs have the specific reason).'
+                                    : 'Could not link GitHub account. Please try again.'
                 lemonToast.error(message)
             }
         },
