@@ -1619,8 +1619,9 @@ def _enforce_partner_account_request_rate_limit(partner: OAuthApplication) -> Re
     try:
         count = cache.incr(key)
     except ValueError:
-        cache.set(key, 1, timeout=ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS)
-        count = 1
+        # cache.add is atomic set-if-not-exists; safe under concurrent initialization.
+        cache.add(key, 0, timeout=ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        count = cache.incr(key)
 
     if count > limit:
         _capture_provisioning_event(
