@@ -1,4 +1,5 @@
 import pyarrow as pa
+import deltalake as deltalake
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
