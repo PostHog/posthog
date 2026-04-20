@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { ReactNode, useRef } from 'react'
+import { ReactNode } from 'react'
 
 import { IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -31,19 +31,11 @@ export function RecommendationCard({
     const { dismissRecommendation, restoreRecommendation, refreshRecommendation, recordRecommendationInteraction } =
         useActions(recommendationsTabLogic)
     const canRefresh = !nextRefreshAt || new Date(nextRefreshAt) <= new Date()
-    // Fire the hover event at most once per mount so moving the mouse around within the
-    // card (or leaving and re-entering) doesn't spam analytics.
-    const hoverFiredRef = useRef(false)
 
     return (
         <div
             className="border rounded-lg bg-surface-primary p-4"
-            onMouseEnter={() => {
-                if (!hoverFiredRef.current) {
-                    hoverFiredRef.current = true
-                    recordRecommendationInteraction(recommendationType, 'hover')
-                }
-            }}
+            onMouseEnter={() => recordRecommendationInteraction(recommendationType, 'hover')}
             onClick={() => recordRecommendationInteraction(recommendationType, 'click')}
         >
             <div className="flex items-center justify-between mb-1">
