@@ -157,6 +157,46 @@ describe('infiniteListLogic', () => {
                 })
         })
 
+        it('shows "All events" when the search query is empty', async () => {
+            await expectLogic(logic)
+                .toDispatchActions(['loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        count: 1,
+                        results: [{ name: 'All events', value: null }],
+                    }),
+                })
+        })
+
+        it('shows "All events" when the search query matches its name', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('All e')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        count: 1,
+                        results: [{ name: 'All events', value: null }],
+                    }),
+                })
+        })
+
+        it('hides "All events" when the search query does not match its name', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('mcp tool call')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        count: 0,
+                        results: [],
+                    }),
+                })
+        })
+
         it('resets pinned state when the search query changes', async () => {
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
             await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({

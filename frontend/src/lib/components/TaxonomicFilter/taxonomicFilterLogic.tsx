@@ -207,6 +207,14 @@ export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHea
     getIcon: getEventDefinitionIcon,
 }
 
+function substringLocalItemsSearch(items: TaxonomicDefinitionTypes[], q: string): TaxonomicDefinitionTypes[] {
+    if (!q) {
+        return items
+    }
+    const lowerQ = q.toLowerCase()
+    return items.filter((item) => (item.name || '').toLowerCase().includes(lowerQ))
+}
+
 export const propertyTaxonomicGroupProps = (
     coreDefinitionsGroup?: Record<string, CoreFilterDefinition>
 ): Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> => ({
@@ -452,6 +460,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         options: [{ name: 'All events', value: null }].filter(
                             (o) => !excludedProperties[TaxonomicFilterGroupType.Events]?.includes(o.value)
                         ),
+                        // Fuse fuzzy matching can match short option names against long unrelated queries —
+                        // use a strict substring match so "All events" only appears for matching queries.
+                        localItemsSearch: substringLocalItemsSearch,
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
@@ -474,6 +485,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 value: item.value,
                             })),
                         ],
+                        localItemsSearch: substringLocalItemsSearch,
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
                             'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
