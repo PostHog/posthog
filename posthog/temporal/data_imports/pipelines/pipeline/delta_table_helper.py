@@ -1,7 +1,7 @@
 import json
 import asyncio
 from collections.abc import Callable, Sequence
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from django.conf import settings
 
@@ -17,10 +17,30 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.utils import conditional_lru_cache_async, normalize_column_name
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    conditional_lru_cache_async,
+    normalize_column_name,
+    pyarrow_schema_from_arrow_exportable,
+)
 
 from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
+
+
+def _write_deltalake(
+    table_or_uri: str | deltalake.DeltaTable,
+    table_data: pa.Table,
+    partition_by: str | None,
+    mode: Literal["error", "append", "overwrite", "ignore"],
+    schema_mode: Literal["merge", "overwrite"] | None,
+) -> None:
+    deltalake.write_deltalake(
+        table_or_uri=table_or_uri,
+        data=table_data,
+        partition_by=partition_by,
+        mode=mode,
+        schema_mode=schema_mode,
+    )
 
 
 def _first_per_pk_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
@@ -114,7 +134,7 @@ class DeltaTableHelper:
         if delta_table is None:
             raise Exception("Deltalake table not found")
 
-        delta_table_schema = pa.schema(delta_table.schema().to_arrow())
+        delta_table_schema = pyarrow_schema_from_arrow_exportable(delta_table.schema())
 
         new_fields = [
             deltalake.Field.from_arrow(field)
@@ -291,7 +311,7 @@ class DeltaTableHelper:
 
             try:
                 await asyncio.to_thread(
-                    cast(Callable[..., None], deltalake.write_deltalake),
+                    _write_deltalake,
                     delta_table,
                     data,
                     partition_by=PARTITION_KEY if use_partitioning else None,
@@ -303,7 +323,7 @@ class DeltaTableHelper:
                 capture_exception(e)
 
                 await asyncio.to_thread(
-                    cast(Callable[..., None], deltalake.write_deltalake),
+                    _write_deltalake,
                     delta_table,
                     data,
                     partition_by=None,
@@ -325,9 +345,9 @@ class DeltaTableHelper:
             await self._logger.adebug(f"write_to_deltalake: write_type = append")
 
             await asyncio.to_thread(
-                cast(Callable[..., None], deltalake.write_deltalake),
-                table_or_uri=delta_table,
-                data=data,
+                _write_deltalake,
+                delta_table,
+                data,
                 partition_by=PARTITION_KEY if use_partitioning else None,
                 mode="append",
                 schema_mode="merge",
