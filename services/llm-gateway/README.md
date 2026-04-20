@@ -198,17 +198,21 @@ Defined in `src/llm_gateway/products/config.py`:
 
 OAuth access is permitted only for products with an explicit `allowed_application_ids` allowlist. All other products are API-key-only by default.
 
-| Product              | Auth            | Models                     | Notes                           |
-| -------------------- | --------------- | -------------------------- | ------------------------------- |
-| `llm_gateway`        | API key only    | All                        | Default when no product in path |
-| `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
-| `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
-| `wizard`             | API key + OAuth | All                        | Max AI assistant                |
-| `django`             | API key only    | All                        | Server-side Django calls        |
-| `growth`             | API key only    | All                        | Growth team                     |
-| `llma_translation`   | API key only    | gpt-4.1-mini               | LLM analytics translation       |
-| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
-| `llma_eval_summary`  | API key only    | gpt-5-mini                 | LLM analytics eval summary      |
+| Product                             | Auth            | Models                     | Notes                               |
+| ----------------------------------- | --------------- | -------------------------- | ----------------------------------- |
+| `llm_gateway`                       | API key only    | All                        | Default when no product in path     |
+| `posthog_code`                      | OAuth only      | Restricted set             | Desktop coding agent                |
+| `background_agents`                 | OAuth only      | Restricted set             | Cloud background agents             |
+| `wizard`                            | API key + OAuth | All                        | Max AI assistant                    |
+| `django`                            | API key only    | All                        | Server-side Django calls            |
+| `growth`                            | API key only    | All                        | Growth team                         |
+| `slack-posthog-code`                | API key only    | claude-haiku-4-5           | Slack integration for PostHog Code  |
+| `llma_labeling`                     | API key only    | gpt-5.4                    | LLM analytics labeling              |
+| `llma_translation`                  | API key only    | gpt-4.1-mini               | LLM analytics translation           |
+| `llma_summarization`                | API key only    | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization         |
+| `llma_eval_summary`                 | API key only    | gpt-5-mini                 | LLM analytics eval summary          |
+| `customer_archetype_classification` | API key only    | gpt-5-mini                 | Customer archetype classification   |
+| `product_analytics`                 | API key only    | gpt-4.1-mini               | Product analytics                   |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 

@@ -33,6 +33,17 @@ class TestGetProductConfig:
 
 
 class TestCheckProductAccess:
+    @pytest.fixture(autouse=True)
+    def _force_non_debug_settings(self):
+        # check_product_access bypasses the application-ID allowlist when
+        # settings.debug is True. Pin debug=False so these assertions exercise
+        # the enforcement path regardless of the developer's local env.
+        with patch(
+            "llm_gateway.products.config.get_settings",
+            return_value=MagicMock(debug=False, bedrock_region_name="us-east-1"),
+        ):
+            yield
+
     @pytest.mark.parametrize(
         "product,auth_method,application_id,model,expected_allowed,expected_error_contains",
         [
