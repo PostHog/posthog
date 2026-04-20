@@ -623,7 +623,7 @@ export class HogFlowExecutorService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         metricName: 'failed' | 'early_exit'
     ): void {
-        const exitAction = result.invocation.hogFlow.actions.find((a) => a.type === 'exit')
+        const exitAction = result.invocation.hogFlow.actions?.find((a) => a.type === 'exit')
         if (!exitAction) {
             return
         }
