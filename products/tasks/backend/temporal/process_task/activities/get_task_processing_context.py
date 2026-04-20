@@ -124,7 +124,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     except ObjectDoesNotExist as e:
         raise TaskNotFoundError(f"TaskRun {run_id} not found", {"run_id": run_id}, cause=e)
 
-    emit_agent_log(run_id, "info", "Fetching task details")
+    emit_agent_log(run_id, "debug", "Fetching task details")
 
     task: Task = task_run.task
     team: Team = task.team
@@ -188,7 +188,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         )
         or False
     )  # Ensure we get a boolean value even if the flag is missing
-    emit_agent_log(run_id, "info", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
     return TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
