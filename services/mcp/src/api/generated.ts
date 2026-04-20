@@ -13571,9 +13571,6 @@ export namespace Schemas {
       has_draft: boolean;
     }
 
-    /**
-     * Period-over-period change metadata for a digest metric.
-     */
     export interface WoWChange {
       /** Absolute percentage change, rounded to nearest integer. */
       percent: number;
@@ -13590,9 +13587,6 @@ export namespace Schemas {
       long_text: string;
     }
 
-    /**
-     * A duration metric (human-readable string) with period-over-period change.
-     */
     export interface DurationMetric {
       /** Human-readable duration, e.g. '2m 34s'. */
       current: string;
@@ -20332,9 +20326,6 @@ export namespace Schemas {
       created_at: string;
     }
 
-    /**
-     * A numeric metric with current value, previous value, and a period-over-period change.
-     */
     export interface NumericMetric {
       /** Value for the most recent period. */
       current: number;
@@ -32427,9 +32418,6 @@ export namespace Schemas {
       failed_at: string | null;
     }
 
-    /**
-     * Summary of a project's web analytics over the last 7 days.
-     */
     export interface WeeklyDigestResponse {
       /** Unique visitors. */
       visitors: NumericMetric;

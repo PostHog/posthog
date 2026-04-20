@@ -18,9 +18,6 @@ export const DirectionEnumApi = {
     Down: 'Down',
 } as const
 
-/**
- * Period-over-period change metadata for a digest metric.
- */
 export interface WoWChangeApi {
     /** Absolute percentage change, rounded to nearest integer. */
     percent: number
@@ -37,9 +34,6 @@ export interface WoWChangeApi {
     long_text: string
 }
 
-/**
- * A numeric metric with current value, previous value, and a period-over-period change.
- */
 export interface NumericMetricApi {
     /** Value for the most recent period. */
     current: number
@@ -52,9 +46,6 @@ export interface NumericMetricApi {
     change: WoWChangeApi | null
 }
 
-/**
- * A duration metric (human-readable string) with period-over-period change.
- */
 export interface DurationMetricApi {
     /** Human-readable duration, e.g. '2m 34s'. */
     current: string
@@ -94,9 +85,6 @@ export interface GoalApi {
     change: WoWChangeApi | null
 }
 
-/**
- * Summary of a project's web analytics over the last 7 days.
- */
 export interface WeeklyDigestResponseApi {
     /** Unique visitors. */
     visitors: NumericMetricApi
