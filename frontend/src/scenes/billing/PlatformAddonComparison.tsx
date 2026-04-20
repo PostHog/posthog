@@ -1,5 +1,5 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useMemo } from 'react'
 
 import {
     IconActivity,
@@ -9,34 +9,29 @@ import {
     IconHeadset,
     IconInfinity,
     IconLock,
-    IconMinus,
     IconShield,
     IconShieldLock,
     IconShieldPeople,
 } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { humanFriendlyCurrency } from 'lib/utils'
-
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { humanFriendlyCurrency } from 'lib/utils'
 
 import { BillingFeatureType, BillingPlan, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
+import { PlanIcon } from './PlanComparison'
 
-const COMPARISON_ADDONS: string[] = [BillingPlan.Boost, BillingPlan.Scale, BillingPlan.Enterprise]
+export const COMPARISON_ADDONS: BillingPlan[] = [BillingPlan.Boost, BillingPlan.Scale, BillingPlan.Enterprise]
 
-// Short "who it's for" strap-lines (max 5 words) shown under the plan name.
 const PLAN_TAGLINES: Record<string, string> = {
     [BillingPlan.Boost]: 'For early-stage startups',
     [BillingPlan.Scale]: 'For scaling teams',
     [BillingPlan.Enterprise]: 'For larger organizations',
 }
 
-// Core feature highlights shown as tags on each plan card.
-// These are marketing call-outs, not an exhaustive feature list — the full
-// comparison lives in the collapsible table below.
 type CoreFeature = { icon: JSX.Element; label: string }
 const CORE_FEATURES: Record<string, CoreFeature[]> = {
     [BillingPlan.Boost]: [
@@ -62,7 +57,6 @@ type ComparisonFeature = {
     key: string
     name: string
     description?: string | null
-    // For each addon.type → either the feature object for cell content (limit, unit, note) or absent.
     includedIn: Map<string, BillingFeatureType>
 }
 
@@ -99,10 +93,10 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
 
     return (
         <div
-            className={
-                'flex flex-col gap-3 p-5 rounded bg-surface-secondary ' +
-                (addon.subscribed ? 'ring-2 ring-accent' : '')
-            }
+            className={clsx(
+                'flex flex-col gap-3 p-5 rounded bg-surface-secondary',
+                addon.subscribed && 'ring-2 ring-accent'
+            )}
         >
             <div className="flex items-center gap-2">
                 <h4 className="mb-0 font-bold">{addon.name}</h4>
@@ -137,49 +131,25 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
     )
 }
 
-const formatCellValue = (feature: BillingFeatureType | undefined): JSX.Element => {
-    if (!feature) {
-        return <IconMinus className="text-muted text-lg" />
-    }
-    if (feature.note) {
-        return <span className="text-sm">{feature.note}</span>
-    }
-    if (feature.limit != null) {
-        return (
-            <span className="text-sm">
-                {feature.limit}
-                {feature.unit ? ` ${feature.unit}` : ''}
-            </span>
-        )
-    }
-    return <IconCheckCircle className="text-success text-lg" />
-}
-
 export const PlatformAddonComparison = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
-    const comparableAddons = useMemo(
-        () =>
-            COMPARISON_ADDONS.map((type) =>
-                product.addons?.find((addon) => addon.type === type && !addon.legacy_product)
-            ).filter((addon): addon is BillingProductV2AddonType => !!addon),
-        [product.addons]
-    )
-
-    const features = useMemo(() => buildComparisonFeatures(comparableAddons), [comparableAddons])
+    const comparableAddons = COMPARISON_ADDONS.map((type) =>
+        product.addons?.find((addon) => addon.type === type && !addon.legacy_product)
+    ).filter((addon): addon is BillingProductV2AddonType => !!addon)
 
     if (comparableAddons.length === 0) {
         return null
     }
 
+    const features = buildComparisonFeatures(comparableAddons)
     const hasPlatformAddon = comparableAddons.some((addon) => addon.subscribed)
 
-    const gridColsStyle = {
+    const tableGridStyle = {
         gridTemplateColumns: `minmax(240px, 1.5fr) repeat(${comparableAddons.length}, 1fr)`,
     }
 
     const comparisonTable = (
         <div>
-            {/* Header row */}
-            <div className="grid" style={gridColsStyle}>
+            <div className="grid" style={tableGridStyle}>
                 <div className="px-4 py-4 text-sm font-semibold text-secondary">Feature</div>
                 {comparableAddons.map((addon) => (
                     <div
@@ -190,9 +160,8 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
                     </div>
                 ))}
             </div>
-            {/* Feature rows */}
             {features.map((feature) => (
-                <div key={feature.key} className="grid border-t border-primary" style={gridColsStyle}>
+                <div key={feature.key} className="grid border-t border-primary" style={tableGridStyle}>
                     <div className="px-4 py-4">
                         <div className="text-sm font-semibold">{feature.name}</div>
                         {feature.description && (
@@ -202,9 +171,9 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
                     {comparableAddons.map((addon) => (
                         <div
                             key={addon.type}
-                            className="px-4 py-4 flex items-center justify-center text-center border-l border-primary"
+                            className="px-4 py-4 flex items-center justify-center border-l border-primary"
                         >
-                            {formatCellValue(feature.includedIn.get(addon.type))}
+                            <PlanIcon feature={feature.includedIn.get(addon.type)} />
                         </div>
                     ))}
                 </div>
@@ -214,17 +183,12 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
 
     return (
         <div className="flex flex-col gap-4">
-            {/* Plan cards */}
-            <div
-                className="grid gap-3"
-                style={{ gridTemplateColumns: `repeat(${comparableAddons.length}, minmax(0, 1fr))` }}
-            >
+            <div className="grid gap-3 grid-cols-3">
                 {comparableAddons.map((addon) => (
                     <PlanCard key={addon.type} addon={addon} />
                 ))}
             </div>
 
-            {/* Single collapsible comparison table */}
             {features.length > 0 && (
                 <LemonCollapse
                     defaultActiveKey={hasPlatformAddon ? undefined : 'compare'}

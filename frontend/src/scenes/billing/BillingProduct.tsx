@@ -17,7 +17,7 @@ import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { getProductIcon } from 'scenes/onboarding/utils'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
+import { BillingPlan, BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
 import {
     createGaugeItems,
@@ -33,7 +33,7 @@ import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
-import { PlatformAddonComparison } from './PlatformAddonComparison'
+import { COMPARISON_ADDONS, PlatformAddonComparison } from './PlatformAddonComparison'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
@@ -573,7 +573,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     {visibleAddons
                                         .filter(
                                             (addon: BillingProductV2AddonType) =>
-                                                !['boost', 'scale', 'enterprise'].includes(addon.type) ||
+                                                !COMPARISON_ADDONS.includes(addon.type as BillingPlan) ||
                                                 addon.legacy_product
                                         )
                                         .map((addon: BillingProductV2AddonType, i: number) => (
@@ -581,7 +581,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         ))}
                                 </div>
                             ) : (
-                                <div className="gap-y-4 flex flex-col">
+                                <div className="flex flex-col gap-y-4">
                                     {visibleAddons.map((addon: BillingProductV2AddonType, i: number) => {
                                         return <BillingProductAddon key={i} addon={addon} />
                                     })}

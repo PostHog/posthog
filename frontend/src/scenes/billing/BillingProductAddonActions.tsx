@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
@@ -172,9 +173,11 @@ export const BillingProductAddonActions = ({
             return null
         }
 
+        const pricingInfoClassName = clsx('mt-2 text-xs text-secondary', align === 'left' ? 'text-left' : 'text-right')
+
         if (isTrialEligible && !isSubscribedToAnotherAddon) {
             return (
-                <p className={`mt-2 text-xs text-secondary ${align === 'left' ? 'text-left' : 'text-right'}`}>
+                <p className={pricingInfoClassName}>
                     You'll have {addon.trial?.length} days to try it out. Then you'll be charged{' '}
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}.
                 </p>
@@ -183,7 +186,7 @@ export const BillingProductAddonActions = ({
 
         if (isProrated && !isSubscribedToAnotherAddon) {
             return (
-                <p className={`mt-2 text-xs text-secondary ${align === 'left' ? 'text-left' : 'text-right'}`}>
+                <p className={pricingInfoClassName}>
                     Pay ~${proratedAmount.toFixed(2)} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
@@ -195,7 +198,7 @@ export const BillingProductAddonActions = ({
         if (isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isProrated) {
             const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
             return (
-                <p className={`mt-2 text-xs text-secondary ${align === 'left' ? 'text-left' : 'text-right'}`}>
+                <p className={pricingInfoClassName}>
                     Pay ~${amountDue.toFixed(2)} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
@@ -288,11 +291,12 @@ export const BillingProductAddonActions = ({
     }
 
     return (
-        <div className={align === 'left' ? '' : 'min-w-64'}>
+        <div className={clsx(align === 'right' && 'min-w-64')}>
             <div
-                className={`mt-2 self-center flex items-center gap-x-3 whitespace-nowrap ${
-                    align === 'left' ? 'flex-row-reverse justify-end' : 'ml-4 justify-end'
-                }`}
+                className={clsx(
+                    'mt-2 self-center flex items-center gap-x-3 whitespace-nowrap justify-end',
+                    align === 'left' ? 'flex-row-reverse' : 'ml-4'
+                )}
             >
                 {content}
             </div>
