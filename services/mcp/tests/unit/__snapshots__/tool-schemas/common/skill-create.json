@@ -1,0 +1,71 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "allowed_tools": {
+            "description": "List of pre-approved tools the skill may use.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "body": {
+            "description": "The SKILL.md instruction content (markdown).",
+            "type": "string"
+        },
+        "compatibility": {
+            "description": "Environment requirements (intended product, system packages, network access, etc.).",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "description": {
+            "description": "What this skill does and when to use it. Max 4096 characters.",
+            "maxLength": 4096,
+            "type": "string"
+        },
+        "files": {
+            "description": "Bundled files to include with the initial version (scripts, references, assets).",
+            "items": {
+                "properties": {
+                    "content": {
+                        "description": "Text content of the file.",
+                        "type": "string"
+                    },
+                    "content_type": {
+                        "default": "text/plain",
+                        "description": "MIME type of the file content.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "path": {
+                        "description": "File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.",
+                        "maxLength": 500,
+                        "type": "string"
+                    }
+                },
+                "required": ["path", "content"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "license": {
+            "description": "License name or reference to a bundled license file.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "metadata": {
+            "additionalProperties": {},
+            "description": "Arbitrary key-value metadata.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "name": {
+            "description": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.",
+            "maxLength": 64,
+            "type": "string"
+        }
+    },
+    "required": ["name", "description", "body"],
+    "type": "object"
+}
