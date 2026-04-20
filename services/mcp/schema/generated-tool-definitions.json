@@ -2550,6 +2550,51 @@
             "readOnlyHint": true
         }
     },
+    "signals-autostart-get": {
+        "description": "Retrieve the current signal autostart threshold for a user. The threshold controls the minimum report priority (P0–P4) at which PostHog Code will automatically start work on signal reports assigned to the user. Pass `@me` as `user_id` to target the currently authenticated user. Returns 404 when the user has not opted in — treat that as \"autostart is off for this user\". Options are P0 (broadest), P1, P2, P3, P4 (narrowest), or null (inherit the team default).",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get my signal autostart threshold",
+        "title": "Get my signal autostart threshold",
+        "required_scopes": ["user:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-autostart-set": {
+        "description": "Opt in to signal autostart or update the existing threshold. `autostart_priority` selects the minimum report priority at which PostHog Code will automatically start assigned work — one of P0, P1, P2, P3, P4, or null to inherit the team default. P0 is the broadest (autostart on any priority), P4 is the narrowest (only the highest-priority reports). Pass `@me` as `user_id` to target the currently authenticated user.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Set my signal autostart threshold",
+        "title": "Set my signal autostart threshold",
+        "required_scopes": ["user:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-autostart-remove": {
+        "description": "Remove the user's signal autostart config, opting them out of autostart entirely. Unassigned reports can still be picked up manually. Pass `@me` as `user_id` to target the currently authenticated user.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Opt out of signal autostart",
+        "title": "Opt out of signal autostart",
+        "required_scopes": ["user:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "skill-list": {
         "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use skill-get to fetch full content).",
         "category": "Skills",

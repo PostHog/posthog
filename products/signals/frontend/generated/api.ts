@@ -15,6 +15,8 @@ import type {
     PauseResponseApi,
     PauseUntilRequestApi,
     SignalSourceConfigApi,
+    SignalUserAutonomyConfigApi,
+    SignalUserAutonomyConfigCreateApi,
     SignalsProcessingListParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
@@ -214,47 +216,47 @@ export const signalsSourceConfigsDestroy = async (
 }
 
 /**
- * Per-user signal autonomy config (singleton keyed by user).
-
-GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
-POST   /api/users/<id>/signal_autonomy/ → create or update
-DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+ * Retrieve the current signal autostart autonomy config for a user. Returns the user's personal `autostart_priority` override (P0–P4) if set, or null when the user inherits the team default. Returns 404 when the user has not opted in.
+ * @summary Get a user's signal autostart config
  */
 export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {
     return `/api/users/${userId}/signal_autonomy/`
 }
 
-export const usersSignalAutonomyRetrieve = async (userId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersSignalAutonomyRetrieveUrl(userId), {
+export const usersSignalAutonomyRetrieve = async (
+    userId: string,
+    options?: RequestInit
+): Promise<SignalUserAutonomyConfigApi> => {
+    return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyRetrieveUrl(userId), {
         ...options,
         method: 'GET',
     })
 }
 
 /**
- * Per-user signal autonomy config (singleton keyed by user).
-
-GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
-POST   /api/users/<id>/signal_autonomy/ → create or update
-DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+ * Opt the user in to signal autonomy, or update their `autostart_priority` threshold. `autostart_priority` accepts P0, P1, P2, P3, P4, or null (inherit team default). P0 starts autonomous work for the broadest set of reports, P4 only for the highest priority. Setting a priority means PostHog Code will start automatically on reports at or above that priority that are assigned to this user.
+ * @summary Opt in or update signal autostart config
  */
-export const getUsersSignalAutonomyCreateUrl = (userId: string) => {
+export const getUsersSignalAutonomyUpdateUrl = (userId: string) => {
     return `/api/users/${userId}/signal_autonomy/`
 }
 
-export const usersSignalAutonomyCreate = async (userId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersSignalAutonomyCreateUrl(userId), {
+export const usersSignalAutonomyUpdate = async (
+    userId: string,
+    signalUserAutonomyConfigCreateApi: SignalUserAutonomyConfigCreateApi,
+    options?: RequestInit
+): Promise<SignalUserAutonomyConfigApi> => {
+    return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyUpdateUrl(userId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalUserAutonomyConfigCreateApi),
     })
 }
 
 /**
- * Per-user signal autonomy config (singleton keyed by user).
-
-GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
-POST   /api/users/<id>/signal_autonomy/ → create or update
-DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+ * Remove the user's signal autonomy config, opting them out of autostart entirely. Unassigned tasks can still be picked up manually.
+ * @summary Opt out of signal autostart
  */
 export const getUsersSignalAutonomyDestroyUrl = (userId: string) => {
     return `/api/users/${userId}/signal_autonomy/`

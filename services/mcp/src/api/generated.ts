@@ -5853,6 +5853,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `P0` - P0
+    * `P1` - P1
+    * `P2` - P2
+    * `P3` - P3
+    * `P4` - P4
+     */
+    export type AutostartPriorityEnum = typeof AutostartPriorityEnum[keyof typeof AutostartPriorityEnum];
+
+
+    export const AutostartPriorityEnum = {
+      P0: 'P0',
+      P1: 'P1',
+      P2: 'P2',
+      P3: 'P3',
+      P4: 'P4',
+    } as const;
+
+    /**
      * Discovered detail fields and their value distributions.
      */
     export type AvailableFiltersResponseDetailFields = {[key: string]: unknown};
@@ -31780,6 +31798,40 @@ export namespace Schemas {
       conclusion_comment?: string | null;
       /** The key of the variant to ship to 100% of users. */
       variant_key: string;
+    }
+
+    export interface _User {
+      readonly id: number;
+      readonly uuid: string;
+      readonly first_name: string;
+      readonly last_name: string;
+      readonly email: string;
+    }
+
+    export interface SignalUserAutonomyConfig {
+      readonly id: string;
+      readonly user: _User;
+      /** User's personal autostart priority threshold (P0–P4). Null means the user inherits the team default. Reports at or above this priority assigned to the user are started automatically.
+
+    * `P0` - P0
+    * `P1` - P1
+    * `P2` - P2
+    * `P3` - P3
+    * `P4` - P4 */
+      autostart_priority?: AutostartPriorityEnum | BlankEnum | NullEnum | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface SignalUserAutonomyConfigCreate {
+      /** Minimum priority at which PostHog Code will autostart work on signal reports assigned to this user. One of P0, P1, P2, P3, P4. Set to null to inherit the team default. P0 is the broadest (autostart on any priority), P4 is the narrowest (only highest priority).
+
+    * `P0` - P0
+    * `P1` - P1
+    * `P2` - P2
+    * `P3` - P3
+    * `P4` - P4 */
+      autostart_priority?: AutostartPriorityEnum | NullEnum | null;
     }
 
     /**

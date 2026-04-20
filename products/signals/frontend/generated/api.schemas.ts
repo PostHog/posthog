@@ -112,6 +112,67 @@ export interface PatchedSignalSourceConfigApi {
     readonly status?: string | null
 }
 
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
+/**
+ * * `P0` - P0
+ * `P1` - P1
+ * `P2` - P2
+ * `P3` - P3
+ * `P4` - P4
+ */
+export type AutostartPriorityEnumApi = (typeof AutostartPriorityEnumApi)[keyof typeof AutostartPriorityEnumApi]
+
+export const AutostartPriorityEnumApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+export interface SignalUserAutonomyConfigApi {
+    readonly id: string
+    readonly user: _UserApi
+    /** User's personal autostart priority threshold (P0–P4). Null means the user inherits the team default. Reports at or above this priority assigned to the user are started automatically.
+
+* `P0` - P0
+* `P1` - P1
+* `P2` - P2
+* `P3` - P3
+* `P4` - P4 */
+    autostart_priority?: AutostartPriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface SignalUserAutonomyConfigCreateApi {
+    /** Minimum priority at which PostHog Code will autostart work on signal reports assigned to this user. One of P0, P1, P2, P3, P4. Set to null to inherit the team default. P0 is the broadest (autostart on any priority), P4 is the narrowest (only highest priority).
+
+* `P0` - P0
+* `P1` - P1
+* `P2` - P2
+* `P3` - P3
+* `P4` - P4 */
+    autostart_priority?: AutostartPriorityEnumApi | NullEnumApi | null
+}
+
 export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
