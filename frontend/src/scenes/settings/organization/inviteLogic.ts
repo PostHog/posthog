@@ -16,7 +16,7 @@ import type { inviteLogicType } from './inviteLogicType'
 export interface GuestGrant {
     team_id: number
     resource: string
-    resource_id: number
+    resource_id: string
     label: string
 }
 

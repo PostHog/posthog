@@ -39,8 +39,9 @@ function useResourceOptions(resourceType: ResourceType): { options: LemonInputSe
                     if (!cancelled) {
                         setOptions(
                             (response.results ?? []).map((i: any) => ({
-                                key: String(i.id),
-                                label: i.name || i.derived_name || `Insight ${i.id}`,
+                                // Insights are addressed by short_id in URLs; store that as the grant identifier
+                                key: String(i.short_id || i.id),
+                                label: i.name || i.derived_name || `Insight ${i.short_id || i.id}`,
                             }))
                         )
                     }
@@ -95,7 +96,7 @@ export function GuestResourcePicker(): JSX.Element {
         const grant: GuestGrant = {
             team_id: currentTeamId,
             resource: resourceType,
-            resource_id: Number(key),
+            resource_id: key,
             label: option.label,
         }
         addGuestGrant(grant)
