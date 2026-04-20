@@ -12,12 +12,16 @@ pub async fn load_person_from_pg(
 ) -> Result<Option<CachedPerson>, sqlx::Error> {
     let start = std::time::Instant::now();
 
+    let team_id_i32 = i32::try_from(key.team_id).map_err(|_| {
+        sqlx::Error::Protocol(format!("team_id {} exceeds i32 range", key.team_id))
+    })?;
+
     let row = sqlx::query(
         "SELECT id, team_id, uuid::text, properties, created_at, version, is_identified
          FROM posthog_person
          WHERE team_id = $1 AND id = $2",
     )
-    .bind(key.team_id as i32)
+    .bind(team_id_i32)
     .bind(key.person_id)
     .fetch_optional(pool)
     .await?;
