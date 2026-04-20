@@ -1,14 +1,31 @@
 import json
 import datetime as dt
+from decimal import Decimal
 
 import pytest
 
 from posthog.caching.fetch_from_cache import InsightResult
-from posthog.temporal.subscriptions.insight_snapshot import (
-    _has_comparison_enabled,
-    _scrub_non_finite_floats,
-    _serialize_insight_result,
-)
+from posthog.temporal.subscriptions.insight_snapshot import _has_comparison_enabled, _serialize_insight_result
+
+
+def _build_insight_result(**overrides) -> InsightResult:
+    base: dict = {
+        "result": [],
+        "columns": [],
+        "types": [],
+        "last_refresh": dt.datetime(2026, 4, 20, tzinfo=dt.UTC),
+        "is_cached": False,
+        "timezone": "UTC",
+        "has_more": False,
+        "resolved_date_range": None,
+        "query_status": None,
+        "cache_key": None,
+        "cache_target_age": None,
+        "next_allowed_client_refresh": None,
+        "hogql": None,
+    }
+    base.update(overrides)
+    return InsightResult(**base)
 
 
 @pytest.mark.parametrize(
@@ -34,52 +51,36 @@ def test_has_comparison_enabled(query_json, expected):
     assert _has_comparison_enabled(query_json) is expected
 
 
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        # finite scalars pass through unchanged (int, bool, None, str)
-        (1.5, 1.5),
-        (1, 1),
-        (True, True),
-        (None, None),
-        ("nan", "nan"),
-        # non-finite scalars become None
-        (float("nan"), None),
-        (float("inf"), None),
-        (float("-inf"), None),
-        # tuple → list coercion (JSON has no tuples)
-        ((float("nan"), 2.0), [None, 2.0]),
-        # the real prod shape: funnel row with 0/0 conversion rate
-        (
-            [["Final: prayer_screen_viewed", 0, 0.0, float("nan")]],
-            [["Final: prayer_screen_viewed", 0, 0.0, None]],
-        ),
-        # nested dict + list mix
-        ({"a": float("nan"), "b": [float("inf"), 1]}, {"a": None, "b": [None, 1]}),
-    ],
-)
-def test_scrub_non_finite_floats(value, expected):
-    assert _scrub_non_finite_floats(value) == expected
-
-
-def test_serialize_insight_result_nan_round_trips_through_json():
-    result = InsightResult(
-        result=[[float("nan"), 1.0, float("inf")]],
-        columns=["a", "b", "c"],
-        types=["float", "float", "float"],
-        last_refresh=dt.datetime(2026, 4, 20, tzinfo=dt.UTC),
-        is_cached=False,
-        timezone="UTC",
-        has_more=False,
-        resolved_date_range=None,
-        query_status=None,
-        cache_key=None,
-        cache_target_age=None,
-        next_allowed_client_refresh=None,
-        hogql=None,
+def test_serialize_insight_result_non_finite_floats_become_null():
+    result = _build_insight_result(
+        result=[
+            [float("nan"), 1.0, float("inf")],
+            ["Final: prayer_screen_viewed", 0, 0.0, float("nan")],
+        ],
+        columns=["a", "b", "c", "d"],
+        types=["float", "float", "float", "float"],
     )
 
     serialized = _serialize_insight_result(result)
 
     reparsed = json.loads(json.dumps(serialized))
-    assert reparsed["result"] == [[None, 1.0, None]]
+    assert reparsed["result"] == [
+        [None, 1.0, None],
+        ["Final: prayer_screen_viewed", 0, 0.0, None],
+    ]
+
+
+def test_serialize_insight_result_handles_decimal_and_date():
+    # Regression witness: orjson raises on Decimal without a default= hook, and stdlib json
+    # raises on bare date. Both used to live on the ClickHouse result path for revenue /
+    # analytics queries.
+    result = _build_insight_result(
+        result=[[Decimal("1.5"), dt.date(2026, 4, 20)]],
+        columns=["revenue", "day"],
+        types=["Decimal(10,2)", "Date"],
+    )
+
+    serialized = _serialize_insight_result(result)
+
+    reparsed = json.loads(json.dumps(serialized))
+    assert reparsed["result"] == [["1.5", "2026-04-20"]]
