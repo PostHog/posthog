@@ -149,11 +149,8 @@ def default_settings() -> dict:
 
 
 def get_team_ai_data_processing_approved(team_id: int) -> Optional[bool]:
-    """Look up whether the organization owning this team has approved sending data to AI providers.
-
-    Cached with a 5-minute TTL via time bucketing, so operator toggles of the org-level consent
-    eventually propagate without a per-query DB hit.
-    """
+    # 5-minute TTL: the time bucket is baked into the inner lru_cache key, so org consent
+    # toggles propagate within that window without a per-query DB hit.
     return _get_team_ai_data_processing_approved_cached(team_id, round(time.time() / 300))
 
 
