@@ -10,7 +10,7 @@
 #
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
-# - node-scripts-build: build standalone Node.js scripts and their dependencies
+# - node-scripts-build: build plugin transpiler and other Node.js build artifacts
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
 # - fetch-geoip-db: fetch the GeoIP database
 #
@@ -83,18 +83,11 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 #
 # ---------------------------------------------------------
 #
-# Build standalone Node.js scripts and their dependencies.
-# These scripts can be invoked from Python via subprocess.
+# Build plugin transpiler and other Node.js build artifacts.
 #
 FROM node:24.13.0-bookworm-slim AS node-scripts-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
-# Skip Puppeteer Chromium download - we would use system Chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-
-COPY nodejs/src/scripts/ nodejs/src/scripts/
-RUN cd nodejs/src/scripts && npm install --omit=dev
-
 # Build plugin transpiler for site destinations/apps
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY bin/turbo bin/turbo
@@ -244,7 +237,6 @@ RUN apt-get update && \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
-    "ffmpeg=7:5.1.8-0+deb12u1" \
     "libssl-dev=3.0.19-1~deb12u2" \
     "libssl3=3.0.19-1~deb12u2" \
     "libjemalloc2" \
@@ -316,7 +308,7 @@ COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtim
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Install Playwright Chromium browser for video export (as root for system deps)
+# Install Playwright Chromium browser for heatmap screenshots (as root for system deps)
 # Use cache mount for browser binaries to avoid re-downloading on every build
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -341,9 +333,6 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
-# Copy standalone Node.js scripts and their dependencies.
-COPY --from=node-scripts-build --chown=posthog:posthog /code/nodejs/src/scripts /code/nodejs/src/scripts
-
 # Copy plugin transpiler (used by Django for site destinations/apps).
 # pnpm stores packages in node_modules/.pnpm/, workspace node_modules contain symlinks there.
 COPY --from=node-scripts-build --chown=posthog:posthog /code/node_modules /code/node_modules
@@ -362,23 +351,16 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 
-# Validate video export dependencies
-RUN ffmpeg -version
+# Validate browser dependencies
 RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
 RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
-RUN cd /code/nodejs/src/scripts && timeout 60s node -e "\
-  require('puppeteer'); \
-  require('puppeteer-screen-recorder'); \
-  console.log('Puppeteer and screen recorder available')"
 
 # Setup ENV.
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Expose container port and run entry point script.
 EXPOSE 8000

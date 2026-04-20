@@ -143,7 +143,11 @@ export function InsightViz({
                                     showing={!readOnly && showingFilters}
                                     embedded={isEmbedded}
                                 />
-                                {!isEmbedded ? <div className="flex-1 h-full overflow-auto">{display}</div> : display}
+                                {!isEmbedded ? (
+                                    <div className="flex-1 max-h-full overflow-auto">{display}</div>
+                                ) : (
+                                    display
+                                )}
                             </div>
                         </BindLogic>
                     </BindLogic>

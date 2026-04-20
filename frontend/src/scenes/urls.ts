@@ -258,11 +258,13 @@ export const urls = {
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
+    webAnalyticsBotAnalytics: (): string => '/web/bot-analytics',
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',
     exports: (): string => '/exports',
     subscriptions: (): string => '/subscriptions',
+    subscription: (id: string | number): string => `/subscriptions/${id}`,
 }
 
 export interface UrlMatcher {

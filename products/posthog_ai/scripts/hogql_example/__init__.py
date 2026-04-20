@@ -41,7 +41,13 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
         if _cached_team is None:
             raise RuntimeError("render_hogql_example requires at least one Team in the database")
 
+    import freezegun
     from freezegun import freeze_time
+
+    # Skip `transformers` when freezegun walks sys.modules: it has a broken
+    # lazy-import path that crashes `getattr`, leaving a partial monkey-patch
+    # on `time.time` that poisons the whole process.
+    freezegun.configure(extend_ignore_list=["transformers"])  # type: ignore[attr-defined]
 
     from posthog.schema import HogQLFilters
 

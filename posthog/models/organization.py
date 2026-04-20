@@ -115,7 +115,7 @@ def default_anonymize_ips():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
-class Organization(ModelActivityMixin, UUIDTModel):
+class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manager-missing]
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -238,6 +238,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Also currently indicates if the organization is on billing V2 or not
     usage = models.JSONField(null=True, blank=True)
     never_drop_data = models.BooleanField(default=False, null=True, blank=True)
+
+    if TYPE_CHECKING:
+        oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
 
@@ -512,6 +515,12 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
             models.UniqueConstraint(
                 fields=["organization_id", "user_id"],
                 name="unique_organization_membership",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "-joined_at"],
+                name="org_membership_org_joined_idx",
             ),
         ]
 

@@ -194,7 +194,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
         const columns =
             generationsQuery.source.select ||
             getDefaultGenerationsColumns(
-                !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
                 !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                 !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
             )
@@ -229,7 +228,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 ...generationsQuery,
                 showSavedFilters: true,
                 defaultColumns: getDefaultGenerationsColumns(
-                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
                     !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                     !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
                 ),

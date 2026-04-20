@@ -31,6 +31,8 @@ class QueryValidationContext(Generic[Q_co]):
 
 
 class QueryValidationRule(Protocol[Q_contra]):
+    code: str
+
     def validate(self, context: QueryValidationContext[Q_contra]) -> None: ...
 
 
