@@ -62,6 +62,7 @@ def _build_states_from_content_snapshot(
         insight_id = insight_snap.get("id")
         insight_name = insight_snap.get("name", f"Insight {insight_id}")
         insight_description = insight_snap.get("description") or ""
+        comparison_enabled = bool(insight_snap.get("comparison_enabled"))
         query_results = insight_snap.get("query_results")
 
         raw_query_error = insight_snap.get("query_error")
@@ -101,6 +102,7 @@ def _build_states_from_content_snapshot(
                 "query_kind": query_kind,
                 "results_summary": results_summary,
                 "timestamp": timestamp,
+                "comparison_enabled": comparison_enabled,
             }
         )
     return states
