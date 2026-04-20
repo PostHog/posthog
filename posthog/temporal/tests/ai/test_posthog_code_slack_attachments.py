@@ -3,10 +3,7 @@ import base64
 
 from unittest.mock import patch
 
-from posthog.temporal.ai.posthog_code_slack_attachments import (
-    CLOUD_PROMPT_PREFIX,
-    encode_user_message_with_attachments,
-)
+from posthog.temporal.ai.posthog_code_slack_attachments import CLOUD_PROMPT_PREFIX, encode_user_message_with_attachments
 
 
 def _file(file_id="F1", name="errors.log", mimetype="text/plain", url="https://files.slack.com/F1/errors.log"):
