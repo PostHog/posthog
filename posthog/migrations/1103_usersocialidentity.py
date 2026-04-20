@@ -5,6 +5,7 @@ from django.conf import settings
 from django.db import migrations, models
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.models.utils import uuid7
 
 
 class Migration(migrations.Migration):
@@ -18,12 +19,7 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.AutoField(
-                        auto_created=True,
-                        primary_key=True,
-                        serialize=False,
-                        verbose_name="ID",
-                    ),
+                    models.UUIDField(default=uuid7, editable=False, primary_key=True, serialize=False),
                 ),
                 ("provider", models.CharField(max_length=32)),
                 ("uid", models.CharField(max_length=255)),

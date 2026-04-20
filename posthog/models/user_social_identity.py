@@ -9,6 +9,7 @@ import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.utils import UUIDModel
 from posthog.utils import get_instance_available_sso_providers
 
 logger = structlog.get_logger(__name__)
@@ -33,7 +34,7 @@ _GITHUB_UNRECOVERABLE_REFRESH_ERRORS = frozenset(
 )
 
 
-class UserSocialIdentity(models.Model):
+class UserSocialIdentity(UUIDModel):
     """Identity-only link between a PostHog user and a third-party account.
 
     Decoupled from ``UserSocialAuth`` (python-social-auth) which controls *login*.
@@ -221,7 +222,9 @@ class UserGitHubIdentity:
             raise ReauthorizationRequired("The stored GitHub refresh token has expired.")
         if self.access_token_expired():
             self.refresh_access_token()
-        return self.access_token  # type: ignore[return-value]
+        access_token = self.access_token
+        assert access_token is not None, "access_token cleared unexpectedly after refresh"
+        return access_token
 
     def _apply_token_payload(self, payload: dict[str, Any]) -> None:
         """Write a fresh token pair + expirations onto the identity row."""

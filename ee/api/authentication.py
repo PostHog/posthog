@@ -593,9 +593,9 @@ def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
     # login credential). This runs before the SSO check so the user sees a clear
     # reason when it's their own toggle rather than org policy.
     uid = kwargs.get("uid")
-    if not uid and response:
+    if uid is None and response:
         uid = response.get("id")
-    uid = str(uid) if uid else None
+    uid = str(uid) if uid is not None else None
     if uid:
         has_social_auth = UserSocialAuth.objects.filter(provider=backend.name, uid=uid).exists()
         if not has_social_auth:
