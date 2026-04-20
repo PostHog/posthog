@@ -286,7 +286,9 @@ const handleRequest = async (
                 for (const msg of messages) {
                     if (msg?.method === 'initialize') {
                         const name = msg?.params?.clientInfo?.name
-                        if (typeof name === 'string') earlyClientName = name
+                        if (typeof name === 'string') {
+                            earlyClientName = name
+                        }
                         break
                     }
                 }

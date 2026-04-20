@@ -493,13 +493,22 @@ export class MCP extends McpAgent<Env> {
         action: 'enable' | 'disable',
         toolDefs: Record<string, { feature: string }>
     ): void {
-        if (!toolsetId) return
+        if (!toolsetId) {
+            return
+        }
         for (const [name, registered] of this._toolRegistrations.entries()) {
             const def = toolDefs[name]
-            if (!def) continue
-            if (toolsetIdForFeature(def.feature) !== toolsetId) continue
-            if (action === 'enable') registered.enable()
-            else registered.disable()
+            if (!def) {
+                continue
+            }
+            if (toolsetIdForFeature(def.feature) !== toolsetId) {
+                continue
+            }
+            if (action === 'enable') {
+                registered.enable()
+            } else {
+                registered.disable()
+            }
         }
     }
 
@@ -677,7 +686,9 @@ export class MCP extends McpAgent<Env> {
             // already-enabled toolset. Keep the registration so the toolsets meta-tool
             // can `.enable()` it later without needing a full re-init.
             if (progressive) {
-                if (isBootstrapTool(typedTool.name)) continue
+                if (isBootstrapTool(typedTool.name)) {
+                    continue
+                }
                 const def = toolDefs[typedTool.name]
                 const toolsetId = def ? toolsetIdForFeature(def.feature) : undefined
                 if (!toolsetId || !enabledToolsets.has(toolsetId)) {
