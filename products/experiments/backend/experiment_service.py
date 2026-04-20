@@ -168,10 +168,15 @@ class ExperimentService:
                 try:
                     validated_metric = ExperimentMetric.model_validate(metric)
 
-                    # Additional validation for funnel metrics with DW steps
                     # ExperimentMetric is a RootModel wrapping a union, so access .root to get the actual type
                     actual_metric = validated_metric.root
                     if isinstance(actual_metric, ExperimentFunnelMetric):
+                        if len(actual_metric.series) < 2:
+                            raise ValidationError(
+                                f"Invalid metric at index {i}: funnel metrics require at least 2 steps. "
+                                "For tracking a single event, use 'mean' metric type instead."
+                            )
+                        # Additional validation for funnel metrics with DW steps
                         FunnelDWValidator.validate_funnel_metric(actual_metric)
 
                 except pydantic.ValidationError as e:
@@ -1260,13 +1265,21 @@ class ExperimentService:
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
         if "metrics" in update_data:
+            self.validate_experiment_metrics(update_data["metrics"])
             self.validate_metric_action_ids(update_data["metrics"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"])
+            for metric in update_data["metrics"] or []:
+                if not metric.get("uuid"):
+                    metric["uuid"] = str(uuid4())
         if "metrics_secondary" in update_data:
+            self.validate_experiment_metrics(update_data["metrics_secondary"])
             self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
+            for metric in update_data["metrics_secondary"] or []:
+                if not metric.get("uuid"):
+                    metric["uuid"] = str(uuid4())
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag

@@ -980,10 +980,21 @@ class TestExperimentService(APIBaseTest):
             experiment,
             {
                 "metrics": [
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"},
-                    {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m2", "event": "$pageleave"},
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m1",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "m2",
+                        "source": {"kind": "EventsNode", "event": "$pageleave"},
+                    },
                 ],
             },
+            allow_unknown_events=True,
         )
 
         assert updated.primary_metrics_ordered_uuids is not None
@@ -1030,6 +1041,65 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert updated.primary_metrics_ordered_uuids == ["m1"]
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "primary_metrics_ordered_uuids"),
+            ("secondary", "metrics_secondary", "secondary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_update_experiment_auto_generates_uuids(self, _name, field, ordering_attr):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                field: [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            allow_unknown_events=True,
+        )
+
+        metrics = getattr(updated, field)
+        assert len(metrics) == 1
+        generated_uuid = metrics[0].get("uuid")
+        assert generated_uuid, "UUID should be auto-generated for metrics without one"
+        assert getattr(updated, ordering_attr) == [generated_uuid]
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "primary_metrics_ordered_uuids"),
+            ("secondary", "metrics_secondary", "secondary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_update_experiment_preserves_provided_metric_uuids(self, _name, field, ordering_attr):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {
+                field: [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "explicit-uuid",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            allow_unknown_events=True,
+        )
+
+        metrics = getattr(updated, field)
+        assert metrics[0]["uuid"] == "explicit-uuid"
+        assert "explicit-uuid" in (getattr(updated, ordering_attr) or [])
 
     def test_update_experiment_replaces_saved_metrics(self):
         experiment = self._create_draft_experiment()
@@ -3065,6 +3135,70 @@ class TestExperimentService(APIBaseTest):
             ],
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    @parameterized.expand(
+        [
+            ("single_step", [{"kind": "EventsNode", "event": "$pageview"}]),
+            ("empty_series", []),
+        ]
+    )
+    def test_funnel_metric_insufficient_series_raises(self, name, series):
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name=f"Insufficient Funnel {name}",
+                feature_flag_key=f"insufficient-funnel-flag-{name.replace('_', '-')}",
+                allow_unknown_events=True,
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "funnel",
+                        "series": series,
+                    },
+                ],
+            )
+        assert "at least 2 steps" in str(ctx.exception)
+
+    def test_update_experiment_rejects_single_step_funnel(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        with self.assertRaises(ValidationError):
+            service.update_experiment(
+                experiment,
+                {
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "series": [
+                                {"kind": "EventsNode", "event": "$pageview"},
+                            ],
+                        }
+                    ],
+                },
+                allow_unknown_events=True,
+            )
+
+    def test_funnel_metric_with_two_steps_succeeds(self):
+        self._create_flag(key="valid-funnel-flag")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Valid Funnel",
+            feature_flag_key="valid-funnel-flag",
+            allow_unknown_events=True,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": "$pageleave"},
+                    ],
+                },
+            ],
+        )
+        assert len(experiment.metrics) == 1
+        assert experiment.metrics[0]["metric_type"] == "funnel"
 
     def test_funnel_metric_with_nonexistent_action_in_series_raises(self):
         action = Action.objects.create(team=self.team, name="real action")
