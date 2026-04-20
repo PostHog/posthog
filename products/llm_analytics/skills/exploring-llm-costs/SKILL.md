@@ -39,19 +39,35 @@ All costs are USD, recorded per event at ingestion. PostHog derives them from th
 model+provider and token counts — you cannot set them manually and trust them to
 survive. Costs live on `$ai_generation` and `$ai_embedding` only.
 
-| Property                          | Where                 | Meaning                                         |
-| --------------------------------- | --------------------- | ----------------------------------------------- |
-| `$ai_total_cost_usd`              | generation, embedding | Total cost for the call                         |
-| `$ai_input_cost_usd`              | generation            | Cost attributable to input tokens               |
-| `$ai_output_cost_usd`             | generation            | Cost attributable to output tokens              |
-| `$ai_input_tokens`                | generation, embedding | Tokens sent to the model                        |
-| `$ai_output_tokens`               | generation            | Tokens returned by the model                    |
-| `$ai_cache_read_input_tokens`     | generation            | Input tokens served from provider prompt cache  |
-| `$ai_cache_creation_input_tokens` | generation            | Input tokens written into provider prompt cache |
-| `$ai_model`                       | generation, embedding | Primary breakdown dimension for cost            |
-| `$ai_provider`                    | generation, embedding | Secondary breakdown (openai, anthropic, …)      |
-| `$ai_is_error`                    | generation            | Exclude/include failed calls in cost totals     |
-| `$ai_trace_id`                    | all `$ai_*` events    | Roll costs up to trace level                    |
+| Property                          | Where                 | Meaning                                                                 |
+| --------------------------------- | --------------------- | ----------------------------------------------------------------------- |
+| `$ai_total_cost_usd`              | generation, embedding | Total cost for the call — **authoritative total**, use this for rollups |
+| `$ai_input_cost_usd`              | generation, embedding | Cost attributable to input tokens                                       |
+| `$ai_output_cost_usd`             | generation, embedding | Cost attributable to output tokens                                      |
+| `$ai_request_cost_usd`            | generation, embedding | Per-request flat cost (e.g. Anthropic per-request fee); often `0`       |
+| `$ai_web_search_cost_usd`         | generation, embedding | Cost of web-search tool calls inside the generation; often `0`          |
+| `$ai_audio_cost_usd`              | generation            | Audio-modality cost when the model charges a separate rate; often `0`   |
+| `$ai_image_cost_usd`              | generation            | Image-modality cost; often `0`                                          |
+| `$ai_video_cost_usd`              | generation            | Video-modality cost; often `0`                                          |
+| `$ai_input_tokens`                | generation, embedding | Tokens sent to the model (total across modalities)                      |
+| `$ai_output_tokens`               | generation            | Tokens returned by the model (total across modalities)                  |
+| `$ai_total_tokens`                | generation, embedding | Input + output tokens                                                   |
+| `$ai_cache_read_input_tokens`     | generation            | Input tokens served from provider prompt cache                          |
+| `$ai_cache_creation_input_tokens` | generation            | Input tokens written into provider prompt cache                         |
+| `$ai_reasoning_tokens`            | generation            | Reasoning-model thinking tokens (charged as output)                     |
+| `$ai_model`                       | generation, embedding | Primary breakdown dimension for cost                                    |
+| `$ai_provider`                    | generation, embedding | Secondary breakdown (openai, anthropic, …)                              |
+| `$ai_is_error`                    | generation            | Exclude/include failed calls in cost totals                             |
+| `$ai_trace_id`                    | all `$ai_*` events    | Roll costs up to trace level                                            |
+
+**Always sum `$ai_total_cost_usd`, not the components.** Ingestion sets
+`$ai_total_cost_usd = input + output + request + web_search` (plus any
+modality costs) in `nodejs/src/ingestion/ai/costs/index.ts`. Summing only
+`$ai_input_cost_usd + $ai_output_cost_usd` silently drops request and
+web-search fees — real and non-zero for Anthropic request fees and any
+tool-augmented generation. The UI's cost cells and both the
+`traces_query_runner` and `trace_query_runner` sum `$ai_total_cost_usd`
+over `event IN ('$ai_generation', '$ai_embedding')`; mirror that.
 
 Note: `$ai_trace` and `$ai_span` events do **not** carry cost. To get a trace's
 total cost, sum `$ai_total_cost_usd` across its `$ai_generation` and
@@ -229,6 +245,9 @@ SELECT
     properties.$ai_model AS model,
     round(sum(toFloat(properties.$ai_input_cost_usd)), 4) AS input_cost,
     round(sum(toFloat(properties.$ai_output_cost_usd)), 4) AS output_cost,
+    round(sum(toFloat(properties.$ai_request_cost_usd)), 4) AS request_cost,
+    round(sum(toFloat(properties.$ai_web_search_cost_usd)), 4) AS web_search_cost,
+    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS total_cost,
     sum(toInt(properties.$ai_input_tokens)) AS input_tokens,
     sum(toInt(properties.$ai_output_tokens)) AS output_tokens,
     sum(toInt(properties.$ai_cache_read_input_tokens)) AS cache_read_tokens,
@@ -241,8 +260,14 @@ FROM events
 WHERE event = '$ai_generation'
     AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY model
-ORDER BY input_cost + output_cost DESC
+ORDER BY total_cost DESC
 ```
+
+Rank and roll up on `total_cost` — summing only the input/output components
+drops request and web-search fees and can diverge from the `/llm-analytics`
+UI. If `request_cost` or `web_search_cost` are a meaningful share of
+`total_cost` for a model, that's a separate optimisation lever (e.g. chattier
+provider, tool-heavy generations).
 
 A low `cache_hit_rate` on a model that supports prompt caching is a lever —
 prompt structure changes can move cost materially.
