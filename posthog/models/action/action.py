@@ -46,7 +46,7 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    events = models.ManyToManyField("Event", blank=True)
+    events = models.ManyToManyField("Event", blank=True)  # type: models.ManyToManyField
     post_to_slack = models.BooleanField(default=False)
     slack_message_format = models.CharField(default="", max_length=1200, blank=True)
     updated_at = models.DateTimeField(auto_now=True)

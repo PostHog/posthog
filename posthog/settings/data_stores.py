@@ -360,6 +360,22 @@ def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
     return get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
 
 
+def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
+    if team_id is None:
+        return False
+    return team_id in _get_web_analytics_events_prefilter_teams(round(time.time() / 120))
+
+
+@lru_cache(maxsize=1)
+def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
+    from posthog.models.instance_setting import get_instance_setting
+
+    try:
+        return get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+    except Exception:
+        return []
+
+
 # Set of teams querying the data before we switched to new limits
 API_QUERIES_LEGACY_TEAM_LIST: Optional[set[int]] = None
 with suppress(Exception):

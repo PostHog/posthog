@@ -116,6 +116,12 @@ var (
 
 	hintStyle = lipgloss.NewStyle().
 			Foreground(colorBrightYellow)
+
+	// Group header in grouped sidebar mode
+	groupHeaderStyle = lipgloss.NewStyle().
+				PaddingLeft(1).
+				Bold(true).
+				Foreground(colorBrightBlack)
 )
 
 func statusIconChar(s process.Status) string {

@@ -142,6 +142,48 @@ export interface SandboxEnvironmentApi {
     readonly updated_at: string
 }
 
+export interface TaskAutomationApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    prompt: string
+    /** @maxLength 255 */
+    repository: string
+    /** @nullable */
+    github_integration?: number | null
+    /** @maxLength 100 */
+    cron_expression: string
+    /** @maxLength 128 */
+    timezone?: string
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    template_id?: string | null
+    enabled?: boolean
+    /** @nullable */
+    readonly last_run_at: string | null
+    /** @nullable */
+    readonly last_run_status: string | null
+    /** @nullable */
+    readonly last_task_id: string | null
+    /** @nullable */
+    readonly last_task_run_id: string | null
+    /** @nullable */
+    readonly last_error: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedTaskAutomationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskAutomationApi[]
+}
+
 /**
  * Serializer for extracted tasks
  */
@@ -171,6 +213,7 @@ export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
+ * `automation` - Automation
  * `slack` - Slack
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
@@ -182,10 +225,21 @@ export const OriginProductEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
+    Automation: 'automation',
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     SignalReport: 'signal_report',
+} as const
+
+/**
+ * * `implementation` - Implementation
+ */
+export type SignalReportTaskRelationshipEnumApi =
+    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
+
+export const SignalReportTaskRelationshipEnumApi = {
+    Implementation: 'implementation',
 } as const
 
 export interface PatchedTaskApi {
@@ -210,6 +264,7 @@ export interface PatchedTaskApi {
     github_integration?: number | null
     /** @nullable */
     signal_report?: string | null
+    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
     /** JSON schema for the task. This is used to validate the output of the task. */
     json_schema?: unknown | null
     /** If true, this task is for internal use and should not be exposed to end users. */
@@ -915,6 +970,17 @@ export interface RepositoryReadinessResponseApi {
 }
 
 export type SandboxListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TaskAutomationsListParams = {
     /**
      * Number of results to return per page.
      */

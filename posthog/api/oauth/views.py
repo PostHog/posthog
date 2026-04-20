@@ -379,7 +379,9 @@ class OAuthValidator(OAuth2Validator):
             except OAuthGrant.DoesNotExist:
                 pass
 
-        if scoped_teams is None or scoped_organizations is None:
+        # Only raise when we have no scope information at all. A token scoped to just
+        # teams or just organizations is valid — we treat `None` and `[]` as equivalent.
+        if scoped_teams is None and scoped_organizations is None:
             raise OAuthToolkitError("Unable to find scoped_teams or scoped_organizations")
 
         return scoped_teams, scoped_organizations
