@@ -132,9 +132,10 @@ def stats(request):
     return JsonResponse(stats_response)
 
 
-def robots_txt(request):
-    DISALLOW_ALL = "User-agent: *\nDisallow: /"
+DISALLOW_ALL = "User-agent: *\nDisallow: /"
 
+
+def robots_txt(request):
     # Block all on self-hosted instances
     if not is_cloud():
         return HttpResponse(DISALLOW_ALL, content_type="text/plain")
