@@ -77,6 +77,9 @@ def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | 
         if isinstance(date_str, pa.StringScalar):
             scalar = date_str.as_py()
 
+            if scalar is None:
+                return None
+
             return parser.parse(scalar)
 
         if isinstance(date_str, pa.TimestampScalar):
