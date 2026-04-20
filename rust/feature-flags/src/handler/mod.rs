@@ -218,8 +218,9 @@ async fn process_request_inner(
                 {
                     let detailed_requested = context.meta.detailed_analysis.unwrap_or(false);
                     let is_internal = authentication::is_internal_request(&context);
-                    let allow_without_token = *context.state.config.allow_detailed_analysis_without_token;
-                    
+                    let allow_without_token =
+                        *context.state.config.allow_detailed_analysis_without_token;
+
                     if detailed_requested && (is_internal || allow_without_token) {
                         Some(true)
                     } else {
