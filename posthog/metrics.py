@@ -46,8 +46,7 @@ def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
     from urllib.request import ProxyHandler, Request, build_opener
 
     def handle():
-        request = Request(url, data=data)
-        request.get_method = lambda: method
+        request = Request(url, data=data, method=method)
         for k, v in headers:
             request.add_header(k, v)
         resp = build_opener(ProxyHandler({}), base_handler).open(request, timeout=timeout)

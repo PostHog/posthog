@@ -1,4 +1,3 @@
-import datetime as dt
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -215,14 +214,12 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
 
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
-    job = update_external_job_status(
+    update_external_job_status(
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
     )
-    job.finished_at = dt.datetime.now(dt.UTC)
-    job.save()
 
     async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
 
@@ -250,14 +247,12 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
         )
         return
 
-    job = update_external_job_status(
+    update_external_job_status(
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.FAILED,
         latest_error=str(error),
     )
-    job.finished_at = dt.datetime.now(dt.UTC)
-    job.save()
 
     logger.info(
         "job_marked_failed",

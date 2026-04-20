@@ -58,6 +58,7 @@ def build_initial_content_snapshot(subscription: Subscription) -> dict[str, Any]
                 "id": subscription.insight.id,
                 "short_id": str(subscription.insight.short_id),
                 "name": subscription.insight.name or subscription.insight.derived_name or "",
+                "description": subscription.insight.description or "",
             }
         ]
     return content_snapshot
@@ -82,6 +83,7 @@ def _insight_snapshot_base_metadata(*, insight: Insight, tile: DashboardTile | N
         "id": insight.id,
         "short_id": str(insight.short_id),
         "name": insight.name or insight.derived_name or "",
+        "description": insight.description or "",
         "dashboard_tile_id": tile.id if tile is not None else None,
     }
 

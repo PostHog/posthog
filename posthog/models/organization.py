@@ -115,7 +115,7 @@ def default_anonymize_ips():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
-class Organization(ModelActivityMixin, UUIDTModel):
+class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manager-missing]
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -515,6 +515,12 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
             models.UniqueConstraint(
                 fields=["organization_id", "user_id"],
                 name="unique_organization_membership",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "-joined_at"],
+                name="org_membership_org_joined_idx",
             ),
         ]
 

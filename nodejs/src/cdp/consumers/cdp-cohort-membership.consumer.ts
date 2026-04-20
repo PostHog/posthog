@@ -3,9 +3,8 @@ import { z } from 'zod'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER } from '../../config/kafka-topics'
+import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
@@ -26,29 +25,12 @@ export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema
 export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     protected name = 'CdpCohortMembershipConsumer'
     private kafkaConsumer: KafkaConsumer
-    private warpstreamProducer?: KafkaProducerWrapper
 
     constructor(config: CdpConsumerBaseConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         this.kafkaConsumer = new KafkaConsumer({
             groupId: 'cdp-cohort-membership-consumer',
             topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
-        })
-    }
-
-    private async publishCohortMembershipTriggers(changes: CohortMembershipChange[]): Promise<void> {
-        if (!this.warpstreamProducer || changes.length === 0) {
-            return
-        }
-
-        const messages = changes.map((change) => ({
-            value: JSON.stringify(change),
-            key: change.person_id,
-        }))
-
-        await this.warpstreamProducer.queueMessages({
-            topic: KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER,
-            messages,
         })
     }
 
@@ -144,8 +126,6 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     public override async start(): Promise<void> {
         await super.start()
 
-        this.warpstreamProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
-
         logger.info('🚀', `${this.name} starting...`)
 
         await this.kafkaConsumer.connect(async (messages) => {
@@ -155,16 +135,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
 
             return instrumentFn('cdpCohortMembershipConsumer.handleEachBatch', async () => {
                 const cohortMembershipChanges = this._parseAndValidateBatch(messages)
-
-                // First persist changes to the database
                 await this.persistCohortMembershipChanges(cohortMembershipChanges)
-
-                // Then publish trigger events as a background task
-                const backgroundTask = this.publishCohortMembershipTriggers(cohortMembershipChanges).catch((error) => {
-                    logger.error('Failed to publish cohort membership triggers', { error })
-                })
-
-                return { backgroundTask }
             })
         })
     }
@@ -172,7 +143,6 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.kafkaConsumer.disconnect()
-        await this.warpstreamProducer?.disconnect()
 
         // IMPORTANT: super always comes last
         await super.stop()
