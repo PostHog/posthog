@@ -32,6 +32,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         toggleAlertEnabled: (alert: LogsAlertConfigurationApi) => ({ alert }),
         resetAlert: (id: string) => ({ id }),
         setResettingAlertId: (id: string, resetting: boolean) => ({ id, resetting }),
+        setViewingHistoryAlert: (alert: LogsAlertConfigurationApi | null) => ({ alert }),
     }),
 
     reducers({
@@ -54,6 +55,12 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
             {
                 setResettingAlertId: (state, { id, resetting }) =>
                     resetting ? new Set([...state, id]) : new Set([...state].filter((x) => x !== id)),
+            },
+        ],
+        viewingHistoryAlert: [
+            null as LogsAlertConfigurationApi | null,
+            {
+                setViewingHistoryAlert: (_, { alert }) => alert,
             },
         ],
     }),
@@ -129,7 +136,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         actions.loadAlerts()
         cache.disposables.add(() => {
             const intervalId = window.setInterval(() => {
-                if (!values.isCreating && values.editingAlert === null) {
+                if (!values.isCreating && values.editingAlert === null && values.viewingHistoryAlert === null) {
                     actions.loadAlerts()
                 }
             }, ALERT_POLL_INTERVAL_MS)

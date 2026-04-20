@@ -16,12 +16,14 @@ import type {
     LogsAlertDestinationResponseApi,
     LogsAlertSimulateRequestApi,
     LogsAlertSimulateResponseApi,
+    LogsAlertsEventsListParams,
     LogsAlertsListParams,
     LogsAttributesRetrieveParams,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
     PaginatedLogsAlertConfigurationListApi,
+    PaginatedLogsAlertEventListApi,
     PaginatedLogsViewListApi,
     PaginatedPluginLogEntryListApi,
     PatchedLogsAlertConfigurationApi,
@@ -336,6 +338,37 @@ export const logsAlertsDestinationsDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertDeleteDestinationApi),
+    })
+}
+
+/**
+ * Paginated event history for this alert, newest first. Returns both worker-produced check rows (fires, resolves, errors, transitions) and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold changes) — distinguished by the `kind` field. Optional `?kind=...` query filter narrows to a single kind.
+ */
+export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params?: LogsAlertsEventsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/alerts/${id}/events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/alerts/${id}/events/`
+}
+
+export const logsAlertsEventsList = async (
+    projectId: string,
+    id: string,
+    params?: LogsAlertsEventsListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsAlertEventListApi> => {
+    return apiMutator<PaginatedLogsAlertEventListApi>(getLogsAlertsEventsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

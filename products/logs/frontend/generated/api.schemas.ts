@@ -324,6 +324,58 @@ export interface LogsAlertDeleteDestinationApi {
     hog_function_ids: string[]
 }
 
+/**
+ * * `check` - Check
+ * `reset` - Reset
+ * `enable` - Enable
+ * `disable` - Disable
+ * `snooze` - Snooze
+ * `unsnooze` - Unsnooze
+ * `threshold_change` - Threshold change
+ */
+export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
+
+export const LogsAlertEventKindEnumApi = {
+    Check: 'check',
+    Reset: 'reset',
+    Enable: 'enable',
+    Disable: 'disable',
+    Snooze: 'snooze',
+    Unsnooze: 'unsnooze',
+    ThresholdChange: 'threshold_change',
+} as const
+
+/**
+ * Read-only serializer for LogsAlertEvent rows surfaced by the /events/ action.
+
+Mixes worker-produced CHECK rows (result_count, threshold_breached set) with
+control-plane rows (result_count=None, threshold_breached=False) — callers
+distinguish by `kind`.
+ */
+export interface LogsAlertEventApi {
+    readonly id: string
+    readonly created_at: string
+    readonly kind: LogsAlertEventKindEnumApi
+    readonly state_before: string
+    readonly state_after: string
+    readonly threshold_breached: boolean
+    /** @nullable */
+    readonly result_count: number | null
+    /** @nullable */
+    readonly error_message: string | null
+    /** @nullable */
+    readonly query_duration_ms: number | null
+}
+
+export interface PaginatedLogsAlertEventListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsAlertEventApi[]
+}
+
 export interface LogsAlertSimulateRequestApi {
     /** Filter criteria — same format as LogsAlertConfiguration.filters. */
     filters: unknown
@@ -634,6 +686,17 @@ export type LogsViewsListParams = {
 }
 
 export type LogsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LogsAlertsEventsListParams = {
     /**
      * Number of results to return per page.
      */
