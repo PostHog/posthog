@@ -368,26 +368,69 @@ def _check_replication_healthy(client: Client, source_table: str) -> bool:
     return rows[0][0] < 100
 
 
-def _check_no_mutations(client: Client, source_table: str) -> int:
-    """Return cluster-wide count of distinct in-progress mutations on the source table."""
+def _parse_part_block_range(part_name: str) -> tuple[int, int]:
+    """Parse (min_block, max_block) from a part name.
+
+    Part names follow {partition_id}_{min_block}_{max_block}_{level}[_{mutation_version}].
+    """
+    pieces = part_name.split("_")
+    return int(pieces[1]), int(pieces[2])
+
+
+def _check_no_mutations_for_part(client: Client, source_table: str, partition_id: str, part_name: str) -> list[str]:
+    """Return mutation_ids of in-progress mutations whose block range covers this part.
+
+    A mutation's parts_to_do_names lists the exact part names still pending. If our
+    part appears there, the mutation will rewrite it — unsafe to break.
+    """
     database = _get_database()
     cluster = settings.CLICKHOUSE_CLUSTER
     rows = client.execute(
-        "SELECT countDistinct(mutation_id) FROM clusterAllReplicas(%(cluster)s, system.mutations) "
-        "WHERE database = %(db)s AND table = %(table)s AND is_done = 0",
-        {"cluster": cluster, "db": database, "table": source_table},
+        "SELECT DISTINCT mutation_id "
+        "FROM clusterAllReplicas(%(cluster)s, system.mutations) "
+        "WHERE database = %(db)s AND table = %(table)s "
+        "AND is_done = 0 "
+        "AND has(parts_to_do_names, %(part)s)",
+        {"cluster": cluster, "db": database, "table": source_table, "part": part_name},
     )
-    return rows[0][0]
+    return [row[0] for row in rows]
 
 
-def _get_mutation_ids(client: Client, source_table: str) -> set[str]:
-    """Return all mutation_ids (any status) for the source table across the cluster."""
+def _get_mutation_ids_for_part(client: Client, source_table: str, partition_id: str, part_name: str) -> set[str]:
+    """Return mutation_ids (any status) targeting this specific part.
+
+    A mutation includes our part iff both:
+      - its block_numbers array has an entry for our partition_id, AND
+      - that entry's block number is strictly greater than our part's min_block
+        (ClickHouse: "Only parts that contain blocks with numbers less than this
+        number will be mutated in the partition.")
+
+    We also OR against parts_to_do_names for in-progress mutations, since their
+    block_numbers logic still applies but parts_to_do_names is the authoritative
+    live signal.
+    """
     database = _get_database()
     cluster = settings.CLICKHOUSE_CLUSTER
+    min_block, _ = _parse_part_block_range(part_name)
     rows = client.execute(
-        "SELECT DISTINCT mutation_id FROM clusterAllReplicas(%(cluster)s, system.mutations) "
-        "WHERE database = %(db)s AND table = %(table)s",
-        {"cluster": cluster, "db": database, "table": source_table},
+        "SELECT DISTINCT mutation_id "
+        "FROM clusterAllReplicas(%(cluster)s, system.mutations) "
+        "WHERE database = %(db)s AND table = %(table)s "
+        "AND ("
+        "  has(parts_to_do_names, %(part)s) "
+        "  OR arrayExists("
+        "    (pid, bnum) -> pid = %(partition_id)s AND bnum > %(min_block)s, "
+        "    block_numbers.partition_id, block_numbers.number"
+        "  )"
+        ")",
+        {
+            "cluster": cluster,
+            "db": database,
+            "table": source_table,
+            "part": part_name,
+            "partition_id": partition_id,
+            "min_block": min_block,
+        },
     )
     return {row[0] for row in rows}
 
@@ -799,10 +842,11 @@ def break_part(
             repl_ok = _check_replication_healthy(client, source_table)
             context.log.info(f"  Replication health: {'OK' if repl_ok else 'UNHEALTHY — queue > 100 entries'}")
 
-            # Check in-flight mutations
-            mutation_count = _check_no_mutations(client, source_table)
+            # Check in-flight mutations targeting this specific part
+            blocking_mutations = _check_no_mutations_for_part(client, source_table, partition_id, part.part_name)
             context.log.info(
-                f"  In-flight mutations: {'OK (none)' if mutation_count == 0 else f'BLOCKED ({mutation_count} in progress)'}"
+                f"  In-flight mutations for {part.part_name}: "
+                f"{'OK (none)' if not blocking_mutations else f'BLOCKED ({len(blocking_mutations)} targeting this part: {blocking_mutations})'}"
             )
 
             # Get disk/path info
@@ -894,16 +938,18 @@ def break_part(
             if not _check_replication_healthy(client, source_table):
                 raise dagster.Failure(description=f"Replication queue is backed up (>100 entries) for {source_table}")
 
-            in_flight_mutations = _check_no_mutations(client, source_table)
-            if in_flight_mutations > 0:
+            blocking_mutations = _check_no_mutations_for_part(client, source_table, partition_id, part.part_name)
+            if blocking_mutations:
                 raise dagster.Failure(
-                    description=f"{in_flight_mutations} in-progress mutation(s) on {source_table}. "
+                    description=f"{len(blocking_mutations)} in-progress mutation(s) target part "
+                    f"{part.part_name} on {source_table}: {blocking_mutations}. "
                     f"Part breaker would risk data inconsistency — skipping."
                 )
 
-            # Capture mutation_ids at start so we can detect any new mutations that appear
-            # during our run (even ones that start AND complete between FREEZE and ATTACH).
-            baseline_mutation_ids = _get_mutation_ids(client, source_table)
+            # Capture mutation_ids at start so we can detect any new mutations that
+            # cover this specific part during our run (even ones that start AND complete
+            # between FREEZE and ATTACH).
+            baseline_mutation_ids = _get_mutation_ids_for_part(client, source_table, partition_id, part.part_name)
 
             # -- Step 3: Get paths and establish SSH connection --
             disk_paths = _get_disk_paths(client)
@@ -1057,15 +1103,16 @@ def break_part(
             for dp in detached_parts:
                 _ssh_exec(ssh, f"mv {staging_tgt_detached}{dp} {source_detached}{dp}")
 
-            # Re-check for new mutations that appeared during our work — they'd have
-            # mutated the old part but not our staging data, producing inconsistent state.
-            current_mutation_ids = _get_mutation_ids(client, source_table)
+            # Re-check for new mutations that appeared during our work and target this
+            # specific part — they'd have mutated the old part but not our staging data,
+            # producing inconsistent state.
+            current_mutation_ids = _get_mutation_ids_for_part(client, source_table, partition_id, part.part_name)
             new_mutation_ids = current_mutation_ids - baseline_mutation_ids
             if new_mutation_ids:
                 raise dagster.Failure(
-                    description=f"{len(new_mutation_ids)} new mutation(s) appeared during part break "
-                    f"on {source_table}: {sorted(new_mutation_ids)}. "
-                    f"Aborting before ATTACH to avoid data inconsistency."
+                    description=f"{len(new_mutation_ids)} new mutation(s) targeting part "
+                    f"{part.part_name} appeared during part break on {source_table}: "
+                    f"{sorted(new_mutation_ids)}. Aborting before ATTACH to avoid data inconsistency."
                 )
 
             context.log.info(f"Attaching {len(detached_parts)} new parts to {source_table}...")
