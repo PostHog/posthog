@@ -93,7 +93,6 @@ class TestSendDigestForUser(_DigestTestBase):
         )
         assert sent is True
         kwargs = self.mock_email_class.call_args.kwargs
-        assert kwargs["subject"].startswith("[Test] ")
         assert "_test_" in kwargs["campaign_key"]
 
     def test_returns_false_when_team_digest_data_is_empty(self):
@@ -199,8 +198,6 @@ class TestSendTestDigestSingleTeamMode(_DigestTestBase):
         _send_test_digest(email=self.user.email, team_id=self.team.id)
         self.mock_email_class.assert_called_once()
         self.mock_message.add_user_recipient.assert_called_once_with(self.user)
-        kwargs = self.mock_email_class.call_args.kwargs
-        assert kwargs["subject"].startswith("[Test] ")
 
     def test_raises_when_team_not_found(self):
         with self.assertRaises(ValueError) as cm:

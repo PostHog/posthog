@@ -104,10 +104,9 @@ def _send_digest_for_user(
     if dry_run:
         return True
 
-    subject_prefix = "[Test] " if test else ""
     message = EmailMessage(
         campaign_key=campaign_key,
-        subject=f"{subject_prefix}Web analytics weekly digest for {org.name}",
+        subject=f"Web analytics weekly digest for {org.name}",
         template_name="web_analytics_weekly_digest",
         template_context={
             "organization": org,
