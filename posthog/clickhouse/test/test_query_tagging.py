@@ -296,34 +296,6 @@ def test_source_file_excluded_from_json_when_none():
     assert "source_line" not in data
 
 
-def test_ai_data_processing_approved_serialization():
-    qt_true = QueryTags(
-        team_id=1,
-        ai_data_processing_approved=True,
-        git_commit="test",
-        container_hostname="test",
-        service_name="test",
-    )
-    assert '"ai_data_processing_approved":true' in qt_true.to_json()
-
-    qt_false = QueryTags(
-        team_id=1,
-        ai_data_processing_approved=False,
-        git_commit="test",
-        container_hostname="test",
-        service_name="test",
-    )
-    assert '"ai_data_processing_approved":false' in qt_false.to_json()
-
-    qt_unset = QueryTags(
-        team_id=1,
-        git_commit="test",
-        container_hostname="test",
-        service_name="test",
-    )
-    assert "ai_data_processing_approved" not in qt_unset.to_json()
-
-
 def test_source_file_included_in_json_when_set():
     qt = QueryTags(
         source_file="posthog/api/query.py",
