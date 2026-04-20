@@ -147,6 +147,7 @@ class UpdateDeliveryRecordInputs:
     content_snapshot: typing.Optional[dict[str, typing.Any]] = None
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
     error: typing.Optional[dict[str, typing.Any]] = None
+    change_summary: typing.Optional[str] = None
     finished: bool = False
 
 

@@ -67,6 +67,11 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly finished_at: string | null
+    /**
+     * AI-generated summary sent in the delivery, if subscription.summary_enabled was on.
+     * @nullable
+     */
+    readonly change_summary: string | null
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {

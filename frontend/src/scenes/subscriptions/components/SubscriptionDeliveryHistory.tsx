@@ -281,6 +281,17 @@ export function SubscriptionDeliveryHistory({
                         nouns={['delivery', 'deliveries']}
                         emptyState={tableEmptyState}
                         data-attr="subscription-deliveries-table"
+                        expandable={{
+                            rowExpandable: (row) => Boolean(row.change_summary),
+                            expandedRowRender: (row) => (
+                                <div className="px-4 py-3 text-sm whitespace-pre-wrap">
+                                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">
+                                        AI summary
+                                    </div>
+                                    {row.change_summary}
+                                </div>
+                            ),
+                        }}
                         pagination={{
                             controlled: true,
                             pageSize: 50,

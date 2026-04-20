@@ -370,6 +370,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             exported_asset_ids=delivery_exported_asset_ids or None,
                             content_snapshot=delivery_content_snapshot or None,
                             recipient_results=delivery_recipient_results or None,
+                            change_summary=change_summary,
                             error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
                             if caught_error
                             else None,

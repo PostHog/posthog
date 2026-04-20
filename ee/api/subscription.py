@@ -513,6 +513,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "created_at",
             "last_updated_at",
             "finished_at",
+            "change_summary",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -539,6 +540,9 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "created_at": {"help_text": "When the delivery row was created."},
             "last_updated_at": {"help_text": "Last ORM update to this row."},
             "finished_at": {"help_text": "When the run finished, if applicable."},
+            "change_summary": {
+                "help_text": "AI-generated summary sent in the delivery, if subscription.summary_enabled was on."
+            },
         }
 
 
