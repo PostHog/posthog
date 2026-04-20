@@ -76,6 +76,7 @@ Produce:
    Bad: "Pass rate was 72%"
 
 2. A 4-8 sentence description that explains:
+   - Open with what the evaluation is measuring (derived from the evaluation name, description, and judge criteria prompt). Name the evaluation explicitly — the reader may have no prior context. One sentence is enough.
    - What changed or is notable about the evaluation's behavior over the period
    - Concrete metrics that support the finding (pass_rate, delta vs previous period if available, total_runs)
    - Any pattern the report identifies (e.g. specific failure mode, particular model, time-of-day clustering)
@@ -185,6 +186,8 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
         weight=summary.significance,
         extra={
             "evaluation_id": inputs.evaluation_id,
+            "evaluation_name": inputs.evaluation_name,
+            "evaluation_description": inputs.evaluation_description,
             "report_id": inputs.report_id,
             "report_run_id": inputs.report_run_id,
             "period_start": inputs.period_start,

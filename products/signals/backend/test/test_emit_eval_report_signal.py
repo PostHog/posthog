@@ -205,6 +205,8 @@ class TestEmitEvalReportSignalActivity:
         assert call_kwargs["description"] == summary.description
         extra = call_kwargs["extra"]
         assert extra["evaluation_id"] == "eval-123"
+        assert extra["evaluation_name"] == "Cost cap check"
+        assert extra["evaluation_description"] == "Flag generations above the cost cap"
         assert extra["report_id"] == "report-abc"
         assert extra["report_run_id"] == "run-xyz"
         assert extra["period_start"] == inputs.period_start
