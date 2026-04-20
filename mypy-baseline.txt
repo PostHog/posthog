@@ -78,4 +78,5 @@ products/early_access_features/backend/migrations/0001_initial_migration.py:0: e
 products/early_access_features/backend/migrations/0002_alter_earlyaccessfeature_options_and_more.py:0: error: Need type annotation for "database_operations" (hint: "database_operations: list[<type>] = ...")  [var-annotated]
 products/error_tracking/backend/migrations/0001_migrate_error_tracking_models.py:0: error: Need type annotation for "database_operations" (hint: "database_operations: list[<type>] = ...")  [var-annotated]
 products/llm_analytics/backend/providers/formatters/gemini_formatter.py:0: error: Incompatible return value type (got "list[Content]", expected "Content | str | Image | File | Part | list[str | Image | File | Part] | list[Content | str | Image | File | Part | list[str | Image | File | Part]]")  [return-value]
+products/tasks/backend/serializers.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 products/user_interviews/backend/max_tools.py:0: error: Incompatible types in assignment (expression has type "str", variable has type "list[str]")  [assignment]
