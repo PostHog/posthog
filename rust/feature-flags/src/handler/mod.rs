@@ -216,7 +216,8 @@ async fn process_request_inner(
                 request.is_flags_disabled(),
                 request.flag_keys.clone(),
                 if context.meta.detailed_analysis.unwrap_or(false)
-                    && authentication::is_internal_request(&context)
+                    && (authentication::is_internal_request(&context) 
+                        || context.meta.debug.unwrap_or(false))
                 {
                     Some(true)
                 } else {

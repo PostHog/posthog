@@ -117,6 +117,11 @@ pub struct FlagsQueryParams {
     /// e.g. https://us.posthog.com/flags?v=2&only_use_override_person_properties=true
     #[serde(default, deserialize_with = "deserialize_optional_bool")]
     pub only_use_override_person_properties: Option<bool>,
+    /// Optional boolean indicating whether debug mode is enabled
+    /// When true, allows detailed_analysis to be enabled for external requests
+    /// e.g. https://us.posthog.com/flags?v=2&debug=true
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
+    pub debug: Option<bool>,
 }
 
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
