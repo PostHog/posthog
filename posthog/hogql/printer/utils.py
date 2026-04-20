@@ -9,8 +9,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
-from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
+from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
@@ -168,22 +169,35 @@ def print_prepared_ast(
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
-        printer_class: type[HogQLPrinter]
+        printer: BasePrinter
+        printer_stack = cast(list[ast.AST], stack or [])
 
         match dialect:
             case "clickhouse":
-                printer_class = ClickHousePrinter
+                printer = ClickHousePrinter(
+                    context=context,
+                    dialect=dialect,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case "postgres":
-                printer_class = PostgresPrinter
+                printer = PostgresPrinter(
+                    context=context,
+                    dialect=dialect,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case "hogql":
-                printer_class = HogQLPrinter
+                printer = HogQLPrinter(
+                    context=context,
+                    dialect=dialect,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case _:
                 raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
 
-        return printer_class(
-            context=context,
-            dialect=dialect,
-            stack=cast(list[ast.AST], stack or []),
-            settings=settings,
-            pretty=pretty,
-        ).visit(node)
+        return printer.visit(node)

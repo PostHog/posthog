@@ -10,7 +10,7 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import StructDatabaseField
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
-from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.postgres_functions import (
     POSTGRES_FUNCTION_HANDLERS_LOWER,
     POSTGRES_FUNCTION_RENAMES_LOWER,
@@ -22,7 +22,7 @@ from posthog.hogql.printer.postgres_functions import (
 _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-class PostgresPrinter(HogQLPrinter):
+class PostgresPrinter(BasePrinter):
     def __init__(
         self,
         context: HogQLContext,

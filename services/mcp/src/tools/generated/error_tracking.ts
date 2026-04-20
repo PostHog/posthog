@@ -14,6 +14,7 @@ import {
     ErrorTrackingIssuesRetrieveParams,
     ErrorTrackingIssuesSplitCreateBody,
     ErrorTrackingIssuesSplitCreateParams,
+    ErrorTrackingSuppressionRulesListQueryParams,
 } from '@/generated/error_tracking/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
@@ -261,6 +262,28 @@ const errorTrackingIssuesSplitCreate = (): ToolBase<
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/split/`,
             body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSuppressionRulesListSchema = ErrorTrackingSuppressionRulesListQueryParams
+
+const errorTrackingSuppressionRulesList = (): ToolBase<
+    typeof ErrorTrackingSuppressionRulesListSchema,
+    Schemas.PaginatedErrorTrackingSuppressionRuleList
+> => ({
+    name: 'error-tracking-suppression-rules-list',
+    schema: ErrorTrackingSuppressionRulesListSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSuppressionRulesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedErrorTrackingSuppressionRuleList>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/suppression_rules/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
         })
         return result
     },
@@ -600,6 +623,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
+    'error-tracking-suppression-rules-list': errorTrackingSuppressionRulesList,
     'query-error-tracking-issues': createQueryWrapper({
         name: 'query-error-tracking-issues',
         schema: QueryErrorTrackingIssuesSchema,

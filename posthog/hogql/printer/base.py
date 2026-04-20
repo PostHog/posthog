@@ -73,8 +73,11 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
-class HogQLPrinter(Visitor[str]):
+class BasePrinter(Visitor[str]):
     # NOTE: Call "print_ast()", not this class directly.
+    # Shared AST walker for all dialect printers (HogQL, ClickHouse, Postgres).
+    # Dialect-specific behavior currently lives behind `self.dialect` checks
+    # and is being progressively moved into subclass overrides.
 
     def __init__(
         self,
@@ -389,7 +392,7 @@ class HogQLPrinter(Visitor[str]):
         node_type: ast.TableOrSelectType,
     ):
         if self.dialect != "hogql":
-            raise NotImplementedError("HogQLPrinter._ensure_team_id_where_clause not overridden")
+            raise NotImplementedError("BasePrinter._ensure_team_id_where_clause not overridden")
 
     def _get_table_predicates(
         self,

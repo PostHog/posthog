@@ -517,6 +517,12 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
                 name="unique_organization_membership",
             ),
         ]
+        indexes = [
+            models.Index(
+                fields=["organization", "-joined_at"],
+                name="org_membership_org_joined_idx",
+            ),
+        ]
 
     def __str__(self):
         return str(self.Level(self.level))
