@@ -15,7 +15,11 @@ import { BillingProductV2AddonType } from '~/types'
 import { billingLogic } from './billingLogic'
 import { formatFlatRate } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
+import { ConfirmDowngradeModal } from './ConfirmDowngradeModal'
+import { ConfirmUpgradeModal } from './ConfirmUpgradeModal'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
+import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 interface BillingProductAddonActionsProps {
     addon: BillingProductV2AddonType
@@ -43,6 +47,7 @@ export const BillingProductAddonActions = ({
         isLowerTierThanCurrentAddon,
         proratedAmount,
         isProrated,
+        surveyID,
     } = useValues(billingProductLogic({ product: addon, productRef }))
 
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
@@ -79,7 +84,7 @@ export const BillingProductAddonActions = ({
     }
 
     const renderTrialActions = (): JSX.Element => (
-        <div className="flex flex-col items-end justify-end">
+        <div className={clsx('flex flex-col', align === 'left' ? 'items-start' : 'items-end justify-end')}>
             <Tooltip
                 title={
                     <p>
@@ -301,6 +306,10 @@ export const BillingProductAddonActions = ({
                 {content}
             </div>
             {renderPricingInfo()}
+            {surveyID === UNSUBSCRIBE_SURVEY_ID && <UnsubscribeSurveyModal product={addon} />}
+            {surveyID === TRIAL_CANCELLATION_SURVEY_ID && <TrialCancellationSurveyModal product={addon} />}
+            <ConfirmUpgradeModal product={addon} />
+            <ConfirmDowngradeModal product={addon} />
         </div>
     )
 }
