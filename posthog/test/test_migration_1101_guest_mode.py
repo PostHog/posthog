@@ -17,6 +17,7 @@ class GuestModeDataModelMigrationTest(NonAtomicTestMigrations):
         Project = apps.get_model("posthog", "Project")
         Team = apps.get_model("posthog", "Team")
         OrganizationInvite = apps.get_model("posthog", "OrganizationInvite")
+        OrganizationMembership = apps.get_model("posthog", "OrganizationMembership")
         User = apps.get_model("posthog", "User")
 
         self.organization = Organization.objects.create(name="Test Organization")
@@ -27,7 +28,6 @@ class GuestModeDataModelMigrationTest(NonAtomicTestMigrations):
             name="Test Team",
         )
         self.user = User.objects.create(email="seed@example.com")
-        OrganizationMembership = apps.get_model("posthog", "OrganizationMembership")
         self.membership = OrganizationMembership.objects.create(
             organization=self.organization,
             user=self.user,
@@ -38,19 +38,22 @@ class GuestModeDataModelMigrationTest(NonAtomicTestMigrations):
             target_email="invitee@example.com",
         )
 
-    def test_new_fields_exist_with_defaults(self) -> None:
-        OrganizationMembership = self.apps.get_model("posthog", "OrganizationMembership")
-        OrganizationInvite = self.apps.get_model("posthog", "OrganizationInvite")
+    def test_new_fields_exist_with_defaults_and_grant_insertable(self) -> None:
+        # Post-migration models are retrieved through self.apps (set by the BaseTestMigrations setUp).
+        assert self.apps is not None
+        PostMigrationMembership = self.apps.get_model("posthog", "OrganizationMembership")
+        PostMigrationInvite = self.apps.get_model("posthog", "OrganizationInvite")
+        PostMigrationTeam = self.apps.get_model("posthog", "Team")
         GuestResourceGrant = self.apps.get_model("posthog", "GuestResourceGrant")
 
-        membership = OrganizationMembership.objects.get(id=self.membership.id)
+        membership = PostMigrationMembership.objects.get(id=self.membership.id)
         self.assertFalse(membership.is_guest)
 
-        invite = OrganizationInvite.objects.get(id=self.invite.id)
+        invite = PostMigrationInvite.objects.get(id=self.invite.id)
         self.assertEqual(invite.guest_resources, [])
         self.assertFalse(invite.bypass_sso)
 
-        team = self.apps.get_model("posthog", "Team").objects.get(id=self.team.id)
+        team = PostMigrationTeam.objects.get(id=self.team.id)
         grant = GuestResourceGrant.objects.create(
             organization_membership=membership,
             team=team,
