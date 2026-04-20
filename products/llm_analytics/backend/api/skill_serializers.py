@@ -302,7 +302,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(LLMSkillFileManifestSerializer(many=True))
     def get_files(self, instance: LLMSkill) -> list[dict[str, Any]]:
-        return list(LLMSkillFile.objects.filter(skill=instance).values("path", "content_type"))
+        return [dict(row) for row in LLMSkillFile.objects.filter(skill=instance).values("path", "content_type")]
 
     @extend_schema_field(LLMSkillOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:
@@ -335,7 +335,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 class LLMSkillCreateSerializer(LLMSkillSerializer):
     """Create serializer — accepts bundled files as write-only input on POST."""
 
-    files = LLMSkillFileInputSerializer(
+    files = LLMSkillFileInputSerializer(  # type: ignore[assignment]
         many=True,
         required=False,
         write_only=True,
