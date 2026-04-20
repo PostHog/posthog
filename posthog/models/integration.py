@@ -1934,13 +1934,6 @@ class GitHubUserAuthorization:
     refresh_token_expires_in: int | None
 
 
-def _coerce_int(value: Any) -> int | None:
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
 class GitHubIntegration:
     integration: Integration
 
@@ -2076,13 +2069,15 @@ class GitHubIntegration:
             gh_login = payload.get("login")
             if gh_id is None or not gh_login:
                 return None
+            access_expires_in = token_data.get("expires_in")
+            refresh_expires_in = token_data.get("refresh_token_expires_in")
             return GitHubUserAuthorization(
                 gh_id=int(gh_id),
                 gh_login=str(gh_login),
                 access_token=str(access_token),
                 refresh_token=token_data.get("refresh_token") or None,
-                access_token_expires_in=_coerce_int(token_data.get("expires_in")),
-                refresh_token_expires_in=_coerce_int(token_data.get("refresh_token_expires_in")),
+                access_token_expires_in=int(access_expires_in) if access_expires_in is not None else None,
+                refresh_token_expires_in=int(refresh_expires_in) if refresh_expires_in is not None else None,
             )
         except Exception:
             logger.warning("GitHubIntegration: failed to exchange code for github user", exc_info=True)

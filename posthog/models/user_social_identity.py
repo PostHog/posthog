@@ -231,8 +231,8 @@ class UserGitHubIntegration:
         now = int(time.time())
         access_token = payload.get("access_token")
         refresh_token = payload.get("refresh_token") or self.refresh_token
-        access_expires_in = _coerce_int(payload.get("expires_in"))
-        refresh_expires_in = _coerce_int(payload.get("refresh_token_expires_in"))
+        access_expires_in = payload.get("expires_in")
+        refresh_expires_in = payload.get("refresh_token_expires_in")
 
         self.identity.sensitive_config = {
             **(self.identity.sensitive_config or {}),
@@ -242,9 +242,9 @@ class UserGitHubIntegration:
         extra = dict(self.identity.extra_data or {})
         extra["refreshed_at"] = now
         if access_expires_in is not None:
-            extra["access_token_expires_at"] = now + access_expires_in
+            extra["access_token_expires_at"] = now + int(access_expires_in)
         if refresh_expires_in is not None:
-            extra["refresh_token_expires_at"] = now + refresh_expires_in
+            extra["refresh_token_expires_at"] = now + int(refresh_expires_in)
         self.identity.extra_data = extra
         self.identity.save(update_fields=["sensitive_config", "extra_data", "updated_at"])
 
@@ -259,13 +259,6 @@ class UserGitHubIntegration:
             self.identity.delete()
         except Exception:
             logger.warning("UserGitHubIntegration: failed to delete unusable identity", exc_info=True)
-
-
-def _coerce_int(value: Any) -> int | None:
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
 
 
 def apply_github_authorization(
