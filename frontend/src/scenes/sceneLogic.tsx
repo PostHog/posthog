@@ -75,35 +75,17 @@ const getStorageKey = (key: string): string => {
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
 /**
- * Tab metadata we can safely JSON-serialize. `sceneParams` is omitted — it is derived from the URL when
- * scenes load and can contain deep or cyclic structures after routing (e.g. dashboard as homepage).
+ * Snapshot for JSON / structuredClone. Strips only `sceneParams` (deep/cyclic routing state); everything
+ * else on `SceneTab` is kept so new fields are not forgotten. If a future field holds non-plain data,
+ * omit it here explicitly.
  */
 const tabToPersistableSnapshot = (tab: SceneTab, overrides: Partial<SceneTab> = {}): SceneTab => {
-    const snapshot: SceneTab = {
+    const { sceneParams: _omitSceneParams, ...rest } = tab
+    return {
+        ...rest,
         id: tab.id || generateTabId(),
-        pathname: tab.pathname,
-        search: tab.search,
-        hash: tab.hash,
-        title: tab.title,
-        iconType: tab.iconType,
-        active: tab.active,
+        ...overrides,
     }
-    if (tab.customTitle !== undefined) {
-        snapshot.customTitle = tab.customTitle
-    }
-    if (tab.pinned !== undefined) {
-        snapshot.pinned = tab.pinned
-    }
-    if (tab.badge !== undefined) {
-        snapshot.badge = tab.badge
-    }
-    if (tab.sceneId !== undefined) {
-        snapshot.sceneId = tab.sceneId
-    }
-    if (tab.sceneKey !== undefined) {
-        snapshot.sceneKey = tab.sceneKey
-    }
-    return { ...snapshot, ...overrides }
 }
 
 /** Plain tab snapshots for browser history (`structuredClone` in initKea); excludes `sceneParams`. */
@@ -1461,15 +1443,12 @@ export const sceneLogic = kea<sceneLogicType>([
                 const targetSearch = homepage.search || ''
                 const targetHash = homepage.hash || ''
                 const loc = router.values.currentLocation
-                // If we're already at the homepage URL, skip replace. Otherwise replaceState re-runs this
-                // handler forever (e.g. homepage pathname equals project root `/project/:id`).
-                if (
+                // Already at homepage: skip replace or replaceState loops (e.g. homepage === project root).
+                const alreadyAtHomepage =
                     addProjectIdIfMissing(loc.pathname) === addProjectIdIfMissing(targetPathname) &&
                     (loc.search || '') === targetSearch &&
                     (loc.hash || '') === targetHash
-                ) {
-                    // Fall through to default `/` resolution below
-                } else {
+                if (!alreadyAtHomepage) {
                     router.actions.replace(targetPathname, targetSearch, targetHash)
                     return
                 }
