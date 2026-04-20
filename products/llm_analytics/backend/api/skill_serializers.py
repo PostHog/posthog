@@ -8,6 +8,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from ..markdown_outline import get_markdown_outline
 from ..models.skills import LLMSkill, LLMSkillFile
 
 RESERVED_SKILL_NAMES = {"new"}
@@ -108,6 +109,11 @@ class LLMSkillResolveQuerySerializer(LLMSkillFetchQuerySerializer):
         if attrs.get("offset") is not None and attrs.get("before_version") is not None:
             raise serializers.ValidationError("Use either offset or before_version, not both.")
         return attrs
+
+
+class LLMSkillOutlineEntrySerializer(serializers.Serializer):
+    level = serializers.IntegerField(min_value=1, max_value=6, help_text="Markdown heading level (1-6).")
+    text = serializers.CharField(help_text="Heading text.")
 
 
 class LLMSkillFileSerializer(serializers.ModelSerializer):
@@ -223,6 +229,9 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     files = serializers.SerializerMethodField(
         help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
     )
+    outline = serializers.SerializerMethodField(
+        help_text="Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
+    )
 
     class Meta:
         model = LLMSkill
@@ -236,6 +245,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "allowed_tools",
             "metadata",
             "files",
+            "outline",
             "version",
             "created_by",
             "created_at",
@@ -249,6 +259,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "files",
+            "outline",
             "version",
             "created_by",
             "created_at",
@@ -292,6 +303,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     @extend_schema_field(LLMSkillFileManifestSerializer(many=True))
     def get_files(self, instance: LLMSkill) -> list[dict[str, Any]]:
         return list(LLMSkillFile.objects.filter(skill=instance).values("path", "content_type"))
+
+    @extend_schema_field(LLMSkillOutlineEntrySerializer(many=True))
+    def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:
+        return get_markdown_outline(instance.body)
 
     def validate_name(self, value: str) -> str:
         return validate_skill_name_value(value)
