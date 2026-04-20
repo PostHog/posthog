@@ -634,7 +634,6 @@ class Database(BaseModel):
                 if _should_include_connection_table(
                     warehouse_table,
                     connection_id=cast(str, self._connection_id),
-                    view_names=set(views),
                 )
             ]
         allowed_warehouse_table_names = set(warehouse_table_names) if self._is_direct_query() else None
@@ -984,15 +983,11 @@ class Database(BaseModel):
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
         warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
-        view_names: set[str] = set()
-        sorted_view_names: list[str] = []
-
         with timings.measure("data_warehouse_saved_query"):
             if database._is_direct_query():
                 queryset = DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True)
                 if not is_managed_viewset_enabled:
                     queryset = queryset.filter(managed_viewset__isnull=True)
-                view_names = set(queryset.values_list("name", flat=True))
             else:
                 with timings.measure("select"):
                     queryset = (
@@ -1015,8 +1010,6 @@ class Database(BaseModel):
                             ),
                             table_conflict_mode="ignore",
                         )
-                view_names = set(views.resolve_all_table_names())
-                sorted_view_names = sorted(view_names)
 
         with timings.measure("endpoint_saved_query"):
             if not database._is_direct_query():
@@ -1085,8 +1078,6 @@ class Database(BaseModel):
                     tables_query = tables_query.exclude(
                         external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
                     )
-                    if sorted_view_names:
-                        tables_query = tables_query.exclude(name__in=sorted_view_names)
 
                 tables: list[DataWarehouseTable] = list(tables_query)
                 _preload_active_external_data_schemas(tables)
@@ -1097,15 +1088,9 @@ class Database(BaseModel):
                         if _should_include_connection_table(
                             table,
                             connection_id=cast(str, database._connection_id),
-                            view_names=view_names,
                         )
                     ]
             for table in tables:
-                # Skip adding data warehouse tables that are materialized from views
-                # We can detect that because they have the exact same name as the view
-                if table.name in view_names:
-                    continue
-
                 if (
                     not database._is_direct_query()
                     and table.external_data_source
@@ -1670,16 +1655,12 @@ def _should_include_connection_table(
     warehouse_table: DataWarehouseTable,
     *,
     connection_id: str,
-    view_names: set[str],
 ) -> bool:
     source = warehouse_table.external_data_source
     if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
         return False
 
     if str(warehouse_table.external_data_source_id) != connection_id:
-        return False
-
-    if warehouse_table.name in view_names:
         return False
 
     schemas = _get_active_external_data_schemas(warehouse_table)

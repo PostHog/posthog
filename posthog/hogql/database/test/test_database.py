@@ -1895,7 +1895,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "disabled_table" not in serialized
         assert database.get_serialization_errors() == {}
 
-    def test_direct_postgres_direct_mode_skips_tables_materialized_from_views(self) -> None:
+    def test_direct_postgres_direct_mode_includes_tables_materialized_from_views(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
@@ -1926,8 +1926,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team, connection_id=str(source.id))
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
-        assert not database.has_table("materialized_table")
-        assert "materialized_table" not in serialized
+        assert database.has_table("materialized_table")
+        assert "materialized_table" in serialized
 
     def test_deleted_direct_postgres_schema_does_not_reenable_table(self) -> None:
         credentials = DataWarehouseCredential.objects.create(

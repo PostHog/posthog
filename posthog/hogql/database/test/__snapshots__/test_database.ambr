@@ -530,17 +530,7 @@
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
-                  AND "posthog_externaldatasource"."access_method" IS NOT NULL)
-         AND NOT ("posthog_datawarehousetable"."name" IN ('whatever_view0',
-                                                          'whatever_view1',
-                                                          'whatever_view2',
-                                                          'whatever_view3',
-                                                          'whatever_view4',
-                                                          'whatever_view5',
-                                                          'whatever_view6',
-                                                          'whatever_view7',
-                                                          'whatever_view8',
-                                                          'whatever_view9')))
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.19
@@ -896,12 +886,7 @@
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
-                  AND "posthog_externaldatasource"."access_method" IS NOT NULL)
-         AND NOT ("posthog_datawarehousetable"."name" IN ('whatever_view0',
-                                                          'whatever_view1',
-                                                          'whatever_view2',
-                                                          'whatever_view3',
-                                                          'whatever_view4')))
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.9
