@@ -26,7 +26,7 @@ class TestCallbacksFireOnAnthropicRequest:
         initial_prometheus = CALLBACK_SUCCESS.labels(callback="prometheus")._value.get()
 
         anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": "Say 'test'"}],
             max_tokens=5,
         )
@@ -39,7 +39,7 @@ class TestCallbacksFireOnAnthropicRequest:
         initial_prometheus = CALLBACK_SUCCESS.labels(callback="prometheus")._value.get()
 
         with anthropic_client.messages.stream(
-            model="claude-3-haiku-20240307",
+            model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": "Say 'hi'"}],
             max_tokens=5,
         ) as stream:
@@ -50,27 +50,27 @@ class TestCallbacksFireOnAnthropicRequest:
 
     def test_prometheus_callback_records_tokens(self, anthropic_client: Anthropic) -> None:
         initial_input = TOKENS_INPUT.labels(
-            provider="anthropic", model="claude-3-haiku-20240307", product="llm_gateway"
+            provider="anthropic", model="claude-haiku-4-5-20251001", product="llm_gateway"
         )._value.get()
         initial_output = TOKENS_OUTPUT.labels(
-            provider="anthropic", model="claude-3-haiku-20240307", product="llm_gateway"
+            provider="anthropic", model="claude-haiku-4-5-20251001", product="llm_gateway"
         )._value.get()
 
         anthropic_client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": "Say 'a'"}],
             max_tokens=5,
         )
 
         assert (
             TOKENS_INPUT.labels(
-                provider="anthropic", model="claude-3-haiku-20240307", product="llm_gateway"
+                provider="anthropic", model="claude-haiku-4-5-20251001", product="llm_gateway"
             )._value.get()
             > initial_input
         )
         assert (
             TOKENS_OUTPUT.labels(
-                provider="anthropic", model="claude-3-haiku-20240307", product="llm_gateway"
+                provider="anthropic", model="claude-haiku-4-5-20251001", product="llm_gateway"
             )._value.get()
             > initial_output
         )
@@ -126,7 +126,7 @@ class TestCallbacksReceiveCorrectData:
 
         with patch.object(PrometheusCallback, "_on_success", capture_on_success):
             anthropic_client.messages.create(
-                model="claude-3-haiku-20240307",
+                model="claude-haiku-4-5-20251001",
                 messages=[{"role": "user", "content": "Say 'x'"}],
                 max_tokens=5,
             )
@@ -152,7 +152,7 @@ class TestCallbacksReceiveCorrectData:
 
         with patch.object(PrometheusCallback, "_on_success", capture_on_success):
             with anthropic_client.messages.stream(
-                model="claude-3-haiku-20240307",
+                model="claude-haiku-4-5-20251001",
                 messages=[{"role": "user", "content": "Say 'y'"}],
                 max_tokens=5,
             ) as stream:
