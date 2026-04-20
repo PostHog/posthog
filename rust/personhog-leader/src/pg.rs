@@ -12,9 +12,8 @@ pub async fn load_person_from_pg(
 ) -> Result<Option<CachedPerson>, sqlx::Error> {
     let start = std::time::Instant::now();
 
-    let team_id_i32 = i32::try_from(key.team_id).map_err(|_| {
-        sqlx::Error::Protocol(format!("team_id {} exceeds i32 range", key.team_id))
-    })?;
+    let team_id_i32 = i32::try_from(key.team_id)
+        .map_err(|_| sqlx::Error::Protocol(format!("team_id {} exceeds i32 range", key.team_id)))?;
 
     let row = sqlx::query(
         "SELECT id, team_id, uuid::text, properties, created_at, version, is_identified
