@@ -613,7 +613,22 @@ tools:
         enabled: false
     subscriptions-test-delivery-create:
         operation: subscriptions_test_delivery_create
-        enabled: false
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Send test delivery
+        description: >
+            Trigger an immediate test delivery of a subscription to its configured target(s)
+            (email, Slack, or webhook). Runs the same pipeline as a scheduled delivery but
+            with trigger_type=manual, so it produces a real SubscriptionDelivery row you can
+            inspect. Returns 202 Accepted once the delivery workflow is queued; poll
+            subscriptions-deliveries-list (newest first) or subscriptions-deliveries-retrieve
+            for the outcome and per-recipient results. Returns 409 if a test delivery for the
+            same subscription is already in flight.
     users-github-login-retrieve:
         operation: users_github_login_retrieve
         enabled: false
@@ -622,7 +637,42 @@ tools:
         enabled: false
     subscriptions-deliveries-list:
         operation: subscriptions_deliveries_list
-        enabled: false
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List subscription deliveries
+        description: >
+            List delivery history for a subscription — one row per send attempt. Each entry
+            includes status (starting, completed, failed, skipped), trigger_type (scheduled,
+            manual, target_change), timestamps (created_at, finished_at), per-recipient results,
+            and any error payload. Filter with status=failed to quickly surface failed deliveries.
+            Results are cursor-paginated newest first. The full content_snapshot can be very
+            large, so it is excluded here — use subscriptions-deliveries-retrieve to fetch it
+            for a single delivery when needed.
+        response:
+            exclude:
+                - content_snapshot
     subscriptions-deliveries-retrieve:
         operation: subscriptions_deliveries_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get subscription delivery
+        description: >
+            Fetch a single subscription delivery attempt by id. Returns the delivery row
+            including status, trigger_type, timestamps, per-recipient results, and any
+            top-level error payload. The content_snapshot (frozen dashboard/insight metadata
+            and query results) is excluded by default to avoid leaking PII from historical
+            insight results; fetch it through a separate path only when explicitly needed.
+        response:
+            exclude:
+                - content_snapshot
