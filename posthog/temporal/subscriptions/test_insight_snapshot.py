@@ -55,7 +55,7 @@ def test_serialize_insight_result_non_finite_floats_become_null():
     result = _build_insight_result(
         result=[
             [float("nan"), 1.0, float("inf")],
-            ["Final: prayer_screen_viewed", 0, 0.0, float("nan")],
+            ["Final: $pageview", 0, 0.0, float("nan")],
         ],
         columns=["a", "b", "c", "d"],
         types=["float", "float", "float", "float"],
@@ -66,7 +66,7 @@ def test_serialize_insight_result_non_finite_floats_become_null():
     reparsed = json.loads(json.dumps(serialized))
     assert reparsed["result"] == [
         [None, 1.0, None],
-        ["Final: prayer_screen_viewed", 0, 0.0, None],
+        ["Final: $pageview", 0, 0.0, None],
     ]
 
 
