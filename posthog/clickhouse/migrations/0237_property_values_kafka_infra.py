@@ -23,9 +23,9 @@ operations = [
         PROPERTY_VALUES_MV_SQL(),
         node_roles=[NodeRole.AUX],
     ),
-    # 4. Distributed read table on DATA
+    # 4. Distributed read table on AUX and DATA
     run_sql_with_exceptions(
         DISTRIBUTED_PROPERTY_VALUES_TABLE_SQL(),
-        node_roles=[NodeRole.DATA],
+        node_roles=[NodeRole.AUX, NodeRole.DATA],
     ),
 ]
