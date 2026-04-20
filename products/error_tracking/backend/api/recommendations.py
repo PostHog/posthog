@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import override
+from typing import cast, override
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -122,7 +122,7 @@ class ErrorTrackingRecommendationViewSet(
 
     @override
     def list(self, request: Request, *args, **kwargs) -> Response:
-        _compute_if_stale(self.team.id, self.team, request.user)
+        _compute_if_stale(self.team.id, self.team, cast(User, request.user))
         return super().list(request, *args, **kwargs)
 
     @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)

@@ -16,7 +16,7 @@ import type {
     WeeklyDigestRecommendation,
 } from './types'
 
-export type RecommendationInteractionType = 'hover' | 'click'
+export type RecommendationInteractionType = 'click'
 
 export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'tabs', 'recommendations', 'logic']),
@@ -86,13 +86,13 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                 interaction_type: interactionType,
             })
         },
-        dismissRecommendation: ({ id }) => {
+        dismissRecommendation: (id) => {
             const rec = values.recommendations.find((r) => r.id === id)
             posthog.capture('error_tracking_recommendation_dismissed', {
                 recommendation_type: rec?.type ?? null,
             })
         },
-        restoreRecommendation: ({ id }) => {
+        restoreRecommendation: (id) => {
             const rec = values.recommendations.find((r) => r.id === id)
             posthog.capture('error_tracking_recommendation_restored', {
                 recommendation_type: rec?.type ?? null,

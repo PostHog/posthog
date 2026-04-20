@@ -35,7 +35,6 @@ export function RecommendationCard({
     return (
         <div
             className="border rounded-lg bg-surface-primary p-4"
-            onMouseEnter={() => recordRecommendationInteraction(recommendationType, 'hover')}
             onClick={() => recordRecommendationInteraction(recommendationType, 'click')}
         >
             <div className="flex items-center justify-between mb-1">

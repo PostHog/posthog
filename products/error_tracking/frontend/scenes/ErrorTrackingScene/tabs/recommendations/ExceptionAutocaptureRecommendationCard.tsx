@@ -46,7 +46,7 @@ export function ExceptionAutocaptureRecommendationCard({
                     onClick={() => enable(recommendation.id)}
                     loading={enableInProgress}
                 >
-                    Turn on autocapture
+                    Turn on
                 </LemonButton>
             )}
         </RecommendationCard>

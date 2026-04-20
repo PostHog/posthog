@@ -45,7 +45,7 @@ export function WeeklyDigestRecommendationCard({
                     onClick={() => enable(recommendation.id)}
                     loading={enableInProgress}
                 >
-                    Subscribe me
+                    Subscribe
                 </LemonButton>
             )}
         </RecommendationCard>
