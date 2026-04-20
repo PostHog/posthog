@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
 from posthog.models.alert import AlertConfiguration
@@ -145,24 +145,9 @@ async def run_investigation(
         if heartbeat is not None:
             heartbeat()
 
-        response = await llm_with_tools.ainvoke(messages)
-        messages.append(response)
-
-        tool_calls = getattr(response, "tool_calls", None) or []
-        if not tool_calls:
-            break
-
         if tool_calls_used >= MAX_TOOL_CALLS:
-            # Anthropic requires every tool_use block in the latest AI message to
-            # be paired with a tool_result in the next message, so stub the
-            # pending calls before asking the model to finalize.
-            for call in tool_calls:
-                messages.append(
-                    ToolMessage(
-                        content="[skipped — tool call budget exhausted]",
-                        tool_call_id=call.get("id") or call.get("tool_call_id") or "",
-                    )
-                )
+            # Budget exhausted — no tool_use block in flight so we can send a plain
+            # HumanMessage rather than stubbing pending tool_result pairs.
             messages.append(
                 HumanMessage(
                     content=(
@@ -175,7 +160,13 @@ async def run_investigation(
                 heartbeat()
             final = await llm.ainvoke(messages)
             messages.append(final)
-            response = final
+            break
+
+        response = await llm_with_tools.ainvoke(messages)
+        messages.append(response)
+
+        tool_calls = getattr(response, "tool_calls", None) or []
+        if not tool_calls:
             break
 
         for call in tool_calls:
@@ -219,7 +210,7 @@ def _parse_report(content: Any) -> InvestigationReport:
         try:
             parsed = json.loads(candidate)
             return InvestigationReport.model_validate(parsed)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, ValidationError):
             continue
     return _fallback_report("Agent final message was not valid InvestigationReport JSON.")
 

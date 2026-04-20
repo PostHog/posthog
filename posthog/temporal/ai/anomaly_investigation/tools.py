@@ -117,7 +117,7 @@ class InvestigationToolkit:
 
     async def run_hogql_query(self, args: RunHogQLQueryArgs) -> str:
         sql = args.query.strip()
-        if not sql.lower().lstrip("(").startswith("select"):
+        if not re.match(r"^\(?\s*(select|with)\b", sql, re.IGNORECASE):
             raise ValueError("Only SELECT statements are allowed.")
         response = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
             query=sql,
@@ -144,7 +144,7 @@ class InvestigationToolkit:
                     "count() AS c FROM events "
                     f"WHERE event = {_escape_literal(args.event)} "
                     f"AND timestamp >= {_escape_literal(_resolve_date(args.date_from))} "
-                    f"AND timestamp <= {_escape_literal(_resolve_date(args.date_to))} "
+                    f"AND timestamp <= {_escape_literal(_resolve_date_end(args.date_to))} "
                     f"GROUP BY breakdown ORDER BY c DESC LIMIT {int(args.limit)}"
                 )
             )
@@ -156,7 +156,7 @@ class InvestigationToolkit:
             "SELECT timestamp, event, distinct_id, properties "
             "FROM events "
             f"WHERE timestamp >= {_escape_literal(_resolve_date(args.date_from))} "
-            f"AND timestamp <= {_escape_literal(_resolve_date(args.date_to))} "
+            f"AND timestamp <= {_escape_literal(_resolve_date_end(args.date_to))} "
             f"{event_filter}"
             f"ORDER BY timestamp DESC LIMIT {int(args.limit)}"
         )
@@ -164,7 +164,7 @@ class InvestigationToolkit:
 
     async def fetch_metric_series(self, args: FetchMetricSeriesArgs) -> str:
         """Return the alert's insight time series (labels + values) over a window."""
-        if self.alert is None or self.alert.insight is None:
+        if self.alert is None or self.alert.insight_id is None:
             return "Error: no insight bound to this investigation."
 
         sim = await sync_to_async(_run_detector_simulation, thread_sensitive=False)(
@@ -187,7 +187,7 @@ class InvestigationToolkit:
 
     async def simulate_detector(self, args: SimulateDetectorArgs) -> str:
         """Run the alert's detector over a historical window and return scored points."""
-        if self.alert is None or self.alert.insight is None:
+        if self.alert is None or self.alert.insight_id is None:
             return "Error: no insight bound to this investigation."
         if not self.alert.detector_config:
             return "Error: alert has no detector_config; simulation requires anomaly-detection mode."
@@ -216,7 +216,9 @@ class InvestigationToolkit:
 
 
 def _escape_literal(value: str) -> str:
-    escaped = value.replace("'", "''")
+    # Backslashes must be escaped first (before quote-doubling) so that a value
+    # like \' doesn't survive as an escape sequence in HogQL's ANTLR lexer.
+    escaped = value.replace("\\", "\\\\").replace("'", "''")
     return f"'{escaped}'"
 
 
@@ -228,6 +230,9 @@ _DATE_UNIT_TO_DELTA = {
     "d": lambda n: timedelta(days=n),
     "w": lambda n: timedelta(weeks=n),
 }
+
+
+_DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _resolve_date(value: str) -> str:
@@ -245,3 +250,16 @@ def _resolve_date(value: str) -> str:
         n, unit = int(m.group(1)), m.group(2)
         return (datetime.now(UTC) - _DATE_UNIT_TO_DELTA[unit](n)).strftime("%Y-%m-%d %H:%M:%S")
     return value
+
+
+def _resolve_date_end(value: str) -> str:
+    """Like _resolve_date but expands bare YYYY-MM-DD to end of that day.
+
+    Alert triggered_dates are date-only strings. Using them as-is in
+    ``timestamp <= 'YYYY-MM-DD'`` compares against midnight (start of that day),
+    silently dropping all events that occurred during it.
+    """
+    resolved = _resolve_date(value)
+    if _DATE_ONLY.match(resolved):
+        return resolved + " 23:59:59"
+    return resolved

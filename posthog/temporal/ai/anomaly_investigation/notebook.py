@@ -55,15 +55,21 @@ def build_investigation_notebook(ctx: NotebookRenderContext) -> dict[str, Any]:
     if ctx.report.hypotheses:
         content.append(create_heading_with_text("Hypotheses", level=2))
         for idx, hypothesis in enumerate(ctx.report.hypotheses, start=1):
-            content.append(create_heading_with_text(f"{idx}. {hypothesis.title}", level=3))
-            content.append(create_paragraph_with_text(hypothesis.rationale))
-            if hypothesis.evidence:
-                content.append(create_bullet_list(list(hypothesis.evidence)))
+            title = hypothesis.title.strip()
+            rationale = hypothesis.rationale.strip()
+            if not title or not rationale:
+                continue
+            content.append(create_heading_with_text(f"{idx}. {title}", level=3))
+            content.append(create_paragraph_with_text(rationale))
+            evidence = [e for e in hypothesis.evidence if e and e.strip()]
+            if evidence:
+                content.append(create_bullet_list(evidence))
             content.append(create_empty_paragraph())
 
-    if ctx.report.recommendations:
+    recommendations = [r for r in ctx.report.recommendations if r and r.strip()]
+    if recommendations:
         content.append(create_heading_with_text("Recommendations", level=2))
-        content.append(create_bullet_list(list(ctx.report.recommendations)))
+        content.append(create_bullet_list(recommendations))
         content.append(create_empty_paragraph())
 
     content.append(create_heading_with_text("Run details", level=3, collapsed=True))
