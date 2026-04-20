@@ -611,6 +611,12 @@ pub struct Config {
     #[envconfig(from = "INTERNAL_REQUEST_TOKEN")]
     pub internal_request_token: Option<String>,
 
+    // Allow detailed analysis without internal request token
+    // When true, enables detailed_analysis parameter without requiring authentication
+    // Should only be set to true in local development environments
+    #[envconfig(from = "ALLOW_DETAILED_ANALYSIS_WITHOUT_TOKEN", default = "false")]
+    pub allow_detailed_analysis_without_token: FlexBool,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -889,6 +895,7 @@ impl Config {
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
+            allow_detailed_analysis_without_token: FlexBool(true),
         }
     }
 

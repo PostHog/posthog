@@ -215,12 +215,16 @@ async fn process_request_inner(
                 context.request_id,
                 request.is_flags_disabled(),
                 request.flag_keys.clone(),
-                if context.meta.detailed_analysis.unwrap_or(false)
-                    && authentication::is_internal_request(&context)
                 {
-                    Some(true)
-                } else {
-                    Some(false)
+                    let detailed_requested = context.meta.detailed_analysis.unwrap_or(false);
+                    let is_internal = authentication::is_internal_request(&context);
+                    let allow_without_token = *context.state.config.allow_detailed_analysis_without_token;
+                    
+                    if detailed_requested && (is_internal || allow_without_token) {
+                        Some(true)
+                    } else {
+                        Some(false)
+                    }
                 },
                 context.meta.only_use_override_person_properties,
             )
