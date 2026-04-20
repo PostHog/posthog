@@ -32,8 +32,8 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 BOTFRAMEWORK_OPENID_METADATA_URL = "https://login.botframework.com/v1/.well-known/openidconfiguration"
-BOTFRAMEWORK_TOKEN_ISSUER = "https://api.botframework.com"
-BOTFRAMEWORK_TOKEN_URL = "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token"
+BOTFRAMEWORK_MULTITENANT_TOKEN_URL = "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token"
+BOTFRAMEWORK_SINGLETENANT_TOKEN_URL_TEMPLATE = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 GRAPH_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
 JWKS_CACHE_KEY = "supporthog:teams:jwks"
@@ -50,7 +50,47 @@ GRAPH_REFRESH_SCOPES = "Team.ReadBasic.All Channel.ReadBasic.All User.Read offli
 
 
 def get_teams_instance_settings() -> dict:
-    return get_instance_settings(["SUPPORT_TEAMS_APP_ID", "SUPPORT_TEAMS_APP_SECRET"])
+    return get_instance_settings(
+        [
+            "SUPPORT_TEAMS_APP_ID",
+            "SUPPORT_TEAMS_APP_SECRET",
+            "SUPPORT_TEAMS_APP_TENANT_ID",
+            "SUPPORT_TEAMS_CHANNEL_TENANT_ID",
+        ]
+    )
+
+
+def _get_botframework_valid_issuers() -> tuple[str, ...]:
+    """
+    Microsoft Teams / Bot Framework signs inbound activities with one of several
+    issuer values depending on the activity type and source (service token vs
+    emulator vs Teams channel token). We accept all of them.
+
+    See: https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-authentication
+    """
+    channel_tenant_id = str(get_teams_instance_settings().get("SUPPORT_TEAMS_CHANNEL_TENANT_ID") or "").strip()
+    issuers = ["https://api.botframework.com"]
+    if channel_tenant_id:
+        issuers.append(f"https://sts.windows.net/{channel_tenant_id}/")
+        issuers.append(f"https://login.microsoftonline.com/{channel_tenant_id}/v2.0")
+    return tuple(issuers)
+
+
+def _get_bot_token_url() -> str:
+    """
+    Return the OAuth token endpoint for the bot.
+
+    - MultiTenant (default): login.microsoftonline.com/botframework.com/...
+    - SingleTenant (if SUPPORT_TEAMS_APP_TENANT_ID is set): login.microsoftonline.com/<tenantId>/...
+
+    Bot Connector rejects multi-tenant tokens when the Azure Bot resource is
+    registered as SingleTenant, so single-tenant deployments must set
+    SUPPORT_TEAMS_APP_TENANT_ID to the tenant where the app is registered.
+    """
+    tenant_id = str(get_teams_instance_settings().get("SUPPORT_TEAMS_APP_TENANT_ID") or "").strip()
+    if tenant_id:
+        return BOTFRAMEWORK_SINGLETENANT_TOKEN_URL_TEMPLATE.format(tenant_id=tenant_id)
+    return BOTFRAMEWORK_MULTITENANT_TOKEN_URL
 
 
 def get_bot_from_id() -> str:
@@ -104,28 +144,71 @@ def validate_teams_request(request: HttpRequest) -> dict:
 
     token = auth_header[7:]
 
+    # Peek at unverified claims/header for diagnostics — helps us see why a token
+    # is being rejected (wrong issuer, wrong aud, wrong kid, etc.) without having
+    # to reproduce the issue.
+    unverified_claims: dict = {}
+    unverified_header: dict = {}
+    try:
+        unverified_claims = jwt.decode(token, options={"verify_signature": False})
+        unverified_header = jwt.get_unverified_header(token)
+    except Exception:
+        pass
+
     try:
         jwks_client = _get_jwks_client()
         signing_key = jwks_client.get_signing_key_from_jwt(token)
 
+        # Manually verify the issuer against our allowlist — PyJWT's `issuer=...`
+        # only supports a single value, but Bot Framework legitimately uses several.
         claims = jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256", "RS384", "RS512"],
-            issuer=BOTFRAMEWORK_TOKEN_ISSUER,
             audience=app_id,
             options={
                 "verify_exp": True,
-                "verify_iss": True,
+                "verify_iss": False,
                 "verify_aud": True,
             },
             leeway=timedelta(seconds=JWT_CLOCK_TOLERANCE_SECONDS),
         )
+        issuer = claims.get("iss", "")
+        if issuer not in _get_botframework_valid_issuers():
+            raise ValueError(f"JWT issuer not allowed: {issuer}")
         return claims
     except jwt.ExpiredSignatureError:
+        logger.warning(
+            "teams_jwt_rejected",
+            reason="expired",
+            iss=unverified_claims.get("iss"),
+            aud=unverified_claims.get("aud"),
+            exp=unverified_claims.get("exp"),
+            kid=unverified_header.get("kid"),
+        )
         raise ValueError("JWT token expired")
     except jwt.InvalidTokenError as e:
+        logger.warning(
+            "teams_jwt_rejected",
+            reason="invalid_token",
+            error=str(e),
+            iss=unverified_claims.get("iss"),
+            aud=unverified_claims.get("aud"),
+            serviceurl=unverified_claims.get("serviceurl"),
+            kid=unverified_header.get("kid"),
+            alg=unverified_header.get("alg"),
+        )
         raise ValueError(f"JWT validation failed: {e}")
+    except jwt.PyJWKClientError as e:
+        logger.warning(
+            "teams_jwt_rejected",
+            reason="jwks_lookup_failed",
+            error=str(e),
+            iss=unverified_claims.get("iss"),
+            aud=unverified_claims.get("aud"),
+            kid=unverified_header.get("kid"),
+        )
+        raise ValueError(f"JWKS lookup failed: {e}")
 
 
 def invalidate_bot_framework_token() -> None:
@@ -150,8 +233,9 @@ def get_bot_framework_token(force_refresh: bool = False) -> str:
     if not app_id or not app_secret:
         raise ValueError("Teams bot credentials not configured")
 
+    token_url = _get_bot_token_url()
     resp = requests.post(
-        BOTFRAMEWORK_TOKEN_URL,
+        token_url,
         data={
             "grant_type": "client_credentials",
             "client_id": app_id,
@@ -162,7 +246,9 @@ def get_bot_framework_token(force_refresh: bool = False) -> str:
     )
 
     if resp.status_code != 200:
-        logger.warning("teams_bot_token_fetch_failed", status=resp.status_code, body=resp.text[:200])
+        logger.warning(
+            "teams_bot_token_fetch_failed", status=resp.status_code, body=resp.text[:200], token_url=token_url
+        )
         raise ValueError("Failed to get Bot Framework token")
 
     data = resp.json()

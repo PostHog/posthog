@@ -170,6 +170,24 @@ CONSTANCE_CONFIG = {
         "Azure AD client secret for the SupportHog Teams bot.",
         str,
     ),
+    "SUPPORT_TEAMS_APP_TENANT_ID": (
+        get_from_env("SUPPORT_TEAMS_APP_TENANT_ID", default=""),
+        (
+            "Azure AD tenant ID where the SupportHog Teams bot app is registered. "
+            "Set this only if the Azure Bot resource was created as SingleTenant. "
+            "Leave empty for MultiTenant bots (default)."
+        ),
+        str,
+    ),
+    "SUPPORT_TEAMS_CHANNEL_TENANT_ID": (
+        get_from_env("SUPPORT_TEAMS_CHANNEL_TENANT_ID", default=""),
+        (
+            "Microsoft Teams channel tenant used as a valid JWT issuer for inbound Bot Framework "
+            "activities. This is a Microsoft-owned well-known GUID and should not normally be changed; "
+            "override only for Azure Government or other sovereign cloud deployments."
+        ),
+        str,
+    ),
     "CONVERSATIONS_HMAC_SIGNING_SECRET": (
         get_from_env("CONVERSATIONS_HMAC_SIGNING_SECRET", default=""),
         "HMAC signing secret for conversations widget identity verification in the support sidebar.",
@@ -288,6 +306,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_TEAMS_APP_ID",
     "SUPPORT_TEAMS_APP_SECRET",
+    "SUPPORT_TEAMS_APP_TENANT_ID",
+    "SUPPORT_TEAMS_CHANNEL_TENANT_ID",
     "CONVERSATIONS_HMAC_SIGNING_SECRET",
     "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",

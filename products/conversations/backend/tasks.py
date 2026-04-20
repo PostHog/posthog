@@ -571,7 +571,10 @@ def post_reply_to_teams(
         "from": {"id": bot_from_id},
         "conversation": {"id": teams_conversation_id},
         "text": reply_html,
-        "textFormat": "html",
+        # Teams accepts only "plain", "markdown", or "xml" for textFormat — not "html".
+        # With "markdown", Teams passes through the common HTML tags we emit
+        # (<b>, <i>, <a>, <ul>, <li>, <p>, <br>, <code>, <pre>, <img>).
+        "textFormat": "markdown",
         "summary": display_text,
     }
 
