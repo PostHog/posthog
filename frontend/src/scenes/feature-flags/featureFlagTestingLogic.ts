@@ -22,13 +22,12 @@ export type ConditionAnalysis = FeatureFlagConditionAnalysisApi
 export type TestResult = FeatureFlagTestEvaluationResponseApi
 
 export interface TestFormData {
-    distinct_id: string
     person_id: string
     timestamp: string
     groups: string
 }
 
-const EMPTY_FORM: TestFormData = { distinct_id: '', person_id: '', timestamp: '', groups: '' }
+const EMPTY_FORM: TestFormData = { person_id: '', timestamp: '', groups: '' }
 
 export interface FeatureFlagTestingLogicProps {
     flagId: number
@@ -59,8 +58,6 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
 
                     if (formData.person_id?.trim()) {
                         data.person_id = formData.person_id.trim()
-                    } else if (formData.distinct_id?.trim()) {
-                        data.distinct_id = formData.distinct_id.trim()
                     }
 
                     if (formData.groups?.trim()) {
@@ -120,7 +117,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                             return 'Person not found. This person may not have existed at the selected timestamp.'
                         }
 
-                        if (errorDetail.includes('timestamp') || errorDetail.includes('time')) {
+                        if (errorDetail.includes('timestamp') || errorDetail.toLowerCase() === 'invalid timestamp') {
                             return 'Invalid timestamp. Please select a valid date and time.'
                         }
 

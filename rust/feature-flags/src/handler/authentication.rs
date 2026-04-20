@@ -28,15 +28,10 @@ pub async fn parse_and_authenticate(
 /// Returns true if the Authorization header contains a Bearer token that matches
 /// the configured internal_request_token.
 pub fn is_internal_request(context: &RequestContext) -> bool {
-    // Check if DEBUG is enabled first (for local development)
-    let debug_value = std::env::var("DEBUG").unwrap_or_default().to_lowercase();
-    if debug_value == "true" || debug_value == "1" {
-        return true;
-    }
-
     let Some(internal_token) = &context.state.config.internal_request_token else {
-        // No internal token configured, so no requests are internal
-        return false;
+        // No internal token configured - allow debug mode for local development only
+        let debug_value = std::env::var("DEBUG").unwrap_or_default().to_lowercase();
+        return debug_value == "true" || debug_value == "1";
     };
 
     // Empty token should never be considered valid
