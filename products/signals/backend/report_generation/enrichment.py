@@ -6,7 +6,7 @@ before persisting artefacts and checking auto-start conditions.
 Multi-turn flow:
 1. Code investigation — search the codebase, read implementations, run git blame → CodeInvestigationResult
 2. Data investigation — use PostHog MCP to query analytics data, cross-reference with code findings → DataInvestigationResult
-3. Final synthesis — combine code + data into the final enrichment finding → ReportEnrichmentFinding
+3. Merge — combine code + data results in Python → ReportEnrichmentFinding
 """
 
 from __future__ import annotations
@@ -110,6 +110,24 @@ class ReportEnrichmentFinding(BaseModel):
         ),
     )
 
+    @classmethod
+    def merge(cls, code: CodeInvestigationResult, data: DataInvestigationResult) -> ReportEnrichmentFinding:
+        """Merge code + data investigation results into the final enrichment finding."""
+        # Deduplicate code paths while preserving order (code investigation paths first)
+        seen: set[str] = set()
+        merged_paths: list[str] = []
+        for path in [*code.relevant_code_paths, *data.additional_code_paths]:
+            if path not in seen:
+                seen.add(path)
+                merged_paths.append(path)
+
+        return cls(
+            relevant_code_paths=merged_paths,
+            # Code investigation commits take precedence; data investigation ones fill in
+            relevant_commit_hashes={**data.additional_commit_hashes, **code.relevant_commit_hashes},
+            data_queried=data.data_queried,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -188,24 +206,6 @@ Respond with a JSON object matching this schema:
 </jsonschema>"""
 
 
-def build_synthesis_prompt() -> str:
-    """Turn 3: combine code + data findings into the final enrichment output."""
-    schema = json.dumps(ReportEnrichmentFinding.model_json_schema(), indent=2)
-
-    return f"""Now synthesize your code investigation and data investigation into a single final finding.
-
-Merge the code paths and commit hashes from both turns (deduplicating, keeping the most critical first).
-Combine your data_queried notes into a coherent summary of what you queried and found.
-
-## Output format
-
-Respond with a JSON object matching this schema:
-
-<jsonschema>
-{schema}
-</jsonschema>"""
-
-
 async def run_report_enrichment(
     title: str,
     summary: str,
@@ -218,7 +218,7 @@ async def run_report_enrichment(
 
     Turn 1: Code investigation — search codebase, read implementations, git blame → CodeInvestigationResult
     Turn 2: Data investigation — PostHog MCP queries, cross-reference with code → DataInvestigationResult
-    Turn 3: Synthesis — merge code + data into final ReportEnrichmentFinding
+    Merge: combine code + data results in Python → ReportEnrichmentFinding
     """
     from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
 
@@ -262,18 +262,10 @@ async def run_report_enrichment(
         label="data_investigation",
     )
 
-    if output_fn:
-        output_fn("Data investigation done. Synthesizing final finding...")
-
-    # Turn 3: Synthesis
-    synthesis_prompt = build_synthesis_prompt()
-    finding = await session.send_followup(
-        synthesis_prompt,
-        ReportEnrichmentFinding,
-        label="synthesis",
-    )
-
     await session.end()
+
+    # Merge code + data results in Python — no need for an extra LLM turn
+    finding = ReportEnrichmentFinding.merge(code_result, data_result)
 
     if output_fn:
         output_fn(
