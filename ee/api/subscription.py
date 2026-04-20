@@ -435,6 +435,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         detail=True,
         url_path="test-delivery",
         throttle_classes=[SubscriptionTestDeliveryThrottle],
+        required_scopes=["subscription:write"],
     )
     def test_delivery(self, request, **kwargs):
         subscription = self.get_object()
