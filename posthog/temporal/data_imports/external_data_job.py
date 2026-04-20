@@ -165,15 +165,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-    job = await database_sync_to_async_pool(update_external_job_status)(
+    await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
         status=ExternalDataJob.Status(inputs.status),
         latest_error=inputs.latest_error,
         team_id=inputs.team_id,
     )
-
-    job.finished_at = dt.datetime.now(dt.UTC)
-    await database_sync_to_async_pool(job.save)()
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",

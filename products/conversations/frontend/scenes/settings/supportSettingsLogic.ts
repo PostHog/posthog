@@ -20,7 +20,7 @@ export interface EmailConfigStatus {
 }
 
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
-    path(['products', 'conversations', 'frontend', 'settings', 'supportSettingsLogic']),
+    path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
         actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],

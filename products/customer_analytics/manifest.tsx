@@ -15,14 +15,12 @@ export const manifest: ProductManifest = {
             name: 'Customer analytics',
             description: 'Understand how your customers interact with your product ',
             iconType: 'cohort',
-            settingsSection: 'environment-customer-analytics',
         },
         CustomerAnalyticsConfiguration: {
             import: () =>
                 import('./frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
             projectBased: true,
             name: 'Customer analytics configuration',
-            settingsSection: 'environment-customer-analytics',
         },
         CustomerJourneyBuilder: {
             import: () => import('./frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
