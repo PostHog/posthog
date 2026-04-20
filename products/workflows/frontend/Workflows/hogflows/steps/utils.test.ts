@@ -102,38 +102,44 @@ describe('utils', () => {
             )
         }
 
-        it('should allow removal when no branch edge exists for the condition', () => {
-            const branchEdges: TestEdge[] = []
-            const edgesByActionId = buildEdgesByActionId([])
-            expect(getBranchRemovalDisabledReason(branchEdges, 0, edgesByActionId)).toBeUndefined()
-        })
-
-        it('should allow removal when branch target has other incoming edges', () => {
-            const branchEdge = edge('cond', 'exit', 'branch', 0)
-            const continueEdge = edge('webhook', 'exit', 'continue')
-            const branchEdges = [branchEdge]
-            const edgesByActionId = buildEdgesByActionId([branchEdge, continueEdge])
-
-            expect(getBranchRemovalDisabledReason(branchEdges, 0, edgesByActionId)).toBeUndefined()
-        })
-
-        it('should block removal when branch target would be orphaned', () => {
-            const branchEdge = edge('cond', 'webhook', 'branch', 0)
-            const branchEdges = [branchEdge]
-            const edgesByActionId = buildEdgesByActionId([branchEdge])
-
-            expect(getBranchRemovalDisabledReason(branchEdges, 0, edgesByActionId)).toBe(
-                'Clean up branching steps first'
-            )
-        })
-
-        it('should allow removal when branch points to same node as continue edge', () => {
-            const branchEdge = edge('cond', 'exit', 'branch', 0)
-            const continueEdge = edge('cond', 'exit', 'continue')
-            const branchEdges = [branchEdge]
-            const edgesByActionId = buildEdgesByActionId([branchEdge, continueEdge])
-
-            expect(getBranchRemovalDisabledReason(branchEdges, 0, edgesByActionId)).toBeUndefined()
+        it.each(
+            [
+                () => ({
+                    name: 'allows removal when no branch edge exists for the condition',
+                    branchEdges: [] as TestEdge[],
+                    allEdges: [] as TestEdge[],
+                    expected: undefined,
+                }),
+                () => {
+                    const branchEdge = edge('cond', 'exit', 'branch', 0)
+                    return {
+                        name: 'allows removal when branch target has other incoming edges',
+                        branchEdges: [branchEdge],
+                        allEdges: [branchEdge, edge('webhook', 'exit', 'continue')],
+                        expected: undefined,
+                    }
+                },
+                () => {
+                    const branchEdge = edge('cond', 'webhook', 'branch', 0)
+                    return {
+                        name: 'blocks removal when branch target would be orphaned',
+                        branchEdges: [branchEdge],
+                        allEdges: [branchEdge],
+                        expected: 'Clean up branching steps first',
+                    }
+                },
+                () => {
+                    const branchEdge = edge('cond', 'exit', 'branch', 0)
+                    return {
+                        name: 'allows removal when branch points to same node as continue edge',
+                        branchEdges: [branchEdge],
+                        allEdges: [branchEdge, edge('cond', 'exit', 'continue')],
+                        expected: undefined,
+                    }
+                },
+            ].map((f) => f())
+        )('$name', ({ branchEdges, allEdges, expected }) => {
+            expect(getBranchRemovalDisabledReason(branchEdges, 0, buildEdgesByActionId(allEdges))).toBe(expected)
         })
 
         it('should match by edge index property, not array position', () => {
