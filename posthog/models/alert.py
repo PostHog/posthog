@@ -182,11 +182,16 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             if isinstance(windows, list):
                 blocked_window_count = len(windows)
 
+        threshold_configuration = self.threshold.configuration if self.threshold else None
+        threshold_type = threshold_configuration.get("type") if isinstance(threshold_configuration, dict) else None
+
         return {
             "alert_id": self.id,
             "alert_name": self.name,
             "condition_type": self.condition.get("type") if self.condition else None,
+            "threshold_type": threshold_type,
             "calculation_interval": self.calculation_interval,
+            "skip_weekend": bool(self.skip_weekend),
             **derive_detector_event_fields(detector_config),
             "ensemble_detector_types": ensemble_detector_types,
             "has_preprocessing": has_preprocessing,

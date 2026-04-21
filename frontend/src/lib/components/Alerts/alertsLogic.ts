@@ -1,5 +1,6 @@
-import { afterMount, kea, path, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
@@ -14,6 +15,10 @@ export interface AlertsLogicProps extends AlertLogicProps {}
 export const alertsLogic = kea<alertsLogicType>([
     path(['lib', 'components', 'Alerts', 'alertsLogic']),
 
+    actions({
+        markPageViewReported: true,
+    }),
+
     loaders({
         alerts: {
             __default: [] as AlertType[],
@@ -24,12 +29,34 @@ export const alertsLogic = kea<alertsLogicType>([
         },
     }),
 
+    reducers({
+        hasReportedPageView: [
+            false,
+            {
+                markPageViewReported: () => true,
+            },
+        ],
+    }),
+
     selectors({
         alertsSortedByState: [
             (s) => [s.alerts],
             (alerts: AlertType[]): AlertType[] => alerts.sort((a, b) => alertComparatorKey(a) - alertComparatorKey(b)),
         ],
     }),
+
+    listeners(({ actions, values }) => ({
+        loadAlertsSuccess: ({ alerts }) => {
+            if (values.hasReportedPageView) {
+                return
+            }
+            posthog.capture('alerts page viewed', {
+                alert_count: alerts.length,
+                enabled_alert_count: alerts.filter((a) => a.enabled).length,
+            })
+            actions.markPageViewReported()
+        },
+    })),
 
     afterMount(({ actions }) => actions.loadAlerts()),
 ])

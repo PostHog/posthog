@@ -257,16 +257,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
                         lemonToast.success(`Alert created.`)
                         upsertToParent(updatedAlert)
-                        posthog.capture('insight alert created', {
-                            insight_id: props.insightId,
-                            alert_id: updatedAlert.id,
-                            condition_type: payload.condition.type,
-                            threshold_type: payload.threshold.configuration.type,
-                            calculation_interval: payload.calculation_interval,
-                            detector_type: payload.detector_config?.type ?? null,
-                            skip_weekend: !!payload.skip_weekend,
-                            has_quiet_hours: (payload.schedule_restriction?.blocked_windows?.length ?? 0) > 0,
-                        })
                         props.onEditSuccess(updatedAlert.id)
 
                         return updatedAlert
