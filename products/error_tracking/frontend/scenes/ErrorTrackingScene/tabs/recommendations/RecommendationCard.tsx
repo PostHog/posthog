@@ -35,7 +35,14 @@ export function RecommendationCard({
                 <div className="flex items-center gap-2">
                     {progress && (
                         <Tooltip title={`${progress.current} / ${progress.total} ${progress.label}`}>
-                            <div className="w-20 h-1.5 bg-border rounded-full cursor-default">
+                            <div
+                                className="w-20 h-1.5 bg-border rounded-full cursor-default"
+                                role="progressbar"
+                                aria-valuenow={progress.current}
+                                aria-valuemin={0}
+                                aria-valuemax={progress.total}
+                                aria-label={`${progress.current} / ${progress.total} ${progress.label}`}
+                            >
                                 <div
                                     className="h-1.5 bg-success rounded-full"
                                     // eslint-disable-next-line react/forbid-dom-props
