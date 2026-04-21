@@ -38966,6 +38966,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by run type
+     */
+    run_type?: string;
     };
 
     export type VisualReviewReposQuarantineDestroyParams = {
