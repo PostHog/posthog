@@ -91,16 +91,14 @@
             "type": "string"
         },
         "role_at_organization": {
-            "description": "The user's self-reported role within their organization (used for onboarding segmentation).\n\n* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other",
+            "description": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other",
             "enum": ["engineering", "data", "product", "founder", "leadership", "marketing", "sales", "other"],
             "type": "string"
         },
         "set_current_organization": {
-            "description": "ID of the organization to switch to for this user. The user must already be a member of the organization. When provided without `set_current_team`, the first available team in the organization becomes the active team.",
             "type": "string"
         },
         "set_current_team": {
-            "description": "ID of the team (project environment) to switch to for this user. The team must belong to the user's current organization (or the organization specified in `set_current_organization`).",
             "type": "string"
         },
         "shortcut_position": {

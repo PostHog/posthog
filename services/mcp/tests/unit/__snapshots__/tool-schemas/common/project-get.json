@@ -3,8 +3,8 @@
     "properties": {
         "id": {
             "description": "Project ID, or `@current` to fetch the caller's active project.",
-            "maximum": 9223372036854776000,
-            "minimum": -9223372036854776000,
+            "maximum": 2147483647,
+            "minimum": -2147483648,
             "type": "number"
         }
     },
