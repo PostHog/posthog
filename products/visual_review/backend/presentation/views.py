@@ -357,7 +357,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
     serializer_class = RunSerializer
 
     @extend_schema(
@@ -486,6 +486,28 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ValueError:
             return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(AddSnapshotsResultSerializer(instance=result).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        responses={200: SnapshotHistoryEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="snapshot-history")
+    def snapshot_history(self, request: Request, pk: str, **kwargs) -> Response:
+        """Recent change history for a snapshot identifier across runs."""
+        identifier = request.query_params.get("identifier")
+        if not identifier:
+            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            run = api.get_run(UUID(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        history = api.get_snapshot_history(run.repo_id, identifier)
+        page = self.paginate_queryset(history)
+        if page is not None:
+            return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
+        return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
     @extend_schema(request=None, responses={200: RunSerializer})
     @action(detail=True, methods=["post"])
