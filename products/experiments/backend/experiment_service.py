@@ -114,8 +114,7 @@ class ExperimentService:
                 continue  # validate_variant_shapes handles this
             if "split_percent" not in variant and "rollout_percentage" not in variant:
                 raise ValidationError(
-                    f"Variant '{variant.get('key', '?')}' must include split_percent "
-                    "(recommended) or rollout_percentage (deprecated)."
+                    "Each variant must include split_percent (recommended) or rollout_percentage (deprecated)."
                 )
 
     @staticmethod
