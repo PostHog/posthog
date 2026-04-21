@@ -38,15 +38,15 @@ export function AIConsentPopoverWrapper({
         <Popover
             // Note: Sync the copy below with organization-ai-consent in SettingsMap.tsx
             overlay={
-                <div className="flex flex-col m-1.5 max-w-sm">
-                    <p className="font-medium text-pretty mb-2">
+                <div className="flex flex-col gap-2 m-1.5 max-w-sm">
+                    <p className="font-medium text-pretty">
                         PostHog AI needs your approval to potentially process identifying user data with{' '}
                         <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
                             <dfn>external AI providers</dfn>
                         </Tooltip>
                         . <i>Your data won't be used for training models.</i>
                     </p>
-                    <p className="text-muted text-xs leading-relaxed mb-2">
+                    <p className="text-muted text-xs leading-relaxed">
                         If your org requires a Data Processing Agreement (DPA) for compliance (and your existing DPA
                         doesn't already cover AI subprocessors),{' '}
                         <Link to="https://posthog.com/dpa" target="_blank">
@@ -54,7 +54,7 @@ export function AIConsentPopoverWrapper({
                         </Link>
                         .
                     </p>
-                    <p className="text-muted text-xs leading-relaxed mb-2">
+                    <p className="text-muted text-xs leading-relaxed">
                         This feature is not HIPAA-compliant and is not intended for the processing of Protected Health
                         Information ("PHI"). Any Business Associate Agreement ("BAA") you may have entered into with
                         PostHog does not apply to this functionality. You are responsible for ensuring your use complies
