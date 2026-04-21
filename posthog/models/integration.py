@@ -959,6 +959,9 @@ class SlackIntegrationError(Exception):
     pass
 
 
+SLACK_AUTH_ERRORS = frozenset({"invalid_auth", "token_expired", "account_inactive", "not_authed", "token_revoked"})
+
+
 class SlackIntegration:
     integration: Integration
 
@@ -975,11 +978,39 @@ class SlackIntegration:
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
         return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
 
+    def _handle_auth_error(self, error: SlackApiError, context: str) -> None:
+        """Mark the integration as needing reconnection and raise a friendly error.
+
+        Slack bot tokens have no refresh flow, so once the workspace revokes or
+        deactivates the app the only remedy is reconnecting. Persist the marker
+        so the integration list UI can surface a reconnect prompt.
+        """
+        error_code = error.response.get("error") if error.response is not None else None
+        if error_code not in SLACK_AUTH_ERRORS:
+            return
+        logger.warning(
+            f"SlackIntegration: Auth error {context}",
+            error=error_code,
+            integration_id=self.integration.id,
+        )
+        self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+        self.integration.save(update_fields=["errors"])
+        raise ValidationError(
+            "This integration's authentication is no longer valid. "
+            "Please reconnect or disconnect this integration and connect a different account."
+        )
+
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel")
-        private_channels = self._list_channels_by_type("private_channel", should_include_private_channels, authed_user)
+        try:
+            public_channels = self._list_channels_by_type("public_channel")
+            private_channels = self._list_channels_by_type(
+                "private_channel", should_include_private_channels, authed_user
+            )
+        except SlackApiError as e:
+            self._handle_auth_error(e, "listing channels")
+            raise
         channels = public_channels + private_channels
 
         return sorted(channels, key=lambda x: x["name"])
@@ -1009,6 +1040,7 @@ class SlackIntegration:
         except SlackApiError as e:
             if e.response["error"] == "channel_not_found":
                 return None
+            self._handle_auth_error(e, "fetching channel by id")
             raise
 
     def _list_channels_by_type(

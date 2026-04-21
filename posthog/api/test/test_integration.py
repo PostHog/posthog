@@ -8,8 +8,10 @@ from django.test.client import Client as HttpClient
 from django.utils import timezone
 
 from rest_framework import status
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     EmailIntegration,
     GitHubIntegration,
@@ -217,6 +219,68 @@ class TestSlackIntegration:
         assert channel["name"] == "general"
         assert not channel["is_private"]
         assert not channel["is_private_without_access"]
+
+    @pytest.mark.parametrize(
+        "error_code",
+        ["invalid_auth", "token_expired", "account_inactive", "not_authed", "token_revoked"],
+    )
+    @patch("posthog.models.integration.WebClient")
+    def test_list_channels_marks_integration_on_auth_error(self, mock_webclient_class, error_code):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_list.side_effect = SlackApiError(
+            message="auth failure", response={"ok": False, "error": error_code}
+        )
+
+        slack = SlackIntegration(self.integration)
+        with pytest.raises(Exception) as exc_info:
+            slack.list_channels(True, "test_user_id")
+
+        assert "no longer valid" in str(exc_info.value)
+        self.integration.refresh_from_db()
+        assert self.integration.errors == ERROR_TOKEN_REFRESH_FAILED
+
+    @patch("posthog.models.integration.WebClient")
+    def test_list_channels_reraises_non_auth_slack_errors(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_list.side_effect = SlackApiError(
+            message="rate limited", response={"ok": False, "error": "ratelimited"}
+        )
+
+        slack = SlackIntegration(self.integration)
+        with pytest.raises(SlackApiError):
+            slack.list_channels(True, "test_user_id")
+
+        self.integration.refresh_from_db()
+        assert self.integration.errors != ERROR_TOKEN_REFRESH_FAILED
+
+    @patch("posthog.models.integration.WebClient")
+    def test_get_channel_by_id_marks_integration_on_auth_error(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_info.side_effect = SlackApiError(
+            message="token expired", response={"ok": False, "error": "token_expired"}
+        )
+
+        slack = SlackIntegration(self.integration)
+        with pytest.raises(Exception) as exc_info:
+            slack.get_channel_by_id("C123", True, "test_user_id")
+
+        assert "no longer valid" in str(exc_info.value)
+        self.integration.refresh_from_db()
+        assert self.integration.errors == ERROR_TOKEN_REFRESH_FAILED
+
+    @patch("posthog.models.integration.WebClient")
+    def test_get_channel_by_id_returns_none_for_channel_not_found(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_info.side_effect = SlackApiError(
+            message="not found", response={"ok": False, "error": "channel_not_found"}
+        )
+
+        slack = SlackIntegration(self.integration)
+        assert slack.get_channel_by_id("C123", True, "test_user_id") is None
 
 
 class TestEmailIntegration:

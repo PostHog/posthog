@@ -399,6 +399,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="channels")
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_oauth_token_valid(instance)
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
         force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
