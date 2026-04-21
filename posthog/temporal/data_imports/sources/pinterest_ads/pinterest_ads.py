@@ -133,7 +133,7 @@ def _iter_entity_rows(
     resume_config = _load_resume_config(resumable_source_manager, ENTITY_RESUME_KIND)
     bookmark: str | None = resume_config.bookmark if resume_config is not None else None
     if bookmark:
-        source_logger.debug(f"Pinterest Ads: resuming {endpoint} from bookmark")
+        source_logger.debug("pinterest_ads_resuming_entity", endpoint=endpoint)
 
     while True:
         params: dict[str, Any] = {"page_size": PAGE_SIZE}
@@ -178,7 +178,10 @@ def _iter_analytics_rows(
         start_batch_idx = resume_config.batch_index
         start_chunk_idx = resume_config.date_chunk_index
         source_logger.info(
-            f"Pinterest Ads: resuming {endpoint} analytics at batch={start_batch_idx} chunk={start_chunk_idx}"
+            "pinterest_ads_resuming_analytics",
+            endpoint=endpoint,
+            batch=start_batch_idx,
+            chunk=start_chunk_idx,
         )
     else:
         entity_ids = fetch_entity_ids(session, ad_account_id, endpoint)
@@ -223,7 +226,8 @@ def _iter_analytics_rows(
 
             data = _make_request(session, url, params)
 
-            if isinstance(data, list):
+            is_successful = isinstance(data, list)
+            if is_successful:
                 rows: list[dict[str, Any]] = []
                 for row in data:
                     normalized = _normalize_row(row)
@@ -238,6 +242,10 @@ def _iter_analytics_rows(
                     endpoint=endpoint,
                     response_type=type(data).__name__,
                 )
+
+            # Only advance the cursor on a successful response — a failed chunk must be retried on resume.
+            if not is_successful:
+                continue
 
             next_batch_idx, next_chunk_idx = _advance_analytics_cursor(
                 batch_idx, chunk_idx, len(id_batches), len(date_chunks)

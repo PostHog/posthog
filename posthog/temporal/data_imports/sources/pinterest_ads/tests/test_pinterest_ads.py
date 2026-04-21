@@ -411,17 +411,28 @@ class TestIterAnalyticsRowsFresh:
         mock_request.return_value = [{"CAMPAIGN_ID": "1", "DATE": "2024-01-01", "SPEND_IN_DOLLAR": 5.0}]
         manager = _make_resume_manager()
 
-        yielded = list(
-            _iter_analytics_rows(
-                mock.MagicMock(),
-                "acc123",
-                "campaign_analytics",
-                manager,
-                mock.MagicMock(),
-                True,
-                "2024-01-01",
+        # Pin the fan-out to a single (batch, chunk) so the assertion is not sensitive to today's date.
+        with (
+            mock.patch(
+                "posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31")],
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"]],
+            ),
+        ):
+            yielded = list(
+                _iter_analytics_rows(
+                    mock.MagicMock(),
+                    "acc123",
+                    "campaign_analytics",
+                    manager,
+                    mock.MagicMock(),
+                    False,
+                    None,
+                )
             )
-        )
 
         assert len(yielded) == 1
         assert yielded[0][0]["campaign_id"] == "1"
@@ -480,6 +491,48 @@ class TestIterAnalyticsRowsFresh:
         )
 
         assert yielded == []
+        manager.save_state.assert_not_called()
+
+    @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency")
+    @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids")
+    @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request")
+    def test_malformed_response_does_not_advance_cursor(self, mock_request, mock_entity_ids, mock_currency):
+        # First request returns a malformed response (dict instead of list); second returns a valid list.
+        # The cursor must not advance past the malformed chunk, so on resume the failed chunk is retried.
+        mock_entity_ids.return_value = ["1", "2"]
+        mock_currency.return_value = None
+        mock_request.side_effect = [
+            {"error": "oops"},
+            [{"CAMPAIGN_ID": "2", "DATE": "2024-01-01"}],
+        ]
+        manager = _make_resume_manager()
+
+        with (
+            mock.patch(
+                "posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31")],
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"], ["2"]],
+            ),
+        ):
+            yielded = list(
+                _iter_analytics_rows(
+                    mock.MagicMock(),
+                    "acc123",
+                    "campaign_analytics",
+                    manager,
+                    mock.MagicMock(),
+                    False,
+                    None,
+                )
+            )
+
+        # Only the second (successful) chunk produced rows.
+        assert len(yielded) == 1
+        assert yielded[0][0]["campaign_id"] == "2"
+        # No save_state happens at all: the first chunk failed (skipped), and the second is the final chunk.
         manager.save_state.assert_not_called()
 
 
