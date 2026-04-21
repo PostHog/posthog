@@ -849,6 +849,10 @@ def mysql_source(
                 raise
 
             with tunnel() as (host, port):
+                # Match the streaming connection's PlanetScale workload hint so
+                # future proxy-side policy changes don't silently break the probe.
+                init_command = "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None
+
                 with pymysql.connect(
                     host=host,
                     port=port,
@@ -857,6 +861,7 @@ def mysql_source(
                     password=password,
                     connect_timeout=10,
                     ssl_ca=ssl_ca,
+                    init_command=init_command,
                     conv=_MYSQL_SAFE_CONVERSIONS,
                 ) as probe_connection:
                     with probe_connection.cursor() as probe_cursor:
