@@ -1468,7 +1468,7 @@
         }
     },
     "external-data-schemas-partial-update": {
-        "description": "Update a table schema's sync configuration. Can change the sync frequency ('24hour', '12hour', '6hour', '1hour', '30min'), enable/disable the schema, or update the incremental field settings.",
+        "description": "Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary key columns, CDC table mode, and enable/disable the schema.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Update data import schema",

@@ -39,7 +39,17 @@ import {
     WarehouseSavedQueriesRunCreateParams,
     WarehouseSavedQueriesRunHistoryRetrieveParams,
 } from '@/generated/data_warehouse/api'
-import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
+import {
+    ExternalDataSchemaCdcTableModeSchema,
+    ExternalDataSchemaIncrementalFieldSchema,
+    ExternalDataSchemaIncrementalFieldTypeSchema,
+    ExternalDataSchemaPrimaryKeyColumnsSchema,
+    ExternalDataSchemaSyncFrequencySchema,
+    ExternalDataSchemaSyncTimeOfDaySchema,
+    ExternalDataSchemaSyncTypeSchema,
+    ExternalDataSourcePayloadSchema,
+    ExternalDataSourceTypeSchema,
+} from '@/schema/tool-inputs'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -583,9 +593,17 @@ const externalDataSchemasRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasPartialUpdateSchema = ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
-    ExternalDataSchemasPartialUpdateBody.shape
-)
+const ExternalDataSchemasPartialUpdateSchema = ExternalDataSchemasPartialUpdateParams.omit({ project_id: true })
+    .extend(ExternalDataSchemasPartialUpdateBody.shape)
+    .extend({
+        sync_type: ExternalDataSchemaSyncTypeSchema.optional(),
+        sync_frequency: ExternalDataSchemaSyncFrequencySchema.optional(),
+        sync_time_of_day: ExternalDataSchemaSyncTimeOfDaySchema.optional(),
+        incremental_field: ExternalDataSchemaIncrementalFieldSchema.optional(),
+        incremental_field_type: ExternalDataSchemaIncrementalFieldTypeSchema.optional(),
+        primary_key_columns: ExternalDataSchemaPrimaryKeyColumnsSchema.optional(),
+        cdc_table_mode: ExternalDataSchemaCdcTableModeSchema.optional(),
+    })
 
 const externalDataSchemasPartialUpdate = (): ToolBase<
     typeof ExternalDataSchemasPartialUpdateSchema,
@@ -598,6 +616,27 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.should_sync !== undefined) {
             body['should_sync'] = params.should_sync
+        }
+        if (params.sync_type !== undefined) {
+            body['sync_type'] = params.sync_type
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.sync_time_of_day !== undefined) {
+            body['sync_time_of_day'] = params.sync_time_of_day
+        }
+        if (params.incremental_field !== undefined) {
+            body['incremental_field'] = params.incremental_field
+        }
+        if (params.incremental_field_type !== undefined) {
+            body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.primary_key_columns !== undefined) {
+            body['primary_key_columns'] = params.primary_key_columns
+        }
+        if (params.cdc_table_mode !== undefined) {
+            body['cdc_table_mode'] = params.cdc_table_mode
         }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
