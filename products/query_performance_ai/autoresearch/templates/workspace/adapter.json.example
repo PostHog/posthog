@@ -1,0 +1,19 @@
+{
+  "_comment": "Environment-specific ClickHouse transport config. Required field: type. See products/query_performance_ai/autoresearch/scripts/transports.py for supported types.",
+  "_examples": {
+    "local_http": {
+      "type": "http",
+      "url": "http://localhost:8123"
+    },
+    "local_http_with_auth": {
+      "type": "http",
+      "url": "http://localhost:8123",
+      "headers": {
+        "X-ClickHouse-User": "default",
+        "X-ClickHouse-Key": "change-me"
+      }
+    }
+  },
+  "type": "http",
+  "url": "http://localhost:8123"
+}

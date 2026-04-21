@@ -92,6 +92,7 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.product_tours",
+    "products.query_performance_ai",
     "products.revenue_analytics",
     "products.signals",
     "products.slack_app",
@@ -391,6 +392,14 @@ depends_on = [
     "ee",
     "posthog",
     "products.data_warehouse",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.query_performance_ai"
+depends_on = [
+    "posthog",
+    "products.tasks",
 ]
 layer = "modules"
 

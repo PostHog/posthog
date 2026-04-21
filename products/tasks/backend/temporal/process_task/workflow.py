@@ -43,6 +43,11 @@ from .activities.provision_sandbox import (
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .activities.run_autoresearch_campaign import (
+    RunAutoresearchCampaignInput,
+    RunAutoresearchCampaignOutput,
+    run_autoresearch_campaign_in_sandbox,
+)
 from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .activities.start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
@@ -219,6 +224,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             #     await self._trigger_snapshot_workflow()
 
             await self._post_slack_update()
+
+            # Autoresearch-campaign mode is deterministic: no agent-server, no
+            # wait-for-signal loop. One activity drives the whole campaign and
+            # returns structured artifacts in TaskRun.output.
+            if self.context.mode == "autoresearch_campaign":
+                await self._run_autoresearch_campaign(sandbox_output)
+                await self._update_task_run_status("completed")
+                await self._post_slack_update()
+                return ProcessTaskOutput(
+                    success=True,
+                    task_result=None,
+                    error=None,
+                    sandbox_id=sandbox_id,
+                )
 
             # Start agent-server for direct connection from PostHog Code
             agent_server_output = await self._start_agent_server(sandbox_output)
@@ -460,6 +479,27 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 workflow.logger.info(f"Agent-server logs from sandbox {sandbox_id}:\n{logs}")
         except Exception as e:
             workflow.logger.warning(f"Failed to read sandbox logs: {e}")
+
+    async def _run_autoresearch_campaign(
+        self, sandbox_output: GetSandboxForRepositoryOutput
+    ) -> RunAutoresearchCampaignOutput:
+        """Run one autoresearch campaign deterministically inside the sandbox.
+
+        Activity timeout is generous (campaigns can legitimately run for
+        30+ minutes when the LLM loop explores multiple lanes). We keep a
+        single attempt: a failure here is almost always deterministic
+        (bad SQL, proxy unreachable, LLM gateway down) and worth bubbling
+        up rather than burning more sandbox time retrying.
+        """
+        return await workflow.execute_activity(
+            run_autoresearch_campaign_in_sandbox,
+            RunAutoresearchCampaignInput(
+                context=self.context,
+                sandbox_id=sandbox_output.sandbox_id,
+            ),
+            start_to_close_timeout=timedelta(minutes=60),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
 
     async def _start_agent_server(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
         return await workflow.execute_activity(

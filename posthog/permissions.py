@@ -513,6 +513,12 @@ class APIScopePermission(ScopeBasePermission):
         scope_object = self._get_scope_object(request, view)
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
+        if scope_object == "INTERNAL":
+            # INTERNAL endpoints opt out of the generic team-scoped-token check
+            # because they enforce their own access rules (see, e.g.,
+            # posthog/api/query_performance_proxy.py which gates on required
+            # OAuth scope + in-SQL team predicate instead of the URL's team).
+            return
 
         self._check_organization_personal_api_key_restrictions(request, view)
 

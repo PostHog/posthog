@@ -68,6 +68,7 @@ PRODUCTS_APPS = [
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
+    "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
 ]
 
 INSTALLED_APPS = [

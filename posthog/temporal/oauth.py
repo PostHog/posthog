@@ -58,6 +58,15 @@ INTERNAL_SCOPES: list[str] = [
 
 TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
+# Scopes for the query-performance autoresearch proxy endpoint. Both authorize
+# SELECT-only traffic through /api/query_performance_proxy/execute. The prod
+# scope is additionally gated on a literal team_id = 2 predicate by the
+# endpoint itself so an autoresearch agent cannot touch real customer data.
+CLICKHOUSE_PERF_SCOPES: list[str] = [
+    "clickhouse_perf:test_read",
+    "clickhouse_perf:prod_read",
+]
+
 PosthogMcpScopes = McpScopePreset | list[str]
 
 MCP_SCOPE_PRESETS = ("read_only", "full")
