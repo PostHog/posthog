@@ -54,13 +54,10 @@ describe('log-pii-scrub', () => {
             expect(scrubPlainString(`key ${syntheticStripeTestKey}`)).toBe(`key ${PII_REDACTED}`)
         })
 
-        it('redacts credit card numbers that pass Luhn', () => {
-            // 4242424242424242 is a common test PAN
-            expect(scrubPlainString('card 4242424242424242 end')).toBe(`card ${PII_REDACTED} end`)
-            expect(scrubPlainString('card 4242-4242-4242-4242 end')).toBe(`card ${PII_REDACTED} end`)
-        })
-
-        it('does not redact digit sequences that fail Luhn', () => {
+        it('does not redact PAN-like digit runs (lite scrub)', () => {
+            // Common test PAN — only email/Bearer/Stripe patterns are scrubbed on plain text.
+            expect(scrubPlainString('card 4242424242424242 end')).toBe('card 4242424242424242 end')
+            expect(scrubPlainString('card 4242-4242-4242-4242 end')).toBe('card 4242-4242-4242-4242 end')
             expect(scrubPlainString('id 4242424242424243')).toBe('id 4242424242424243')
         })
 
@@ -68,7 +65,7 @@ describe('log-pii-scrub', () => {
             expect(scrubPlainString('Bearer caf\u00E9token')).toBe(`Bearer ${PII_REDACTED}\u00E9token`)
         })
 
-        it('does not treat fullwidth digits as card-like digits', () => {
+        it('leaves digit runs with fullwidth digits unchanged', () => {
             const panWithFullwidthOne = '4242424242\uFF1142424242'
             expect(scrubPlainString(`card ${panWithFullwidthOne} end`)).toBe(`card ${panWithFullwidthOne} end`)
         })
@@ -81,6 +78,10 @@ describe('log-pii-scrub', () => {
 
         it('returns raw value when not a JSON string document', () => {
             expect(unwrapAttributeCell('plain')).toBe('plain')
+        })
+
+        it('does not parse cells that look like JSON objects (no leading quote)', () => {
+            expect(unwrapAttributeCell('{"msg":"a@b.co"}')).toBe('{"msg":"a@b.co"}')
         })
 
         it('encodes semantic strings as JSON string cells for CH', () => {

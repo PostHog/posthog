@@ -103,10 +103,10 @@ export function LogsPiiScrubSettings(): JSX.Element {
                 />
             </AccessControlAction>
             <p className="text-secondary text-sm max-w-200 mt-2">
-                When enabled, ingestion runs pattern-based redaction (emails, Luhn-valid card-like digit runs,
-                Bearer-style tokens, Stripe-shaped keys) on the log body and string fields, and full-value redaction on
-                attribute keys that match sensitive substrings. The log body is not parsed as JSON for this step, so
-                secrets only visible by JSON property names inside the body may remain. This is lossy redaction, not
+                When enabled, ingestion runs pattern-based redaction (emails, Bearer-style tokens, Stripe-shaped keys)
+                on the log body and string fields, and full-value redaction on attribute keys that match sensitive
+                substrings. The log body is not parsed as JSON for this step, so secrets only visible by JSON property
+                names inside the body may remain. PAN-like digit runs are not redacted. This is lossy redaction, not
                 reversible hashing.
             </p>
         </>

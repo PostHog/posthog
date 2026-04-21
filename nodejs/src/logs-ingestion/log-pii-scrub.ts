@@ -1,16 +1,15 @@
 /**
  * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}). The log `body` is **not** parsed as
- * JSON; the same RE2-backed patterns run on the raw UTF-8 string (emails and similar literals inside serialized JSON
- * still match). Attribute and resource maps still use sensitive-key substring checks (full value redaction) plus
- * pattern scrub on other values. Map values are JSON-string cells (JSON.stringify) so ClickHouse JSONExtractString
- * matches Rust OTLP encoding.
+ * JSON; RE2-backed patterns run on the raw UTF-8 string (emails and similar literals inside serialized JSON still
+ * match). Rules: Bearer-shaped tokens, Stripe `sk_*` keys, email addresses. Attribute and resource maps still use
+ * sensitive-key substring checks (full value redaction) plus the same pattern scrub on other values. Map values are
+ * JSON-string cells (JSON.stringify) so ClickHouse JSONExtractString matches Rust OTLP encoding.
  *
  * **Not guaranteed:** secrets only discoverable by JSON object keys inside `body` (no tree walk), values only in
- * JSON number/boolean leaves, or digit runs that fail Luhn. Card-like patterns on raw JSON can replace digit spans
- * inside the body string and may yield invalid JSON if a PAN-shaped number appeared unquoted in text.
+ * JSON number/boolean leaves. PAN-like digit runs are **not** redacted (lite path).
  *
- * The four main match rules use RE2 (via createTrackedRE2) for linear-time matching and consistency with other
- * nodejs regex paths; patterns use ASCII-explicit classes so behavior stays stable under node-re2’s Unicode mode.
+ * The match rules use RE2 (via createTrackedRE2) for linear-time matching and consistency with other nodejs regex
+ * paths; patterns use ASCII-explicit classes so behavior stays stable under node-re2’s Unicode mode.
  */
 import { parseJSON } from '../utils/json-parse'
 import { createTrackedRE2 } from '../utils/tracked-re2'
@@ -38,8 +37,6 @@ export const SENSITIVE_KEY_SUBSTRINGS = [
 const BEARER_HEADER_RE = createTrackedRE2('Bearer\\s+[-A-Za-z0-9._~+/]+=*', 'gi', 'log-pii-scrub:bearer')
 const STRIPE_SECRET_KEY_RE = createTrackedRE2('\\bsk_(?:live|test)_[a-zA-Z0-9]{20,}\\b', 'g', 'log-pii-scrub:stripe')
 const EMAIL_RE = createTrackedRE2('\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b', 'g', 'log-pii-scrub:email')
-/** 13–19 ASCII digits; optional single space or hyphen between digit groups (no nested quantifier over digit class). */
-const CARD_LIKE_RE = createTrackedRE2('\\b[0-9](?:[- ]?[0-9]){12,18}\\b', 'g', 'log-pii-scrub:card')
 
 /** True when the attribute key contains a known sensitive substring (case-insensitive). */
 export function isSensitiveAttributeKey(key: string): boolean {
@@ -47,8 +44,16 @@ export function isSensitiveAttributeKey(key: string): boolean {
     return SENSITIVE_KEY_SUBSTRINGS.some((s) => lower.includes(s))
 }
 
+/** True when `value` is a JSON document consisting of a single string (OTLP serde_json string cell). */
+function looksLikeJsonStringCell(value: string): boolean {
+    return value.length >= 2 && value[0] === '"' && value[value.length - 1] === '"'
+}
+
 /** Rust OTLP path stores string attrs as serde_json string values; unwrap one JSON string layer if present. */
 export function unwrapAttributeCell(value: string): string {
+    if (!looksLikeJsonStringCell(value)) {
+        return value
+    }
     try {
         const parsed = parseJSON(value)
         if (typeof parsed === 'string') {
@@ -65,40 +70,11 @@ export function encodeAttributeCell(semantic: string): string {
     return JSON.stringify(semantic)
 }
 
-/** Luhn checksum for filtering card-like digit runs before redaction. */
-function luhnValid(digits: string): boolean {
-    let sum = 0
-    let alt = false
-    for (let i = digits.length - 1; i >= 0; i--) {
-        const d = parseInt(digits.charAt(i), 10)
-        if (Number.isNaN(d)) {
-            return false
-        }
-        let v = d
-        if (alt) {
-            v *= 2
-            if (v > 9) {
-                v -= 9
-            }
-        }
-        sum += v
-        alt = !alt
-    }
-    return sum % 10 === 0
-}
-
 /** Apply regex-based redaction to a single string (log line, attribute value, field text, etc.). */
 export function scrubPlainString(input: string): string {
     let s = input.replace(BEARER_HEADER_RE, `Bearer ${PII_REDACTED}`)
     s = s.replace(STRIPE_SECRET_KEY_RE, PII_REDACTED)
     s = s.replace(EMAIL_RE, PII_REDACTED)
-    s = s.replace(CARD_LIKE_RE, (match) => {
-        const digits = match.replace(/\D/g, '')
-        if (digits.length >= 13 && digits.length <= 19 && luhnValid(digits)) {
-            return PII_REDACTED
-        }
-        return match
-    })
     return s
 }
 
