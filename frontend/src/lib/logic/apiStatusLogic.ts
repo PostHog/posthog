@@ -79,7 +79,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                                 button: {
                                     label: 'Understood',
                                     action: () => {
-                                        userLogic.findMounted()?.actions.logout()
+                                        userLogic.findMounted()?.actions.logout(true)
                                     },
                                 },
                                 autoClose: false,
@@ -96,6 +96,14 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     // We should only check and logout if we have a user
                     return
                 }
+
+                // During impersonation, don't auto-logout on 401.
+                // The ImpersonationNotice component handles session expiry
+                // via its countdown timer and shows a re-impersonation overlay.
+                if (userLogic.findMounted()?.values.user?.is_impersonated) {
+                    return
+                }
+
                 // api.ts calls this if we see a 401
                 const now = Date.now()
 
@@ -105,7 +113,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
 
                     await api.get('api/users/@me/').catch((error: any) => {
                         if (error.status === 401) {
-                            userLogic.findMounted()?.actions.logout()
+                            userLogic.findMounted()?.actions.logout(true)
                         }
                     })
                 }

@@ -220,7 +220,7 @@ class TestTimeSlicedResults(TestCase):
         now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
         run_mock = MagicMock(return_value=FakeResponse(results=["a"]))
         runner = FakeRunner(date_from=now - dt.timedelta(minutes=5), date_to=now, results=["a"])
-        runner.run = run_mock  # type: ignore[method-assign]
+        runner.run = run_mock  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
         make_runner, _ = self._make_runner_factory([])
         props = {"source": "test"}

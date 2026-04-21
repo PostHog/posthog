@@ -11,9 +11,10 @@ from django.core.cache import cache
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
+from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
+from products.tasks.backend.constants import InitialPermissionMode
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task
@@ -67,6 +68,12 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
     ),
     "claude-opus-4-6": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
+    "claude-opus-4-7": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
@@ -153,6 +160,7 @@ class RunState(BaseModel, extra="allow"):
     sandbox_environment_id: str | None = None
     pending_user_message: str | None = None
     pending_user_message_ts: str | None = None
+    initial_permission_mode: InitialPermissionMode | None = None
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
@@ -163,6 +171,30 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
 
 
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
+
+# Minimum interval between MCP token refreshes pushed to a live sandbox. The
+# OAuth tokens themselves are valid for 6h; we only need to rotate periodically
+# so a long-running sandbox doesn't accumulate stale credentials.
+MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
+
+
+def _mcp_token_issued_cache_key(run_id: str) -> str:
+    return f"posthog_ai:task-run-mcp-token-issued:{run_id}"
+
+
+def mark_mcp_token_issued(run_id: str) -> None:
+    """Record that a fresh MCP token was issued to the sandbox for this run.
+
+    The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
+    `should_refresh_mcp_token` returns True again past that window.
+    """
+    cache.set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def should_refresh_mcp_token(run_id: str) -> bool:
+    """Return True if no MCP token has been issued for this run within the
+    last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
+    return cache.get(_mcp_token_issued_cache_key(run_id)) is None
 
 
 @dataclass(frozen=True)

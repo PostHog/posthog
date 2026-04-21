@@ -412,7 +412,7 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
     try {
         const response = await Promise.race([timeout, callback()])
         return response as T
-    } catch (error) {
+    } catch {
         captureException(`Had to run twice: ${errorMessage}`)
         // try one more time
         return await callback()
@@ -502,7 +502,7 @@ export function stringify(value: any): string {
 }
 
 export class IllegalOperationError extends Error {
-    name = 'IllegalOperationError'
+    override name = 'IllegalOperationError'
 
     constructor(operation: string) {
         super(operation)
@@ -563,7 +563,7 @@ export function intToBase(num: number, base: number): string {
 // For errors we want to explicitly throw
 // concerning race conditions across threads
 export class RaceConditionError extends Error {
-    name = 'RaceConditionError'
+    override name = 'RaceConditionError'
 }
 
 /** Get a value from a properties object by its path. This allows accessing nested properties. */

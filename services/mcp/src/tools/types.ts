@@ -1,17 +1,22 @@
 import type { z } from 'zod'
 
 import type { ApiClient, GroupType } from '@/api/client'
+import type { Schemas } from '@/api/generated'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
 import type { PrefixedString } from '@/lib/types'
-import type { ApiRedactedPersonalApiKey } from '@/schema/api'
+import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 
 export type CloudRegion = 'us' | 'eu'
 
 export type SessionState = {
     uuid: string
 }
+
+export type CachedUser = ApiUser
+export type CachedOrg = Schemas.OrganizationBasic
+export type CachedProject = Schemas.ProjectBackwardCompat
 
 export type State = {
     projectId: string | undefined
@@ -20,11 +25,15 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
-    aiConsentGiven: boolean | undefined
-    aiConsentFetchedAt: number | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
-    Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined>
+    Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'cachedUser'>, CachedUser | undefined> &
+    Record<PrefixedString<'cachedUserFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'cachedOrg'>, CachedOrg | undefined> &
+    Record<PrefixedString<'cachedOrgFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'cachedProject'>, CachedProject | undefined> &
+    Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined>
 
 export type Env = {
     /**
@@ -107,10 +116,20 @@ export type ToolUiMeta = {
     visibility?: ('model' | 'app')[]
 }
 
-export type ToolMeta = {
-    ui?: ToolUiMeta
-    // Legacy flat key for MCP Apps compatibility (ui/resourceUri)
-    'ui/resourceUri'?: string
+export const POSTHOG_META_KEY = 'com.posthog.mcp' as const
+export const POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY = '__formatted_results_override' as const
+
+export type PostHogToolMeta = {
     /** Return JSON instead of TOON-encoded text. Use for tools whose output is consumed programmatically. */
     responseFormat?: 'json'
+}
+
+export type ToolMeta = {
+    // Legacy flat key for MCP Apps compatibility (ui/resourceUri)
+    'ui/resourceUri'?: string
+    // New non-legacy key for MCP Apps
+    ui?: ToolUiMeta
+
+    /** PostHog-specific tool metadata under a namespaced key. */
+    [POSTHOG_META_KEY]?: PostHogToolMeta
 }

@@ -38,6 +38,7 @@ from .agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
+from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from .sandbox import (
     WORKING_DIR,
     AgentServerResult,
@@ -150,10 +151,12 @@ class DockerSandbox(SandboxBase):
 
         logger.info(f"Building {image_name} image (this may take a few minutes)...")
 
-        # The skills dist directory is populated by CI but won't exist in local
-        # dev checkouts.  The Dockerfile COPYs it unconditionally, so ensure it
-        # exists (install-skills.sh already handles the empty-dir case).
-        os.makedirs(os.path.join(str(settings.BASE_DIR), "products", "posthog_ai", "dist", "skills"), exist_ok=True)
+        # Ensure the skills dist directory is populated so the Dockerfile's
+        # unconditional COPY picks up real content instead of an empty dir.
+        # In CI the directory is pre-populated by the release workflow; in
+        # local dev checkouts this triggers a cached build via
+        # hogli build:skills.
+        LocalSkillsCache().ensure_built()
 
         DockerSandbox._run(
             [
@@ -286,6 +289,22 @@ class DockerSandbox(SandboxBase):
                 org, repo = repo_key.split("/", 1)
                 container_path = f"{WORKING_DIR}/repos/{org}/{repo}"
                 volume_args.extend(["-v", f"{local_path}:{container_path}"])
+
+            # Opt-in bind-mount for local skills. Set by the eval harness so
+            # sandboxes see the working-tree skills without rebuilding the
+            # base image. Mounts per-subdirectory rather than the parent so
+            # the baked-in rendered skills in the image stay visible — only
+            # the specific skills the user has on disk get overlaid.
+            local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
+            if local_skills_host and os.path.isdir(local_skills_host):
+                for entry in sorted(os.listdir(local_skills_host)):
+                    if entry.startswith(".") or entry == "__pycache__":
+                        continue
+                    host_skill = os.path.join(local_skills_host, entry)
+                    if not os.path.isdir(host_skill):
+                        continue
+                    container_skill = f"/scripts/plugins/posthog/skills/{entry}"
+                    volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
 
             docker_args = [
                 "docker",

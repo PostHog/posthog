@@ -17,6 +17,7 @@ class SingleSessionSummaryInputs:
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
     video_validation_enabled: bool | Literal["full"] | None = None
+    trigger_session_id: str | None = None
 
 
 class SingleSessionProgress(TypedDict):

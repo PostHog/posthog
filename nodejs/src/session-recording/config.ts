@@ -1,10 +1,16 @@
 import {
+    KAFKA_CLICKHOUSE_TOPHOG,
+    KAFKA_INGESTION_WARNINGS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '../config/kafka-topics'
+import { DEFAULT_PRODUCER, type DefaultProducer, type WarpstreamProducer } from '../ingestion/common/outputs'
 import { isDevEnv } from '../utils/env-utils'
 import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from './constants'
+
+/** Session replay only uses DEFAULT and WARPSTREAM producers. */
+export type SessionReplayProducerName = DefaultProducer | WarpstreamProducer
 
 export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_HOST: string
@@ -51,6 +57,7 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
     SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
+    SESSION_RECORDING_V2_SESSION_FEATURES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
     SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: number
@@ -59,6 +66,8 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_FILTER_ENABLED: boolean
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
+    SESSION_RECORDING_FEATURES_ENABLED: boolean
+    SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: number
     SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
 
     // Kafka consumer config
@@ -116,6 +125,7 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: isDevEnv() ? 120000 : 30000,
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
+        SESSION_RECORDING_V2_SESSION_FEATURES_KAFKA_TOPIC: 'clickhouse_session_replay_features',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
         SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
         SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: 3000,
@@ -124,6 +134,8 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         SESSION_RECORDING_SESSION_FILTER_ENABLED: true,
         SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: 5 * 60 * 1000,
         SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: 5 * 60 * 1000,
+        SESSION_RECORDING_FEATURES_ENABLED: true,
+        SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: 10,
         SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0,
 
         // Kafka consumer config
@@ -131,5 +143,38 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: SESSION_RECORDING_DEFAULT_GROUP_ID,
         INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
         INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
+    }
+}
+
+/**
+ * Config type for session replay output producer/topic keys.
+ *
+ * DLQ and overflow topic keys are already declared in `SessionRecordingConfig`
+ * and flow into the composed server config — only the producer keys and the
+ * outputs that don't exist elsewhere are added here.
+ */
+export type SessionReplayOutputsConfig = {
+    SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_TOPIC: string
+    SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_PRODUCER: SessionReplayProducerName
+
+    SESSION_REPLAY_OUTPUT_DLQ_PRODUCER: SessionReplayProducerName
+
+    SESSION_REPLAY_OUTPUT_OVERFLOW_PRODUCER: SessionReplayProducerName
+
+    SESSION_REPLAY_OUTPUT_TOPHOG_TOPIC: string
+    SESSION_REPLAY_OUTPUT_TOPHOG_PRODUCER: SessionReplayProducerName
+
+    SESSION_REPLAY_OUTPUT_LOG_ENTRIES_PRODUCER: SessionReplayProducerName
+}
+
+export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConfig {
+    return {
+        SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,
+        SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_PRODUCER: DEFAULT_PRODUCER,
+        SESSION_REPLAY_OUTPUT_DLQ_PRODUCER: DEFAULT_PRODUCER,
+        SESSION_REPLAY_OUTPUT_OVERFLOW_PRODUCER: DEFAULT_PRODUCER,
+        SESSION_REPLAY_OUTPUT_TOPHOG_TOPIC: KAFKA_CLICKHOUSE_TOPHOG,
+        SESSION_REPLAY_OUTPUT_TOPHOG_PRODUCER: DEFAULT_PRODUCER,
+        SESSION_REPLAY_OUTPUT_LOG_ENTRIES_PRODUCER: DEFAULT_PRODUCER,
     }
 }
