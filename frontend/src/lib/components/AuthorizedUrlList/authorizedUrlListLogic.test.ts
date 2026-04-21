@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -61,6 +62,16 @@ describe('the authorized urls list logic', () => {
     it('can be launchd without focussing adding new URL', async () => {
         router.actions.push(urls.toolbarLaunch())
         await expectLogic(logic).toNotHaveDispatchedActions(['newUrl'])
+    })
+
+    // Regression coverage for PostHog error tracking issue 019da3b3-1a47-7aa0-9226-86d21d86b2a0:
+    // `TypeError: null is not an object (evaluating 'n.app_urls')` thrown by the `currentTeam`
+    // subscription when the team becomes null while the logic is mounted. Any consumer
+    // (TeamSettings, SessionRecordingSettings, HeatmapsBrowser, IframedToolbarBrowser,
+    // ToolbarLaunch, web-analytics onboarding) would crash on mount.
+    it('does not crash when currentTeam is null', async () => {
+        expect(() => teamLogic.actions.loadCurrentTeamSuccess(null)).not.toThrow()
+        await expectLogic(logic).toMatchValues({ authorizedUrls: [] })
     })
 
     describe('applying a suggestion', () => {
