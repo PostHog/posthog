@@ -67,13 +67,6 @@ class Migration(migrations.Migration):
                         max_length=36,
                     ),
                 ),
-                (
-                    "is_pending",
-                    models.BooleanField(
-                        default=False,
-                        help_text="True while the grant is attached to an unaccepted invite (no membership yet).",
-                    ),
-                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "created_by",
@@ -87,7 +80,6 @@ class Migration(migrations.Migration):
                 (
                     "organization_membership",
                     models.ForeignKey(
-                        null=True,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="guest_resource_grants",
                         to="posthog.organizationmembership",
@@ -110,20 +102,6 @@ class Migration(migrations.Migration):
                     ),
                 ],
             },
-        ),
-        migrations.AddConstraint(
-            model_name="guestresourcegrant",
-            constraint=models.CheckConstraint(
-                check=models.Q(
-                    models.Q(
-                        ("is_pending", False),
-                        ("organization_membership__isnull", False),
-                    ),
-                    models.Q(("is_pending", True), ("organization_membership__isnull", True)),
-                    _connector="OR",
-                ),
-                name="active_grants_need_membership",
-            ),
         ),
         migrations.AlterUniqueTogether(
             name="guestresourcegrant",

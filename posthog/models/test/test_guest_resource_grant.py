@@ -26,36 +26,21 @@ class TestGuestResourceGrant(BaseTest):
             ("notebook_with_short_id", "notebook", "abc-123-def"),
         ]
     )
-    def test_active_grant_with_valid_resource_persists(self, _name, resource: str, resource_id: str) -> None:
+    def test_grant_with_valid_resource_persists(self, _name, resource: str, resource_id: str) -> None:
         grant = GuestResourceGrant.objects.create(
             organization_membership=self.other_membership,
             team=self.team,
             resource=resource,
             resource_id=resource_id,
-            is_pending=False,
             created_by=self.user,
         )
 
         grant.refresh_from_db()
-        self.assertFalse(grant.is_pending)
         self.assertEqual(grant.resource, resource)
         self.assertEqual(grant.resource_id, resource_id)
         self.assertEqual(grant.organization_membership_id, self.other_membership.id)
 
-    def test_pending_grant_without_membership_is_permitted(self) -> None:
-        grant = GuestResourceGrant.objects.create(
-            organization_membership=None,
-            team=self.team,
-            resource=GuestResourceGrant.Resource.DASHBOARD,
-            resource_id="99",
-            is_pending=True,
-        )
-
-        grant.refresh_from_db()
-        self.assertTrue(grant.is_pending)
-        self.assertIsNone(grant.organization_membership_id)
-
-    def test_active_grant_without_membership_violates_constraint(self) -> None:
+    def test_grant_without_membership_violates_not_null(self) -> None:
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 GuestResourceGrant.objects.create(
@@ -63,27 +48,14 @@ class TestGuestResourceGrant(BaseTest):
                     team=self.team,
                     resource=GuestResourceGrant.Resource.DASHBOARD,
                     resource_id="1",
-                    is_pending=False,
                 )
 
-    def test_pending_grant_with_membership_violates_constraint(self) -> None:
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                GuestResourceGrant.objects.create(
-                    organization_membership=self.other_membership,
-                    team=self.team,
-                    resource=GuestResourceGrant.Resource.DASHBOARD,
-                    resource_id="1",
-                    is_pending=True,
-                )
-
-    def test_duplicate_active_grant_tuple_raises(self) -> None:
+    def test_duplicate_grant_tuple_raises(self) -> None:
         GuestResourceGrant.objects.create(
             organization_membership=self.other_membership,
             team=self.team,
             resource=GuestResourceGrant.Resource.INSIGHT,
             resource_id="short1",
-            is_pending=False,
         )
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
@@ -92,7 +64,6 @@ class TestGuestResourceGrant(BaseTest):
                     team=self.team,
                     resource=GuestResourceGrant.Resource.INSIGHT,
                     resource_id="short1",
-                    is_pending=False,
                 )
 
     def test_same_resource_id_allowed_across_different_teams(self) -> None:
@@ -101,14 +72,12 @@ class TestGuestResourceGrant(BaseTest):
             team=self.team,
             resource=GuestResourceGrant.Resource.DASHBOARD,
             resource_id="7",
-            is_pending=False,
         )
         GuestResourceGrant.objects.create(
             organization_membership=self.other_membership,
             team=self.second_team,
             resource=GuestResourceGrant.Resource.DASHBOARD,
             resource_id="7",
-            is_pending=False,
         )
 
         self.assertEqual(
@@ -122,14 +91,12 @@ class TestGuestResourceGrant(BaseTest):
             team=self.team,
             resource=GuestResourceGrant.Resource.DASHBOARD,
             resource_id="1",
-            is_pending=False,
         )
         GuestResourceGrant.objects.create(
             organization_membership=self.other_membership,
             team=self.team,
             resource=GuestResourceGrant.Resource.NOTEBOOK,
             resource_id="note-1",
-            is_pending=False,
         )
 
         self.assertEqual(self.other_membership.guest_resource_grants.count(), 2)
