@@ -91,6 +91,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'event_definition:read',
     'event_definition:write',
     'evaluation:read',
+    'external_data_source:read',
+    'external_data_source:write',
     'evaluation:write',
     'experiment:read',
     'experiment:write',

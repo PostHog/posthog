@@ -132,6 +132,7 @@ class UserSerializer(serializers.ModelSerializer):
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
     anonymize_data = ClassicBehaviorBooleanFieldSerializer()
     role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
+    is_organization_first_user = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -174,6 +175,7 @@ class UserSerializer(serializers.ModelSerializer):
             "shortcut_position",
             "role_at_organization",
             "passkeys_enabled_for_2fa",
+            "is_organization_first_user",
             "pending_invites",
         ]
 
@@ -194,6 +196,7 @@ class UserSerializer(serializers.ModelSerializer):
             "organizations",
             "has_social_auth",
             "has_sso_enforcement",
+            "is_organization_first_user",
             "pending_invites",
         ]
 
@@ -257,6 +260,32 @@ class UserSerializer(serializers.ModelSerializer):
         return bool(
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
+
+    def get_is_organization_first_user(self, instance: User) -> bool | None:
+        # Only compute when the serialized user is the requesting user. Avoids paying an
+        # extra membership query on every /api/users/@me/ hit for admin/staff flows that
+        # don't need this field, and ensures invitee attribution can't leak across users.
+        request = self.context.get("request")
+        if not request or request.user.id != instance.id:
+            return None
+
+        organization = instance.current_organization
+        if organization is None:
+            return None
+
+        # "First user" == "didn't arrive via an invite". Direct signal (membership.invited_by IS NULL)
+        # avoids the earliest-joined heuristic, which silently reassigns creator status if the
+        # original creator leaves the org.
+        from posthog.models.organization import OrganizationMembership
+
+        membership = (
+            OrganizationMembership.objects.filter(organization=organization, user=instance)
+            .only("invited_by_id")
+            .first()
+        )
+        if membership is None:
+            return None
+        return membership.invited_by_id is None
 
     @extend_schema_field(PendingInviteSerializer(many=True))
     def get_pending_invites(self, instance: User) -> list[dict]:

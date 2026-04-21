@@ -15,7 +15,7 @@ class YamlOutputParser(BaseOutputParser):
         """Parse YAML text into generic JSON-like structure."""
         # Strip potential markdown markers, if present
         try:
-            cleaned_text = text.strip("```yaml").strip("```").strip()  # noqa: B005 stable approach with streaming chunks
+            cleaned_text = text.strip("```yaml").strip("```").strip()  # noqa: B005
             return yaml.safe_load(cleaned_text)
         except yaml.YAMLError as e:
             # Catch only YAML-specific errors that makes sense to try to fix, raise other errors
@@ -26,15 +26,12 @@ class YamlOutputParser(BaseOutputParser):
         return "Return valid YAML format that can be parsed into a dictionary or list."
 
 
-def load_yaml_from_raw_llm_content(raw_content: str, final_validation: bool = False) -> dict | list:
+def load_yaml_from_raw_llm_content(raw_content: str) -> dict | list:
     yaml_parser = YamlOutputParser()
     try:
         content = yaml_parser.parse(raw_content)
         return content
     except OutputParserException:
-        if not final_validation:
-            # In-the-middle-of-stream chunks could be invalid, no need to fix them
-            raise
         # Try to fix with OutputFixingParser
         llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.1)
         fixing_parser = OutputFixingParser.from_llm(parser=yaml_parser, llm=llm, max_retries=1)
