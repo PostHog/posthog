@@ -14,7 +14,9 @@
       if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
       if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
       1 AS conversion_value,
-      fromUnixTimestamp(conversion_time) AS conversion_timestamp
+      fromUnixTimestamp(conversion_time) AS conversion_timestamp,
+      fromUnixTimestamp(last_utm_timestamp) AS touchpoint_timestamp,
+      1.0 AS touchpoint_weight
   
   FROM
       (
@@ -108,7 +110,7 @@
           fbclid_name,
           gad_source_name,
           '-' AS campaign_id,
-          conversion_value
+          multiply(conversion_value, touchpoint_weight) AS conversion_value
       
   FROM
           conversion_goal_attributed_preaggregated

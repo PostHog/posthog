@@ -23,6 +23,8 @@ def _build_fields() -> dict[str, FieldOrTable]:
         "person_id": StringDatabaseField(name="person_id"),
         "conversion_timestamp": DateTimeDatabaseField(name="conversion_timestamp"),
         "conversion_value": FloatDatabaseField(name="conversion_value"),
+        "touchpoint_timestamp": DateTimeDatabaseField(name="touchpoint_timestamp"),
+        "touchpoint_weight": FloatDatabaseField(name="touchpoint_weight"),
     }
     for tracked_name in CONVERSION_GOAL_ATTRIBUTED_TRACKED_FIELD_NAMES:
         col = f"{tracked_name}_name"

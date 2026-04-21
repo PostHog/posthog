@@ -1,6 +1,8 @@
 # Pre-attributed output of the conversion-goal pipeline: one row per
-# (team, job, person, conversion_timestamp) with UTM columns resolved to the
-# attributed touchpoint. Single-touch only; multi-touch falls back to direct.
+# (team, job, person, conversion_timestamp, touchpoint_timestamp) with the
+# attribution weight for that touchpoint. Single-touch emits weight=1.0 and one
+# row per conversion; multi-touch emits N rows per conversion with fractional
+# weights that sum to 1.
 
 from django.conf import settings
 
@@ -50,6 +52,9 @@ CREATE TABLE IF NOT EXISTS {{table_name}}
     conversion_timestamp DateTime64(6, 'UTC'),
     conversion_value Float64,
 
+    touchpoint_timestamp DateTime64(6, 'UTC'),
+    touchpoint_weight Float64,
+
     {_attributed_field_columns()}
 
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
@@ -63,7 +68,7 @@ def SHARDED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL():
         CONVERSION_GOAL_ATTRIBUTED_TABLE_BASE_SQL
         + """
 PARTITION BY toYYYYMMDD(expires_at)
-ORDER BY (team_id, job_id, person_id, conversion_timestamp)
+ORDER BY (team_id, job_id, person_id, conversion_timestamp, touchpoint_timestamp)
 TTL expires_at
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
 """

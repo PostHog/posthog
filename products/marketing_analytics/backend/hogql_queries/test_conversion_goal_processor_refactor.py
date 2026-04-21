@@ -150,6 +150,8 @@ class TestConversionGoalProcessorRefactor(BaseTest):
             assert field.attributed_name in aliases, field.attributed_name
         assert "conversion_value" in aliases
         assert "conversion_timestamp" in aliases
+        assert "touchpoint_timestamp" in aliases
+        assert "touchpoint_weight" in aliases
         # campaign_id is injected at read time, not stored.
         assert "campaign_id" not in aliases
 
@@ -163,15 +165,19 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         else:
             raise AssertionError("Expected NotImplementedError for DataWarehouseNode")
 
-    def test_precompute_template_raises_for_multi_touch(self):
+    def test_precompute_template_supports_multi_touch(self):
         processor = self._processor()
         processor.config.attribution_mode = AttributionMode.LINEAR
-        try:
-            processor.get_attributed_query_for_precomputation()
-        except NotImplementedError:
-            pass
-        else:
-            raise AssertionError("Expected NotImplementedError for multi-touch")
+        template, _ = processor.get_attributed_query_for_precomputation()
+        placeholders = {
+            "time_window_min": ast.Constant(value=datetime(2025, 1, 1, tzinfo=UTC)),
+            "time_window_max": ast.Constant(value=datetime(2025, 1, 2, tzinfo=UTC)),
+        }
+        parsed = parse_select(template, placeholders=placeholders)
+        aliases = [e.alias for e in parsed.select if isinstance(e, ast.Alias)]
+        assert "touchpoint_weight" in aliases
+        assert "touchpoint_timestamp" in aliases
+        assert "conversion_timestamp" in aliases
 
     def test_build_attributed_source_from_precomputed_is_final_aggregateable(self):
         processor = self._processor()

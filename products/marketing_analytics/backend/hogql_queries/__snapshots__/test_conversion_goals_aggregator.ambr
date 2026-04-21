@@ -31,13 +31,13 @@
               fbclid_name,
               gad_source_name,
               '-' AS campaign_id,
-              conversion_value
+              multiply(conversion_value, touchpoint_weight) AS conversion_value
           
   FROM
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, ['019d9cdc-cdf5-7af7-b93b-451876541572']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, ['00000000-0000-0000-0000-000000000001']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -84,13 +84,13 @@
               fbclid_name,
               gad_source_name,
               '-' AS campaign_id,
-              conversion_value
+              multiply(conversion_value, touchpoint_weight) AS conversion_value
           
   FROM
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, ['019d9cdc-dbcc-7fee-b61d-aa228c96928b']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, ['00000000-0000-0000-0000-000000000001']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -137,13 +137,13 @@
               fbclid_name,
               gad_source_name,
               '-' AS campaign_id,
-              conversion_value
+              multiply(conversion_value, touchpoint_weight) AS conversion_value
           
   FROM
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, ['019d9cdc-e9ec-7bc0-a43c-f44e8b54680a']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, ['00000000-0000-0000-0000-000000000001']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -190,13 +190,13 @@
               fbclid_name,
               gad_source_name,
               '-' AS campaign_id,
-              conversion_value
+              multiply(conversion_value, touchpoint_weight) AS conversion_value
           
   FROM
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, ['019d9cdc-f926-703f-a1d0-3748a10c47a5']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, ['00000000-0000-0000-0000-000000000001']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -247,13 +247,13 @@
               fbclid_name,
               gad_source_name,
               '-' AS campaign_id,
-              conversion_value
+              multiply(conversion_value, touchpoint_weight) AS conversion_value
           
   FROM
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, ['019d9cdd-e9a4-73be-919c-1981cdaf2ce1']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, ['00000000-0000-0000-0000-000000000001']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -283,13 +283,13 @@
               fbclid_name,
               gad_source_name,
               '-' AS campaign_id,
-              conversion_value
+              multiply(conversion_value, touchpoint_weight) AS conversion_value
           
   FROM
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, ['019d9cdd-f771-7f11-a329-6b0f26caae1e']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, ['00000000-0000-0000-0000-000000000002']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -319,13 +319,13 @@
               fbclid_name,
               gad_source_name,
               '-' AS campaign_id,
-              conversion_value
+              multiply(conversion_value, touchpoint_weight) AS conversion_value
           
   FROM
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, ['019d9cde-0526-7bfa-9dd7-f012ca63a2d9']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, ['00000000-0000-0000-0000-000000000003']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -374,13 +374,13 @@
               fbclid_name,
               gad_source_name,
               '-' AS campaign_id,
-              conversion_value
+              multiply(conversion_value, touchpoint_weight) AS conversion_value
           
   FROM
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, ['019d9cde-668e-736f-ad76-055ea7942ec1']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, ['00000000-0000-0000-0000-000000000001']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -409,13 +409,13 @@
               fbclid_name,
               gad_source_name,
               '-' AS campaign_id,
-              conversion_value
+              multiply(conversion_value, touchpoint_weight) AS conversion_value
           
   FROM
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, ['019d9cde-7409-7483-83f8-427863d784f4']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, ['00000000-0000-0000-0000-000000000002']), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
