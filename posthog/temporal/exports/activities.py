@@ -9,6 +9,7 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
 from posthog.tasks.exports.failure_handler import SYSTEM_ERROR_NAMES
+from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_TRACE_CHARS, truncate_for_temporal_payload
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
 
@@ -54,9 +55,11 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             # errors like Chrome crashes or programming errors should fail fast.
             # exception_class is on .type; details carry [error_trace]
             # See: posthog.temporal.exports.types.extract_error_details
+            # Truncate to keep the failure envelope under Temporal's 2 MiB payload limit;
+            # upstream exceptions (CH 5xx bodies, Playwright HTML dumps) can exceed it alone.
             raise ApplicationError(
-                str(e),
-                error_trace,
+                truncate_for_temporal_payload(str(e), MAX_ERROR_MESSAGE_CHARS),
+                truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),
                 type=exception_class,
                 non_retryable=exception_class not in SYSTEM_ERROR_NAMES,
             ) from e
