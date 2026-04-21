@@ -20,7 +20,16 @@
  *
  * Last audited: 2026-04 against https://modelcontextprotocol.io/clients + local tests.
  */
-const KNOWN_UNSUPPORTED_CLIENTS: readonly string[] = ['cursor', 'codeium', 'windsurf', 'claude-code']
+const KNOWN_UNSUPPORTED_CLIENTS: readonly string[] = [
+    'cursor',
+    'codeium',
+    'windsurf',
+    'claude-code',
+    // OpenAI Codex CLI sends clientInfo.name='codex-mcp-client'. Verified empirically
+    // 2026-04: after toolsets(enable), Codex tries the new tool, gets no match, and gives
+    // up without surfacing the reconnect path.
+    'codex',
+]
 
 export function clientSupportsListChanged(clientName?: string): boolean {
     if (!clientName) {

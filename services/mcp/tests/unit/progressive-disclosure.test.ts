@@ -263,6 +263,8 @@ describe('Client capability detection', () => {
         // Claude Code defers non-bootstrap tools at init and doesn't re-scan on list_changed,
         // so the reconnect path is needed. Verified empirically 2026-04.
         ['claude-code', false],
+        // OpenAI Codex CLI sends 'codex-mcp-client' in clientInfo.name. Matches via substring.
+        ['codex-mcp-client', false],
     ])('clientSupportsListChanged(%s) === %s', (clientName, expected) => {
         expect(clientSupportsListChanged(clientName as string | undefined)).toBe(expected)
     })
