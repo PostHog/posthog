@@ -90,6 +90,31 @@ class KafkaProducerForTests:
         return 0
 
 
+class AIOProducerForTests:
+    """No-op async producer stand-in matching the subset of `AIOProducer` used
+    by `_AsyncKafkaProducer`. Avoids connecting to Kafka when `settings.TEST` is
+    true so tests that exercise code paths producing to Kafka don't hang.
+    """
+
+    async def produce(
+        self,
+        topic: str,
+        value: Any,
+        key: Any = None,
+        headers: Any = None,
+    ) -> asyncio.Future[Any]:
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future[Any] = loop.create_future()
+        future.set_result(None)
+        return future
+
+    async def flush(self, timeout: float | None = None) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
 class _KafkaSecurityProtocol(StrEnum):
     PLAINTEXT = "PLAINTEXT"
     SSL = "SSL"
@@ -332,7 +357,7 @@ class _KafkaProducer:
 
 
 class _AsyncKafkaProducer:
-    producer: AIOProducer
+    producer: AIOProducer | AIOProducerForTests
     _closed: bool
 
     def __init__(
@@ -346,6 +371,11 @@ class _AsyncKafkaProducer:
         compression_type: str | None = None,
         producer_settings: Optional[dict[str, Any]] = None,
     ):
+        if settings.TEST:
+            self.producer = AIOProducerForTests()
+            self._closed = False
+            return
+
         default_profile = settings.KAFKA_PROFILES["default"]
         if kafka_security_protocol is None:
             kafka_security_protocol = default_profile.security_protocol
