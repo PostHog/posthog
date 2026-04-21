@@ -469,10 +469,7 @@ def register_cimd_provisioning_application_task(url: str) -> None:
             if app is None:
                 return
             if not app.is_provisioning_partner:
-                defaults = _cimd_provisioning_defaults_for(app)
-                for field, value in defaults.items():
-                    setattr(app, field, value)
-                app.save(update_fields=list(defaults.keys()))
+                _apply_provisioning_defaults(app)
                 capture_ph_event(
                     distinct_id=url,
                     event="cimd_provisioning_partner_registered",
@@ -480,7 +477,7 @@ def register_cimd_provisioning_application_task(url: str) -> None:
                         "cimd_url": url,
                         "client_name": app.name,
                         "app_id": str(app.pk),
-                        "account_requests_rate_limit": defaults["provisioning_rate_limit_account_requests"],
+                        "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
                         "is_verified": app.organization_id is not None,
                         "organization_id": str(app.organization_id) if app.organization_id else None,
                     },
@@ -564,6 +561,18 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> dict:
     return defaults
 
 
+def _apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
+    """Apply provisioning defaults to a CIMD app and persist them.
+
+    Computes the correct defaults (verified vs anonymous rate limit) based on
+    the app's organization linkage, sets the fields, and saves."""
+    defaults = _cimd_provisioning_defaults_for(app)
+    for field, value in defaults.items():
+        setattr(app, field, value)
+    app.save(update_fields=list(defaults.keys()))
+    return app
+
+
 def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | None:
     """
     Resolve a CIMD URL to an OAuthApplication configured as a provisioning partner.
@@ -581,10 +590,7 @@ def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | 
 
     app = get_or_create_cimd_application(url)
     if not app.is_provisioning_partner:
-        defaults = _cimd_provisioning_defaults_for(app)
-        for field, value in defaults.items():
-            setattr(app, field, value)
-        app.save(update_fields=list(defaults.keys()))
+        _apply_provisioning_defaults(app)
         posthoganalytics.capture(
             distinct_id=url,
             event="cimd_provisioning_partner_registered",
@@ -592,7 +598,7 @@ def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | 
                 "cimd_url": url,
                 "client_name": app.name,
                 "app_id": str(app.pk),
-                "account_requests_rate_limit": defaults["provisioning_rate_limit_account_requests"],
+                "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
                 "is_verified": app.organization_id is not None,
                 "organization_id": str(app.organization_id) if app.organization_id else None,
             },
