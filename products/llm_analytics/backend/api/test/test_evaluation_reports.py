@@ -288,6 +288,25 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(body["count"], 1)
         self.assertEqual(len(body["results"]), 1)
 
+    def test_runs_action_allows_personal_api_key_with_read_scope(self):
+        # The /runs/ custom @action has to declare required_scopes explicitly; without
+        # it the default scope resolver returns None for non-CRUD action names and PAK
+        # requests are rejected with "This action does not support Personal API Key access".
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(["llm_analytics:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.get(f"{self.base_url}{report.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_runs_action_denies_personal_api_key_missing_scope(self):
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(["insight:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.get(f"{self.base_url}{report.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     @patch("products.llm_analytics.backend.api.evaluation_reports.report_user_action")
     def test_create_reports_user_action(self, mock_report: MagicMock) -> None:
         response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
