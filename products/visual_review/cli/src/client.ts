@@ -56,20 +56,39 @@ export class VisualReviewClient {
     }
 
     private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-        const response = await fetch(this.url(path), {
-            ...options,
-            headers: {
-                ...this.headers,
-                ...options.headers,
-            },
-        })
+        const maxRetries = 3
+        const baseDelayMs = 1000
 
-        if (!response.ok) {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            const response = await fetch(this.url(path), {
+                ...options,
+                headers: {
+                    ...this.headers,
+                    ...options.headers,
+                },
+            })
+
+            if (response.ok) {
+                return response.json() as Promise<T>
+            }
+
             const text = await response.text()
+
+            // Only retry on 5xx server errors
+            if (response.status >= 500 && attempt < maxRetries) {
+                const delayMs = baseDelayMs * Math.pow(2, attempt) // 1s, 2s, 4s
+                console.warn(
+                    `[vr] API returned ${response.status}, retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})...`
+                )
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                continue
+            }
+
             throw new Error(`API error ${response.status}: ${text}`)
         }
 
-        return response.json() as Promise<T>
+        // Unreachable, but TypeScript needs it
+        throw new Error('Unexpected: exhausted retries without throwing')
     }
 
     /**
@@ -104,25 +123,41 @@ export class VisualReviewClient {
      * Upload artifact to S3 using presigned URL from createRun response.
      */
     async uploadToS3(uploadTarget: UploadTargetApi, data: Buffer): Promise<void> {
-        const formData = new FormData()
+        const maxRetries = 2
+        const baseDelayMs = 1000
 
-        // Add all presigned fields
-        for (const [key, value] of Object.entries(uploadTarget.fields) as [string, string][]) {
-            formData.append(key, value)
-        }
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            const formData = new FormData()
 
-        // Content-Type must be in form data (required by presigned POST policy)
-        formData.append('Content-Type', 'image/png')
+            // Add all presigned fields
+            for (const [key, value] of Object.entries(uploadTarget.fields) as [string, string][]) {
+                formData.append(key, value)
+            }
 
-        // Add file data (must be last field in form data for S3)
-        formData.append('file', new Blob([new Uint8Array(data)], { type: 'image/png' }))
+            // Content-Type must be in form data (required by presigned POST policy)
+            formData.append('Content-Type', 'image/png')
 
-        const response = await fetch(uploadTarget.url, {
-            method: 'POST',
-            body: formData,
-        })
+            // Add file data (must be last field in form data for S3)
+            formData.append('file', new Blob([new Uint8Array(data)], { type: 'image/png' }))
 
-        if (!response.ok) {
+            const response = await fetch(uploadTarget.url, {
+                method: 'POST',
+                body: formData,
+            })
+
+            if (response.ok) {
+                return
+            }
+
+            if (response.status >= 500 && attempt < maxRetries) {
+                const delayMs = baseDelayMs * Math.pow(2, attempt)
+                console.warn(
+                    `[vr] S3 upload returned ${response.status}, retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})...`
+                )
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                continue
+            }
+
             throw new Error(`S3 upload failed: ${response.status}`)
         }
     }
