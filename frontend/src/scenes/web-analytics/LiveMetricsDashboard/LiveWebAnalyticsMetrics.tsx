@@ -25,6 +25,7 @@ import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveE
 import { WebAnalyticsDomainSelector } from '../WebAnalyticsFilters'
 import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { getBrowserLogo } from './browserLogos'
+import { LiveBotTrafficCard } from './LiveBotTrafficCard'
 import { CONTENT_CARD_SPAN, LiveContentCardId, LiveStatCardId } from './liveCards'
 import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
@@ -121,6 +122,8 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         totalPageviews,
         totalUniqueVisitors,
         totalBrowsers,
+        botBreakdown,
+        totalBotEvents,
         liveUserCount,
         selectedHost,
         isLoading,
@@ -237,6 +240,15 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         renderIcon={renderCountryIcon}
                         emptyMessage="No country data"
                         statLabel="unique visitors"
+                        isLoading={isLoading}
+                    />
+                )
+            case 'bot_traffic':
+                return (
+                    <LiveBotTrafficCard
+                        data={botBreakdown}
+                        totalBotEvents={totalBotEvents}
+                        totalEvents={totalPageviews + totalBotEvents}
                         isLoading={isLoading}
                     />
                 )

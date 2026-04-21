@@ -41,6 +41,16 @@ export interface SlidingWindowBucket {
     referrers: Map<string, number>
     uniqueUsers: Set<string>
     countries: Map<string, Set<string>>
+    // Optional so that existing tests and backfill helpers don't have to
+    // construct bot maps when they are not asserting on bot traffic.
+    bots?: Map<string, { count: number; category: string }>
+}
+
+export interface BotBreakdownItem {
+    bot: string
+    category: string
+    count: number
+    percentage: number
 }
 
 export interface CountryBreakdownItem {
