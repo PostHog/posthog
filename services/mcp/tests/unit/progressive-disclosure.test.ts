@@ -252,17 +252,16 @@ describe('Bootstrap immunity', () => {
 })
 
 describe('Client capability detection', () => {
-    it('treats unknown clients as supporting list_changed', () => {
-        expect(clientSupportsListChanged(undefined)).toBe(true)
-        expect(clientSupportsListChanged('')).toBe(true)
-        expect(clientSupportsListChanged('claude-code')).toBe(true)
-        expect(clientSupportsListChanged('claude-ai')).toBe(true)
-    })
-
-    it('flags known-unsupported clients', () => {
-        expect(clientSupportsListChanged('Cursor')).toBe(false)
-        expect(clientSupportsListChanged('cursor-vscode')).toBe(false)
-        expect(clientSupportsListChanged('Windsurf')).toBe(false)
-        expect(clientSupportsListChanged('codeium')).toBe(false)
+    it.each([
+        [undefined, true],
+        ['', true],
+        ['claude-code', true],
+        ['claude-ai', true],
+        ['Cursor', false],
+        ['cursor-vscode', false],
+        ['Windsurf', false],
+        ['codeium', false],
+    ])('clientSupportsListChanged(%s) === %s', (clientName, expected) => {
+        expect(clientSupportsListChanged(clientName as string | undefined)).toBe(expected)
     })
 })
