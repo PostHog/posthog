@@ -10,8 +10,6 @@ personhog-coordination = { path = "../personhog-coordination" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 
 anyhow = { workspace = true }
-etcd-client = "0.18"
-prost = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

@@ -89,6 +89,30 @@ impl CannonClient {
         Ok(resp.into_inner().person)
     }
 
+    pub async fn resolve_person_ids(
+        &self,
+        team_id: i64,
+        person_ids: &[i64],
+        discover_distinct_ids: &[String],
+    ) -> Result<Vec<i64>> {
+        let mut ids = person_ids.to_vec();
+
+        if !discover_distinct_ids.is_empty() {
+            let results = self
+                .discover_by_distinct_ids(team_id, discover_distinct_ids.to_vec())
+                .await?;
+            for r in results {
+                if let Some(person) = r.person {
+                    if !ids.contains(&person.id) {
+                        ids.push(person.id);
+                    }
+                }
+            }
+        }
+
+        Ok(ids)
+    }
+
     pub async fn update_properties(
         &self,
         team_id: i64,

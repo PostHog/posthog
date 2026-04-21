@@ -45,15 +45,16 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libssl-dev ca-certificates curl && \
+    KUBECTL_VERSION="v1.31.3" && \
     ARCH=$(dpkg --print-architecture) && \
-    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl" && \
+    curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" && \
+    curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256" && \
+    echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check && \
     install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
-    rm kubectl && \
+    rm kubectl kubectl.sha256 && \
     rm -rf /var/lib/apt/lists/*
 
-ARG BIN
-ENV BIN=$BIN
 WORKDIR /app
 
-COPY --from=builder /app/target/release/$BIN /usr/local/bin
-ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/$BIN"]
+COPY --from=builder /app/target/release/personhog-cannon /usr/local/bin/personhog-cannon
+ENTRYPOINT ["/usr/local/bin/personhog-cannon"]

@@ -15,7 +15,9 @@ use crate::state::PersonState;
 use crate::stats::StatsCollector;
 
 pub async fn run(client: CannonClient, args: BlastArgs) -> Result<()> {
-    let person_ids = resolve_person_ids(&client, &args).await?;
+    let person_ids = client
+        .resolve_person_ids(args.team_id, &args.person_ids, &args.discover_distinct_ids)
+        .await?;
     if person_ids.is_empty() {
         bail!("no persons found — provide --person-ids or --discover-distinct-ids");
     }
@@ -105,25 +107,6 @@ pub async fn run(client: CannonClient, args: BlastArgs) -> Result<()> {
         bail!("{} consistency violations detected", violations.len());
     }
     Ok(())
-}
-
-async fn resolve_person_ids(client: &CannonClient, args: &BlastArgs) -> Result<Vec<i64>> {
-    let mut ids = args.person_ids.clone();
-
-    if !args.discover_distinct_ids.is_empty() {
-        let results = client
-            .discover_by_distinct_ids(args.team_id, args.discover_distinct_ids.clone())
-            .await?;
-        for r in results {
-            if let Some(person) = r.person {
-                if !ids.contains(&person.id) {
-                    ids.push(person.id);
-                }
-            }
-        }
-    }
-
-    Ok(ids)
 }
 
 async fn verify_reads(

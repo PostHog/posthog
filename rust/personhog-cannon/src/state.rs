@@ -33,11 +33,9 @@ impl PersonState {
             written_properties: HashMap::new(),
             last_version: 0,
         });
-        if version >= entry.last_version {
-            entry.last_version = version;
-            for (k, v) in properties {
-                entry.written_properties.insert(k, v);
-            }
+        entry.last_version = entry.last_version.max(version);
+        for (k, v) in properties {
+            entry.written_properties.insert(k, v);
         }
     }
 
