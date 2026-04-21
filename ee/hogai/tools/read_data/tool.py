@@ -26,6 +26,7 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.llm_analytics.backend.summarization.llm.call import summarize
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
 from products.llm_analytics.backend.summarization.utils import get_summary_cache_key
@@ -481,6 +482,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             .exclude(deleted=True)
             .select_related("insight")
         ]
+        tiles = DashboardTile.sort_tiles_by_layout(tiles)
 
         # Build DashboardInsightContext models for all tiles
         insights_data: list[DashboardInsightContext] = []

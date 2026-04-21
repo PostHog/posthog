@@ -34,8 +34,9 @@ import {
     QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardTile, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
+import { sortTilesByLayout } from '../dashboard/tileLayouts'
 import { Scene } from '../sceneTypes'
 import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
@@ -169,12 +170,14 @@ export const insightToMaxContext = (
 }
 
 export const dashboardToMaxContext = (dashboard: DashboardType<InsightWithQuery>): MaxDashboardContext => {
+    const insightTiles = dashboard.tiles.filter((tile) => tile.insight)
+    const sortedInsightTiles = sortTilesByLayout(insightTiles as DashboardTile<QueryBasedInsightModel>[], 'sm')
     return {
         type: MaxContextType.DASHBOARD,
         id: dashboard.id,
         name: dashboard.name,
         description: dashboard.description,
-        insights: dashboard.tiles.filter((tile) => tile.insight).map((tile) => insightToMaxContext(tile.insight!)),
+        insights: sortedInsightTiles.map((tile) => insightToMaxContext(tile.insight!)),
         filters: dashboard.filters,
     }
 }

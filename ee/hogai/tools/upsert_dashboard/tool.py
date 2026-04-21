@@ -288,9 +288,13 @@ class UpsertDashboardTool(MaxTool):
             created_by=self._user,
         )
         insights = self._create_resolved_insights(insights)
-        DashboardTile.objects.bulk_create(
-            [DashboardTile(dashboard=dashboard, insight=insight, layouts={}) for insight in insights]
-        )
+        tiles = [DashboardTile(dashboard=dashboard, insight=insight, layouts={}) for insight in insights]
+        DashboardTile.objects.bulk_create(tiles)
+        layout_updates = self._compute_reflow_layout_updates(tiles, [])
+        for layout_update in layout_updates:
+            row_tile = layout_update["tile"]
+            row_tile.layouts = layout_update["layouts"]
+            row_tile.save(update_fields=["layouts"])
         return dashboard
 
     @database_sync_to_async
