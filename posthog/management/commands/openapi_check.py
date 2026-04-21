@@ -17,6 +17,7 @@ from drf_spectacular.management.commands.spectacular import (
 _IGNORED_WARNING_PATTERNS = (
     "ENUM_NAME_OVERRIDES",
     "encountered multiple names for the same choice set",
+    "non-optimally resolvable collision",
 )
 
 
