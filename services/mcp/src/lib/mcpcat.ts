@@ -4,22 +4,20 @@ import { track } from 'mcpcat'
 
 import type { MCPAnalyticsContext } from '@/lib/analytics'
 
-type MaybePromise<T> = T | Promise<T>
-
 /** Provider interface for resolving user/session identity and workspace context. */
 export type McpCatIdentityProvider = {
     getDistinctId: () => Promise<string>
     getSessionUuid: () => Promise<string | undefined>
-    getMcpClientName: () => MaybePromise<string | undefined>
-    getMcpClientVersion: () => MaybePromise<string | undefined>
-    getMcpProtocolVersion: () => MaybePromise<string | undefined>
-    getRegion: () => MaybePromise<string | undefined>
-    getAnalyticsContext: () => MaybePromise<MCPAnalyticsContext | undefined>
-    getClientUserAgent: () => MaybePromise<string | undefined>
-    getVersion: () => MaybePromise<number | undefined>
-    getOAuthClientName: () => MaybePromise<string | undefined>
-    getReadOnly: () => MaybePromise<boolean | undefined>
-    getTransport: () => MaybePromise<string | undefined>
+    getMcpClientName: () => Promise<string | undefined>
+    getMcpClientVersion: () => Promise<string | undefined>
+    getMcpProtocolVersion: () => Promise<string | undefined>
+    getRegion: () => Promise<string | undefined>
+    getAnalyticsContext: () => Promise<MCPAnalyticsContext | undefined>
+    getClientUserAgent: () => Promise<string | undefined>
+    getVersion: () => Promise<number | undefined>
+    getOAuthClientName: () => Promise<string | undefined>
+    getReadOnly: () => Promise<boolean | undefined>
+    getTransport: () => Promise<string | undefined>
 }
 
 export function redactSensitiveInformation(text: string): string {
