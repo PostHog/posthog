@@ -969,7 +969,7 @@ describe('hog flow processing', () => {
             })
         })
 
-        it('should load group properties for hog flow invocations', async () => {
+        it('should load group properties before building invocations', async () => {
             await insertHogFlow(
                 new FixtureHogFlowBuilder()
                     .withTeamId(team.id)
@@ -984,7 +984,7 @@ describe('hog flow processing', () => {
 
             const spy = jest.spyOn(processor['groupsManager'], 'addGroupsToGlobalsList')
 
-            await processor['createHogFlowInvocations']([globals])
+            await processor.processBatch([globals])
 
             expect(spy).toHaveBeenCalledTimes(1)
             expect(spy).toHaveBeenCalledWith([globals])
