@@ -5,7 +5,6 @@ from typing import Any
 
 import structlog
 from django_redis import get_redis_connection
-from ee.hogai.sandbox import STOP_REASON_END_TURN, TURN_COMPLETE_METHOD
 from temporalio import activity
 
 from posthog.temporal.oauth import PosthogMcpScopes
@@ -27,6 +26,8 @@ from products.tasks.backend.temporal.process_task.utils import (
     mark_mcp_token_issued,
     should_refresh_mcp_token,
 )
+
+from ee.hogai.sandbox import STOP_REASON_END_TURN, TURN_COMPLETE_METHOD
 
 logger = structlog.get_logger(__name__)
 

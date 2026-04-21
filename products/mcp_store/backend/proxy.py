@@ -6,10 +6,11 @@ from django.http import HttpResponse, StreamingHttpResponse
 
 import httpx
 import structlog
-from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
+
+from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPServerInstallation
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token

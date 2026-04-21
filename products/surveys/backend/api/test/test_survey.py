@@ -22,7 +22,6 @@ from unittest.mock import ANY, patch
 from django.core.cache import cache
 from django.test.client import Client
 
-from ee.models.rbac.access_control import AccessControl
 from nanoid import generate
 from rest_framework import status
 
@@ -35,6 +34,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import nh3_clean_with_allow_list
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, surveys_hypercache
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestSurvey(APIBaseTest):

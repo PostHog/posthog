@@ -2,12 +2,6 @@ import json
 import logging
 from typing import Any
 
-from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
-from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.chat_agent.taxonomy.tools import base_final_answer
-from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
@@ -16,6 +10,13 @@ from posthog.schema import MaxRecordingUniversalFilters
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
+
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import base_final_answer
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
+from ee.hogai.tool import MaxTool
 
 from .prompts import (
     DATE_FIELDS_PROMPT,

@@ -2,7 +2,6 @@ from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any
 
-from ee.hogai.tool import MaxTool
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import ValidationError
 
@@ -14,6 +13,8 @@ from posthog.models import FeatureFlag, GroupTypeMapping
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
+
+from ee.hogai.tool import MaxTool
 
 
 class MultivariateVariant(BaseModel):

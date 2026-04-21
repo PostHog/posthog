@@ -1,4 +1,5 @@
 extend = "../pyproject.toml"
+src = [".."]
 
 [lint]
 extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]

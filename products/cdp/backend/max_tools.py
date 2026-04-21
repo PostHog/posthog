@@ -2,9 +2,6 @@ import re
 import json
 from typing import Optional
 
-from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool import MaxTool
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
@@ -33,6 +30,10 @@ from products.cdp.backend.prompts import (
     HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
 )
+
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.tool import MaxTool
 
 
 class CreateHogTransformationFunctionArgs(BaseModel):

@@ -5,8 +5,6 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from asgiref.sync import sync_to_async
-from ee.hogai.artifacts.types import ModelArtifactResult
-from ee.hogai.tool import MaxTool
 from pydantic import BaseModel, Field
 
 from posthog.schema import (
@@ -25,6 +23,9 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
+
+from ee.hogai.artifacts.types import ModelArtifactResult
+from ee.hogai.tool import MaxTool
 
 UPSERT_ALERT_CONTEXT_PROMPT_TEMPLATE = """
 The user is currently viewing an insight that supports alerts. Here are the insight's details for use with the `upsert_alert` tool:
