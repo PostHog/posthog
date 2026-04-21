@@ -75,7 +75,14 @@ Only fetch files you actually need. If the body's decision tree points at one sc
 
 ## Creating a skill
 
-Use a unique kebab-case name, a description explaining when to use the skill (this is what discovery relies on), and the body as a markdown string. Bundled files are optional and can be included in a single create call:
+Follow the [Agent Skills specification](https://agentskills.io/specification) when creating skills:
+
+- **`name`** — kebab-case, max 64 chars, no leading/trailing/consecutive hyphens
+- **`description`** — explain what it does AND when to use it. Include keywords agents will search for. This is the only thing visible at discovery time — make it count.
+- **`body`** — keep under ~500 lines. Move detailed reference material, SQL, scripts, and long examples into bundled `files` so the body stays scannable.
+- **Files** — use `scripts/` for executable code, `references/` for docs, `assets/` for templates/data. Agents pull these on demand via `skill-file-get`, so splitting keeps context lean.
+
+Bundled files are optional and can be included in a single create call:
 
 ```json
 posthog:skill-create
