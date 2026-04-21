@@ -45,6 +45,7 @@ from posthog.personhog_client.proto import (
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
+    ListCohortMemberIdsRequest,
 )
 from posthog.settings import TEST
 
@@ -625,6 +626,52 @@ def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int])
 def is_person_in_cohort(team_id: int, person_id: int, cohort_id: int) -> bool:
     """Convenience single-cohort variant of ``check_cohort_membership``."""
     return check_cohort_membership(team_id, person_id, [cohort_id]).get(cohort_id, False)
+
+
+_LIST_COHORT_MEMBER_IDS_PAGE_SIZE = 10_000
+
+
+def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    all_ids: list[int] = []
+    cursor = 0
+    while True:
+        resp = client.list_cohort_member_ids(
+            ListCohortMemberIdsRequest(cohort_id=cohort_id, cursor=cursor, limit=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE)
+        )
+        all_ids.extend(resp.person_ids)
+        if resp.next_cursor == 0:
+            break
+        cursor = resp.next_cursor
+    return all_ids
+
+
+def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
+    """Return all person IDs belonging to a static cohort.
+
+    Routes through personhog when the gate is enabled, falling back to a Django
+    ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    """
+    from posthog.models.cohort.cohort import CohortPeople
+
+    def orm_fn() -> list[int]:
+        return list(
+            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(cohort_id=cohort_id)
+            .values_list("person_id", flat=True)
+        )
+
+    return _personhog_routed(
+        "list_cohort_member_ids",
+        lambda: _list_cohort_member_ids_via_personhog(cohort_id),
+        orm_fn,
+        team_id=team_id,
+    )
 
 
 def get_person_by_pk_or_uuid(team_id: int, key: str) -> Optional[Person]:

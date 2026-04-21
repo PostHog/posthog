@@ -356,6 +356,19 @@ def property_to_Q(
                     return Q(pk__isnull=False)
                 return Q(pk__isnull=True)
 
+            # When team_id is available, list all member IDs and filter with
+            # Q(id__in=…) — routes through personhog when the gate is on,
+            # falling back to the CohortPeople table otherwise. This avoids
+            # the Exists(CohortPeople) subquery so the persons DB is not
+            # required on the personhog path.
+            if team_id is not None:
+                from posthog.models.person.util import list_cohort_member_ids
+
+                member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort_id)
+                if not member_ids:
+                    return Q(pk__isnull=True)
+                return Q(id__in=member_ids)
+
             return Q(
                 Exists(
                     CohortPeople.objects.db_manager(using_database)

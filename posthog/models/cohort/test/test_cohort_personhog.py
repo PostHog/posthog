@@ -350,7 +350,7 @@ class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
 
         assert q == Q(pk__isnull=True)
 
-    def test_falls_back_to_exists_without_person_id(self):
+    def test_falls_back_to_exists_without_person_id_or_team_id(self):
         from posthog.queries.base import property_to_Q
 
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
@@ -362,8 +362,9 @@ class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
         # Not a short-circuit Q — it's an Exists() wrapped in Q
         assert q != Q(pk__isnull=False)
         assert q != Q(pk__isnull=True)
-        # The Exists subquery path never calls the RPC
+        # The Exists subquery path never calls either RPC
         self._assert_personhog_not_called("check_cohort_membership")
+        self._assert_personhog_not_called("list_cohort_member_ids")
 
     def test_isolates_cohort_by_team_id(self):
         """A cohort owned by a different team (even within the same project)
@@ -387,3 +388,127 @@ class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
         )
 
         assert q == Q(pk__isnull=True)
+
+
+@parameterized_class(("personhog",), [(False,), (True,)])
+class TestListCohortMemberIds(PersonhogTestMixin, BaseTest):
+    def test_returns_member_ids(self):
+        from posthog.models.person.util import list_cohort_member_ids
+
+        p1 = self._seed_person(team=self.team, distinct_ids=["d1"])
+        p2 = self._seed_person(team=self.team, distinct_ids=["d2"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        CohortPeople.objects.create(cohort=cohort, person=p1)
+        CohortPeople.objects.create(cohort=cohort, person=p2)
+        self._seed_cohort_membership(person_id=p1.id, cohort_id=cohort.id, is_member=True)
+        self._seed_cohort_membership(person_id=p2.id, cohort_id=cohort.id, is_member=True)
+
+        result = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.id)
+
+        assert sorted(result) == sorted([p1.id, p2.id])
+        self._assert_personhog_called("list_cohort_member_ids")
+
+    def test_returns_empty_for_empty_cohort(self):
+        from posthog.models.person.util import list_cohort_member_ids
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+
+        result = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.id)
+
+        assert result == []
+
+    def test_excludes_non_members(self):
+        from posthog.models.person.util import list_cohort_member_ids
+
+        p1 = self._seed_person(team=self.team, distinct_ids=["d1"])
+        p2 = self._seed_person(team=self.team, distinct_ids=["d2"])
+        c1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        c2 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c2")
+        CohortPeople.objects.create(cohort=c1, person=p1)
+        CohortPeople.objects.create(cohort=c2, person=p2)
+        self._seed_cohort_membership(person_id=p1.id, cohort_id=c1.id, is_member=True)
+        self._seed_cohort_membership(person_id=p2.id, cohort_id=c2.id, is_member=True)
+
+        result = list_cohort_member_ids(team_id=self.team.id, cohort_id=c1.id)
+
+        assert result == [p1.id]
+
+
+class TestListCohortMemberIdsFallback(BaseTest):
+    def test_falls_back_to_orm_when_personhog_disabled(self):
+        from posthog.models.person.util import list_cohort_member_ids
+
+        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        CohortPeople.objects.create(cohort=cohort, person=person)
+
+        with fake_personhog_client(gate_enabled=False) as fake:
+            result = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.id)
+
+        assert result == [person.id]
+        fake.assert_not_called("list_cohort_member_ids")
+
+
+@parameterized_class(("personhog",), [(False,), (True,)])
+class TestPropertyToQStaticCohortMemberList(PersonhogTestMixin, BaseTest):
+    """property_to_Q uses list_cohort_member_ids to produce Q(id__in=…) when
+    team_id is provided but person_id is not (queryset-wide filtering)."""
+
+    def _make_cohort_property(self, cohort_id: int):
+        from posthog.models.property import Property
+
+        return Property(key="id", value=cohort_id, type="cohort")
+
+    def test_returns_id_in_q_with_team_id_and_no_person_id(self):
+        from posthog.queries.base import property_to_Q
+
+        p1 = self._seed_person(team=self.team, distinct_ids=["d1"])
+        p2 = self._seed_person(team=self.team, distinct_ids=["d2"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        CohortPeople.objects.create(cohort=cohort, person=p1)
+        CohortPeople.objects.create(cohort=cohort, person=p2)
+        self._seed_cohort_membership(person_id=p1.id, cohort_id=cohort.id, is_member=True)
+        self._seed_cohort_membership(person_id=p2.id, cohort_id=cohort.id, is_member=True)
+
+        q = property_to_Q(
+            self.team.project_id,
+            self._make_cohort_property(cohort.id),
+            team_id=self.team.id,
+        )
+
+        matched = Person.objects.filter(team_id=self.team.id).filter(q)
+        assert sorted(matched.values_list("id", flat=True)) == sorted([p1.id, p2.id])
+        self._assert_personhog_called("list_cohort_member_ids")
+
+    def test_returns_no_match_for_empty_cohort(self):
+        from posthog.queries.base import property_to_Q
+
+        self._seed_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+
+        q = property_to_Q(
+            self.team.project_id,
+            self._make_cohort_property(cohort.id),
+            team_id=self.team.id,
+        )
+
+        assert q == Q(pk__isnull=True)
+
+    def test_filters_correctly_with_queryset(self):
+        from posthog.queries.base import property_to_Q
+
+        member = self._seed_person(team=self.team, distinct_ids=["member"])
+        non_member = self._seed_person(team=self.team, distinct_ids=["outsider"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        CohortPeople.objects.create(cohort=cohort, person=member)
+        self._seed_cohort_membership(person_id=member.id, cohort_id=cohort.id, is_member=True)
+
+        q = property_to_Q(
+            self.team.project_id,
+            self._make_cohort_property(cohort.id),
+            team_id=self.team.id,
+        )
+
+        matched = set(Person.objects.filter(team_id=self.team.id).filter(q).values_list("id", flat=True))
+        assert member.id in matched
+        assert non_member.id not in matched
