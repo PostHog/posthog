@@ -1275,7 +1275,13 @@ def provisioning_resources_create(request: Request) -> Response:
     app = access_token.application
     if app and app.is_provisioning_partner:
         if error := _enforce_partner_rate_limit(app, "resource_creates"):
-            return error
+            # Resource endpoints use {"status": "error"} envelope, not {"type": "error"}
+            retry_after = error.get("Retry-After", "3600")
+            response = _error_response(
+                "rate_limited", "Rate limit exceeded for this partner. Try again later.", status=429
+            )
+            response["Retry-After"] = retry_after
+            return response
 
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:

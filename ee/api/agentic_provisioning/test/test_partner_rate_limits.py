@@ -348,7 +348,7 @@ class TestPartnerRateLimits(StripeProvisioningTestBase):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
         assert res.status_code == 429
-        assert res.json()["type"] == "error"
+        assert res.json()["status"] == "error"
         assert res.json()["error"]["code"] == "rate_limited"
 
     # --- Stripe Projects (legacy HMAC) is not rate limited ---
