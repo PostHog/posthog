@@ -19,6 +19,7 @@ import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
+import products.web_analytics.backend.api as web_analytics_api
 import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.marketing_analytics.backend.api as marketing_analytics
@@ -1166,6 +1167,12 @@ environments_router.register(
     r"web_analytics_filter_presets",
     WebAnalyticsFilterPresetViewSet,
     "environment_web_analytics_filter_preset",
+    ["team_id"],
+)
+environments_router.register(
+    r"web_analytics",
+    web_analytics_api.WebAnalyticsViewSet,
+    "environment_web_analytics",
     ["team_id"],
 )
 
