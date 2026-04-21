@@ -61,12 +61,6 @@ def _load_migration_config() -> dict:
     return {}
 
 
-def _load_team_map() -> dict[str, str]:
-    """Load product -> team mapping from migration_config.json."""
-    config = _load_migration_config()
-    return {entry["name"]: entry["team"] for entry in config.get("migrations", []) if "team" in entry}
-
-
 def _load_model_assignments() -> dict[str, int]:
     """Load product -> count of models still to move from migration_config.json.
 
@@ -102,7 +96,6 @@ class DimensionScore:
 @dataclass
 class ProductScore:
     product: str
-    team: str
     dimensions: list[DimensionScore] = field(default_factory=list)
 
     @property
@@ -547,20 +540,17 @@ def score_codegen(product_dir: Path) -> DimensionScore:
 def score_product(
     name: str,
     *,
-    team_map: dict[str, str] | None = None,
     assigned_counts: dict[str, int] | None = None,
     inbound_map: dict[str, int] | None = None,
 ) -> ProductScore:
     """Compute all dimension scores for a single product."""
-    if team_map is None:
-        team_map = _load_team_map()
     if assigned_counts is None:
         assigned_counts = _load_model_assignments()
 
     product_dir = PRODUCTS_DIR / name
     backend_dir = product_dir / "backend"
 
-    ps = ProductScore(product=name, team=team_map.get(name, ""))
+    ps = ProductScore(product=name)
     ps.dimensions = [
         score_models(name, backend_dir, assigned_counts),
         score_facade(backend_dir),
@@ -579,7 +569,6 @@ def score_all_products() -> list[ProductScore]:
         if d.is_dir() and not d.name.startswith((".", "_")) and d.name != "__pycache__" and (d / "__init__.py").exists()
     )
 
-    team_map = _load_team_map()
     assigned_counts = _load_model_assignments()
     inbound_map = _build_inbound_violation_map()
     if inbound_map is None:
@@ -588,10 +577,7 @@ def score_all_products() -> list[ProductScore]:
         warnings.warn("inbound violation scan failed (rg unavailable or timeout)", stacklevel=2)
         inbound_map = {}
 
-    scores = [
-        score_product(name, team_map=team_map, assigned_counts=assigned_counts, inbound_map=inbound_map)
-        for name in product_dirs
-    ]
+    scores = [score_product(name, assigned_counts=assigned_counts, inbound_map=inbound_map) for name in product_dirs]
     scores.sort(key=lambda s: s.overall or -1, reverse=True)
     return scores
 
@@ -670,20 +656,6 @@ def generate_report(scores: list[ProductScore]) -> str:
         lines.append(f"{ps.product:>{name_w}s}  {ps.overall:>3d}    {mini_bars}")
 
     lines.append("")
-
-    # Team rollup
-    team_scores: dict[str, list[int]] = {}
-    for ps in scores:
-        if ps.team and ps.overall is not None:
-            team_scores.setdefault(ps.team, []).append(ps.overall)
-
-    if team_scores:
-        lines.append("By Team")
-        for team, vals in sorted(team_scores.items(), key=lambda t: -sum(t[1]) / len(t[1])):
-            avg = round(sum(vals) / len(vals))
-            lines.append(f"  {team:40s}  {avg:3d}  {_bar(avg, 10)}  ({len(vals)} products)")
-        lines.append("")
-
     return "\n".join(lines)
 
 
@@ -693,8 +665,7 @@ def generate_detail(ps: ProductScore) -> str:
 
     overall = ps.overall
     score_str = "N/A" if overall is None else f"{overall}/100"
-    team_str = f" ({ps.team})" if ps.team else ""
-    lines.append(f"{ps.product}{team_str}  {score_str}")
+    lines.append(f"{ps.product}  {score_str}")
     lines.append("")
 
     applicable = list(ps.dimensions)
