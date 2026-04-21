@@ -160,91 +160,134 @@ class TestFetchContactsForList:
         else:
             manager.save_state.assert_called_once_with(expected_checkpoint)
 
+    def test_multi_page_advances_offset_and_checkpoints_each_page(self, monkeypatch) -> None:
+        # total_items=2001 with page_size=1000 → pages at offsets 0, 1000, 2000.
+        # After the third page, offset becomes 3000 and the `offset >= total_items` guard terminates the loop.
+        manager = _fake_manager()
+        responses = [_build_response([{"id": f"m{i}"}], total_items=2001) for i in range(3)]
+        get_mock = MagicMock(side_effect=responses)
+        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
+
+        emitted = list(
+            _fetch_contacts_for_list(
+                api_key="key-us6",
+                dc="us6",
+                list_id="list_a",
+                since_last_changed=None,
+                resumable_source_manager=manager,
+                start_offset=0,
+            )
+        )
+
+        assert [c["id"] for c in emitted] == ["m0", "m1", "m2"]
+        assert [call.kwargs["params"]["offset"] for call in get_mock.call_args_list] == [0, 1000, 2000]
+        assert manager.save_state.call_args_list == [
+            ((MailchimpResumeConfig(list_id="list_a", offset=0),),),
+            ((MailchimpResumeConfig(list_id="list_a", offset=1000),),),
+            ((MailchimpResumeConfig(list_id="list_a", offset=2000),),),
+        ]
+
 
 class TestGetContactsIterator:
-    def test_fresh_run_iterates_all_lists_and_saves_state(self, monkeypatch):
-        manager = _fake_manager(can_resume=False)
+    @pytest.mark.parametrize(
+        (
+            "label",
+            "can_resume",
+            "load_state",
+            "list_ids",
+            "page_by_list_offset",
+            "expected_emitted",
+            "expected_visits",
+            "expected_checkpoints",
+            "load_state_called",
+        ),
+        [
+            (
+                "fresh_run_iterates_all_lists",
+                False,
+                None,
+                ["list_a", "list_b"],
+                {
+                    ("list_a", 0): ([{"id": "a1"}], 1),
+                    ("list_b", 0): ([{"id": "b1"}], 1),
+                },
+                [("list_a", "a1"), ("list_b", "b1")],
+                [("list_a", 0), ("list_b", 0)],
+                [
+                    MailchimpResumeConfig(list_id="list_a", offset=0),
+                    MailchimpResumeConfig(list_id="list_b", offset=0),
+                ],
+                False,
+            ),
+            (
+                "resume_skips_prior_lists_and_starts_mid_list",
+                True,
+                MailchimpResumeConfig(list_id="list_b", offset=1000),
+                ["list_a", "list_b", "list_c"],
+                {
+                    ("list_b", 1000): ([{"id": "b2"}], 1001),
+                    ("list_c", 0): ([{"id": "c1"}], 1),
+                },
+                [("list_b", "b2"), ("list_c", "c1")],
+                [("list_b", 1000), ("list_c", 0)],
+                [
+                    MailchimpResumeConfig(list_id="list_b", offset=1000),
+                    MailchimpResumeConfig(list_id="list_c", offset=0),
+                ],
+                True,
+            ),
+            (
+                "resume_falls_back_to_fresh_when_list_id_missing",
+                True,
+                MailchimpResumeConfig(list_id="gone", offset=500),
+                ["list_a"],
+                {
+                    ("list_a", 0): ([{"id": "a1"}], 1),
+                },
+                [("list_a", "a1")],
+                [("list_a", 0)],
+                [MailchimpResumeConfig(list_id="list_a", offset=0)],
+                True,
+            ),
+        ],
+    )
+    def test_iteration(
+        self,
+        monkeypatch,
+        label: str,
+        can_resume: bool,
+        load_state: MailchimpResumeConfig | None,
+        list_ids: list[str],
+        page_by_list_offset: dict[tuple[str, int], tuple[list[dict[str, Any]], int]],
+        expected_emitted: list[tuple[str, str]],
+        expected_visits: list[tuple[str, int]],
+        expected_checkpoints: list[MailchimpResumeConfig],
+        load_state_called: bool,
+    ) -> None:
+        manager = _fake_manager(can_resume=can_resume, load_state=load_state)
         monkeypatch.setattr(
             "posthog.temporal.data_imports.sources.mailchimp.mailchimp._fetch_all_lists",
-            lambda api_key, dc: [{"id": "list_a"}, {"id": "list_b"}],
+            lambda api_key, dc: [{"id": lid} for lid in list_ids],
         )
-        responses_by_list = {
-            "list_a": [_build_response([{"id": "a1"}], total_items=1)],
-            "list_b": [_build_response([{"id": "b1"}], total_items=1)],
-        }
+        visited: list[tuple[str, int]] = []
 
         def fake_get(url, **kwargs):
-            for list_id, pages in responses_by_list.items():
-                if f"/lists/{list_id}/members" in url:
-                    return pages.pop(0)
+            offset = kwargs["params"]["offset"]
+            for lid in list_ids:
+                if f"/lists/{lid}/members" in url:
+                    visited.append((lid, offset))
+                    members, total_items = page_by_list_offset.get((lid, offset), ([], 0))
+                    return _build_response(members, total_items=total_items)
             raise AssertionError(f"unexpected url={url}")
 
         monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", fake_get)
 
         emitted = list(_get_contacts_iterator(api_key="key-us6", resumable_source_manager=manager))
 
-        assert [(c["list_id"], c["id"]) for c in emitted] == [
-            ("list_a", "a1"),
-            ("list_b", "b1"),
-        ]
-        # One checkpoint per list's first (and only) page.
-        assert manager.save_state.call_args_list == [
-            ((MailchimpResumeConfig(list_id="list_a", offset=0),),),
-            ((MailchimpResumeConfig(list_id="list_b", offset=0),),),
-        ]
-        manager.load_state.assert_not_called()
-
-    def test_resume_skips_prior_lists_and_starts_from_saved_offset(self, monkeypatch):
-        manager = _fake_manager(
-            can_resume=True,
-            load_state=MailchimpResumeConfig(list_id="list_b", offset=1000),
-        )
-        monkeypatch.setattr(
-            "posthog.temporal.data_imports.sources.mailchimp.mailchimp._fetch_all_lists",
-            lambda api_key, dc: [{"id": "list_a"}, {"id": "list_b"}, {"id": "list_c"}],
-        )
-        visited: list[tuple[str, int]] = []
-
-        def fake_get(url, **kwargs):
-            offset = kwargs["params"]["offset"]
-            if "/lists/list_b/members" in url:
-                visited.append(("list_b", offset))
-                if offset == 1000:
-                    return _build_response([{"id": "b2"}], total_items=1001)
-                return _build_response([], total_items=1001)
-            if "/lists/list_c/members" in url:
-                visited.append(("list_c", offset))
-                if offset == 0:
-                    return _build_response([{"id": "c1"}], total_items=1)
-                return _build_response([], total_items=1)
-            raise AssertionError(f"unexpected url={url} — list_a must be skipped on resume")
-
-        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", fake_get)
-
-        emitted = list(_get_contacts_iterator(api_key="key-us6", resumable_source_manager=manager))
-
-        assert [(c["list_id"], c["id"]) for c in emitted] == [
-            ("list_b", "b2"),
-            ("list_c", "c1"),
-        ]
-        assert visited == [("list_b", 1000), ("list_c", 0)]
-
-    def test_resume_falls_back_to_fresh_when_list_id_missing(self, monkeypatch):
-        manager = _fake_manager(
-            can_resume=True,
-            load_state=MailchimpResumeConfig(list_id="gone", offset=500),
-        )
-        monkeypatch.setattr(
-            "posthog.temporal.data_imports.sources.mailchimp.mailchimp._fetch_all_lists",
-            lambda api_key, dc: [{"id": "list_a"}],
-        )
-
-        def fake_get(url, **kwargs):
-            assert kwargs["params"]["offset"] == 0, "must start from scratch when list_id is gone"
-            return _build_response([{"id": "a1"}], total_items=1)
-
-        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", fake_get)
-
-        emitted = list(_get_contacts_iterator(api_key="key-us6", resumable_source_manager=manager))
-
-        assert [(c["list_id"], c["id"]) for c in emitted] == [("list_a", "a1")]
+        assert [(c["list_id"], c["id"]) for c in emitted] == expected_emitted
+        assert visited == expected_visits
+        assert manager.save_state.call_args_list == [((cp,),) for cp in expected_checkpoints]
+        if load_state_called:
+            manager.load_state.assert_called_once()
+        else:
+            manager.load_state.assert_not_called()
