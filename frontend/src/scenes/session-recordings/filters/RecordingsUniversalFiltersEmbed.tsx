@@ -60,7 +60,7 @@ import {
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
-import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
+import { createPlaylist, hasSaveableFilters, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
@@ -360,7 +360,13 @@ const SaveFiltersModal = ({
         setSavedFilterName('')
     }
 
+    const canSave = hasSaveableFilters(filters)
+
     const addSavedFilter = async (): Promise<void> => {
+        if (!canSave) {
+            lemonToast.warning('Add at least one filter before saving')
+            return
+        }
         const f = await createPlaylist(
             { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters' },
             false
@@ -398,7 +404,13 @@ const SaveFiltersModal = ({
                     <LemonButton
                         type="primary"
                         size="small"
-                        disabledReason={savedFilterName.length === 0 ? 'Enter a name' : undefined}
+                        disabledReason={
+                            savedFilterName.length === 0
+                                ? 'Enter a name'
+                                : !canSave
+                                  ? 'Add at least one filter before saving'
+                                  : undefined
+                        }
                         onClick={() => void addSavedFilter()}
                     >
                         Save filters
@@ -555,6 +567,10 @@ const ReplayFiltersTab = ({
         if (appliedSavedFilter === null) {
             return
         }
+        if (!hasSaveableFilters(filters)) {
+            lemonToast.warning('Saved filters must include at least one filter')
+            return
+        }
 
         const f = await updatePlaylist(
             appliedSavedFilter.short_id,
@@ -615,6 +631,9 @@ const ReplayFiltersTab = ({
                                 size="small"
                                 className="max-w-xs"
                                 truncate
+                                disabledReason={
+                                    hasSaveableFilters(filters) ? undefined : 'Add at least one filter before saving'
+                                }
                                 onClick={() => void updateSavedFilter()}
                             >
                                 Save changes to "{appliedSavedFilter.name || 'Unnamed'}"

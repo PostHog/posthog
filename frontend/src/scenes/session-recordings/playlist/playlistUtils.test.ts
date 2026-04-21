@@ -1,4 +1,8 @@
-import { stripSessionIds, summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
+import {
+    hasSaveableFilters,
+    stripSessionIds,
+    summarizePlaylistFilters,
+} from 'scenes/session-recordings/playlist/playlistUtils'
 
 import {
     CohortType,
@@ -218,5 +222,38 @@ describe('stripSessionIds()', () => {
         ['null', null],
     ])('passes %s through unchanged', (_name, input) => {
         expect(stripSessionIds(input as any)).toBe(input)
+    })
+})
+
+describe('hasSaveableFilters()', () => {
+    const baseFilters: Partial<RecordingUniversalFilters> = {
+        date_from: '-30d',
+        filter_group: {
+            type: FilterLogicalOperator.And,
+            values: [],
+        },
+    }
+
+    it('returns true when non-session-id keys are present', () => {
+        expect(hasSaveableFilters(baseFilters)).toBe(true)
+    })
+
+    it('returns true when non-session-id keys coexist with session_ids', () => {
+        expect(hasSaveableFilters({ ...baseFilters, session_ids: ['abc'] })).toBe(true)
+    })
+
+    it('returns false when only session_ids are present', () => {
+        expect(hasSaveableFilters({ session_ids: ['019d68e1-1165-7cf9-b87b-759fe1604d99'] })).toBe(false)
+    })
+
+    it('returns false for an empty object', () => {
+        expect(hasSaveableFilters({})).toBe(false)
+    })
+
+    it.each([
+        ['undefined', undefined],
+        ['null', null],
+    ])('returns false for %s', (_name, input) => {
+        expect(hasSaveableFilters(input as any)).toBe(false)
     })
 })

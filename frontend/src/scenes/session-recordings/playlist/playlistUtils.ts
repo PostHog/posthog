@@ -36,6 +36,21 @@ export function stripSessionIds<T extends Partial<RecordingUniversalFilters> | u
     return rest as T
 }
 
+/**
+ * Returns true when `filters` has at least one key other than `session_ids`.
+ * Saved filters require non-session-id content — the backend rejects an update/create
+ * whose filters payload strips down to `{}` (or contains only `session_ids`, which is
+ * removed before sending).
+ */
+export function hasSaveableFilters(
+    filters: Partial<RecordingUniversalFilters> | undefined | null
+): filters is Partial<RecordingUniversalFilters> {
+    if (!filters) {
+        return false
+    }
+    return Object.keys(stripSessionIds(filters) ?? {}).length > 0
+}
+
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {
         return '?'
