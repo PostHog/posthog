@@ -68,12 +68,17 @@ DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
 
-ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_PREFIX = "agentic_provisioning_account_requests_partner_rate:"
-ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
-
 CIMD_DOMAIN_RATE_LIMIT_PREFIX = "cimd_registration_domain_rate:"
 CIMD_DOMAIN_RATE_LIMIT_MAX = 5
 CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+PARTNER_RATE_LIMIT_PREFIX = "provisioning_partner_rate:"
+PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
+PARTNER_RATE_LIMIT_DEFAULTS: dict[str, int] = {
+    "account_requests": 10,
+    "token_exchanges": 20,
+    "resource_creates": 20,
+}
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
@@ -290,9 +295,6 @@ def account_requests(request: Request) -> Response:
             status=202,
         )
 
-    if partner and (error := _enforce_partner_account_request_rate_limit(partner)):
-        return error
-
     # --- Parse request ---
     data = request.data
     request_id = data.get("id", "")
@@ -356,6 +358,9 @@ def account_requests(request: Request) -> Response:
             },
             status=403,
         )
+
+    if partner and (error := _enforce_partner_rate_limit(partner, "account_requests")):
+        return error
 
     # PKCE: capture code_challenge for later verification
     code_challenge = data.get("code_challenge", "")
@@ -924,6 +929,15 @@ def _exchange_authorization_code(request: Request) -> Response:
         _capture_provisioning_event("token_exchange", "missing_signature", grant_type="authorization_code")
         return Response({"error": "invalid_request", "error_description": "Authentication required"}, status=401)
 
+    partner_id = code_data.get("partner_id", "")
+    if partner_id:
+        try:
+            partner = OAuthApplication.objects.get(id=partner_id)
+            if error := _enforce_partner_rate_limit(partner, "token_exchanges"):
+                return error
+        except OAuthApplication.DoesNotExist:
+            pass
+
     cache.delete(cache_key)
 
     user_id = code_data["user_id"]
@@ -999,6 +1013,10 @@ def _exchange_refresh_token(request: Request) -> Response:
     user = old_refresh.user
     scoped_teams = old_refresh.scoped_teams
     old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
+
+    if oauth_app and oauth_app.is_provisioning_partner:
+        if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
+            return error
 
     old_access = old_refresh.access_token
     old_refresh.access_token = None
@@ -1253,6 +1271,11 @@ def provisioning_resources_create(request: Request) -> Response:
         return error
     if error := verify_api_version(request):
         return error
+
+    app = access_token.application
+    if app and app.is_provisioning_partner:
+        if error := _enforce_partner_rate_limit(app, "resource_creates"):
+            return error
 
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:
@@ -1762,35 +1785,40 @@ def _partner_label(partner: OAuthApplication | None) -> str:
     return "Stripe"
 
 
-def _enforce_partner_account_request_rate_limit(partner: OAuthApplication) -> Response | None:
-    """Enforce the partner's per-hour account_requests limit if one is configured.
+def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Response | None:
+    """Enforce per-partner rate limit using the model's override or a conservative default.
 
-    Uses a fixed-window counter keyed on partner id + hour-of-epoch. Self-serve
-    CIMD partners get a low default on first registration; admins can raise it.
+    Returns a 429 Response if the limit is exceeded, or None if the request is allowed.
+    Setting the model field to 0 disables rate limiting for that endpoint.
     """
-    limit = partner.provisioning_rate_limit_account_requests
-    if not limit or limit <= 0:
+    field_name = f"provisioning_rate_limit_{endpoint}"
+    override = getattr(partner, field_name, None)
+
+    if override is not None:
+        limit = override
+    else:
+        limit = PARTNER_RATE_LIMIT_DEFAULTS.get(endpoint, 10)
+
+    if limit <= 0:
         return None
 
-    window_index = int(time.time()) // ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS
-    key = f"{ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_PREFIX}{partner.id}:{window_index}"
+    window_index = int(time.time()) // PARTNER_RATE_LIMIT_WINDOW_SECONDS
+    cache_key = f"{PARTNER_RATE_LIMIT_PREFIX}{endpoint}:{partner.id}:{window_index}"
+
     try:
-        count = cache.incr(key)
+        cache.add(cache_key, 0, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        count = cache.incr(cache_key)
     except ValueError:
-        # cache.add is atomic set-if-not-exists; safe under concurrent initialization.
-        cache.add(key, 0, timeout=ACCOUNT_REQUEST_PARTNER_RATE_LIMIT_WINDOW_SECONDS)
-        count = cache.incr(key)
+        count = 1
 
     if count > limit:
-        _capture_provisioning_event(
-            "account_request", "rate_limited", partner_id=str(partner.id), limit=limit, count=count
-        )
+        _capture_provisioning_event(endpoint, "rate_limited", partner_id=str(partner.id), limit=limit, count=count)
         return Response(
             {
                 "type": "error",
                 "error": {
                     "code": "rate_limited",
-                    "message": "Account request rate limit exceeded for this partner. Try again later.",
+                    "message": f"Rate limit exceeded for this partner ({endpoint}). Try again later.",
                 },
             },
             status=429,
