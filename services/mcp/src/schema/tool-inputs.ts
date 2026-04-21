@@ -3,14 +3,12 @@ import { z } from 'zod'
 import { InsightQuerySchema, PropertyFilter } from './query'
 
 export const ExternalDataSchemaSyncTypeSchema = z
-    .enum(['incremental', 'full_refresh', 'append', 'cdc'])
-    .describe(
-        'Sync strategy: incremental (only new/changed rows), full_refresh (re-import all), append (add-only), or cdc (change data capture).'
-    )
+    .string()
+    .describe('Sync strategy: incremental, full_refresh, append, or cdc.')
 
 export const ExternalDataSchemaSyncFrequencySchema = z
-    .enum(['30min', '1hour', '6hour', '12hour', '24hour'])
-    .describe('How often to sync this table.')
+    .string()
+    .describe('How often to sync: 30min, 1hour, 6hour, 12hour, or 24hour.')
 
 export const ExternalDataSchemaSyncTimeOfDaySchema = z
     .string()
@@ -22,8 +20,8 @@ export const ExternalDataSchemaIncrementalFieldSchema = z
     .describe('Column name used to track sync progress for incremental syncs (e.g. "updated_at", "id").')
 
 export const ExternalDataSchemaIncrementalFieldTypeSchema = z
-    .enum(['integer', 'datetime', 'timestamp', 'date'])
-    .describe('Data type of the incremental field.')
+    .string()
+    .describe('Data type of the incremental field (e.g. integer, datetime, timestamp, date).')
 
 export const ExternalDataSchemaPrimaryKeyColumnsSchema = z
     .array(z.string())
@@ -31,8 +29,8 @@ export const ExternalDataSchemaPrimaryKeyColumnsSchema = z
     .describe('Column names that form the primary key for deduplication. Set to null to use auto-detected PKs.')
 
 export const ExternalDataSchemaCdcTableModeSchema = z
-    .enum(['consolidated', 'cdc_only', 'both'])
-    .describe('For CDC syncs: consolidated (merge changes into one table), cdc_only (only change log), or both.')
+    .string()
+    .describe('For CDC syncs: consolidated, cdc_only, or both.')
 
 export const ExternalDataJobsAfterSchema = z
     .string()
