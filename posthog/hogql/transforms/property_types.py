@@ -8,7 +8,7 @@ from posthog.schema import PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField
+from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
@@ -273,12 +273,81 @@ class PropertySwapper(CloningVisitor):
             view_name=node.view_name,
         )
 
+    # JSONExtract functions whose return type matches the mat_ column (String)
+    _JSON_EXTRACT_STRING_FUNCTIONS: frozenset[str] = frozenset({"JSONExtractString"})
+
     def visit_call(self, node: ast.Call):
+        rewritten = self._try_rewrite_json_extract_to_mat_column(node)
+        if rewritten is not None:
+            return rewritten
+
         self._inside_call_depth += 1
         try:
             return super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
+
+    def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Field | None:
+        """Rewrite JSONExtractString(properties, '$prop') to use a materialized column.
+
+        When users write raw JSONExtractString(properties, '$current_url') in HogQL,
+        ClickHouse decompresses the full properties JSON blob. If '$current_url' has a
+        materialized column (mat_$current_url), this is unnecessary I/O. We rewrite the
+        call to a property access node that the printer resolves to the mat_ column.
+        """
+        if node.name not in self._JSON_EXTRACT_STRING_FUNCTIONS:
+            return None
+        if len(node.args) != 2:
+            return None
+
+        prop_name_arg = node.args[1]
+        if not isinstance(prop_name_arg, ast.Constant) or not isinstance(prop_name_arg.value, str):
+            return None
+        property_name: str = prop_name_arg.value
+
+        # Unwrap Alias if present (resolver wraps fields in Alias nodes)
+        field_arg = node.args[0]
+        if isinstance(field_arg, ast.Alias):
+            field_arg = field_arg.expr
+        if not isinstance(field_arg, ast.Field):
+            return None
+
+        # Unwrap FieldAliasType to get the underlying FieldType
+        field_type = field_arg.type
+        if isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        if not isinstance(field_type, ast.FieldType):
+            return None
+
+        database_field = field_type.resolve_database_field(self.context)
+        if not isinstance(database_field, StringJSONDatabaseField):
+            return None
+
+        table_type = field_type.table_type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+            table_type = table_type.table_type
+        if not isinstance(table_type, ast.TableType):
+            return None
+
+        table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
+        if table_name not in ("events", "person", "groups"):
+            return None
+
+        field_name = cast(TableColumn, database_field.name)
+        mat_col = get_materialized_column_for_property(
+            cast(TablesWithMaterializedColumns, table_name),
+            field_name,
+            property_name,
+        )
+        if mat_col is None:
+            return None
+
+        return ast.Field(
+            start=node.start,
+            end=node.end,
+            chain=[*field_arg.chain, property_name],
+            type=ast.PropertyType(chain=[property_name], field_type=field_type),
+        )
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         result = super().visit_compare_operation(node)

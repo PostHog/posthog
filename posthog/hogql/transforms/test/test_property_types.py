@@ -226,6 +226,52 @@ class TestPropertyTypes(BaseTest):
         return pretty_print_in_tests(query, self.team.pk)
 
 
+class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
+    def _print_select(self, select: str):
+        expr = parse_select(select)
+        query, _ = prepare_and_print_ast(
+            expr,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        return pretty_print_in_tests(query, self.team.pk)
+
+    def test_jsonextractstring_rewritten_to_mat_column(self):
+        from posthog.test.base import materialized
+
+        with materialized("events", "$browser"):
+            printed = self._print_select("select JSONExtractString(properties, '$browser') from events")
+            assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
+            assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
+
+    def test_jsonextractstring_not_rewritten_without_mat_column(self):
+        printed = self._print_select("select JSONExtractString(properties, 'some_random_prop_xyz') from events")
+        assert "JSONExtractString" in printed or "JSONExtractRaw" in printed
+
+    def test_jsonextractstring_with_table_alias(self):
+        from posthog.test.base import materialized
+
+        with materialized("events", "$browser"):
+            printed = self._print_select("select JSONExtractString(e.properties, '$browser') from events e")
+            assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
+
+    def test_jsonextractint_not_rewritten(self):
+        from posthog.test.base import materialized
+
+        with materialized("events", "$browser"):
+            printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
+            # JSONExtractInt is not rewritten (only JSONExtractString is)
+            assert "JSONExtractInt" in printed
+
+    def test_jsonextractstring_three_args_not_rewritten(self):
+        printed = self._print_select("select JSONExtractString(properties, '$browser', 'nested') from events")
+        assert "JSONExtractString" in printed
+
+    def test_jsonextractstring_non_properties_field_not_rewritten(self):
+        printed = self._print_select("select JSONExtractString(event, '$browser') from events")
+        assert "JSONExtractString" in printed
+
+
 # ── Timezone index pruning tests ──────────────────────────────────────────────
 #
 # The events table uses:
