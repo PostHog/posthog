@@ -158,14 +158,18 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         actions.incrementErrorCount()
                         return null
                     } finally {
-                        const pollTimeoutMilliseconds = values.errorCounter
-                            ? LEGACY_POLL_TIMEOUT * values.errorCounter
-                            : LEGACY_POLL_TIMEOUT
+                        // cache.disposables is nulled in beforeUnmount; skip scheduling the next
+                        // poll if the logic unmounted while the request was in flight.
+                        if (cache.disposables) {
+                            const pollTimeoutMilliseconds = values.errorCounter
+                                ? LEGACY_POLL_TIMEOUT * values.errorCounter
+                                : LEGACY_POLL_TIMEOUT
 
-                        cache.disposables.add(() => {
-                            const timerId = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
-                            return () => clearTimeout(timerId)
-                        }, 'pollTimeout')
+                            cache.disposables.add(() => {
+                                const timerId = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
+                                return () => clearTimeout(timerId)
+                            }, 'pollTimeout')
+                        }
                     }
                 },
                 markAllAsRead: async () => {
