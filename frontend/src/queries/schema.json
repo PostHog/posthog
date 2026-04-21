@@ -3562,7 +3562,7 @@
         },
         "AssistantTrendsActorsQuery": {
             "additionalProperties": false,
-            "description": "Drills into a trends insight to list the persons behind a specific data point. Returned rows are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.\n\nUse the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific cell in the source insight. Omit `day` to get all actors across the full date range.",
+            "description": "Drills into a trends insight to list the persons behind a specific data point. Returned rows are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.\n\nUse the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific cell in the source insight.",
             "properties": {
                 "breakdown": {
                     "description": "Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions.",
