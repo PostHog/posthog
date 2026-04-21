@@ -112,7 +112,11 @@ hash_key_override_cleanup_job = dagster.define_asset_job(
     job=hash_key_override_cleanup_job,
     cron_schedule="0 4 * * 0",  # Weekly on Sunday at 4 AM UTC
     execution_timezone="UTC",
-    default_status=dagster.DefaultScheduleStatus.RUNNING,
+    # STOPPED by default: the table may be large and the DELETE code path is never
+    # exercised in dry-run (dry-run only counts). First rollout should be a manual
+    # canary: operator triggers dry-run → single-team real delete via config override
+    # → watches Postgres metrics → then flips the schedule on.
+    default_status=dagster.DefaultScheduleStatus.STOPPED,
 )
 def weekly_hash_key_override_cleanup_schedule(context):
     return dagster.RunRequest(
