@@ -47,6 +47,10 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.temporal.data_modeling.activities.fail_materialization import (
+    CONSECUTIVE_TIMEOUTS_TO_PAUSE,
+    should_pause_schedule_for_timeout,
+)
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
@@ -640,12 +644,26 @@ async def materialize_model(
         elif "Timeout exceeded" in error_message:
             error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
-            saved_query.sync_frequency_interval = None
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
-            await database_sync_to_async(saved_query.save)()
-            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
-            await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
+
+            should_pause = await database_sync_to_async(should_pause_schedule_for_timeout)(saved_query.id, job.id)
+            if should_pause:
+                saved_query.sync_frequency_interval = None
+                await database_sync_to_async(saved_query.save)()
+                await a_pause_saved_query_schedule(saved_query)
+                await logger.ainfo(
+                    "Paused temporal schedule for query due to %d consecutive timeouts: saved_query_id=%s",
+                    CONSECUTIVE_TIMEOUTS_TO_PAUSE,
+                    saved_query.id,
+                )
+            else:
+                await database_sync_to_async(saved_query.save)()
+                await logger.ainfo(
+                    "Timeout for query saved_query_id=%s - not pausing schedule (fewer than %d consecutive timeouts)",
+                    saved_query.id,
+                    CONSECUTIVE_TIMEOUTS_TO_PAUSE,
+                )
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             sanitized_error = strip_hostname_from_error(error_message)
