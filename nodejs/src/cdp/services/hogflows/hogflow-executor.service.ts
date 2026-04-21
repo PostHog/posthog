@@ -1,12 +1,12 @@
 import { get } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
+import { v7 as uuidv7 } from 'uuid'
 
 import { RedisV2 } from '~/common/redis/redis-v2'
 
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
 import { logger } from '../../../utils/logger'
-import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
@@ -72,7 +72,9 @@ export function createHogFlowInvocation(
     }
 
     return {
-        id: new UUIDT().toString(),
+        // Strict RFC-4122 UUID required: Postgres V1 re-queue path strips non-compliant ids,
+        // which breaks dedup key continuity across Kafka→Postgres reroute.
+        id: uuidv7(),
         state: {
             event: globals.event,
             actionStepCount: 0,

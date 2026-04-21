@@ -1,5 +1,7 @@
-import { v4 as uuidv4 } from 'uuid'
+import { v4 as uuidv4, v7 as uuidv7 } from 'uuid'
 
+import { UUIDT } from '../../../utils/utils'
+import { createHogFlowInvocation } from '../hogflows/hogflow-executor.service'
 import { CyclotronJobQueuePostgres } from './job-queue-postgres'
 
 // Mock external dependency to avoid needing the actual implementation in tests
@@ -82,6 +84,52 @@ describe('CyclotronJobQueue - postgres', () => {
 
             const jobsArg = bulkCreateJobs.mock.calls[0][0]
             expect(jobsArg[0].id).toBeUndefined()
+        })
+
+        it('strips id when it is in UUIDT format (bug reproduction — pre-fix)', async () => {
+            const { queue, bulkCreateJobs } = createQueue()
+
+            const uuidtId = new UUIDT().toString()
+            expect(uuidtId[14]).toBe('0')
+
+            const invocation: any = { ...baseInvocation, id: uuidtId }
+            await queue.queueInvocations([invocation])
+
+            const jobsArg = bulkCreateJobs.mock.calls[0][0]
+            expect(jobsArg[0].id).toBeUndefined()
+        })
+
+        it('preserves id when it is in UUIDv7 format (post-fix)', async () => {
+            const { queue, bulkCreateJobs } = createQueue()
+
+            const v7Id = uuidv7()
+            expect(v7Id[14]).toBe('7')
+
+            const invocation: any = { ...baseInvocation, id: v7Id }
+            await queue.queueInvocations([invocation])
+
+            const jobsArg = bulkCreateJobs.mock.calls[0][0]
+            expect(jobsArg[0].id).toBe(v7Id)
+        })
+
+        it('preserves id minted by createHogFlowInvocation across the V1 Postgres route', async () => {
+            const { queue, bulkCreateJobs } = createQueue()
+
+            const hogFlow: any = { id: uuidv7(), team_id: 1, variables: [] }
+            const globals: any = { event: { uuid: uuidv7() }, variables: {} }
+            const invocation: any = createHogFlowInvocation(globals, hogFlow, {} as any)
+
+            expect(invocation.id[14]).toBe('7')
+
+            await queue.queueInvocations([
+                {
+                    ...invocation,
+                    state: { globals: {}, timings: [], vmState: { bytecodes: {}, stack: [], upvalues: [] } },
+                },
+            ])
+
+            const jobsArg = bulkCreateJobs.mock.calls[0][0]
+            expect(jobsArg[0].id).toBe(invocation.id)
         })
     })
 })

@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { v7 as uuidv7 } from 'uuid'
 
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
@@ -10,7 +11,6 @@ import { captureException } from '~/utils/posthog'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { logger } from '../../utils/logger'
-import { UUIDT } from '../../utils/utils'
 import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { CyclotronJobInvocation, HogFunctionFilters } from '../types'
@@ -75,7 +75,8 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         const filterGlobals = convertToHogFunctionFilterGlobal(invocationGlobals)
 
         const invocation = {
-            id: new UUIDT().toString(),
+            // See createHogFlowInvocation in hogflow-executor.service.ts for why uuidv7.
+            id: uuidv7(),
             state: {
                 event: invocationGlobals.event,
                 personId,
