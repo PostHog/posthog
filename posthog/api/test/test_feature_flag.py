@@ -8315,14 +8315,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
 
-    @patch("posthog.api.feature_flag.build_person_properties_at_time")
-    def test_test_evaluation_person_didnt_exist_at_timestamp(self, mock_build_props):
+    @patch("posthog.api.feature_flag.person_existed_at_timestamp", return_value=False)
+    def test_test_evaluation_person_didnt_exist_at_timestamp(self, mock_person_existed):
         """Test 400 when person didn't exist at specified timestamp."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
-
-        # Mock that person didn't exist at timestamp
-        mock_build_props.return_value = {}
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
@@ -8331,7 +8328,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Person did not exist at the specified timestamp", response.json()["error"])
+        self.assertEqual(response.json()["error"], "Person did not exist at the specified timestamp")
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
     def test_test_evaluation_missing_internal_token_error(self, mock_get_flags):
