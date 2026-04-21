@@ -3,6 +3,8 @@ import tempfile
 from pathlib import Path
 
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -16,7 +18,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 

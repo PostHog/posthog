@@ -19,8 +19,8 @@ import {
 } from 'scenes/retention/constants'
 import { MAX_BRACKETS, retentionLogic } from 'scenes/retention/retentionLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
 import { groupsModel } from '~/models/groupsModel'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
@@ -58,16 +58,14 @@ function readEntityFromFilters(newFilters: FilterType): Record<string, any> | un
 }
 
 function entityToActionFilter(entity: Record<string, any> | undefined): FilterType {
-    if (!entity) {
-        return { events: [entity] } as FilterType
+    const entities: Record<string, any>[] = entity ? [entity] : []
+    if (entity?.type === EntityTypes.DATA_WAREHOUSE) {
+        return { data_warehouse: entities } as FilterType
     }
-    if (entity.type === EntityTypes.DATA_WAREHOUSE) {
-        return { data_warehouse: [entity] } as FilterType
+    if (entity?.type === EntityTypes.ACTIONS) {
+        return { actions: entities } as FilterType
     }
-    if (entity.type === EntityTypes.ACTIONS) {
-        return { actions: [entity] } as FilterType
-    }
-    return { events: [entity] } as FilterType
+    return { events: entities } as FilterType
 }
 
 const MAX_RANGE = 1000
