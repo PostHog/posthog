@@ -98,8 +98,10 @@ test.describe('Experiment lifecycle', () => {
                 await expect(page.getByTestId('launch-experiment')).toBeVisible()
 
                 // Verify the custom split is preserved
-                await expect(page.getByText('70%', { exact: true })).toBeVisible()
-                await expect(page.getByText('30%', { exact: true })).toBeVisible()
+                await page.getByRole('tab', { name: 'Variants' }).click()
+                await expect(page.getByText('70%')).toBeVisible()
+                await expect(page.getByText('30%')).toBeVisible()
+                await page.getByRole('tab', { name: 'Metrics' }).click()
             })
 
             await test.step('add primary metric', async () => {
