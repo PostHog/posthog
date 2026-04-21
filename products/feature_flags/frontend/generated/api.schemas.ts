@@ -948,7 +948,7 @@ export interface UserBlastRadiusResponseApi {
 }
 
 /**
- * * `FeatureFlag` - feature flag
+ * * `FeatureFlag` - FeatureFlag
  */
 export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
 
@@ -981,7 +981,7 @@ export interface ScheduledChangeApi {
     record_id: string
     /** The type of record to modify. Currently only "FeatureFlag" is supported.
 
-* `FeatureFlag` - feature flag */
+* `FeatureFlag` - FeatureFlag */
     model_name: ModelNameEnumApi
     /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
     payload: unknown
@@ -1039,7 +1039,7 @@ export interface PatchedScheduledChangeApi {
     record_id?: string
     /** The type of record to modify. Currently only "FeatureFlag" is supported.
 
-* `FeatureFlag` - feature flag */
+* `FeatureFlag` - FeatureFlag */
     model_name?: ModelNameEnumApi
     /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
     payload?: unknown

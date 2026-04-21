@@ -56,12 +56,12 @@ export const SessionRecordingPlaylistsCreateBody = /* @__PURE__ */ zod.object({
         ),
     type: zod
         .union([
-            zod.enum(['collection', 'filters']).describe('* `collection` - Collection\n* `filters` - Filters'),
+            zod.enum(['collection', 'filters']).describe('* `collection` - collection\n* `filters` - filters'),
             zod.literal(null),
         ])
         .nullish()
         .describe(
-            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - Collection\n* `filters` - Filters"
+            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n* `collection` - collection\n* `filters` - filters"
         ),
 })
 

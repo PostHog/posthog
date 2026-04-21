@@ -123,8 +123,8 @@ export interface PatchedLogsViewApi {
 }
 
 /**
- * * `above` - Above
- * `below` - Below
+ * * `above` - above
+ * `below` - below
  */
 export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
 
@@ -167,8 +167,8 @@ export interface LogsAlertConfigurationApi {
     threshold_count: number
     /** Whether the alert fires when the count is above or below the threshold.
 
-* `above` - Above
-* `below` - Below */
+* `above` - above
+* `below` - below */
     threshold_operator?: ThresholdOperatorEnumApi
     /**
      * @minimum 0
@@ -237,8 +237,8 @@ export interface PatchedLogsAlertConfigurationApi {
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
 
-* `above` - Above
-* `below` - Below */
+* `above` - above
+* `below` - below */
     threshold_operator?: ThresholdOperatorEnumApi
     /**
      * @minimum 0
@@ -379,8 +379,8 @@ export interface LogsAlertSimulateRequestApi {
     threshold_count: number
     /** Whether the alert fires when the count is above or below the threshold.
 
-* `above` - Above
-* `below` - Below */
+* `above` - above
+* `below` - below */
     threshold_operator: ThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number

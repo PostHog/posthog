@@ -8,8 +8,8 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `feedback` - Feedback
- * `missing_capability` - Missing capability
+ * * `feedback` - feedback
+ * `missing_capability` - missing_capability
  */
 export type MCPAnalyticsSubmissionKindEnumApi =
     (typeof MCPAnalyticsSubmissionKindEnumApi)[keyof typeof MCPAnalyticsSubmissionKindEnumApi]
@@ -24,8 +24,8 @@ export interface MCPAnalyticsSubmissionApi {
     readonly id: string
     /** Whether this submission is general feedback or a missing capability report.
 
-* `feedback` - Feedback
-* `missing_capability` - Missing capability */
+* `feedback` - feedback
+* `missing_capability` - missing_capability */
     readonly kind: MCPAnalyticsSubmissionKindEnumApi
     /** The user's goal in plain language. */
     goal: string
@@ -68,11 +68,11 @@ export interface PaginatedMCPAnalyticsSubmissionListApi {
 }
 
 /**
- * * `results` - Results
- * `usability` - Usability
- * `bug` - Bug
- * `docs` - Docs
- * `other` - Other
+ * * `results` - results
+ * `usability` - usability
+ * `bug` - bug
+ * `docs` - docs
+ * `other` - other
  */
 export type MCPFeedbackCreateCategoryEnumApi =
     (typeof MCPFeedbackCreateCategoryEnumApi)[keyof typeof MCPFeedbackCreateCategoryEnumApi]
@@ -133,11 +133,11 @@ export interface MCPFeedbackCreateApi {
     feedback: string
     /** High-level category for the feedback.
 
-* `results` - Results
-* `usability` - Usability
-* `bug` - Bug
-* `docs` - Docs
-* `other` - Other */
+* `results` - results
+* `usability` - usability
+* `bug` - bug
+* `docs` - docs
+* `other` - other */
     category?: MCPFeedbackCreateCategoryEnumApi
 }
 

@@ -210,14 +210,14 @@ export interface PaginatedTaskListApi {
 export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null | null
 
 /**
- * * `error_tracking` - Error Tracking
- * `eval_clusters` - Eval Clusters
- * `user_created` - User Created
- * `automation` - Automation
- * `slack` - Slack
- * `support_queue` - Support Queue
- * `session_summaries` - Session Summaries
- * `signal_report` - Signal Report
+ * * `error_tracking` - error_tracking
+ * `eval_clusters` - eval_clusters
+ * `user_created` - user_created
+ * `automation` - automation
+ * `slack` - slack
+ * `support_queue` - support_queue
+ * `session_summaries` - session_summaries
+ * `signal_report` - signal_report
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 

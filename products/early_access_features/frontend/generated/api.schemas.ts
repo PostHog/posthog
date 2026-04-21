@@ -81,7 +81,7 @@ export interface MinimalFeatureFlagApi {
  * `concept` - concept
  * `alpha` - alpha
  * `beta` - beta
- * `general-availability` - general availability
+ * `general-availability` - general-availability
  * `archived` - archived
  */
 export type StageEnumApi = (typeof StageEnumApi)[keyof typeof StageEnumApi]
@@ -116,7 +116,7 @@ export interface EarlyAccessFeatureApi {
 * `concept` - concept
 * `alpha` - alpha
 * `beta` - beta
-* `general-availability` - general availability
+* `general-availability` - general-availability
 * `archived` - archived */
     stage: StageEnumApi
     /**
@@ -153,7 +153,7 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
 * `concept` - concept
 * `alpha` - alpha
 * `beta` - beta
-* `general-availability` - general availability
+* `general-availability` - general-availability
 * `archived` - archived */
     stage: StageEnumApi
     /**
@@ -191,7 +191,7 @@ export interface PatchedEarlyAccessFeatureApi {
 * `concept` - concept
 * `alpha` - alpha
 * `beta` - beta
-* `general-availability` - general availability
+* `general-availability` - general-availability
 * `archived` - archived */
     stage?: StageEnumApi
     /**

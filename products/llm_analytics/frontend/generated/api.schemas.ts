@@ -58,15 +58,16 @@ export const OutputTypeEnumApi = {
 } as const
 
 /**
- * * `openai` - Openai
- * `anthropic` - Anthropic
- * `gemini` - Gemini
- * `openrouter` - Openrouter
- * `fireworks` - Fireworks
+ * * `openai` - openai
+ * `anthropic` - anthropic
+ * `gemini` - gemini
+ * `openrouter` - openrouter
+ * `fireworks` - fireworks
  */
-export type Provider2f4EnumApi = (typeof Provider2f4EnumApi)[keyof typeof Provider2f4EnumApi]
+export type ModelConfigurationProviderEnumApi =
+    (typeof ModelConfigurationProviderEnumApi)[keyof typeof ModelConfigurationProviderEnumApi]
 
-export const Provider2f4EnumApi = {
+export const ModelConfigurationProviderEnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
@@ -78,7 +79,7 @@ export const Provider2f4EnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: Provider2f4EnumApi
+    provider: ModelConfigurationProviderEnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -557,6 +558,24 @@ export interface EvaluationSummaryResponseApi {
 }
 
 /**
+ * * `openai` - Openai
+ * `anthropic` - Anthropic
+ * `gemini` - Gemini
+ * `openrouter` - Openrouter
+ * `fireworks` - Fireworks
+ */
+export type LLMProviderKeyProviderEnumApi =
+    (typeof LLMProviderKeyProviderEnumApi)[keyof typeof LLMProviderKeyProviderEnumApi]
+
+export const LLMProviderKeyProviderEnumApi = {
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
+} as const
+
+/**
  * * `unknown` - Unknown
  * `ok` - Ok
  * `invalid` - Invalid
@@ -573,7 +592,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: Provider2f4EnumApi
+    provider: LLMProviderKeyProviderEnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -599,7 +618,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: Provider2f4EnumApi
+    provider?: LLMProviderKeyProviderEnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi

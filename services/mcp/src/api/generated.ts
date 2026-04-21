@@ -13630,7 +13630,7 @@ export namespace Schemas {
     * `concept` - concept
     * `alpha` - alpha
     * `beta` - beta
-    * `general-availability` - general availability
+    * `general-availability` - general-availability
     * `archived` - archived
      */
     export type StageEnum = typeof StageEnum[keyof typeof StageEnum];
@@ -13661,7 +13661,7 @@ export namespace Schemas {
     * `concept` - concept
     * `alpha` - alpha
     * `beta` - beta
-    * `general-availability` - general availability
+    * `general-availability` - general-availability
     * `archived` - archived */
       stage: StageEnum;
       /**
@@ -13689,7 +13689,7 @@ export namespace Schemas {
     * `concept` - concept
     * `alpha` - alpha
     * `beta` - beta
-    * `general-availability` - general availability
+    * `general-availability` - general-availability
     * `archived` - archived */
       stage: StageEnum;
       /**
@@ -14884,16 +14884,16 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `openai` - Openai
-    * `anthropic` - Anthropic
-    * `gemini` - Gemini
-    * `openrouter` - Openrouter
-    * `fireworks` - Fireworks
+     * * `openai` - openai
+    * `anthropic` - anthropic
+    * `gemini` - gemini
+    * `openrouter` - openrouter
+    * `fireworks` - fireworks
      */
-    export type Provider2f4Enum = typeof Provider2f4Enum[keyof typeof Provider2f4Enum];
+    export type ModelConfigurationProviderEnum = typeof ModelConfigurationProviderEnum[keyof typeof ModelConfigurationProviderEnum];
 
 
-    export const Provider2f4Enum = {
+    export const ModelConfigurationProviderEnum = {
       Openai: 'openai',
       Anthropic: 'anthropic',
       Gemini: 'gemini',
@@ -14905,7 +14905,7 @@ export namespace Schemas {
      * Nested serializer for model configuration.
      */
     export interface ModelConfiguration {
-      provider: Provider2f4Enum;
+      provider: ModelConfigurationProviderEnum;
       /** @maxLength 100 */
       model: string;
       /** @nullable */
@@ -17325,13 +17325,13 @@ export namespace Schemas {
     export type HogFunctionInputs = {[key: string]: InputsItem};
 
     /**
-     * * `destination` - Destination
-    * `site_destination` - Site Destination
-    * `internal_destination` - Internal Destination
-    * `source_webhook` - Source Webhook
-    * `warehouse_source_webhook` - Warehouse Source Webhook
-    * `site_app` - Site App
-    * `transformation` - Transformation
+     * * `destination` - destination
+    * `site_destination` - site_destination
+    * `internal_destination` - internal_destination
+    * `source_webhook` - source_webhook
+    * `warehouse_source_webhook` - warehouse_source_webhook
+    * `site_app` - site_app
+    * `transformation` - transformation
      */
     export type HogFunctionTypeEnum = typeof HogFunctionTypeEnum[keyof typeof HogFunctionTypeEnum];
 
@@ -17529,13 +17529,13 @@ export namespace Schemas {
       readonly id: string;
       /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
 
-    * `destination` - Destination
-    * `site_destination` - Site Destination
-    * `internal_destination` - Internal Destination
-    * `source_webhook` - Source Webhook
-    * `warehouse_source_webhook` - Warehouse Source Webhook
-    * `site_app` - Site App
-    * `transformation` - Transformation */
+    * `destination` - destination
+    * `site_destination` - site_destination
+    * `internal_destination` - internal_destination
+    * `source_webhook` - source_webhook
+    * `warehouse_source_webhook` - warehouse_source_webhook
+    * `site_app` - site_app
+    * `transformation` - transformation */
       type?: HogFunctionTypeEnum | NullEnum | null;
       /**
        * Display name for the function.
@@ -19556,6 +19556,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `openai` - Openai
+    * `anthropic` - Anthropic
+    * `gemini` - Gemini
+    * `openrouter` - Openrouter
+    * `fireworks` - Fireworks
+     */
+    export type LLMProviderKeyProviderEnum = typeof LLMProviderKeyProviderEnum[keyof typeof LLMProviderKeyProviderEnum];
+
+
+    export const LLMProviderKeyProviderEnum = {
+      Openai: 'openai',
+      Anthropic: 'anthropic',
+      Gemini: 'gemini',
+      Openrouter: 'openrouter',
+      Fireworks: 'fireworks',
+    } as const;
+
+    /**
      * * `unknown` - Unknown
     * `ok` - Ok
     * `invalid` - Invalid
@@ -19573,7 +19591,7 @@ export namespace Schemas {
 
     export interface LLMProviderKey {
       readonly id: string;
-      provider: Provider2f4Enum;
+      provider: LLMProviderKeyProviderEnum;
       /** @maxLength 255 */
       name: string;
       readonly state: LLMProviderKeyStateEnum;
@@ -19836,8 +19854,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `above` - Above
-    * `below` - Below
+     * * `above` - above
+    * `below` - below
      */
     export type ThresholdOperatorEnum = typeof ThresholdOperatorEnum[keyof typeof ThresholdOperatorEnum];
 
@@ -19881,8 +19899,8 @@ export namespace Schemas {
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
-    * `above` - Above
-    * `below` - Below */
+    * `above` - above
+    * `below` - below */
       threshold_operator?: ThresholdOperatorEnum;
       /**
        * @minimum 0
@@ -20030,8 +20048,8 @@ export namespace Schemas {
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
-    * `above` - Above
-    * `below` - Below */
+    * `above` - above
+    * `below` - below */
       threshold_operator: ThresholdOperatorEnum;
       /** Window size in minutes — determines bucket interval. */
       window_minutes: number;
@@ -20091,8 +20109,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `feedback` - Feedback
-    * `missing_capability` - Missing capability
+     * * `feedback` - feedback
+    * `missing_capability` - missing_capability
      */
     export type MCPAnalyticsSubmissionKindEnum = typeof MCPAnalyticsSubmissionKindEnum[keyof typeof MCPAnalyticsSubmissionKindEnum];
 
@@ -20107,8 +20125,8 @@ export namespace Schemas {
       readonly id: string;
       /** Whether this submission is general feedback or a missing capability report.
 
-    * `feedback` - Feedback
-    * `missing_capability` - Missing capability */
+    * `feedback` - feedback
+    * `missing_capability` - missing_capability */
       readonly kind: MCPAnalyticsSubmissionKindEnum;
       /** The user's goal in plain language. */
       goal: string;
@@ -20142,11 +20160,11 @@ export namespace Schemas {
     }
 
     /**
-     * * `results` - Results
-    * `usability` - Usability
-    * `bug` - Bug
-    * `docs` - Docs
-    * `other` - Other
+     * * `results` - results
+    * `usability` - usability
+    * `bug` - bug
+    * `docs` - docs
+    * `other` - other
      */
     export type MCPFeedbackCreateCategoryEnum = typeof MCPFeedbackCreateCategoryEnum[keyof typeof MCPFeedbackCreateCategoryEnum];
 
@@ -20207,11 +20225,11 @@ export namespace Schemas {
       feedback: string;
       /** High-level category for the feedback.
 
-    * `results` - Results
-    * `usability` - Usability
-    * `bug` - Bug
-    * `docs` - Docs
-    * `other` - Other */
+    * `results` - results
+    * `usability` - usability
+    * `bug` - bug
+    * `docs` - docs
+    * `other` - other */
       category?: MCPFeedbackCreateCategoryEnum;
     }
 
@@ -20534,7 +20552,7 @@ export namespace Schemas {
     }
 
     /**
-     * * `FeatureFlag` - feature flag
+     * * `FeatureFlag` - FeatureFlag
      */
     export type ModelNameEnum = typeof ModelNameEnum[keyof typeof ModelNameEnum];
 
@@ -21000,14 +21018,14 @@ export namespace Schemas {
     }
 
     /**
-     * * `error_tracking` - Error Tracking
-    * `eval_clusters` - Eval Clusters
-    * `user_created` - User Created
-    * `automation` - Automation
-    * `slack` - Slack
-    * `support_queue` - Support Queue
-    * `session_summaries` - Session Summaries
-    * `signal_report` - Signal Report
+     * * `error_tracking` - error_tracking
+    * `eval_clusters` - eval_clusters
+    * `user_created` - user_created
+    * `automation` - automation
+    * `slack` - slack
+    * `support_queue` - support_queue
+    * `session_summaries` - session_summaries
+    * `signal_report` - signal_report
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -22378,7 +22396,7 @@ export namespace Schemas {
       record_id: string;
       /** The type of record to modify. Currently only "FeatureFlag" is supported.
 
-    * `FeatureFlag` - feature flag */
+    * `FeatureFlag` - FeatureFlag */
       model_name: ModelNameEnum;
       /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
       payload: unknown;
@@ -22550,8 +22568,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `collection` - Collection
-    * `filters` - Filters
+     * * `collection` - collection
+    * `filters` - filters
      */
     export type SessionRecordingPlaylistTypeEnum = typeof SessionRecordingPlaylistTypeEnum[keyof typeof SessionRecordingPlaylistTypeEnum];
 
@@ -22592,8 +22610,8 @@ export namespace Schemas {
       readonly recordings_counts: SessionRecordingPlaylistRecordingsCounts;
       /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-    * `collection` - Collection
-    * `filters` - Filters */
+    * `collection` - collection
+    * `filters` - filters */
       type?: SessionRecordingPlaylistTypeEnum | NullEnum | null;
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic: boolean;
@@ -24824,7 +24842,7 @@ export namespace Schemas {
     * `concept` - concept
     * `alpha` - alpha
     * `beta` - beta
-    * `general-availability` - general availability
+    * `general-availability` - general-availability
     * `archived` - archived */
       stage?: StageEnum;
       /**
@@ -25653,13 +25671,13 @@ export namespace Schemas {
       readonly id?: string;
       /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
 
-    * `destination` - Destination
-    * `site_destination` - Site Destination
-    * `internal_destination` - Internal Destination
-    * `source_webhook` - Source Webhook
-    * `warehouse_source_webhook` - Warehouse Source Webhook
-    * `site_app` - Site App
-    * `transformation` - Transformation */
+    * `destination` - destination
+    * `site_destination` - site_destination
+    * `internal_destination` - internal_destination
+    * `source_webhook` - source_webhook
+    * `warehouse_source_webhook` - warehouse_source_webhook
+    * `site_app` - site_app
+    * `transformation` - transformation */
       type?: HogFunctionTypeEnum | NullEnum | null;
       /**
        * Display name for the function.
@@ -25879,7 +25897,7 @@ export namespace Schemas {
 
     export interface PatchedLLMProviderKey {
       readonly id?: string;
-      provider?: Provider2f4Enum;
+      provider?: LLMProviderKeyProviderEnum;
       /** @maxLength 255 */
       name?: string;
       readonly state?: LLMProviderKeyStateEnum;
@@ -25961,8 +25979,8 @@ export namespace Schemas {
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
-    * `above` - Above
-    * `below` - Below */
+    * `above` - above
+    * `below` - below */
       threshold_operator?: ThresholdOperatorEnum;
       /**
        * @minimum 0
@@ -26676,7 +26694,7 @@ export namespace Schemas {
       record_id?: string;
       /** The type of record to modify. Currently only "FeatureFlag" is supported.
 
-    * `FeatureFlag` - feature flag */
+    * `FeatureFlag` - FeatureFlag */
       model_name?: ModelNameEnum;
       /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
       payload?: unknown;
@@ -26871,8 +26889,8 @@ export namespace Schemas {
       readonly recordings_counts?: PatchedSessionRecordingPlaylistRecordingsCounts;
       /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-    * `collection` - Collection
-    * `filters` - Filters */
+    * `collection` - collection
+    * `filters` - filters */
       type?: SessionRecordingPlaylistTypeEnum | NullEnum | null;
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
@@ -28743,13 +28761,13 @@ export namespace Schemas {
     }
 
     /**
-     * * `waiting` - Waiting
-    * `issuing` - Issuing
-    * `valid` - Valid
-    * `warning` - Warning
-    * `erroring` - Erroring
-    * `deleting` - Deleting
-    * `timed_out` - Timed Out
+     * * `waiting` - waiting
+    * `issuing` - issuing
+    * `valid` - valid
+    * `warning` - warning
+    * `erroring` - erroring
+    * `deleting` - deleting
+    * `timed_out` - timed_out
      */
     export type ProxyRecordStatusEnum = typeof ProxyRecordStatusEnum[keyof typeof ProxyRecordStatusEnum];
 
@@ -28773,13 +28791,13 @@ export namespace Schemas {
       readonly target_cname: string;
       /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
 
-    * `waiting` - Waiting
-    * `issuing` - Issuing
-    * `valid` - Valid
-    * `warning` - Warning
-    * `erroring` - Erroring
-    * `deleting` - Deleting
-    * `timed_out` - Timed Out */
+    * `waiting` - waiting
+    * `issuing` - issuing
+    * `valid` - valid
+    * `warning` - warning
+    * `erroring` - erroring
+    * `deleting` - deleting
+    * `timed_out` - timed_out */
       readonly status: ProxyRecordStatusEnum;
       /**
        * Human-readable status message with details about errors or warnings, if any.

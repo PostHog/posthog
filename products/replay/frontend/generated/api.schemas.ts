@@ -67,8 +67,8 @@ export interface UserBasicApi {
 }
 
 /**
- * * `collection` - Collection
- * `filters` - Filters
+ * * `collection` - collection
+ * `filters` - filters
  */
 export type SessionRecordingPlaylistTypeEnumApi =
     (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
@@ -109,8 +109,8 @@ export interface SessionRecordingPlaylistApi {
     readonly recordings_counts: SessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-* `collection` - Collection
-* `filters` - Filters */
+* `collection` - collection
+* `filters` - filters */
     type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
@@ -159,8 +159,8 @@ export interface PatchedSessionRecordingPlaylistApi {
     readonly recordings_counts?: PatchedSessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-* `collection` - Collection
-* `filters` - Filters */
+* `collection` - collection
+* `filters` - filters */
     type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
