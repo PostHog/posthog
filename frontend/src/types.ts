@@ -5253,6 +5253,7 @@ export type APIScopeObject =
     | 'llm_gateway'
     | 'llm_prompt'
     | 'llm_provider_key'
+    | 'llm_skill'
     | 'logs'
     | 'notebook'
     | 'organization'
@@ -6835,6 +6836,13 @@ export interface FileSystemType {
     iconType?: FileSystemIconType
     // Color of the icon
     iconColor?: FileSystemIconColor
+}
+
+export interface FeaturePreviewGateConfig {
+    flag: string
+    title: string
+    description: string
+    docsURL?: string
 }
 
 export interface ProductManifest {

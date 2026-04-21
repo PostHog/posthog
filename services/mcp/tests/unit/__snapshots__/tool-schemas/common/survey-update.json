@@ -124,7 +124,7 @@
                         },
                         "deviceTypesMatchType": {
                             "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains",
-                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+                            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
                             "type": "string"
                         },
                         "events": {
@@ -167,7 +167,7 @@
                         },
                         "urlMatchType": {
                             "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains",
-                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+                            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
                             "type": "string"
                         }
                     },
@@ -877,8 +877,8 @@
                                                             "description": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before",
                                                             "enum": [
                                                                 "is_date_exact",
-                                                                "is_date_after",
-                                                                "is_date_before"
+                                                                "is_date_before",
+                                                                "is_date_after"
                                                             ],
                                                             "type": "string"
                                                         },

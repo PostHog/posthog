@@ -53,7 +53,13 @@ async def fetch_due_eval_reports_activity(
         ]
 
     report_ids = await get_report_ids()
-    await logger.ainfo(f"Found {len(report_ids)} due evaluation reports")
+    await logger.ainfo(
+        "llma_eval_reports_coordinator_scheduled_poll",
+        reports_found=len(report_ids),
+    )
+    from posthog.temporal.llm_analytics.eval_reports.metrics import record_coordinator_reports_found
+
+    record_coordinator_reports_found(len(report_ids), "scheduled")
     return FetchDueEvalReportsOutput(report_ids=report_ids)
 
 
@@ -64,7 +70,7 @@ async def fetch_count_triggered_eval_reports_activity(
     """Check count-based reports and return those whose eval count exceeds the threshold."""
 
     @database_sync_to_async(thread_sensitive=False)
-    def check_reports() -> list[str]:
+    def check_reports() -> tuple[list[str], int, int, int]:
         from posthog.hogql.parser import parse_select
         from posthog.hogql.query import execute_hogql_query
 
@@ -74,20 +80,26 @@ async def fetch_count_triggered_eval_reports_activity(
 
         now = dt.datetime.now(tz=dt.UTC)
         due: list[str] = []
+        skipped_cooldown = 0
+        skipped_daily_cap = 0
 
-        reports = EvaluationReport.objects.filter(
-            frequency=EvaluationReport.Frequency.EVERY_N,
-            enabled=True,
-            deleted=False,
-            trigger_threshold__isnull=False,
-            team_id__in=DOGFOOD_TEAM_IDS,
-        ).select_related("evaluation")
+        reports = list(
+            EvaluationReport.objects.filter(
+                frequency=EvaluationReport.Frequency.EVERY_N,
+                enabled=True,
+                deleted=False,
+                trigger_threshold__isnull=False,
+                team_id__in=DOGFOOD_TEAM_IDS,
+            ).select_related("evaluation")
+        )
+        total_checked = len(reports)
 
         for report in reports:
             # Cooldown: skip if last delivery was too recent
             if report.last_delivered_at:
                 cooldown_delta = dt.timedelta(minutes=report.cooldown_minutes)
                 if (now - report.last_delivered_at) < cooldown_delta:
+                    skipped_cooldown += 1
                     continue
 
             # Daily cap: skip if too many runs today
@@ -97,6 +109,7 @@ async def fetch_count_triggered_eval_reports_activity(
                 created_at__gte=today_start,
             ).count()
             if today_runs >= report.daily_run_cap:
+                skipped_daily_cap += 1
                 continue
 
             # Count evals since last delivery (or since report creation if first run).
@@ -131,13 +144,26 @@ async def fetch_count_triggered_eval_reports_activity(
             if count >= report.trigger_threshold:
                 due.append(str(report.id))
 
-        return due
+        return due, total_checked, skipped_cooldown, skipped_daily_cap
 
     # Heartbeat while the sync loop runs — prevents activity timeout as the
     # number of count-triggered reports grows (each report = 1 HogQL query).
     async with Heartbeater():
-        report_ids = await check_reports()
-    await logger.ainfo(f"Found {len(report_ids)} count-triggered evaluation reports ready")
+        report_ids, total_checked, skipped_cooldown, skipped_daily_cap = await check_reports()
+    await logger.ainfo(
+        "llma_eval_reports_coordinator_count_triggered_poll",
+        reports_found=len(report_ids),
+        total_checked=total_checked,
+        skipped_cooldown=skipped_cooldown,
+        skipped_daily_cap=skipped_daily_cap,
+    )
+    from posthog.temporal.llm_analytics.eval_reports.metrics import (
+        record_coordinator_check_count,
+        record_coordinator_reports_found,
+    )
+
+    record_coordinator_check_count(total_checked, "count_triggered")
+    record_coordinator_reports_found(len(report_ids), "count_triggered")
     return FetchDueEvalReportsOutput(report_ids=report_ids)
 
 
@@ -298,8 +324,9 @@ async def run_eval_report_agent_activity(
     """Run the LLM report agent."""
     async with Heartbeater():
         await logger.ainfo(
-            "Running eval report agent",
+            "llma_eval_reports_agent_started",
             report_id=inputs.report_id,
+            team_id=inputs.team_id,
             evaluation_id=inputs.evaluation_id,
         )
 
@@ -409,7 +436,7 @@ async def deliver_report_activity(
     """Deliver the report via configured delivery targets (email/Slack)."""
     async with Heartbeater():
         await logger.ainfo(
-            "Delivering evaluation report",
+            "llma_eval_reports_delivery_started",
             report_id=inputs.report_id,
             report_run_id=inputs.report_run_id,
         )
