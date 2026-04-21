@@ -4230,6 +4230,30 @@ snapshots:
         hash: v1.k794b7964.2ae053a42345d07b2372b648446f03b8cff727eedd7afc2f19facfb78cc16a40.7oXNjZbliAovSBVd5tlEViYzaJH2APZzrb9Hd28l_Ko
     scenes-app-insights-worldmap--default--light:
         hash: v1.k794b7964.2462cae6111069a45fb06640943960a464ab995c30b668e53a4ccd86b6489144.GjbMeayx8tzQTWxzmbG1BI8Eb8ZY7Qdd22moA4H3UiY
+    scenes-app-legal-documents--legal-documents-list--dark:
+        hash: v1.k794b7964.9f2e1b72ded02cd2b9d08396dabe04049b47a276d6ccc9b0e9039538eebe1c56.Adx1ZWA_U-Q-BXydgbL47IOAaxujGjsDToHArX_oXjs
+    scenes-app-legal-documents--legal-documents-list--light:
+        hash: v1.k794b7964.c32ff368af77881740ea3ea60a47753328ef27fd8bd3be7c89945971dd70f976.tpGj1YRnS2bW36GCUEy4i34TClEH_EpjPs-QFEnRI-E
+    scenes-app-legal-documents--new-baa--dark:
+        hash: v1.k794b7964.07e81cc4d3b97bef12130840c48b64b50ee7e7cfbe6e9937073e49fb111ff0bb.TU7nYAgm1PWgYWy98DN6vWdrdJbWPENSld7aQgSecIk
+    scenes-app-legal-documents--new-baa--light:
+        hash: v1.k794b7964.85f3f6cce4031c09c24caf552af0b707254490012d153bd7ce22bb09df4ce547.tGYcv59xCoe8ZyQCmuvpQ8WYfu4Z5Ucpd6abmdpXxgg
+    scenes-app-legal-documents--new-dpa-fairytale--dark:
+        hash: v1.k794b7964.1c02eebf5058abde06783e4a3afa7e70e8b8dbd5a521e3cb34206f988e5b5d59.kWdPpSBx1JOi4ZBElZQPxSMKXpczFbhl4_WroBlIoq8
+    scenes-app-legal-documents--new-dpa-fairytale--light:
+        hash: v1.k794b7964.744609af79292777196f16c7d0fcc62241f77fcf4ae58a5943842ca1b3d7b5a6.2pmpLjkxVWN2d73nu_pRK5reyEKEF1Z4B8rgXcRi83Q
+    scenes-app-legal-documents--new-dpa-lawyer--dark:
+        hash: v1.k794b7964.347e8d0a8eb81d4a75740bcc51b734937c8e7603b61f21c46169b1fb195907db.N803vPrfFokSPLYrRTIda80xS8W3GwCLKXRne6zymqw
+    scenes-app-legal-documents--new-dpa-lawyer--light:
+        hash: v1.k794b7964.cb9cab28dba987303f80d6c47057afd9f05786b7a5677843ef57d4175103bd2c._p85qz0Z6Ira79sY3KiVN1AOdk_AziwroikXdoVK8CI
+    scenes-app-legal-documents--new-dpa-pretty--dark:
+        hash: v1.k794b7964.4a69232cc755277e4c8ca3350a296ba3e69992d2071a69921d14a98ef4f75db5.35PBEQu6AQlkXX4BcFbC10a4yrKKCq1sfHG41P7bKls
+    scenes-app-legal-documents--new-dpa-pretty--light:
+        hash: v1.k794b7964.b5140f63b484a3e6daf4dfe3347679320b8185b57412a2737050430fe9ea4c35.FqKqx-DQ2KquhR7ewQxpqi_G-6dZo5cUGBvM6cmkWP8
+    scenes-app-legal-documents--new-dpat-swift--dark:
+        hash: v1.k794b7964.bd72c4e72b88f20eeaaaafcc453c1d7e8fac38d9fd5e87e3d1df394cc2908d7b.vRclicmn3oUtGhNpkFXcmQqdfsj_u-4X_es7mXx7e1s
+    scenes-app-legal-documents--new-dpat-swift--light:
+        hash: v1.k794b7964.066e2bf87d74d5fee4b72d371f8156eb128bf190c0589fb122e556543ec086cd.9aNCDXVNcpetds4TiMLbfYsnMvS8gzWUKkyhUjh6Q_s
     scenes-app-links--link-details--dark:
         hash: v1.k794b7964.048a16e56f4709294acdfc1e74f0b46bdffdd66e51563fed1249f0610a98d4c2.fMeb9vTtFj41v_QoaiR0Em2B8ugnk5Ep85gsadjeIe0
     scenes-app-links--link-details--light:
