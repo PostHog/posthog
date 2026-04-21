@@ -114,6 +114,37 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         self.assertEqual(len(legacy_filter_calls), 1)
 
+    def test_duplicating_dashboard_with_legacy_filter_insight_not_blocked_by_flag(self) -> None:
+        # Simulates the regression where users with `legacy-insight-filters-disabled` enabled
+        # could not duplicate dashboards containing insights still stored with legacy filters,
+        # because server-side duplication re-serializes and resubmits the existing insight.
+        legacy_filters = {"insight": "TRENDS", "events": [{"id": "$pageview"}]}
+        dashboard = Dashboard.objects.create(team=self.team, name="source")
+        legacy_insight = Insight.objects.create(
+            team=self.team,
+            name="legacy filter insight",
+            filters=legacy_filters,
+            created_by=self.user,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=legacy_insight)
+
+        with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {"name": "duplicated", "use_dashboard": dashboard.id, "duplicate_tiles": True},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        duplicated = response.json()
+        self.assertEqual(len(duplicated["tiles"]), 1)
+        new_tile = duplicated["tiles"][0]
+        self.assertIsNotNone(new_tile["insight"])
+        self.assertNotEqual(new_tile["insight"]["id"], legacy_insight.id)
+        # Legacy filters are preserved on the duplicated insight rather than silently dropped.
+        new_insight = Insight.objects.get(id=new_tile["insight"]["id"])
+        self.assertEqual(new_insight.filters.get("insight"), "TRENDS")
+        self.assertEqual(new_insight.filters.get("events"), [{"id": "$pageview"}])
+
     def test_creating_query_insight_not_blocked_by_legacy_filter_flag(self) -> None:
         with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
             response = self.client.post(

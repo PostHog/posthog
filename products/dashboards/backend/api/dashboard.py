@@ -574,15 +574,19 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     def _deep_duplicate_tiles(self, dashboard: Dashboard, existing_tile: DashboardTile) -> None:
         if existing_tile.insight:
+            # Server-side duplication re-submits already-persisted insights; skip the legacy-filter
+            # gate so users with `legacy-insight-filters-disabled` can still duplicate dashboards
+            # containing legacy-filter insights they did not author in this request.
+            duplicate_context = {**self.context, "skip_legacy_filter_gate": True}
             new_data = {
-                **InsightSerializer(existing_tile.insight, context=self.context).data,
+                **InsightSerializer(existing_tile.insight, context=duplicate_context).data,
                 "id": None,  # to create a new Insight
                 "last_refresh": now(),
                 "name": (existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None,
             }
             new_data.pop("dashboards", None)
             new_tags = new_data.pop("tags", None)
-            insight_serializer = InsightSerializer(data=new_data, context=self.context)
+            insight_serializer = InsightSerializer(data=new_data, context=duplicate_context)
             insight_serializer.is_valid()
             insight_serializer.save()
             insight = cast(Insight, insight_serializer.instance)
