@@ -700,10 +700,8 @@ class AccessControlPermission(ScopeBasePermission):
         return False
 
 
-_FORCE_ENABLED_FLAGS: frozenset[str] = frozenset()
-if settings.DEBUG or settings.TEST:
-    _raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
-    _FORCE_ENABLED_FLAGS = frozenset(f.strip() for f in _raw.split(",") if f.strip())
+_raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
+_FORCE_ENABLED_FLAGS: frozenset[str] = frozenset(f.strip() for f in _raw.split(",") if f.strip())
 
 
 class PostHogFeatureFlagPermission(BasePermission):
