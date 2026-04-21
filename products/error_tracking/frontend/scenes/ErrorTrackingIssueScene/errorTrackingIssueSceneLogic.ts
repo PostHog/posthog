@@ -93,6 +93,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         setMobileDetailOpen: (mobileDetailOpen: boolean) => ({ mobileDetailOpen }),
         setInitialEventTimestamp: (timestamp: string | null) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
+        setIssueMissing: true,
         setLastSeen: (lastSeen: string) => ({ lastSeen }),
         selectEvent: (event: ErrorEventType | null) => ({
             event,
@@ -165,6 +166,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         listDateRange: {
             setListDateRange: (_, { dateRange }) => dateRange,
         },
+        issueMissing: [
+            false,
+            {
+                setIssueMissing: () => true,
+                loadIssue: () => false,
+                loadIssueSuccess: () => false,
+            },
+        ],
     })),
 
     loaders(({ values, actions, props }) => ({
@@ -431,6 +440,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
+                    return
+                }
+                if (status === 404) {
+                    actions.setIssueMissing()
                 }
             },
             updateName: ({ name }) => actions.updateIssueName(props.id, name),

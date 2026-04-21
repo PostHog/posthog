@@ -219,6 +219,108 @@ class TestErrorTracking(APIBaseTest):
         assert response.json()["type"] == "validation_error"
         assert response.json()["code"] == "required"
 
+    def test_fingerprint_list_returns_all_fingerprints_for_issue(self):
+        issue = self.create_issue(fingerprints=["fp_a", "fp_b", "fp_c"])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints?issue_id={issue.id}",
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["count"] == 3
+        fingerprints = {result["fingerprint"] for result in body["results"]}
+        assert fingerprints == {"fp_a", "fp_b", "fp_c"}
+        for result in body["results"]:
+            assert result["issue_id"] == str(issue.id)
+            assert "id" in result
+            assert "created_at" in result
+
+    def test_fingerprint_list_filters_by_issue_id(self):
+        issue_one = self.create_issue(fingerprints=["fp_one"])
+        issue_two = self.create_issue(fingerprints=["fp_two_a", "fp_two_b"])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints?issue_id={issue_two.id}",
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["count"] == 2
+        assert {result["fingerprint"] for result in body["results"]} == {"fp_two_a", "fp_two_b"}
+        assert all(result["issue_id"] == str(issue_two.id) for result in body["results"])
+        assert all(result["issue_id"] != str(issue_one.id) for result in body["results"])
+
+    def test_fingerprint_list_paginates_across_multiple_pages(self):
+        issue = self.create_issue(fingerprints=[f"fp_{i:03d}" for i in range(5)])
+
+        first_page = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints?issue_id={issue.id}&limit=2&offset=0",
+        )
+        assert first_page.status_code == 200
+        first_body = first_page.json()
+        assert first_body["count"] == 5
+        assert len(first_body["results"]) == 2
+        assert first_body["next"] is not None
+
+        second_page = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints?issue_id={issue.id}&limit=2&offset=2",
+        )
+        assert second_page.status_code == 200
+        second_body = second_page.json()
+        assert len(second_body["results"]) == 2
+
+        third_page = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints?issue_id={issue.id}&limit=2&offset=4",
+        )
+        assert third_page.status_code == 200
+        third_body = third_page.json()
+        assert len(third_body["results"]) == 1
+        assert third_body["next"] is None
+
+        seen = {r["fingerprint"] for r in first_body["results"]}
+        seen.update(r["fingerprint"] for r in second_body["results"])
+        seen.update(r["fingerprint"] for r in third_body["results"])
+        assert seen == {f"fp_{i:03d}" for i in range(5)}
+
+    def test_fingerprint_list_rejects_invalid_issue_id(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints?issue_id=not-a-uuid",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["type"] == "validation_error"
+
+    def test_fingerprint_list_returns_empty_for_unknown_issue(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints?issue_id={uuid7()}",
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["count"] == 0
+        assert body["results"] == []
+
+    def test_fingerprint_retrieve_returns_fingerprint(self):
+        issue = self.create_issue(fingerprints=["fp_retrieve"])
+        fingerprint = ErrorTrackingIssueFingerprintV2.objects.get(team=self.team, fingerprint="fp_retrieve")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints/{fingerprint.id}",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["id"] == str(fingerprint.id)
+        assert response.json()["fingerprint"] == "fp_retrieve"
+        assert response.json()["issue_id"] == str(issue.id)
+
+    def test_fingerprint_retrieve_returns_404_for_unknown_id(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints/{uuid7()}",
+        )
+
+        assert response.status_code == 404
+
     def test_can_start_symbol_set_upload(self) -> None:
         chunk_id = uuid7()
         response = self.client.post(

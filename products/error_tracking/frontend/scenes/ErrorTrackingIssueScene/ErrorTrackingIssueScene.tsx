@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react'
 import { IconFilter, IconList, IconSearch, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -64,7 +65,7 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueId, issueMissing, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
@@ -76,6 +77,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             ...(utmSource ? { utm_source: utmSource } : {}),
         })
     }, [issueId])
+
+    if (issueMissing) {
+        return <NotFound object="issue" />
+    }
 
     return (
         <StyleVariables>

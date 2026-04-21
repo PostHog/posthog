@@ -81,7 +81,7 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
 
 
 def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> QuerySet[ErrorTrackingIssueFingerprintV2]:
-    queryset = ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id).order_by("created_at")
+    queryset = ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id).order_by("created_at", "id")
     if issue_id is not None:
         queryset = queryset.filter(issue_id=issue_id)
     return queryset
