@@ -205,6 +205,7 @@ impl KafkaDeduplicatorService {
             max_concurrent_checkpoint_file_downloads: config
                 .max_concurrent_checkpoint_file_downloads,
             max_concurrent_checkpoint_file_uploads: config.max_concurrent_checkpoint_file_uploads,
+            max_upload_buffers_per_partition: config.max_upload_buffers_per_partition,
             checkpoint_partition_import_timeout: config.checkpoint_partition_import_timeout(),
             local_checkpoint_max_staleness: config.local_checkpoint_max_staleness(),
         };

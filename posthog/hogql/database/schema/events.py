@@ -140,4 +140,10 @@ class EventsTable(Table):
         return "events"
 
     def avoid_asterisk_fields(self) -> list[str]:
-        return ["$session_id_uuid"]
+        return [
+            "$session_id_uuid",
+            "$virt_is_bot",
+            "$virt_traffic_type",
+            "$virt_traffic_category",
+            "$virt_bot_name",
+        ]

@@ -3,9 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { humanFriendlyDuration } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -138,6 +140,27 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     </div>
                 }
             />
+
+            {selectedRun && (
+                <div className="flex items-center gap-4 -mt-2 mb-2 px-2 text-xs text-muted">
+                    <span>
+                        Created: <TZLabel time={selectedRun.created_at} showSeconds />
+                    </span>
+                    {selectedRun.completed_at && (
+                        <span>
+                            Completed: <TZLabel time={selectedRun.completed_at} showSeconds />
+                        </span>
+                    )}
+                    {selectedRun.completed_at && (
+                        <span>
+                            Duration:{' '}
+                            {humanFriendlyDuration(
+                                dayjs(selectedRun.completed_at).diff(selectedRun.created_at, 'second')
+                            )}
+                        </span>
+                    )}
+                </div>
+            )}
 
             {task.description && (
                 <div className="relative -mt-2 mb-2 px-2">

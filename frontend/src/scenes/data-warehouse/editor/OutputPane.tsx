@@ -7,7 +7,6 @@ import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
-    IconBolt,
     IconCode,
     IconCopy,
     IconDownload,
@@ -18,7 +17,7 @@ import {
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -38,6 +37,7 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -51,9 +51,13 @@ import { type DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
-import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
+import {
+    copyTableToCsv,
+    copyTableToExcel,
+    copyTableToJson,
+    copyTableToMarkdown,
+} from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
-import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import TabScroller from './TabScroller'
@@ -107,6 +111,10 @@ const copyMap = {
     [ExporterFormat.XLSX]: {
         label: 'Excel',
         copyFn: copyTableToExcel,
+    },
+    [ExporterFormat.MARKDOWN]: {
+        label: 'Markdown',
+        copyFn: copyTableToMarkdown,
     },
 }
 
@@ -288,19 +296,12 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
     )
 }
 
-export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
+export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const {
-        sourceQuery,
-        exportContext,
-        insightLoading,
-        viewLoading,
-        showLegacyFilters,
-        hasQueryInput,
-        isEmbeddedMode,
-    } = useValues(sqlEditorLogic)
+    const { sourceQuery, exportContext, insightLoading, showLegacyFilters, hasQueryInput, isEmbeddedMode } =
+        useValues(sqlEditorLogic)
     const { setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -484,11 +485,6 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                   label: 'Visualization',
                                   icon: <IconGraph />,
                               },
-                              {
-                                  key: OutputTab.Materialization,
-                                  label: 'Materialization',
-                                  icon: <IconBolt />,
-                              },
                           ]
                         : [
                               {
@@ -633,10 +629,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     exportContext={exportContext}
                     queryId={queryId}
                     pollResponse={pollResponse}
-                    tabId={tabId}
                     setProgress={setProgress}
                     progress={queryId ? progressCache[queryId] : undefined}
-                    viewLoading={viewLoading}
                 />
             </div>
             <div className="flex justify-between px-2 border-t">
@@ -714,6 +708,20 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 presetChartHeight={presetChartHeight}
             />
         )
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+
+        component = (
+            <PieChart
+                className="p-2"
+                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
+                xData={_xData}
+                yData={_yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
@@ -774,7 +782,6 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
-    tabId,
     setSourceQuery,
     exportContext,
     queryId,
@@ -782,7 +789,6 @@ const Content = ({
     setProgress,
     progress,
     insightLoading,
-    viewLoading,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -812,24 +818,16 @@ const Content = ({
             return 0
         })
     }, [rows, sortColumns])
-    if (activeTab === OutputTab.Materialization) {
-        if (viewLoading) {
-            return (
-                <div className="flex flex-1 items-center justify-center border-t">
-                    <div className="flex flex-col items-center gap-3 text-secondary">
-                        <Spinner className="text-6xl" />
-                        <span className="text-sm font-medium">Loading view...</span>
-                    </div>
-                </div>
-            )
-        }
+    const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
 
+    if (hasError) {
         return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <QueryInfo tabId={tabId} />
-                </div>
-            </TabScroller>
+            <ErrorState
+                responseError={responseError}
+                sourceQuery={sourceQuery}
+                queryCancelled={queryCancelled}
+                response={response}
+            />
         )
     }
 
@@ -876,17 +874,6 @@ const Content = ({
         )
     }
 
-    if (responseError) {
-        return (
-            <ErrorState
-                responseError={responseError}
-                sourceQuery={sourceQuery}
-                queryCancelled={queryCancelled}
-                response={response}
-            />
-        )
-    }
-
     if (!response) {
         const msg =
             activeTab === OutputTab.Results
@@ -894,11 +881,12 @@ const Content = ({
                 : 'Query results will be visualized here.'
         return (
             <div
-                className="flex flex-1 justify-center items-center border-t"
+                className="flex flex-1 justify-center items-center border-t px-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
                 <span className="text-secondary mt-3">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query.
+                    {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
+                    statements with <code>;</code> to run them independently.
                 </span>
             </div>
         )

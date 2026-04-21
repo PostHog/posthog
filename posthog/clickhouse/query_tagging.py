@@ -144,6 +144,7 @@ class QueryTags(BaseModel):
     chargeable: Optional[int] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
+    endpoint_version: Optional[int] = None  # Endpoints, the product
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None
@@ -164,11 +165,21 @@ class QueryTags(BaseModel):
     # replays
     replay_playlist_id: Optional[int] = None
 
+    # ai events rollout
+    ai_query_source: Optional[str] = None
+
     # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None
     experiment_name: Optional[str] = None
     experiment_is_data_warehouse_query: Optional[bool] = None
+    experiment_metric_uuid: Optional[str] = None
+    experiment_metric_name: Optional[str] = None
+    experiment_metric_type: Optional[str] = None  # "mean", "funnel", "ratio", "retention"
+    experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
+    experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
+    experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included
 
     feature: Optional[Feature] = None
     filter: Optional[object] = None

@@ -29,13 +29,16 @@
  * `log` - log
  * `log_attribute` - log_attribute
  * `log_resource_attribute` - log_resource_attribute
+ * `span` - span
+ * `span_attribute` - span_attribute
+ * `span_resource_attribute` - span_resource_attribute
  * `revenue_analytics` - revenue_analytics
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type Type19aEnumApi = (typeof Type19aEnumApi)[keyof typeof Type19aEnumApi]
+export type TypeE27EnumApi = (typeof TypeE27EnumApi)[keyof typeof TypeE27EnumApi]
 
-export const Type19aEnumApi = {
+export const TypeE27EnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -57,6 +60,9 @@ export const Type19aEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
@@ -70,10 +76,9 @@ export const Type19aEnumApi = {
  * `regex` - regex
  * `not_regex` - not_regex
  */
-export type StringPropertyFilterOperatorEnumApi =
-    (typeof StringPropertyFilterOperatorEnumApi)[keyof typeof StringPropertyFilterOperatorEnumApi]
+export type DeviceTypesMatchTypeEnumApi = (typeof DeviceTypesMatchTypeEnumApi)[keyof typeof DeviceTypesMatchTypeEnumApi]
 
-export const StringPropertyFilterOperatorEnumApi = {
+export const DeviceTypesMatchTypeEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
@@ -111,10 +116,13 @@ export interface StringPropertyFilterApi {
 * `log` - log
 * `log_attribute` - log_attribute
 * `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type19aEnumApi
+    type?: TypeE27EnumApi
     /** String value to match against. */
     value: string
     /** String comparison operator.
@@ -125,7 +133,7 @@ export interface StringPropertyFilterApi {
 * `not_icontains` - not_icontains
 * `regex` - regex
 * `not_regex` - not_regex */
-    operator?: StringPropertyFilterOperatorEnumApi
+    operator?: DeviceTypesMatchTypeEnumApi
 }
 
 /**
@@ -177,10 +185,13 @@ export interface NumericPropertyFilterApi {
 * `log` - log
 * `log_attribute` - log_attribute
 * `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type19aEnumApi
+    type?: TypeE27EnumApi
     /** Numeric value to compare against. */
     value: number
     /** Numeric comparison operator.
@@ -239,10 +250,13 @@ export interface ArrayPropertyFilterApi {
 * `log` - log
 * `log_attribute` - log_attribute
 * `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type19aEnumApi
+    type?: TypeE27EnumApi
     /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
     value: string[]
     /** Array comparison operator.
@@ -259,10 +273,9 @@ export interface ArrayPropertyFilterApi {
  * `is_date_before` - is_date_before
  * `is_date_after` - is_date_after
  */
-export type DatePropertyFilterOperatorEnumApi =
-    (typeof DatePropertyFilterOperatorEnumApi)[keyof typeof DatePropertyFilterOperatorEnumApi]
+export type Operator382EnumApi = (typeof Operator382EnumApi)[keyof typeof Operator382EnumApi]
 
-export const DatePropertyFilterOperatorEnumApi = {
+export const Operator382EnumApi = {
     IsDateExact: 'is_date_exact',
     IsDateBefore: 'is_date_before',
     IsDateAfter: 'is_date_after',
@@ -297,10 +310,13 @@ export interface DatePropertyFilterApi {
 * `log` - log
 * `log_attribute` - log_attribute
 * `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type19aEnumApi
+    type?: TypeE27EnumApi
     /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
     value: string
     /** Date comparison operator.
@@ -308,16 +324,16 @@ export interface DatePropertyFilterApi {
 * `is_date_exact` - is_date_exact
 * `is_date_before` - is_date_before
 * `is_date_after` - is_date_after */
-    operator?: DatePropertyFilterOperatorEnumApi
+    operator?: Operator382EnumApi
 }
 
 /**
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type Operator3e6EnumApi = (typeof Operator3e6EnumApi)[keyof typeof Operator3e6EnumApi]
+export type OperatorA04EnumApi = (typeof OperatorA04EnumApi)[keyof typeof OperatorA04EnumApi]
 
-export const Operator3e6EnumApi = {
+export const OperatorA04EnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -351,15 +367,18 @@ export interface ExistencePropertyFilterApi {
 * `log` - log
 * `log_attribute` - log_attribute
 * `log_resource_attribute` - log_resource_attribute
+* `span` - span
+* `span_attribute` - span_attribute
+* `span_resource_attribute` - span_resource_attribute
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type19aEnumApi
+    type?: TypeE27EnumApi
     /** Existence check operator.
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: Operator3e6EnumApi
+    operator: OperatorA04EnumApi
 }
 
 export type ActionStepPropertyFilterApi =
@@ -602,6 +621,68 @@ export interface PatchedActionApi {
     readonly user_access_level?: string | null
 }
 
+export interface ActionReferenceApi {
+    /** Resource type: insight, experiment, cohort, or hog_function */
+    type: string
+    /** Resource ID (integer or UUID depending on type) */
+    id: string
+    /** Resource name */
+    name: string
+    /** Relative URL to the resource */
+    url: string
+    /**
+     * When the resource was created
+     * @nullable
+     */
+    created_at: string | null
+    /** User who created the resource */
+    created_by: UserBasicApi | null
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
+}
+
 export type ActionsListParams = {
     format?: ActionsListFormat
     /**
@@ -672,6 +753,29 @@ export type ActionsDestroyParams = {
 export type ActionsDestroyFormat = (typeof ActionsDestroyFormat)[keyof typeof ActionsDestroyFormat]
 
 export const ActionsDestroyFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsReferencesListParams = {
+    format?: ActionsReferencesListFormat
+}
+
+export type ActionsReferencesListFormat = (typeof ActionsReferencesListFormat)[keyof typeof ActionsReferencesListFormat]
+
+export const ActionsReferencesListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsBulkUpdateTagsCreateParams = {
+    format?: ActionsBulkUpdateTagsCreateFormat
+}
+
+export type ActionsBulkUpdateTagsCreateFormat =
+    (typeof ActionsBulkUpdateTagsCreateFormat)[keyof typeof ActionsBulkUpdateTagsCreateFormat]
+
+export const ActionsBulkUpdateTagsCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

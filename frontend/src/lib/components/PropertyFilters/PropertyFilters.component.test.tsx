@@ -4,9 +4,6 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -31,9 +28,6 @@ describe('PropertyFilters recent selections', () => {
         groupsModel.mount()
         propertyDefinitionsModel.mount()
         localStorage.clear()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS]: true,
-        })
         recentTaxonomicFiltersLogic.mount()
     })
 
@@ -57,6 +51,7 @@ describe('PropertyFilters recent selections', () => {
                     refreshing: false,
                 },
                 '/api/environments/:team/persons/values': [{ name: 'alice@example.com' }, { name: 'bob@example.com' }],
+                '/api/environments/:team_id/quick_filters/': { results: [] },
                 ...overrides,
             },
             post: {
@@ -359,37 +354,6 @@ describe('PropertyFilters recent selections', () => {
         renderFilters({
             taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
         })
-
-        await openNewFilter()
-
-        await waitFor(() => {
-            expect(screen.queryByTestId('prop-filter-suggested_filters-0')).not.toBeInTheDocument()
-        })
-    })
-
-    it('with recents flag off, suggested filters do not list stored recents', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS]: false,
-        })
-        useSetupMocks()
-
-        recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-            TaxonomicFilterGroupType.EventProperties,
-            'Event properties',
-            '$browser',
-            { name: '$browser' },
-            undefined,
-            {
-                key: '$browser',
-                type: PropertyFilterType.Event,
-                value: 'Chrome',
-                operator: PropertyOperator.Exact,
-            }
-        )
-
-        expectRecentCount(1)
-
-        renderFilters()
 
         await openNewFilter()
 

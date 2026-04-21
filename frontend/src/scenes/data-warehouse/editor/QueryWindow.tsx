@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -56,12 +56,22 @@ export function QueryWindow({
         originalQueryInput,
         suggestedQueryInput,
         editingView,
+        activeQueryText,
+        activeQueryOffset,
         selectedConnectionId,
         sendRawQueryEnabled,
     } = useValues(sqlEditorLogic)
 
-    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, setSendRawQuery } =
-        useActions(sqlEditorLogic)
+    const {
+        setQueryInput,
+        runQuery,
+        runSubquery,
+        setError,
+        setMetadata,
+        setMetadataLoading,
+        setSendRawQuery,
+        openMaterializationModal,
+    } = useActions(sqlEditorLogic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
@@ -144,6 +154,17 @@ export function QueryWindow({
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                     />
+                    {editingView ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconDatabase />}
+                            onClick={() => openMaterializationModal(editingView)}
+                            data-attr="sql-editor-materialization-button"
+                        >
+                            Materialization
+                        </LemonButton>
+                    ) : null}
                 </div>
 
                 <div className="ml-auto flex items-center gap-2">
@@ -197,6 +218,8 @@ export function QueryWindow({
                 editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
                 codeEditorProps={{
                     queryKey: codeEditorKey,
+                    metadataQuery: activeQueryText ?? undefined,
+                    metadataQueryOffset: activeQueryOffset,
                     onChange: (v) => {
                         setQueryInput(v ?? '')
                     },
@@ -210,6 +233,7 @@ export function QueryWindow({
                             runQuery()
                         }
                     },
+                    onPressCmdShiftEnter: runSubquery,
                     onError: (error) => {
                         setError(error)
                     },
@@ -222,7 +246,7 @@ export function QueryWindow({
                 }}
             />
 
-            <InternalQueryWindow tabId={tabId} />
+            <InternalQueryWindow />
         </div>
     )
 }
@@ -259,7 +283,7 @@ function ExpandDatabaseTreeButton({
 }
 
 function RunButton(): JSX.Element {
-    const { runQuery } = useActions(sqlEditorLogic)
+    const { runQuery, runSubquery } = useActions(sqlEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
     const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
@@ -282,6 +306,36 @@ function RunButton(): JSX.Element {
         return ['var(--warning)', tooltip]
     }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun])
 
+    const sideAction = useMemo(
+        () =>
+            responseLoading
+                ? undefined
+                : {
+                      dropdown: {
+                          placement: 'bottom-end' as const,
+                          overlay: (
+                              <>
+                                  <LemonButton
+                                      fullWidth
+                                      onClick={() => runQuery()}
+                                      sideIcon={<span className="text-muted text-xs">⌘↵</span>}
+                                  >
+                                      Run query at cursor
+                                  </LemonButton>
+                                  <LemonButton
+                                      fullWidth
+                                      onClick={() => runSubquery()}
+                                      sideIcon={<span className="text-muted text-xs">⌘⇧↵</span>}
+                                  >
+                                      Run innermost subquery at cursor
+                                  </LemonButton>
+                              </>
+                          ),
+                      },
+                  },
+        [responseLoading, runQuery, runSubquery]
+    )
+
     return (
         <AppShortcut
             name="SQLEditorRun"
@@ -303,6 +357,7 @@ function RunButton(): JSX.Element {
                 type="primary"
                 size="small"
                 tooltip={tooltipContent}
+                sideAction={sideAction}
             >
                 {responseLoading ? 'Cancel' : 'Run'}
             </LemonButton>
@@ -310,14 +365,14 @@ function RunButton(): JSX.Element {
     )
 }
 
-const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+const InternalQueryWindow = memo(function InternalQueryWindow(): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
 
     if (finishedLoading) {
         return null
     }
 
-    return <OutputPane tabId={tabId} />
+    return <OutputPane />
 })
 
 function CollapsedConnectionSelector({

@@ -1,27 +1,27 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonInputSelect, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInputSelect, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { FlagSelector } from 'lib/components/FlagSelector'
+import { ANY_VARIANT, variantOptions } from 'lib/components/IngestionControls/triggers/FlagTrigger/VariantSelector'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType, SurveySchedule } from '~/types'
+import { PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType } from '~/types'
 
 import { surveyLogic } from '../../surveyLogic'
-import { surveyWizardLogic } from '../surveyWizardLogic'
+import { SurveyAudienceFilters } from '../SurveyAudienceFilters'
+import { WizardSection, WizardStepLayout } from '../WizardLayout'
 
-const FREQUENCY_OPTIONS: { value: string; days: number | undefined; label: string }[] = [
-    { value: 'once', days: undefined, label: 'Once ever' },
-    { value: 'yearly', days: 365, label: 'Every year' },
-    { value: 'quarterly', days: 90, label: 'Every 3 months' },
-    { value: 'monthly', days: 30, label: 'Every month' },
-]
+const DEVICE_OPTIONS = ['Desktop', 'Mobile', 'Tablet']
 
-export function WhereStep(): JSX.Element {
+export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void }): JSX.Element {
     const { survey } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
-    const { recommendedFrequency } = useValues(surveyWizardLogic)
+    const { featureFlag } = useValues(featureFlagLogic({ id: survey.linked_flag_id || 'link' }))
 
     const { options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -30,13 +30,46 @@ export function WhereStep(): JSX.Element {
     const conditions: Partial<SurveyDisplayConditions> = survey.conditions || {}
     const targetingMode = conditions.urlMatchType ? 'specific' : 'all'
     const urlPattern = conditions.url || ''
+    const urlMatchMode =
+        conditions.urlMatchType === SurveyMatchType.Exact ? SurveyMatchType.Exact : SurveyMatchType.Contains
+    const isPathInputInExactMode = urlMatchMode === SurveyMatchType.Exact && urlPattern.trim().startsWith('/')
+    const selectedDevices = conditions.deviceTypes || []
+    const resolvedLinkedFlag = survey.linked_flag || (survey.linked_flag_id ? featureFlag : null)
+    const urlInputPlaceholder =
+        urlMatchMode === SurveyMatchType.Exact
+            ? 'Select a page or type the full URL'
+            : 'Select a page or type a path like /pricing'
+    const urlSuggestions = (() => {
+        const seen = new Set<string>()
 
-    // Convert days to frequency string value
-    const daysToFrequency = (days: number | undefined): string => {
-        const option = FREQUENCY_OPTIONS.find((opt) => opt.days === days)
-        return option?.value || 'monthly'
-    }
-    const frequency = daysToFrequency(conditions.seenSurveyWaitPeriodInDays)
+        return (urlOptions?.values || [])
+            .map(({ name }) => {
+                const rawValue = String(name)
+
+                if (urlMatchMode === SurveyMatchType.Exact) {
+                    try {
+                        return new URL(rawValue).toString()
+                    } catch {
+                        return null
+                    }
+                }
+
+                try {
+                    return new URL(rawValue).pathname || '/'
+                } catch {
+                    return rawValue
+                }
+            })
+            .filter((value): value is string => !!value)
+            .filter((value) => {
+                if (seen.has(value)) {
+                    return false
+                }
+                seen.add(value)
+                return true
+            })
+            .map((value) => ({ key: value, label: value }))
+    })()
 
     useEffect(() => {
         if (targetingMode === 'specific' && urlOptions?.status !== 'loading' && urlOptions?.status !== 'loaded') {
@@ -60,23 +93,38 @@ export function WhereStep(): JSX.Element {
     }
 
     const setUrlPattern = (pattern: string): void => {
-        setSurveyValue('conditions', { ...conditions, url: pattern, urlMatchType: SurveyMatchType.Contains })
+        setSurveyValue('conditions', { ...conditions, url: pattern, urlMatchType: urlMatchMode })
     }
 
-    const setFrequency = (value: string): void => {
-        const option = FREQUENCY_OPTIONS.find((opt) => opt.value === value)
-        const isOnce = value === 'once'
-        setSurveyValue('schedule', isOnce ? SurveySchedule.Once : SurveySchedule.Always)
-        setSurveyValue('conditions', { ...conditions, seenSurveyWaitPeriodInDays: option?.days })
+    const setUrlMatchMode = (matchType: SurveyMatchType.Exact | SurveyMatchType.Contains): void => {
+        setSurveyValue('conditions', {
+            ...conditions,
+            urlMatchType: matchType,
+        })
+    }
+
+    const toggleDeviceType = (device: string): void => {
+        const nextDeviceTypes = selectedDevices.includes(device)
+            ? selectedDevices.filter((current) => current !== device)
+            : [...selectedDevices, device]
+
+        setSurveyValue('conditions', {
+            ...conditions,
+            deviceTypes: nextDeviceTypes.length > 0 ? nextDeviceTypes : undefined,
+            deviceTypesMatchType: nextDeviceTypes.length > 0 ? SurveyMatchType.Exact : undefined,
+        })
+    }
+
+    const clearLinkedFlag = (): void => {
+        const { linkedFlagVariant, ...restConditions } = conditions
+        setSurveyValue('linked_flag_id', null)
+        setSurveyValue('linked_flag', null)
+        setSurveyValue('conditions', restConditions)
     }
 
     return (
-        <div className="space-y-10">
-            {/* Page targeting */}
-            <div>
-                <h2 className="text-xl font-semibold mb-2">Where should this appear?</h2>
-                <p className="text-secondary mb-6">Choose which pages will show this survey</p>
-
+        <WizardStepLayout className="space-y-6">
+            <WizardSection title="Where should this appear?" description="Choose which pages will show this survey">
                 <LemonRadio
                     value={targetingMode}
                     onChange={setTargetingMode}
@@ -89,13 +137,26 @@ export function WhereStep(): JSX.Element {
                         {
                             value: 'specific',
                             label: 'Specific pages',
-                            description: 'Only show on pages matching a URL pattern',
+                            description: 'Only show on pages matching a path or full URL',
                         },
                     ]}
                 />
 
                 {targetingMode === 'specific' && (
-                    <div className="mt-4 ml-6">
+                    <div className="mt-3 ml-6">
+                        <div className="mb-2">
+                            <LemonSegmentedButton
+                                value={urlMatchMode}
+                                onChange={(value) =>
+                                    setUrlMatchMode(value as SurveyMatchType.Exact | SurveyMatchType.Contains)
+                                }
+                                options={[
+                                    { value: SurveyMatchType.Contains, label: 'Contains path' },
+                                    { value: SurveyMatchType.Exact, label: 'Exact URL' },
+                                ]}
+                                size="small"
+                            />
+                        </div>
                         <LemonInputSelect
                             mode="single"
                             value={urlPattern ? [urlPattern] : []}
@@ -110,60 +171,100 @@ export function WhereStep(): JSX.Element {
                                     properties: [],
                                 })
                             }}
-                            placeholder="Select a page or type a path like /pricing"
+                            placeholder={urlInputPlaceholder}
                             allowCustomValues
+                            status={isPathInputInExactMode ? 'danger' : undefined}
                             loading={urlOptions?.status === 'loading'}
-                            options={(() => {
-                                const seen = new Set<string>()
-                                return (urlOptions?.values || [])
-                                    .map(({ name }) => {
-                                        const url = String(name)
-                                        let path = url
-                                        try {
-                                            const parsed = new URL(url)
-                                            path = parsed.pathname
-                                        } catch {
-                                            // Keep as-is if not a valid URL
-                                        }
-                                        return path
-                                    })
-                                    .filter((path) => {
-                                        if (seen.has(path)) {
-                                            return false
-                                        }
-                                        seen.add(path)
-                                        return true
-                                    })
-                                    .map((path) => ({ key: path, label: path }))
-                            })()}
+                            options={urlSuggestions}
                         />
-                        <p className="text-xs text-muted mt-2">
-                            Select from your most visited pages or type a custom pattern
-                        </p>
+                        {isPathInputInExactMode ? (
+                            <p className="text-xs text-danger mt-1.5">
+                                Exact URL requires the full URL, including protocol and host. Use Contains path for
+                                entries like /pricing.
+                            </p>
+                        ) : (
+                            <p className="text-xs text-muted mt-1.5">
+                                {urlMatchMode === SurveyMatchType.Exact
+                                    ? 'Select from your most visited pages or type the full URL, including protocol and host.'
+                                    : 'Select from your most visited pages or type a path like /pricing.'}
+                            </p>
+                        )}
                     </div>
                 )}
-            </div>
+            </WizardSection>
 
-            {/* Frequency */}
-            <div>
-                <h2 className="text-xl font-semibold mb-2">How often can someone see this?</h2>
-                <p className="text-secondary mb-6">Control how frequently the same person can be shown this survey</p>
+            <SurveyAudienceFilters onOpenFullEditor={onOpenFullEditor} />
 
-                <LemonSegmentedButton
-                    value={frequency}
-                    onChange={setFrequency}
-                    options={FREQUENCY_OPTIONS.map((opt) => ({
-                        ...opt,
-                        tooltip:
-                            opt.value === recommendedFrequency.value ? `Recommended for this survey type` : undefined,
-                    }))}
-                    fullWidth
-                />
+            <WizardSection
+                title="Which devices should this appear on?"
+                description="Choose whether this survey should show on desktop, mobile, tablet, or any combination."
+            >
+                <div className="flex flex-wrap gap-2">
+                    {DEVICE_OPTIONS.map((device) => {
+                        const selected = selectedDevices.includes(device)
 
-                {recommendedFrequency.value === frequency && (
-                    <p className="text-sm text-success mt-3">{recommendedFrequency.reason}</p>
-                )}
-            </div>
-        </div>
+                        return (
+                            <LemonButton
+                                key={device}
+                                type={selected ? 'primary' : 'secondary'}
+                                size="small"
+                                onClick={() => toggleDeviceType(device)}
+                            >
+                                {device}
+                            </LemonButton>
+                        )
+                    })}
+                </div>
+                <p className="text-xs text-muted mt-1.5">
+                    Leave all unselected to show the survey on every device type.
+                </p>
+            </WizardSection>
+
+            <WizardSection
+                title="Feature flag targeting"
+                description="Optionally limit this survey to users who have a specific feature flag enabled."
+            >
+                <div className="space-y-2.5">
+                    <div className="flex items-center gap-2">
+                        <FlagSelector
+                            value={survey.linked_flag_id || undefined}
+                            onChange={(id, _key, flag) => {
+                                const { linkedFlagVariant, ...restConditions } = conditions
+                                setSurveyValue('linked_flag_id', id)
+                                setSurveyValue('linked_flag', flag)
+                                setSurveyValue('conditions', restConditions)
+                            }}
+                            initialButtonLabel="Select feature flag"
+                        />
+                        {survey.linked_flag_id && (
+                            <LemonButton type="tertiary" size="small" icon={<IconTrash />} onClick={clearLinkedFlag}>
+                                Clear
+                            </LemonButton>
+                        )}
+                    </div>
+
+                    {resolvedLinkedFlag?.filters.multivariate && (
+                        <div className="ml-6 space-y-3">
+                            <div>
+                                <div className="text-sm font-medium mb-2">Flag variant</div>
+                                <LemonSegmentedButton
+                                    value={conditions.linkedFlagVariant ?? ANY_VARIANT}
+                                    options={variantOptions(resolvedLinkedFlag.filters.multivariate)}
+                                    onChange={(variant) => {
+                                        setSurveyValue('conditions', {
+                                            ...conditions,
+                                            linkedFlagVariant: variant === ANY_VARIANT ? null : String(variant),
+                                        })
+                                    }}
+                                />
+                            </div>
+                            <p className="text-xs text-muted">
+                                Choose a specific variant or keep it on any enabled variant.
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </WizardSection>
+        </WizardStepLayout>
     )
 }

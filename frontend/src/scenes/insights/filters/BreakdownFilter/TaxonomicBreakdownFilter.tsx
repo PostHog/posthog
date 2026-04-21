@@ -1,6 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { ReactElement } from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconPencil } from '@posthog/icons'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Link } from 'lib/lemon-ui/Link'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { urls } from 'scenes/urls'
 
 import { LemonButton } from '~/lib/lemon-ui/LemonButton'
 import { LemonLabel } from '~/lib/lemon-ui/LemonLabel'
@@ -13,6 +19,9 @@ import { GlobalBreakdownOptionsMenu } from './GlobalBreakdownOptionsMenu'
 import { TaxonomicBreakdownButton } from './TaxonomicBreakdownButton'
 import { TaxonomicBreakdownFilterLogicProps, taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
+const BREAKDOWN_DOCS_URL = 'https://posthog.com/docs/product-analytics/trends/breakdowns'
+const COHORT_BREAKDOWN_DOCS_URL = 'https://posthog.com/docs/product-analytics/trends/breakdowns#cohorts-and-breakdowns'
+
 export interface TaxonomicBreakdownFilterProps {
     insightProps: InsightLogicProps
     breakdownFilter?: BreakdownFilter | null
@@ -23,6 +32,7 @@ export interface TaxonomicBreakdownFilterProps {
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
     showLabel?: boolean
+    showInlineOptions?: boolean
     disablePropertyInfo?: boolean
     size?: 'small' | 'medium'
 }
@@ -37,6 +47,7 @@ export function TaxonomicBreakdownFilter({
     updateBreakdownFilter,
     updateDisplay,
     showLabel = true,
+    showInlineOptions = false,
     disablePropertyInfo,
     size = 'medium',
 }: TaxonomicBreakdownFilterProps): JSX.Element {
@@ -49,10 +60,53 @@ export function TaxonomicBreakdownFilter({
         updateBreakdownFilter,
         updateDisplay,
     }
-    const { breakdownArray, isAddBreakdownDisabled, breakdownOptionsOpened, isMultipleBreakdownsEnabled } = useValues(
-        taxonomicBreakdownFilterLogic(logicProps)
-    )
+    const {
+        breakdownArray,
+        addBreakdownDisabledReason,
+        breakdownOptionsOpened,
+        isMultipleBreakdownsEnabled,
+        taxonomicBreakdownType,
+    } = useValues(taxonomicBreakdownFilterLogic(logicProps))
     const { toggleBreakdownOptions } = useActions(taxonomicBreakdownFilterLogic(logicProps))
+    const { hogQL, canEditInSqlEditor } = useValues(insightDataLogic(insightProps))
+
+    const breakdownDocsUrl =
+        taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
+            ? COHORT_BREAKDOWN_DOCS_URL
+            : BREAKDOWN_DOCS_URL
+
+    const composedDisabledReason = ((): ReactElement | string | undefined => {
+        if (disabledReason) {
+            return disabledReason
+        }
+        if (!addBreakdownDisabledReason) {
+            return undefined
+        }
+
+        return (
+            <span className="flex flex-col gap-1.5 not-italic">
+                <span>
+                    {addBreakdownDisabledReason}{' '}
+                    <Link to={breakdownDocsUrl} target="_blank" className="not-italic font-semibold">
+                        Read the docs
+                    </Link>
+                </span>
+                {canEditInSqlEditor && (
+                    <span>
+                        Need more flexibility?{' '}
+                        <Link
+                            to={urls.sqlEditor({ query: hogQL ?? undefined })}
+                            data-attr="breakdown-limit-edit-sql"
+                            className="font-semibold inline-flex items-center gap-1"
+                        >
+                            <IconPencil />
+                            Edit in SQL editor
+                        </Link>
+                    </span>
+                )}
+            </span>
+        )
+    })()
 
     const tags = breakdownArray.map((breakdown) =>
         typeof breakdown === 'object' ? (
@@ -78,14 +132,14 @@ export function TaxonomicBreakdownFilter({
 
     return (
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
-            {(showLabel || isMultipleBreakdownsEnabled) && (
+            {(showLabel || (!showInlineOptions && isMultipleBreakdownsEnabled)) && (
                 <div className="flex items-center gap-2">
                     {showLabel && (
                         <LemonLabel info="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited.">
                             Breakdown by
                         </LemonLabel>
                     )}
-                    {isMultipleBreakdownsEnabled && (
+                    {!showInlineOptions && isMultipleBreakdownsEnabled && (
                         <Popover
                             overlay={<GlobalBreakdownOptionsMenu />}
                             visible={breakdownOptionsOpened}
@@ -103,8 +157,17 @@ export function TaxonomicBreakdownFilter({
             )}
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                {!isAddBreakdownDisabled && <TaxonomicBreakdownButton disabledReason={disabledReason} size={size} />}
+                <TaxonomicBreakdownButton
+                    disabledReason={composedDisabledReason}
+                    disabledReasonInteractive={!!composedDisabledReason}
+                    size={size}
+                />
             </div>
+            {showInlineOptions && isMultipleBreakdownsEnabled && (
+                <div className="mt-2 border-t pt-2">
+                    <GlobalBreakdownOptionsMenu />
+                </div>
+            )}
         </BindLogic>
     )
 }

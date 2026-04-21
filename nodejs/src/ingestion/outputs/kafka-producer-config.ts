@@ -10,6 +10,7 @@ import { z } from 'zod'
  * corresponding env var is set. Invalid env var values cause a startup failure.
  */
 const producerConfigSchema = z.object({
+    'client.id': z.string().optional(),
     'metadata.broker.list': z.string().default('kafka:9092'),
     'security.protocol': z.enum(['plaintext', 'ssl', 'sasl_plaintext', 'sasl_ssl']).optional(),
     'sasl.mechanisms': z.string().optional(),
@@ -27,8 +28,8 @@ const producerConfigSchema = z.object({
     log_level: z.coerce.number().default(4),
     'enable.idempotence': z
         .enum(['true', 'false'])
-        .transform((v) => v === 'true')
-        .default('true'),
+        .default('true')
+        .transform((v) => v === 'true'),
     'message.max.bytes': z.coerce.number().optional(),
     'batch.num.messages': z.coerce.number().optional(),
     'sticky.partitioning.linger.ms': z.coerce.number().optional(),
@@ -40,7 +41,7 @@ const producerConfigSchema = z.object({
     'max.in.flight.requests.per.connection': z.coerce.number().default(5),
 })
 
-/** The rdkafka config keys that can be set via env vars. */
+/** The rdkafka config keys that can be set via the config object. */
 export type AllowedConfigKey = keyof z.input<typeof producerConfigSchema>
 
 /**
@@ -53,6 +54,7 @@ export type AllowedConfigKey = keyof z.input<typeof producerConfigSchema>
  * @param envVarMap - Maps rdkafka config keys (e.g. `linger.ms`) to
  *   env var names (e.g. `KAFKA_PRODUCER_LINGER_MS`).
  * @returns A fully typed `ProducerGlobalConfig` with `client.id` set to the hostname.
+ * @deprecated Use `KafkaProducerRegistryBuilder` instead, which reads from a config object.
  */
 export function getProducerConfig(envVarMap: Partial<Record<AllowedConfigKey, string>>): ProducerGlobalConfig {
     const envValues: Record<string, string> = {}
@@ -66,5 +68,19 @@ export function getProducerConfig(envVarMap: Partial<Record<AllowedConfigKey, st
 
     const parsed = producerConfigSchema.parse(envValues)
 
+    return { 'client.id': hostname(), ...parsed }
+}
+
+/**
+ * Parse a raw key-value map of rdkafka config values through the zod schema.
+ *
+ * Used by `KafkaProducerRegistryBuilder` after it resolves config keys from the config object.
+ * Missing keys fall back to schema defaults. Invalid values throw.
+ *
+ * @param values - Maps rdkafka config keys to their string values.
+ * @returns A fully typed `ProducerGlobalConfig` with `client.id` set to the hostname.
+ */
+export function parseProducerConfig(values: Record<string, string>): ProducerGlobalConfig {
+    const parsed = producerConfigSchema.parse(values)
     return { 'client.id': hostname(), ...parsed }
 }

@@ -139,19 +139,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
-                    const endpoint = await api.endpoint.get(name)
-
-                    // Fetch last execution time
-                    try {
-                        const executionTimes = await api.endpoint.getLastExecutionTimes({ names: [name] })
-                        if (executionTimes[name]) {
-                            endpoint.last_executed_at = executionTimes[name]
-                        }
-                    } catch (error) {
-                        console.error('Failed to fetch last execution time:', error)
-                    }
-
-                    return endpoint
+                    return await api.endpoint.get(name)
                 },
             },
         ],
@@ -187,7 +175,8 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return []
                     }
-                    return await api.endpoint.listVersions(name)
+                    const response = await api.endpoint.listVersions(name)
+                    return response.results
                 },
             },
         ],

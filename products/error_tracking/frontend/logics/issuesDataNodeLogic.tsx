@@ -83,8 +83,8 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             )
             const sortBy = query?.orderBy ?? null
             const sortDirection = query?.orderDirection ?? null
-            const isV2 = query?.useQueryV2 ?? false
-            const eventName = isV2 ? 'error_tracking_issue_list_loaded_v2' : 'error_tracking_issue_list_loaded'
+            const isV3 = query?.useQueryV3 ?? false
+            const eventName = isV3 ? 'error_tracking_issue_list_loaded_v3' : 'error_tracking_issue_list_loaded'
             posthog.capture(eventName, {
                 duration_ms: durationMs,
                 result_count: (results as ErrorTrackingIssue[]).length,

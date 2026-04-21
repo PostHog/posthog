@@ -36,6 +36,8 @@ Table | Description
 `system.ingestion_warnings` | Data ingestion issues
 `system.insight_variables` | SQL, dashboard, and insight variables for dynamic query filtering
 `system.insights` | Visual and textual representations of aggregated data
+`system.logs_alerts` | Log alert configurations and their states
+`system.logs_views` | Saved log filter views
 `system.notebooks` | Collaborative documents with embedded insights
 `system.surveys` | Questionnaires and feedback forms
 `system.teams` | Team/project settings
@@ -55,6 +57,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Dashboards, Tiles & Insights](references/models-dashboards-insights.md)
 - [Data Warehouse](references/models-data-warehouse.md)
 - [Error Tracking](references/models-error-tracking.md)
+- [Logs](references/models-logs.md)
 - [Flags & Experiments](references/models-flags-experiments.md)
 - [Notebooks](references/models-notebooks.md)
 - [Surveys](references/models-surveys.md)

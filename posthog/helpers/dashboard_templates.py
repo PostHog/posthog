@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Optional
+from typing import Any, Optional
 
 import structlog
 
@@ -466,11 +466,27 @@ DASHBOARD_TEMPLATES: dict[str, Callable] = {
 # end of area to be removed
 
 
+def dashboard_template_from_creation_payload(template: dict[str, Any]) -> DashboardTemplate:
+    """Build an unsaved DashboardTemplate from create_from_template_json body.
+
+    The client may send API-shaped objects (e.g. nested ``created_by``). Only fields used for
+    dashboard instantiation are passed through; read-only / relation blobs are not unpacked into ``__init__``.
+    """
+    return DashboardTemplate(
+        template_name=template["template_name"],
+        dashboard_description=template["dashboard_description"],
+        dashboard_filters=template["dashboard_filters"],
+        tiles=template["tiles"],
+        tags=template.get("tags"),
+        variables=template.get("variables"),
+    )
+
+
 def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user=None) -> None:
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
-    dashboard.description = template.dashboard_description
+    dashboard.description = template.dashboard_description or ""
     for template_tag in template.tags or []:
         tag, _ = Tag.objects.get_or_create(
             name=template_tag,
@@ -480,7 +496,7 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save()
 
-    for template_tile in template.tiles:
+    for template_tile in template.tiles or []:
         if template_tile["type"] == "INSIGHT":
             query = template_tile.get("query", None)
             _create_tile_for_insight(

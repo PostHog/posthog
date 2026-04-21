@@ -81,7 +81,8 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         from django.utils import timezone
 
         key = self.query.property_key
-        chain: list[str | int] = [key] if self.query.is_column else ["properties", key]
+        is_virtual = key.startswith("$virt_")
+        chain: list[str | int] = [key] if (self.query.is_column or is_virtual) else ["properties", key]
 
         date_from = relative_date_parse("-7d", self.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
         date_to = timezone.now().astimezone(self.team.timezone_info).strftime("%Y-%m-%d 23:59:59")

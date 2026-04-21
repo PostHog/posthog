@@ -3,7 +3,7 @@ from collections.abc import Generator
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.settings import SERVER_GATEWAY_INTERFACE
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session_stream
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.utils.asgi import SyncIterableToAsync

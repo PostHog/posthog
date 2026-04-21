@@ -8,12 +8,13 @@ from typing import Any, Literal, LiteralString, Optional, cast
 
 import psycopg
 import pyarrow as pa
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -243,6 +244,60 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
     except Exception as e:
         capture_exception(e)
         logger.debug(f"EXPLAIN raised an exception: {e}")
+
+
+def get_primary_keys_for_schemas(
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+) -> dict[str, list[str] | None]:
+    """Detect primary keys for all tables in a single query."""
+    result: dict[str, list[str] | None] = dict.fromkeys(table_names)
+
+    try:
+        with psycopg.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode="require",
+            connect_timeout=15,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+            options="-c client_encoding=UTF8",
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("""
+                        SELECT tc.table_name, kcu.column_name
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                        AND tc.table_name = kcu.table_name
+                        WHERE tc.table_schema = {schema}
+                        AND tc.table_name = ANY({names})
+                        AND tc.constraint_type = 'PRIMARY KEY'
+                    """).format(schema=sql.Literal(schema), names=sql.Literal(table_names))
+                )
+                rows = cursor.fetchall()
+
+                pks: dict[str, list[str]] = collections.defaultdict(list)
+                for table_name, column_name in rows:
+                    pks[table_name].append(column_name)
+
+                for table_name, pk_cols in pks.items():
+                    result[table_name] = pk_cols
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect primary keys for Redshift schemas", exc_info=e)
+
+    return result
 
 
 def _get_primary_keys(
@@ -572,6 +627,7 @@ def redshift_source(
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
                 table = _get_table(cursor, schema, table_name, logger)
+                logger.debug(f"Source schema: {table.to_arrow_schema()}")
 
                 inner_query_with_limit = _build_query(
                     schema,
@@ -677,7 +733,7 @@ def redshift_source(
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-    name = NamingConvention().normalize_identifier(table_name)
+    name = NamingConvention.normalize_identifier(table_name)
 
     return SourceResponse(
         name=name,

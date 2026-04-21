@@ -3,7 +3,7 @@ import { Field, Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconArrowLeft, IconInfo, IconPlay } from '@posthog/icons'
+import { IconArrowLeft, IconInfo, IconPlay, IconTrends, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -26,17 +26,21 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
+import { EvaluationReportConfig } from './components/EvaluationReportConfig'
+import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
+import { statusReasonLabel } from './statusDisplay'
 import { EvaluationType } from './types'
 
 export function LLMAnalyticsEvaluation(): JSX.Element {
@@ -51,6 +55,8 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         evaluationProviderKeyIssue,
         signalEmissionEnabled,
         activeTab,
+        canEnable,
+        canEnableReason,
     } = useValues(llmEvaluationLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -80,6 +86,61 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
     const openInPlaygroundUrl =
         evaluation.evaluation_type === 'llm_judge' && evaluation.id
             ? combineUrl(urls.llmAnalyticsPlayground(), { source_evaluation_id: evaluation.id }).url
+            : null
+
+    const trendInsightUrl =
+        !isNewEvaluation && evaluation.id
+            ? urls.insightNew({
+                  query: {
+                      kind: NodeKind.InsightVizNode,
+                      source: {
+                          kind: NodeKind.TrendsQuery,
+                          series: [
+                              {
+                                  kind: NodeKind.EventsNode,
+                                  event: '$ai_evaluation',
+                                  custom_name: `${evaluation.name} — Pass rate`,
+                                  math: HogQLMathType.HogQL,
+                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(properties.$ai_evaluation_result = 1) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
+                                  properties: [
+                                      {
+                                          key: '$ai_evaluation_id',
+                                          value: evaluation.id,
+                                          operator: 'exact',
+                                          type: 'event',
+                                      },
+                                  ],
+                              },
+                              ...(evaluation.output_config.allows_na
+                                  ? [
+                                        {
+                                            kind: NodeKind.EventsNode as const,
+                                            event: '$ai_evaluation',
+                                            custom_name: `${evaluation.name} — N/A rate`,
+                                            math: HogQLMathType.HogQL as const,
+                                            math_hogql: `if(count() > 0, countIf(properties.$ai_evaluation_result IS NULL) / count() * 100, 0)`,
+                                            properties: [
+                                                {
+                                                    key: '$ai_evaluation_id',
+                                                    value: evaluation.id,
+                                                    operator: 'exact' as const,
+                                                    type: 'event' as const,
+                                                },
+                                            ],
+                                        },
+                                    ]
+                                  : []),
+                          ],
+                          trendsFilter: {
+                              display: ChartDisplayType.ActionsLineGraph,
+                          },
+                          dateRange: {
+                              date_from: '-7d',
+                          },
+                          interval: 'day',
+                      },
+                  } as InsightVizNode,
+              })
             : null
 
     const isHog = evaluation.evaluation_type === 'hog'
@@ -125,15 +186,32 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             <LemonTag type="primary">New</LemonTag>
                         ) : (
                             <>
-                                <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
-                                    {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                                </LemonTag>
+                                {evaluation.status === 'error' ? (
+                                    <LemonTag type="danger" icon={<IconWarning />}>
+                                        Error
+                                    </LemonTag>
+                                ) : (
+                                    <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
+                                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                                    </LemonTag>
+                                )}
                                 {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
                             </>
                         )}
                     </div>
                 </div>
                 <div className="flex gap-2">
+                    {trendInsightUrl ? (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconTrends />}
+                            to={trendInsightUrl}
+                            targetBlank
+                            data-attr="llma-evaluation-trend-insight"
+                        >
+                            Trend insight
+                        </LemonButton>
+                    ) : null}
                     {openInPlaygroundUrl ? (
                         <LemonButton
                             type="secondary"
@@ -164,6 +242,19 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     )}
                 </div>
             </div>
+
+            {evaluation.status === 'error' && (
+                <LemonBanner type="error">
+                    <div className="space-y-1">
+                        <p className="font-semibold">This evaluation was automatically disabled</p>
+                        <p>
+                            {statusReasonLabel(evaluation.status_reason)}. Update the configuration below (e.g. choose a
+                            supported model or add a provider API key in settings), then re-enable the evaluation to
+                            resume running.
+                        </p>
+                    </div>
+                </LemonBanner>
+            )}
 
             {evaluationProviderKeyIssue && (
                 <LemonBanner type="warning">
@@ -228,6 +319,18 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             </div>
                         ),
                     },
+                    !isNewEvaluation &&
+                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && {
+                            key: 'reports',
+                            label: 'Reports',
+                            'data-attr': 'llma-evaluation-reports-tab',
+                            content: (
+                                <EvaluationReportsTab
+                                    evaluationId={evaluation.id}
+                                    onConfigureClick={() => setActiveTab('configuration')}
+                                />
+                            ),
+                        },
                     {
                         key: 'configuration',
                         label: 'Configuration',
@@ -293,15 +396,25 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                             </Field>
 
                                             <div className="flex items-center gap-2">
-                                                <LemonSwitch
-                                                    checked={evaluation.enabled}
-                                                    onChange={setEvaluationEnabled}
-                                                    label="Enable evaluation"
-                                                />
+                                                <Tooltip
+                                                    title={canEnableReason}
+                                                    visible={canEnableReason ? undefined : false}
+                                                >
+                                                    <span>
+                                                        <LemonSwitch
+                                                            checked={evaluation.enabled}
+                                                            onChange={setEvaluationEnabled}
+                                                            label="Enable evaluation"
+                                                            disabled={!canEnable && !evaluation.enabled}
+                                                        />
+                                                    </span>
+                                                </Tooltip>
                                                 <span className="text-muted text-sm">
-                                                    {evaluation.enabled
-                                                        ? 'This evaluation will run automatically based on triggers'
-                                                        : 'This evaluation is paused and will not run'}
+                                                    {!canEnable && !evaluation.enabled
+                                                        ? 'Add a provider API key to re-enable this evaluation'
+                                                        : evaluation.enabled
+                                                          ? 'This evaluation will run automatically based on triggers'
+                                                          : 'This evaluation is paused and will not run'}
                                                 </span>
                                             </div>
 
@@ -374,7 +487,20 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         </p>
                                         <EvaluationTriggers />
                                     </div>
+
+                                    {/* Scheduled Reports (inline config for new evaluations) */}
+                                    {isNewEvaluation &&
+                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
+                                            <EvaluationReportConfig evaluationId="new" />
+                                        )}
                                 </Form>
+
+                                {/* Scheduled Reports (for existing evaluations, outside the form) */}
+                                {!isNewEvaluation && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
+                                    <div className="mt-6">
+                                        <EvaluationReportConfig evaluationId={evaluation.id} />
+                                    </div>
+                                )}
                             </div>
                         ),
                     },

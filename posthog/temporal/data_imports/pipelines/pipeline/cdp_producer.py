@@ -91,7 +91,7 @@ class CDPProducer:
             raw_table_name = build_table_name(schema.source, schema.name)
             dot_notated_table_name = get_data_warehouse_table_name(schema.source, raw_table_name)
 
-            self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any HogQL functions")
+            self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any hog functions")
             self.logger.debug(f"Using table_name = {dot_notated_table_name}, source = data-warehouse-table")
 
             return (

@@ -21,6 +21,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import extend_schema
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
@@ -723,7 +724,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
-        with tracer.start_as_current_span("groups_api_property_values") as span:
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="group").time(),
+            tracer.start_as_current_span("groups_api_property_values") as span,
+        ):
             value_filter = request.GET.get("value")
             group_type_index = request.GET.get("group_type_index")
             if not group_type_index:
@@ -738,17 +742,17 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             span.set_attribute("has_value_filter", value_filter is not None)
 
             query = f"""
-                SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
-                FROM groups
-                ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
-                WHERE team_id = %(team_id)s
-                  AND group_type_index = %(group_type_index)s
-                  AND tupleElement(keysAndValues, 1) = %(key)s
-                  {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
-                GROUP BY value
-                ORDER BY count DESC, value ASC
-                LIMIT 20
-            """
+                    SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
+                    FROM groups
+                    ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
+                    WHERE team_id = %(team_id)s
+                      AND group_type_index = %(group_type_index)s
+                      AND tupleElement(keysAndValues, 1) = %(key)s
+                      {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
+                    GROUP BY value
+                    ORDER BY count DESC, value ASC
+                    LIMIT 20
+                """
 
             params = {
                 "team_id": self.team.pk,

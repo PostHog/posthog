@@ -57,6 +57,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
@@ -66,6 +67,12 @@ from posthog.hogql.database.schema.document_embeddings import (
     DocumentEmbeddingsTable,
     RawDocumentEmbeddingsTable,
 )
+from posthog.hogql.database.schema.duckdb_table_functions import GenerateSeriesTable, RangeTable
+from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
+    ErrorTrackingFingerprintIssueStateTable,
+    RawErrorTrackingFingerprintIssueStateTable,
+    join_with_error_tracking_fingerprint_issue_state_table,
+)
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
@@ -74,6 +81,9 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
+from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
+    ExperimentMetricEventsPreaggregatedTable,
+)
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -211,6 +221,9 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "experiment_exposures_preaggregated": TableNode(
         name="experiment_exposures_preaggregated", table=ExperimentExposuresPreaggregatedTable()
     ),
+    "experiment_metric_events_preaggregated": TableNode(
+        name="experiment_metric_events_preaggregated", table=ExperimentMetricEventsPreaggregatedTable()
+    ),
     # Revenue analytics tables
     "persons_revenue_analytics": TableNode(name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()),
     "groups_revenue_analytics": TableNode(name="groups_revenue_analytics", table=GroupsRevenueAnalyticsTable()),
@@ -227,6 +240,10 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
         name="raw_error_tracking_issue_fingerprint_overrides",
         table=RawErrorTrackingIssueFingerprintOverridesTable(),
     ),
+    "raw_error_tracking_fingerprint_issue_state": TableNode(
+        name="raw_error_tracking_fingerprint_issue_state",
+        table=RawErrorTrackingFingerprintIssueStateTable(),
+    ),
     "raw_sessions": TableNode(name="raw_sessions", table=RawSessionsTableV1()),
     "raw_sessions_v3": TableNode(name="raw_sessions_v3", table=RawSessionsTableV3()),
     "raw_query_log": TableNode(name="raw_query_log", table=RawQueryLogArchiveTable()),
@@ -242,6 +259,8 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 
     children: dict[str, TableNode] = {
         "numbers": TableNode(name="numbers", table=NumbersTable()),
+        "range": TableNode(name="range", table=RangeTable()),
+        "generate_series": TableNode(name="generate_series", table=GenerateSeriesTable()),
     }
 
     if include_posthog_tables:
@@ -253,6 +272,7 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                 children={
                     **clone_root_tables(),
                     # Add new tables here
+                    "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
                 },
@@ -614,7 +634,6 @@ class Database(BaseModel):
                 if _should_include_connection_table(
                     warehouse_table,
                     connection_id=cast(str, self._connection_id),
-                    view_names=set(views),
                 )
             ]
         allowed_warehouse_table_names = set(warehouse_table_names) if self._is_direct_query() else None
@@ -964,14 +983,11 @@ class Database(BaseModel):
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
         warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
-        view_names: set[str] = set()
-
         with timings.measure("data_warehouse_saved_query"):
             if database._is_direct_query():
                 queryset = DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True)
                 if not is_managed_viewset_enabled:
                     queryset = queryset.filter(managed_viewset__isnull=True)
-                view_names = set(queryset.values_list("name", flat=True))
             else:
                 with timings.measure("select"):
                     queryset = (
@@ -994,7 +1010,6 @@ class Database(BaseModel):
                             ),
                             table_conflict_mode="ignore",
                         )
-                view_names = set(views.resolve_all_table_names())
 
         with timings.measure("endpoint_saved_query"):
             if not database._is_direct_query():
@@ -1052,11 +1067,19 @@ class Database(BaseModel):
                     return self.parent_table.to_printed_clickhouse(context)
 
             with timings.measure("select"):
-                tables: list[DataWarehouseTable] = list(
+                tables_query = (
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
                     .select_related("credential", "external_data_source")
                 )
+                if database._is_direct_query():
+                    tables_query = tables_query.filter(external_data_source_id=database._connection_id)
+                else:
+                    tables_query = tables_query.exclude(
+                        external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
+                    )
+
+                tables: list[DataWarehouseTable] = list(tables_query)
                 _preload_active_external_data_schemas(tables)
                 if database._is_direct_query():
                     tables = [
@@ -1065,15 +1088,9 @@ class Database(BaseModel):
                         if _should_include_connection_table(
                             table,
                             connection_id=cast(str, database._connection_id),
-                            view_names=view_names,
                         )
                     ]
             for table in tables:
-                # Skip adding data warehouse tables that are materialized from views
-                # We can detect that because they have the exact same name as the view
-                if table.name in view_names:
-                    continue
-
                 if (
                     not database._is_direct_query()
                     and table.external_data_source
@@ -1416,6 +1433,41 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
         ),
     )
 
+    # Issue metadata from the fingerprint_issue_state table
+    table.fields["fingerprint_issue_state"] = LazyJoin(
+        from_field=["fingerprint"],
+        join_table=ErrorTrackingFingerprintIssueStateTable(),
+        join_function=join_with_error_tracking_fingerprint_issue_state_table,
+    )
+    table.fields["issue_id_v2"] = ExpressionField(
+        name="issue_id_v2",
+        expr=parse_expr("fingerprint_issue_state.issue_id", start=None),
+    )
+    table.fields["issue_name"] = ExpressionField(
+        name="issue_name",
+        expr=parse_expr("fingerprint_issue_state.issue_name", start=None),
+    )
+    table.fields["issue_description"] = ExpressionField(
+        name="issue_description",
+        expr=parse_expr("fingerprint_issue_state.issue_description", start=None),
+    )
+    table.fields["issue_status"] = ExpressionField(
+        name="issue_status",
+        expr=parse_expr("fingerprint_issue_state.issue_status", start=None),
+    )
+    table.fields["issue_assigned_user_id"] = ExpressionField(
+        name="issue_assigned_user_id",
+        expr=parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
+    )
+    table.fields["issue_assigned_role_id"] = ExpressionField(
+        name="issue_assigned_role_id",
+        expr=parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
+    )
+    table.fields["issue_first_seen"] = ExpressionField(
+        name="issue_first_seen",
+        expr=parse_expr("fingerprint_issue_state.first_seen", start=None),
+    )
+
 
 def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]]) -> None:
     """
@@ -1483,6 +1535,22 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             timings=timings,
             properties_path=["poe", "properties"],
         )
+
+    with timings.measure("traffic_type_virtual_fields"):
+        from posthog.hogql.database.schema.traffic_type import (
+            create_bot_name_field,
+            create_is_bot_field,
+            create_traffic_category_field,
+            create_traffic_type_field,
+        )
+
+        for field_name, factory_fn in [
+            ("$virt_is_bot", create_is_bot_field),
+            ("$virt_traffic_type", create_traffic_type_field),
+            ("$virt_traffic_category", create_traffic_category_field),
+            ("$virt_bot_name", create_bot_name_field),
+        ]:
+            events_table.fields[field_name] = factory_fn(name=field_name)
 
     revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):
@@ -1587,16 +1655,12 @@ def _should_include_connection_table(
     warehouse_table: DataWarehouseTable,
     *,
     connection_id: str,
-    view_names: set[str],
 ) -> bool:
     source = warehouse_table.external_data_source
     if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
         return False
 
     if str(warehouse_table.external_data_source_id) != connection_id:
-        return False
-
-    if warehouse_table.name in view_names:
         return False
 
     schemas = _get_active_external_data_schemas(warehouse_table)

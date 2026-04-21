@@ -12,13 +12,18 @@ import structlog
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.open_telemetry import initialize_otel
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, SIGNALS_ACTIVITIES, SIGNALS_WORKFLOWS
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
+from posthog.temporal.ai.video_segment_clustering import (
+    VIDEO_SEGMENT_CLUSTERING_ACTIVITIES,
+    VIDEO_SEGMENT_CLUSTERING_WORKFLOWS,
+)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -61,10 +66,6 @@ from posthog.temporal.exports import (
     ACTIVITIES as EXPORT_ACTIVITIES,
     WORKFLOWS as EXPORT_WORKFLOWS,
 )
-from posthog.temporal.exports_video import (
-    ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
-    WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
-)
 from posthog.temporal.health_checks import (
     ACTIVITIES as HEALTH_CHECK_ACTIVITIES,
     WORKFLOWS as HEALTH_CHECK_WORKFLOWS,
@@ -101,6 +102,10 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
+from posthog.temporal.session_replay.count_playlist_items import (
+    ACTIVITIES as COUNT_PLAYLIST_ITEMS_ACTIVITIES,
+    WORKFLOWS as COUNT_PLAYLIST_ITEMS_WORKFLOWS,
+)
 from posthog.temporal.session_replay.delete_recordings import (
     ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
     WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
@@ -121,6 +126,11 @@ from posthog.temporal.session_replay.rasterize_recording import (
     ACTIVITIES as RASTERIZE_RECORDING_ACTIVITIES,
     WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS,
 )
+from posthog.temporal.session_replay.replay_count_metrics import (
+    ACTIVITIES as REPLAY_COUNT_METRICS_ACTIVITIES,
+    WORKFLOWS as REPLAY_COUNT_METRICS_WORKFLOWS,
+)
+from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
 from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
@@ -157,6 +167,10 @@ from products.signals.backend.temporal import (
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
+)
+from products.web_analytics.backend.temporal import (
+    ACTIVITIES as WA_DIGEST_ACTIVITIES,
+    WORKFLOWS as WA_DIGEST_WORKFLOWS,
 )
 
 # When adding modules to a queue, also update the corresponding CI trigger
@@ -250,26 +264,32 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_EXPORT_WORKFLOWS + SIGNALS_WORKFLOWS + SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-        VIDEO_EXPORT_ACTIVITIES + SIGNALS_ACTIVITIES + SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+        VIDEO_SEGMENT_CLUSTERING_WORKFLOWS + SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
+        VIDEO_SEGMENT_CLUSTERING_ACTIVITIES + SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        DELETE_RECORDING_WORKFLOWS
+        COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + DELETE_RECORDING_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + EXPORT_RECORDING_WORKFLOWS
         + IMPORT_RECORDING_WORKFLOWS
-        + RASTERIZE_RECORDING_WORKFLOWS,
-        DELETE_RECORDING_ACTIVITIES
+        + RASTERIZE_RECORDING_WORKFLOWS
+        + REPLAY_COUNT_METRICS_WORKFLOWS
+        + SESSION_SUMMARY_WORKFLOWS,
+        COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + DELETE_RECORDING_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + EXPORT_RECORDING_ACTIVITIES
         + IMPORT_RECORDING_ACTIVITIES
-        + RASTERIZE_RECORDING_ACTIVITIES,
+        + RASTERIZE_RECORDING_ACTIVITIES
+        + REPLAY_COUNT_METRICS_ACTIVITIES
+        + SESSION_SUMMARY_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
-        MESSAGING_WORKFLOWS,
-        MESSAGING_ACTIVITIES,
+        MESSAGING_WORKFLOWS + WA_DIGEST_WORKFLOWS,
+        MESSAGING_ACTIVITIES + WA_DIGEST_ACTIVITIES,
     ),
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
@@ -354,7 +374,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--server-root-ca-cert",
-            default=settings.TEMPORAL_CLIENT_ROOT_CA,
+            default=None,
             help="Optional root server CA cert",
         )
         parser.add_argument(
@@ -466,6 +486,11 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
+        enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
+        if enable_otel is True:
+            # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
+            initialize_otel(settings.OTEL_SERVICE_NAME, settings.TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT)  # type: ignore
+
         async def shutdown_all(
             worker: ManagedWorker, health_srv: HealthCheckServer | None, sig: signal.Signals
         ) -> None:
@@ -543,6 +568,7 @@ class Command(BaseCommand):
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
                     enable_combined_metrics_server=not disable_combined_metrics_server,
+                    enable_open_telemetry_plugin=enable_otel,
                 )
             )
 

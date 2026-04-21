@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -28,6 +28,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
+import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -120,8 +121,8 @@ export function FeatureFlagReleaseConditions({
         taxonomicGroupTypes,
         propertySelectErrors,
         computeBlastRadiusPercentage,
-        affectedUsers,
-        totalUsers,
+        affectedCounts,
+        totalCounts,
         filtersTaxonomicOptions,
         aggregationTargetName,
         properties,
@@ -145,7 +146,6 @@ export function FeatureFlagReleaseConditions({
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    const showBucketingIdentifierUI = useFeatureFlag('FLAG_BUCKETING_IDENTIFIER')
     const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
@@ -178,6 +178,8 @@ export function FeatureFlagReleaseConditions({
         )
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
+        const rolloutValue = group.rollout_percentage ?? 100
+
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
@@ -190,17 +192,21 @@ export function FeatureFlagReleaseConditions({
                                     <>
                                         {readOnly ? (
                                             <>
-                                                Match <b>{aggregationTargetName}</b> against <b>all</b> criteria
+                                                Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
+                                                against <b>all</b> criteria
                                             </>
                                         ) : (
                                             <>
-                                                Matching <b>{aggregationTargetName}</b> against the criteria
+                                                Matching{' '}
+                                                <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
+                                                against the criteria
                                             </>
                                         )}
                                     </>
                                 ) : (
                                     <>
-                                        Condition set will match <b>all {aggregationTargetName}</b>
+                                        Condition set will match{' '}
+                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
                                     </>
                                 )}
                             </div>
@@ -408,7 +414,8 @@ export function FeatureFlagReleaseConditions({
                                 {group.rollout_percentage != null ? <b>{group.rollout_percentage}</b> : <b>100</b>}
                                 <b>%</b>
                                 <span> of </span>
-                                <b>{aggregationTargetName}</b> <span>in this set.</span>
+                                <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
+                                <span>in this set.</span>
                             </div>
                         </LemonTag>
                     ) : (
@@ -416,7 +423,7 @@ export function FeatureFlagReleaseConditions({
                             <div className="flex flex-wrap items-center gap-1">
                                 Roll out to{' '}
                                 <LemonSlider
-                                    value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
+                                    value={rolloutValue}
                                     onChange={(value) => {
                                         updateConditionSet(index, value)
                                     }}
@@ -426,18 +433,11 @@ export function FeatureFlagReleaseConditions({
                                     className="ml-1.5 w-20"
                                 />
                                 <LemonField.Pure error={propertySelectErrors?.[index]?.rollout_percentage} inline>
-                                    <LemonInput
+                                    <PercentageInput
                                         data-attr="rollout-percentage"
-                                        type="number"
                                         className="ml-2 mr-1.5 max-w-30"
-                                        onChange={(value): void => {
-                                            updateConditionSet(index, value === undefined ? 0 : value)
-                                        }}
-                                        value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
-                                        min={0}
-                                        max={100}
-                                        step="any"
-                                        suffix={<span>%</span>}
+                                        value={rolloutValue}
+                                        onChange={(value) => updateConditionSet(index, value)}
                                     />
                                 </LemonField.Pure>{' '}
                                 <div
@@ -445,8 +445,9 @@ export function FeatureFlagReleaseConditions({
                                         propertySelectErrors?.[index]?.rollout_percentage ? 'basis-full h-0' : ''
                                     )}
                                 />
-                                of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
-                                {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
+                                of <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set. Will
+                                match approximately{' '}
+                                {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
                                     <b>
                                         {`${
                                             Math.max(
@@ -466,22 +467,19 @@ export function FeatureFlagReleaseConditions({
                                     <Spinner className="mr-1" />
                                 )}{' '}
                                 {(() => {
-                                    const affectedUserCount = group.sort_key ? affectedUsers[group.sort_key] : undefined
-                                    if (
-                                        affectedUserCount !== undefined &&
-                                        affectedUserCount >= 0 &&
-                                        totalUsers !== null
-                                    ) {
+                                    const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined
+                                    const total = group.sort_key ? totalCounts[group.sort_key] : undefined
+                                    if (affected !== undefined && affected >= 0 && total !== undefined) {
                                         const rolloutPct = Number.isNaN(group.rollout_percentage)
                                             ? 0
                                             : (group.rollout_percentage ?? 100)
                                         return `(${humanFriendlyNumber(
-                                            Math.floor((affectedUserCount * clamp(rolloutPct, 0, 100)) / 100)
-                                        )} / ${humanFriendlyNumber(totalUsers)})`
+                                            Math.floor((affected * clamp(rolloutPct, 0, 100)) / 100)
+                                        )} / ${humanFriendlyNumber(total)})`
                                     }
                                     return ''
                                 })()}{' '}
-                                <span>of total {aggregationTargetName}.</span>
+                                <span>of total {aggregationTargetName(group.aggregation_group_type_index)}.</span>
                                 {filters.aggregation_group_type_index == null && (
                                     <Tooltip
                                         title={
@@ -508,7 +506,7 @@ export function FeatureFlagReleaseConditions({
                             <LemonDivider className="my-3" />
                             {readOnly ? (
                                 <div>
-                                    All <b>{aggregationTargetName}</b> in this set{' '}
+                                    All <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set{' '}
                                     {group.variant ? (
                                         <>
                                             {' '}
@@ -521,8 +519,9 @@ export function FeatureFlagReleaseConditions({
                             ) : (
                                 <div className="feature-flag-form-row">
                                     <div className="centered">
-                                        <b>Optional override:</b> Set variant for all <b>{aggregationTargetName}</b> in
-                                        this set to{' '}
+                                        <b>Optional override:</b> Set variant for all{' '}
+                                        <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set
+                                        to{' '}
                                         <LemonSelect
                                             placeholder="Select variant"
                                             allowClear={true}
@@ -562,12 +561,13 @@ export function FeatureFlagReleaseConditions({
                             <div>
                                 {group.properties?.length ? (
                                     <>
-                                        Match <b>{aggregationTargetName}</b> against value set on{' '}
-                                        <LemonSnack>{'$feature_enrollment/' + featureFlagKey}</LemonSnack>
+                                        Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> against
+                                        value set on <LemonSnack>{'$feature_enrollment/' + featureFlagKey}</LemonSnack>
                                     </>
                                 ) : (
                                     <>
-                                        Condition set will match <b>all {aggregationTargetName}</b>
+                                        Condition set will match{' '}
+                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
                                     </>
                                 )}
                             </div>
@@ -618,9 +618,9 @@ export function FeatureFlagReleaseConditions({
                 !excludeTitle && (
                     <>
                         <div className="text-secondary mb-2">
-                            Specify {aggregationTargetName} for flag release. Condition sets are evaluated top to bottom
-                            - the first matching set is used. A condition matches when all property filters pass AND the
-                            target falls within the rollout percentage.
+                            Specify users for flag release. Condition sets are evaluated top to bottom - the first
+                            matching set is used. A condition matches when all property filters pass AND the target
+                            falls within the rollout percentage.
                         </div>
                     </>
                 )
@@ -641,48 +641,14 @@ export function FeatureFlagReleaseConditions({
                         that matches.
                     </LemonBanner>
                 )}
-            {!readOnly && showGroupsOptions && !hideMatchOptions && !showBucketingIdentifierUI && (
-                <div className="centered flex items-center gap-2">
-                    Match by
-                    <LemonSelect
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        data-attr="feature-flag-aggregation-filter"
-                        onChange={(value) => {
-                            // MatchByGroupsIntroductionOption
-                            if (value == -2) {
-                                return
-                            }
-
-                            const groupTypeIndex = value !== -1 ? value : null
-                            setAggregationGroupTypeIndex(groupTypeIndex)
-                        }}
-                        value={filters.aggregation_group_type_index != null ? filters.aggregation_group_type_index : -1}
-                        options={[
-                            { value: -1, label: 'Users' },
-                            ...Array.from(groupTypes.values()).map((groupType) => ({
-                                value: groupType.group_type_index,
-                                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                                disabledReason: hasEarlyAccessFeatures
-                                    ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
-                                    : null,
-                            })),
-                            ...(includeGroupsIntroductionOption()
-                                ? [
-                                      {
-                                          value: -2,
-                                          label: 'MatchByGroupsIntroductionOption',
-                                          labelInMenu: matchByGroupsIntroductionOption,
-                                      },
-                                  ]
-                                : []),
-                        ]}
-                    />
-                </div>
-            )}
-            {!readOnly && showGroupsOptions && !hideMatchOptions && showBucketingIdentifierUI && (
+            {!readOnly && showGroupsOptions && !hideMatchOptions && (
                 <div className="mb-4">
-                    <LemonLabel className="mb-2">Match by</LemonLabel>
+                    <LemonLabel
+                        className="mb-2"
+                        info="Changing match criteria may remove existing variants or payloads."
+                    >
+                        Match by
+                    </LemonLabel>
                     <LemonRadio
                         data-attr="feature-flag-aggregation-filter"
                         value={

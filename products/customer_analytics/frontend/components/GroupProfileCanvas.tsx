@@ -13,7 +13,6 @@ import { AnyPropertyFilter, CustomerProfileScope, Group, PropertyFilterType, Pro
 
 import { customerProfileLogic } from '../customerProfileLogic'
 import { CustomerProfileMenu } from './CustomerProfileMenu'
-import { FeedbackBanner } from './FeedbackBanner'
 
 interface GroupProfileCanvasProps {
     group: Group
@@ -69,10 +68,6 @@ export const GroupProfileCanvas = ({ group, tabId, attachTo }: GroupProfileCanva
         <BindLogic logic={notebookLogic} props={notebookLogicProps}>
             <BindLogic logic={groupLogic} props={{ groupKey, groupTypeIndex, tabId }}>
                 <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
-                    <FeedbackBanner
-                        feedbackButtonId="group-profile"
-                        message="We're improving the groups experience. Send us your feedback!"
-                    />
                     <CustomerProfileMenu />
                     <Notebook
                         editable={false}

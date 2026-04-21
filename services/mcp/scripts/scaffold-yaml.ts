@@ -86,7 +86,7 @@ function loadOpenApi(): OpenApiSpec {
 }
 
 function operationIdToToolName(operationId: string): string {
-    return operationId.replace(/_/g, '-')
+    return operationId.replace(/[_.]+/g, '-')
 }
 
 /**
@@ -330,6 +330,11 @@ function mergeWithExisting(
         url_prefix: existing.url_prefix ?? `/${tag.replace(/_/g, '-')}`,
         ui_apps: existing.ui_apps ?? {},
         tools: mergedTools,
+    }
+
+    // Query wrappers are hand-authored (schema.json); OpenAPI sync must not drop them.
+    if (existing.wrappers !== undefined) {
+        merged.wrappers = existing.wrappers
     }
 
     return {

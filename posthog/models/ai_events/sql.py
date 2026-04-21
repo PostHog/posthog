@@ -1,10 +1,11 @@
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_AI_EVENTS, kafka_engine
+from django.conf import settings
+
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_AI_EVENTS, CONSUMER_GROUP_AI_EVENTS_WS, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_AI_EVENTS_JSON
 
 TABLE_BASE_NAME = "ai_events"
 DATA_TABLE_NAME = f"sharded_{TABLE_BASE_NAME}"
-WRITABLE_TABLE_NAME = f"writable_{TABLE_BASE_NAME}"
 KAFKA_TABLE_NAME = f"kafka_{TABLE_BASE_NAME}_json"
 MV_NAME = f"{TABLE_BASE_NAME}_json_mv"
 
@@ -184,17 +185,6 @@ SETTINGS ttl_only_drop_parts = 1
     )
 
 
-def WRITABLE_AI_EVENTS_TABLE_SQL():
-    return AI_EVENTS_TABLE_BASE_SQL.format(
-        table_name=WRITABLE_TABLE_NAME,
-        engine=Distributed(
-            data_table=DATA_TABLE_NAME,
-            sharding_key=SHARDING_KEY,
-        ),
-        indexes="",
-    )
-
-
 def DISTRIBUTED_AI_EVENTS_TABLE_SQL():
     return AI_EVENTS_TABLE_BASE_SQL.format(
         table_name=TABLE_BASE_NAME,
@@ -213,7 +203,13 @@ def KAFKA_AI_EVENTS_TABLE_SQL():
     )
 
 
-def AI_EVENTS_MV_SQL(target_table: str = WRITABLE_TABLE_NAME):
+def AI_EVENTS_MV_SQL(
+    target_table: str = TABLE_BASE_NAME,
+    mv_name: str = MV_NAME,
+    kafka_table: str = KAFKA_TABLE_NAME,
+):
+    # AI events do not have a dedicated writable table today, so the MV
+    # writes straight to the distributed ai_events table.
     # Use src.properties to avoid alias shadowing — the stripped_properties
     # alias is also called "properties", which would shadow the source column
     # if we didn't qualify with the table alias.
@@ -300,10 +296,37 @@ AS SELECT
     _partition
 FROM {kafka_table} AS src
 """.format(
-        mv_name=MV_NAME,
+        mv_name=mv_name,
         target_table=target_table,
-        kafka_table=KAFKA_TABLE_NAME,
+        kafka_table=kafka_table,
         stripped_properties=stripped_properties,
+    )
+
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_AI_EVENTS_WS_TABLE = "kafka_ai_events_json_ws"
+AI_EVENTS_WS_MV = "ai_events_json_ws_mv"
+
+DROP_KAFKA_AI_EVENTS_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_AI_EVENTS_WS_TABLE}"
+DROP_AI_EVENTS_WS_MV_SQL = f"DROP TABLE IF EXISTS {AI_EVENTS_WS_MV}"
+
+
+def KAFKA_AI_EVENTS_WS_TABLE_SQL():
+    return KAFKA_AI_EVENTS_TABLE_BASE_SQL.format(
+        table_name=KAFKA_AI_EVENTS_WS_TABLE,
+        engine=kafka_engine(
+            topic=KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
+            group=CONSUMER_GROUP_AI_EVENTS_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+    )
+
+
+def AI_EVENTS_WS_MV_SQL():
+    return AI_EVENTS_MV_SQL(
+        mv_name=AI_EVENTS_WS_MV,
+        kafka_table=KAFKA_AI_EVENTS_WS_TABLE,
     )
 
 

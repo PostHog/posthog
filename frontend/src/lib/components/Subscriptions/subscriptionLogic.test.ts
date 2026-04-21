@@ -1,11 +1,21 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, SubscriptionType } from '~/types'
 
 import { subscriptionLogic } from './subscriptionLogic'
+
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: {
+        success: jest.fn(),
+        error: jest.fn(),
+    },
+}))
 
 const Insight1 = '1' as InsightShortId
 
@@ -27,6 +37,7 @@ describe('subscriptionLogic', () => {
     let newLogic: ReturnType<typeof subscriptionLogic.build>
     let existingLogic: ReturnType<typeof subscriptionLogic.build>
     beforeEach(async () => {
+        jest.clearAllMocks()
         useMocks({
             get: {
                 '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
@@ -94,6 +105,28 @@ describe('subscriptionLogic', () => {
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscription).toMatchObject({
             target_type: 'slack',
+        })
+    })
+
+    it('does not toast when kea-forms reports client validation failure', async () => {
+        await expectLogic(newLogic, () => {
+            newLogic.actions.submitSubscriptionFailure(new Error('Validation Failed'), {})
+        }).toFinishListeners()
+        expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
+    it('toasts and maps ApiError attr to manual errors on save failure', async () => {
+        const err = new ApiError('Select at least one insight', 400, undefined, {
+            type: 'validation_error',
+            attr: 'dashboard_export_insights',
+            detail: 'Select at least one insight',
+        })
+        await expectLogic(newLogic, () => {
+            newLogic.actions.submitSubscriptionFailure(err, {})
+        }).toFinishListeners()
+        expect(lemonToast.error).toHaveBeenCalledWith('Select at least one insight')
+        expect(newLogic.values.subscriptionManualErrors).toEqual({
+            dashboard_export_insights: 'Select at least one insight',
         })
     })
 })

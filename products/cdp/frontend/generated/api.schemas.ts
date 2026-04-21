@@ -15,6 +15,11 @@ export interface HogFunctionMappingTemplateApi {
      * @nullable
      */
     include_by_default?: boolean | null
+    /**
+     * Whether this mapping should match all events by default, hiding the event filter UI.
+     * @nullable
+     */
+    use_all_events_by_default?: boolean | null
     /** Event filters specific to this mapping. */
     filters?: unknown | null
     /** Input values specific to this mapping. */
@@ -202,16 +207,16 @@ export interface PaginatedHogFunctionMinimalListApi {
  * * `hog` - hog
  * `liquid` - liquid
  */
-export type Templating186EnumApi = (typeof Templating186EnumApi)[keyof typeof Templating186EnumApi]
+export type TemplatingEnumApi = (typeof TemplatingEnumApi)[keyof typeof TemplatingEnumApi]
 
-export const Templating186EnumApi = {
+export const TemplatingEnumApi = {
     Hog: 'hog',
     Liquid: 'liquid',
 } as const
 
 export interface InputsItemApi {
     value?: unknown
-    templating?: Templating186EnumApi
+    templating?: TemplatingEnumApi
     readonly bytecode: readonly unknown[]
     readonly order: number
     readonly transpiled: unknown
@@ -256,6 +261,7 @@ export const HogFunctionTypeEnumApi = {
  * `native_email` - native_email
  * `posthog_assignee` - posthog_assignee
  * `posthog_ticket_tags` - posthog_ticket_tags
+ * `posthog_business_hours` - posthog_business_hours
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -272,22 +278,7 @@ export const InputsSchemaItemTypeEnumApi = {
     NativeEmail: 'native_email',
     PosthogAssignee: 'posthog_assignee',
     PosthogTicketTags: 'posthog_ticket_tags',
-} as const
-
-/**
- * * `True` - True
- * `False` - False
- * `hog` - hog
- * `liquid` - liquid
- */
-export type InputsSchemaItemTemplatingEnumApi =
-    (typeof InputsSchemaItemTemplatingEnumApi)[keyof typeof InputsSchemaItemTemplatingEnumApi]
-
-export const InputsSchemaItemTemplatingEnumApi = {
-    True: true,
-    False: false,
-    Hog: 'hog',
-    Liquid: 'liquid',
+    PosthogBusinessHours: 'posthog_business_hours',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -307,7 +298,7 @@ export interface InputsSchemaItemApi {
     requires_field?: string
     integration_field?: string
     requiredScopes?: string
-    templating?: InputsSchemaItemTemplatingEnumApi
+    templating?: boolean | 'hog' | 'liquid'
 }
 
 /**

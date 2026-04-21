@@ -151,8 +151,8 @@ capabilities:
         docker_profiles: []
 
     personhog:
-        description: 'PersonHog gRPC service (router + replica) for person data access'
-        requires: [core_infra]
+        description: 'PersonHog gRPC service (router + replica + leader) for person data access'
+        requires: [core_infra, coordination]
         docker_profiles: []
 
     observability:
@@ -188,7 +188,7 @@ capabilities:
 # Intents map to products/features developers work on
 intents:
     product_analytics:
-        description: 'Core product analytics - insights, funnels, trends'
+        description: 'Core product analytics (insights, funnels, trends)'
         capabilities: [event_ingestion, property_definitions, celery_workers, nodejs_cdp]
 
     error_tracking:
@@ -329,4 +329,5 @@ always_required:
     - nodejs
     - capture
     - feature-flags
+    - hypercache-server
     - property-defs-rs

@@ -303,7 +303,7 @@ setup_worktree_environment() {
             local sed_inplace=(-i)
             [[ "$(uname -s)" == "Darwin" ]] && sed_inplace=(-i '')
             for activate_script in "${venv_bin}"/activate*; do
-                [[ -f "$activate_script" ]] && sed "${sed_inplace[@]}" "s|${old_venv}|${new_venv}|g" "$activate_script"
+                [[ -f "$activate_script" ]] && LC_ALL=C sed "${sed_inplace[@]}" "s|${old_venv}|${new_venv}|g" "$activate_script"
             done
             print_color blue "Patched venv activate scripts for worktree path"
         else

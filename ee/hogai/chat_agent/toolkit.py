@@ -2,6 +2,8 @@ import asyncio
 from collections.abc import Awaitable
 from typing import Any
 
+from django.conf import settings
+
 from langchain_core.runnables import RunnableConfig
 
 from products.tasks.backend.max_tools import (
@@ -32,6 +34,7 @@ from ee.hogai.tools import (
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
 from ee.hogai.utils.feature_flags import (
+    get_llm_gateway_variant,
     has_mcp_servers_feature_flag,
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
@@ -66,11 +69,11 @@ class ChatAgentPlanToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type[MaxTool]]:
-        tools = [
+        tools: list[type[MaxTool]] = [
             ReadTaxonomyTool,
             SearchTool,
-            TodoWriteTool,  # type: ignore[list-item]
-            SwitchModeTool,  # type: ignore[list-item]
+            TodoWriteTool,
+            SwitchModeTool,
             CreateFormTool,
             FinalizePlanTool,
         ]
@@ -139,7 +142,12 @@ class ChatAgentToolkitManager(AgentToolkitManager):
             if mcp_tool._installations:
                 available_tools.append(mcp_tool)
 
-        # Final tools = available contextual tools + LLM provider server tools
-        available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
+        # Web Search isn't supported by AWS Bedrock as primary provider
+        variant = get_llm_gateway_variant(self._team, self._user)
+        uses_bedrock_primary = (
+            variant == "gateway-bedrock" and settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY
+        )
+        if not uses_bedrock_primary:
+            available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
 
         return available_tools

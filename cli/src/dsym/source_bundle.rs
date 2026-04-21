@@ -1,11 +1,12 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use symbolic::debuginfo::Archive;
+use symbolic::debuginfo::dwarf::{gimli, Dwarf as DwarfObject};
+use symbolic::debuginfo::{Archive, Object};
 use tracing::{info, warn};
 
 /// Manifest format stored as `__source/manifest.json` inside the dSYM ZIP
@@ -24,27 +25,79 @@ pub struct SourceFiles {
 }
 
 /// Extract all source file paths referenced in a DWARF binary file.
+///
+/// ## Strategy: CU-anchored line-table walk
+///
+/// We need two properties that are in tension:
+///
+/// 1. **Completeness** — under Swift Whole-Module Optimisation (WMO), source
+///    files like `SwiftCrashTriggers.swift` have *no own
+///    `DW_TAG_compile_unit`*. They only appear as inlined callees inside
+///    another file's CU.  A loop over CU root DIEs alone would miss them,
+///    guaranteeing no source context for any of their inlined frames.
+///
+/// 2. **Hash stability** — `session.files()` (symbolic's full line-table walk)
+///    also picks up files from *imported* frameworks referenced via
+///    `DW_AT_decl_file` on type/variable declarations. When a first-party
+///    dependency (e.g. `PostHog.framework`) is rebuilt with a new UUID, its
+///    source files change on disk, causing the app's source-bundle ZIP to
+///    differ even though the app's UUID is identical → `content_hash_mismatch`.
+///
+/// **Solution**: two-pass approach.
+///
+/// *Pass 1* — walk only `DW_TAG_compile_unit` root DIEs via gimli (no line
+/// table). These CU main files are definitively "compiled into this binary".
+/// From them we derive the **project root prefix** — the longest common
+/// directory ancestor of all CU main files.
+///
+/// *Pass 2* — run `session.files()` (full line-table walk) but retain only
+/// paths that share the project root prefix. This picks up inlined callees
+/// (e.g. `SwiftCrashTriggers.swift`) that live inside the project tree but
+/// have no own CU, while silently dropping all framework/SDK headers and
+/// first-party dependency source files that live in a different directory tree.
 pub fn extract_source_paths_from_dwarf(dwarf_path: &Path) -> Result<Vec<String>> {
     let dwarf_data = fs::read(dwarf_path)?;
     let archive = Archive::parse(&dwarf_data)?;
 
-    let mut paths = Vec::new();
+    let mut paths: HashSet<String> = HashSet::new();
 
     for obj in archive.objects() {
         let obj = obj?;
+
+        // Pass 1: CU-only walk to derive the project root prefix.
+        let cu_paths = collect_cu_main_files_gimli(&obj);
+        let project_prefix = longest_common_prefix(&cu_paths);
+        tracing::debug!(
+            "CU main files: {:?}  →  project prefix: {:?}",
+            cu_paths,
+            project_prefix
+        );
+
+        // Pass 2: full line-table walk, filtered to the project prefix.
         let session = obj.debug_session()?;
         for file in session.files() {
             let file = file?;
             let abs_path = file.abs_path_str();
-            if !abs_path.is_empty() {
-                paths.push(abs_path);
+            if abs_path.is_empty() {
+                continue;
+            }
+            // Only keep paths inside the project tree.
+            // If we couldn't derive a prefix fall back to keeping everything
+            // (the normal EXCLUDED_PREFIXES / EXCLUDED_SUBSTRINGS filters still apply).
+            let in_project = match &project_prefix {
+                Some(prefix) => abs_path.starts_with(prefix.as_str()),
+                None => true,
+            };
+            if in_project {
+                paths.insert(abs_path);
+            } else {
+                tracing::debug!("Skipped (outside project prefix): {}", abs_path);
             }
         }
     }
 
-    // Deduplicate
+    let mut paths: Vec<String> = paths.into_iter().collect();
     paths.sort();
-    paths.dedup();
 
     for p in &paths {
         tracing::debug!("DWARF source path: {}", p);
@@ -52,6 +105,229 @@ pub fn extract_source_paths_from_dwarf(dwarf_path: &Path) -> Result<Vec<String>>
 
     Ok(paths)
 }
+
+/// Walk only `DW_TAG_compile_unit` root DIEs via gimli (no line table) and
+/// return the resolved absolute path of the main file for each CU.
+///
+/// This deliberately does **not** read the line-number program, so cross-module
+/// file references that appear there (e.g. type-declaration sites in imported
+/// frameworks) are never included.
+fn collect_cu_main_files_gimli(obj: &Object<'_>) -> Vec<String> {
+    match obj {
+        Object::MachO(m) => cu_main_files_from_dwarf(m),
+        Object::Elf(e) => cu_main_files_from_dwarf(e),
+        _ => Vec::new(),
+    }
+}
+
+fn cu_main_files_from_dwarf<'d>(obj: &impl DwarfObject<'d>) -> Vec<String> {
+    let empty: &[u8] = &[];
+
+    let info_data = obj
+        .section("debug_info")
+        .map(|s| s.data.into_owned())
+        .unwrap_or_default();
+    let abbrev_data = obj
+        .section("debug_abbrev")
+        .map(|s| s.data.into_owned())
+        .unwrap_or_default();
+    let str_data = obj
+        .section("debug_str")
+        .map(|s| s.data.into_owned())
+        .unwrap_or_default();
+    let line_str_data = obj
+        .section("debug_line_str")
+        .map(|s| s.data.into_owned())
+        .unwrap_or_default();
+
+    let endian = if matches!(obj.endianity(), gimli::RunTimeEndian::Big) {
+        gimli::RunTimeEndian::Big
+    } else {
+        gimli::RunTimeEndian::Little
+    };
+
+    let dwarf = gimli::Dwarf {
+        debug_info: gimli::DebugInfo::new(&info_data, endian),
+        debug_abbrev: gimli::DebugAbbrev::new(&abbrev_data, endian),
+        debug_str: gimli::DebugStr::new(&str_data, endian),
+        debug_line_str: gimli::DebugLineStr::new(&line_str_data, endian),
+        // Sections not needed for CU-name extraction — leave empty.
+        debug_addr: gimli::DebugAddr::from(gimli::EndianSlice::new(empty, endian)),
+        debug_aranges: gimli::DebugAranges::new(empty, endian),
+        debug_line: gimli::DebugLine::new(empty, endian),
+        debug_str_offsets: gimli::DebugStrOffsets::from(gimli::EndianSlice::new(empty, endian)),
+        debug_types: Default::default(),
+        debug_macinfo: gimli::DebugMacinfo::new(empty, endian),
+        debug_macro: gimli::DebugMacro::new(empty, endian),
+        locations: Default::default(),
+        ranges: gimli::RangeLists::new(
+            gimli::DebugRanges::new(empty, endian),
+            gimli::DebugRngLists::new(empty, endian),
+        ),
+        file_type: gimli::DwarfFileType::Main,
+        abbreviations_cache: Default::default(),
+        sup: None,
+    };
+
+    let resolve_str =
+        |val: gimli::AttributeValue<gimli::EndianSlice<'_, gimli::RunTimeEndian>>| -> Option<String> {
+            match val {
+                gimli::AttributeValue::String(s) => {
+                    std::str::from_utf8(s.slice()).ok().map(|s| s.to_string())
+                }
+                gimli::AttributeValue::DebugStrRef(offset) => dwarf
+                    .debug_str
+                    .get_str(offset)
+                    .ok()
+                    .and_then(|s| std::str::from_utf8(s.slice()).ok().map(|s| s.to_string())),
+                gimli::AttributeValue::DebugLineStrRef(offset) => dwarf
+                    .debug_line_str
+                    .get_str(offset)
+                    .ok()
+                    .and_then(|s| std::str::from_utf8(s.slice()).ok().map(|s| s.to_string())),
+                _ => None,
+            }
+        };
+
+    let mut out = Vec::new();
+    let mut iter = dwarf.units();
+    loop {
+        let header = match iter.next() {
+            Ok(Some(h)) => h,
+            Ok(None) => break,
+            Err(e) => {
+                tracing::debug!("DWARF units() error: {:?}", e);
+                break;
+            }
+        };
+        let abbrevs = match dwarf.abbreviations(&header) {
+            Ok(a) => a,
+            Err(_) => continue,
+        };
+        // Parse only the root DIE — do NOT call dwarf.unit() which also tries
+        // to load the line program (which would fail with our empty debug_line).
+        let mut cursor = header.entries(&abbrevs);
+        let root = match cursor.next_dfs() {
+            Ok(Some((_, e))) => e,
+            _ => continue,
+        };
+        if root.tag() != gimli::DW_TAG_compile_unit {
+            continue;
+        }
+
+        let comp_dir: Option<String> = root
+            .attr_value(gimli::DW_AT_comp_dir)
+            .ok()
+            .flatten()
+            .and_then(&resolve_str);
+        let name: Option<String> = root
+            .attr_value(gimli::DW_AT_name)
+            .ok()
+            .flatten()
+            .and_then(&resolve_str);
+
+        let path = match (comp_dir, name) {
+            (Some(dir), Some(name)) if !name.starts_with('/') => {
+                format!("{}/{}", dir.trim_end_matches('/'), name)
+            }
+            (_, Some(name)) if name.starts_with('/') => name,
+            (Some(dir), None) => dir,
+            _ => continue,
+        };
+
+        if !path.is_empty() {
+            out.push(path);
+        }
+    }
+    // Drop synthetic linker-generated names and system/DerivedData paths before
+    // returning so they never poison the project-root prefix computation.
+    out.retain(|p| {
+        if EXCLUDED_SYNTHETIC_NAMES.iter().any(|s| p.starts_with(s)) {
+            return false;
+        }
+        if EXCLUDED_PREFIXES.iter().any(|s| p.starts_with(s)) {
+            return false;
+        }
+        if EXCLUDED_SUBSTRINGS.iter().any(|s| p.contains(s)) {
+            return false;
+        }
+        true
+    });
+    out
+}
+
+/// Return the longest common directory prefix shared by all `paths`.
+///
+/// Only directory components are considered (the filename is stripped before
+/// comparison) so that two files in the same directory always share the full
+/// directory path rather than only their common filename prefix.
+///
+/// Returns `None` if `paths` is empty.
+fn longest_common_prefix(paths: &[String]) -> Option<String> {
+    if paths.is_empty() {
+        return None;
+    }
+
+    // Work with directory paths only.
+    let dirs: Vec<&str> = paths
+        .iter()
+        .map(|p| {
+            // Find last '/' and take everything up to and including it.
+            if let Some(pos) = p.rfind('/') {
+                &p[..=pos]
+            } else {
+                "/"
+            }
+        })
+        .collect();
+
+    let first = dirs[0];
+    let mut prefix_len = first.len();
+    for dir in &dirs[1..] {
+        // Use char_indices so byte_pos is a valid byte offset (not a char count).
+        let byte_pos = first
+            .char_indices()
+            .zip(dir.chars())
+            .take_while(|((_, a), b)| a == b)
+            .last()
+            .map(|((pos, c), _)| pos + c.len_utf8())
+            .unwrap_or(0);
+        // Snap back to a '/' boundary, then take the minimum across all dirs.
+        let new_len = first[..byte_pos].rfind('/').map(|p| p + 1).unwrap_or(0);
+        prefix_len = prefix_len.min(new_len);
+    }
+
+    if prefix_len == 0 {
+        None
+    } else {
+        Some(first[..prefix_len].to_string())
+    }
+}
+
+/// Short root-level synthetic paths that Apple's Clang/Swift linker emits as
+/// placeholder `DW_TAG_compile_unit` names for system frameworks. These are not
+/// real file paths, cannot be read from disk, and must not contribute to the
+/// project-root prefix computation (they would drag it down to "/").
+const EXCLUDED_SYNTHETIC_NAMES: &[&str] = &[
+    "/_AvailabilityInternal",
+    "/_Builtin_",
+    "/_DarwinFoundation",
+    "/CFNetwork",
+    "/CoreFoundation",
+    "/Darwin",
+    "/Dispatch",
+    "/Foundation",
+    "/MachO",
+    "/ObjectiveC",
+    "/Security",
+    "/XPC",
+    "/asl",
+    "/os_",
+    "/ptrcheck",
+    "/ptrauth",
+    "<stdin>",
+    "<swift-imported-modules>",
+];
 
 /// System/SDK path prefixes to exclude from source bundling
 const EXCLUDED_PREFIXES: &[&str] = &[
@@ -70,7 +346,7 @@ const EXCLUDED_SUBSTRINGS: &[&str] = &[
     "/DerivedData/",
 ];
 
-/// Filter out system framework and SDK paths, keeping only user source files.
+/// Filter out system framework, SDK, and synthetic linker paths, keeping only user source files.
 pub fn filter_source_paths(paths: &[String]) -> Vec<&str> {
     paths
         .iter()
@@ -86,6 +362,11 @@ pub fn filter_source_paths(paths: &[String]) -> Vec<&str> {
             // Exclude paths containing system substrings
             if EXCLUDED_SUBSTRINGS.iter().any(|sub| path.contains(sub)) {
                 tracing::debug!("Filtered out (substring): {}", path);
+                return false;
+            }
+            // Exclude synthetic compiler/linker placeholder names
+            if EXCLUDED_SYNTHETIC_NAMES.iter().any(|s| path.starts_with(s)) {
+                tracing::debug!("Filtered out (synthetic): {}", path);
                 return false;
             }
             true

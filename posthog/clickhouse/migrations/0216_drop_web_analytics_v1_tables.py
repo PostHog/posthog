@@ -6,37 +6,37 @@ operations = [
     # Drop combined views first (they depend on underlying tables)
     run_sql_with_exceptions(
         "DROP VIEW IF EXISTS web_stats_combined SYNC",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     run_sql_with_exceptions(
         "DROP VIEW IF EXISTS web_bounces_combined SYNC",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     # Drop staging tables
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS web_stats_hourly_staging SYNC",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS web_bounces_hourly_staging SYNC",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     # Drop hourly tables
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS web_stats_hourly SYNC",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS web_bounces_hourly SYNC",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     # Drop daily tables
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS web_stats_daily SYNC",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS web_bounces_daily SYNC",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
 ]

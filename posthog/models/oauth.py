@@ -15,6 +15,7 @@ from oauth2_provider.models import (
     AbstractRefreshToken,
 )
 
+from posthog.helpers.encrypted_fields import EncryptedCharField
 from posthog.models.utils import UUIDT
 
 if TYPE_CHECKING:
@@ -47,6 +48,111 @@ def is_loopback_host(hostname: str | None) -> bool:
 
 
 class OAuthApplication(AbstractApplication):
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    # NOTE: By default an application should be linked to the organization that created it.
+    # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
+    # Only admins of the organization should have permission to edit the application.
+    organization: "Organization | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True, related_name="oauth_applications"
+    )
+
+    # NOTE: The user that created the application. It should not be used to check for access to the application, since the user might have left the organization.
+    user: "User | None" = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+    logo_uri: models.URLField = models.URLField(
+        max_length=2048, null=True, blank=True, help_text="URL to the client's logo image"
+    )
+
+    # DCR (Dynamic Client Registration) fields - RFC 7591
+    is_dcr_client: models.BooleanField = models.BooleanField(
+        default=False,
+        verbose_name="Is DCR client",
+        help_text="True if this client was registered via Dynamic Client Registration",
+    )
+    dcr_client_id_issued_at: models.DateTimeField = models.DateTimeField(
+        null=True, blank=True, help_text="When the client_id was issued (for DCR clients)"
+    )
+
+    # Verification status - manually set by PostHog staff
+    is_verified: models.BooleanField = models.BooleanField(
+        default=False, help_text="True if this application has been verified by PostHog"
+    )
+
+    # First-party flag - manually set by PostHog staff
+    # First-party apps skip the OAuth consent screen and can use direct token exchange
+    is_first_party: models.BooleanField = models.BooleanField(
+        default=False, help_text="True if this is a first-party PostHog application that skips OAuth consent"
+    )
+
+    auth_brand: models.CharField = models.CharField(
+        max_length=32,
+        choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],
+        default=OAuthApplicationAuthBrand.POSTHOG.value,
+        help_text="Branding to use on authentication pages",
+    )
+
+    # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
+    is_cimd_client: models.BooleanField = models.BooleanField(
+        default=False,
+        verbose_name="Is CIMD client",
+        help_text="True if this client was registered via Client ID Metadata Document (CIMD)",
+    )
+    cimd_metadata_url: models.URLField = models.URLField(
+        max_length=2048,
+        null=True,
+        blank=True,
+        unique=True,
+        help_text="The URL used as client_id for CIMD clients. Must match the client_id in the metadata document.",
+    )
+    cimd_metadata_last_fetched: models.DateTimeField = models.DateTimeField(
+        null=True, blank=True, help_text="When the CIMD metadata was last successfully fetched"
+    )
+
+    # Provisioning fields - only relevant for partners that provision accounts/resources
+    # via the agentic provisioning API. Null/blank for regular OAuth clients.
+    provisioning_auth_method: models.CharField = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="Auth method for provisioning requests: hmac, bearer, or pkce. Empty for non-provisioning apps.",
+    )
+    provisioning_signing_secret = EncryptedCharField(
+        max_length=500,
+        blank=True,
+        null=True,
+        default="",
+        help_text="HMAC shared secret for provisioning request verification (encrypted at rest)",
+    )
+    provisioning_partner_type: models.CharField = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Partner identifier: stripe, wizard, etc. Empty for non-provisioning apps.",
+    )
+    provisioning_active: models.BooleanField = models.BooleanField(
+        default=False, help_text="Must be explicitly enabled for provisioning access"
+    )
+    provisioning_can_create_accounts: models.BooleanField = models.BooleanField(
+        default=False, help_text="Can this app create PostHog accounts on behalf of users"
+    )
+    provisioning_can_provision_resources: models.BooleanField = models.BooleanField(
+        default=True, help_text="Can this app provision projects and API keys"
+    )
+    provisioning_rate_limit_account_requests: models.IntegerField = models.IntegerField(
+        null=True, blank=True, help_text="Override default rate limit for account_requests (per hour)"
+    )
+    provisioning_rate_limit_token_exchanges: models.IntegerField = models.IntegerField(
+        null=True, blank=True, help_text="Override default rate limit for token exchanges (per hour)"
+    )
+    provisioning_rate_limit_resource_creates: models.IntegerField = models.IntegerField(
+        null=True, blank=True, help_text="Override default rate limit for resource creates (per hour)"
+    )
+
+    @property
+    def is_provisioning_partner(self) -> bool:
+        return bool(self.provisioning_auth_method)
+
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"
         verbose_name_plural = "OAuth Applications"
@@ -137,43 +243,6 @@ class OAuthApplication(AbstractApplication):
                 schemes.add(parsed_uri.scheme)
         return list(schemes) if schemes else ["https"]
 
-    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
-    # NOTE: By default an application should be linked to the organization that created it.
-    # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
-    # Only admins of the organization should have permission to edit the application.
-    organization: "Organization | None" = models.ForeignKey(  # type: ignore[assignment]
-        "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True, related_name="oauth_applications"
-    )
-
-    # NOTE: The user that created the application. It should not be used to check for access to the application, since the user might have left the organization.
-    user: "User | None" = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)  # type: ignore[assignment]
-
-    # DCR (Dynamic Client Registration) fields - RFC 7591
-    is_dcr_client: models.BooleanField = models.BooleanField(
-        default=False, help_text="True if this client was registered via Dynamic Client Registration"
-    )
-    dcr_client_id_issued_at: models.DateTimeField = models.DateTimeField(
-        null=True, blank=True, help_text="When the client_id was issued (for DCR clients)"
-    )
-
-    # Verification status - manually set by PostHog staff
-    is_verified: models.BooleanField = models.BooleanField(
-        default=False, help_text="True if this application has been verified by PostHog"
-    )
-
-    # First-party flag - manually set by PostHog staff
-    # First-party apps skip the OAuth consent screen and can use direct token exchange
-    is_first_party: models.BooleanField = models.BooleanField(
-        default=False, help_text="True if this is a first-party PostHog application that skips OAuth consent"
-    )
-
-    auth_brand: models.CharField = models.CharField(
-        max_length=32,
-        choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],
-        default=OAuthApplicationAuthBrand.POSTHOG.value,
-        help_text="Branding to use on authentication pages",
-    )
-
 
 class OAuthAccessToken(AbstractAccessToken):
     class Meta(AbstractAccessToken.Meta):
@@ -183,7 +252,7 @@ class OAuthAccessToken(AbstractAccessToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         blank=True,
@@ -203,7 +272,7 @@ class OAuthIDToken(AbstractIDToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         blank=True,
@@ -220,7 +289,7 @@ class OAuthRefreshToken(AbstractRefreshToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="oauth_refresh_tokens",
@@ -246,7 +315,7 @@ class OAuthGrant(AbstractGrant):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="oauth_grants",

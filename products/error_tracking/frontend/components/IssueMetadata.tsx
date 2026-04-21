@@ -1,5 +1,5 @@
-import { useValues } from 'kea'
-import { PropsWithChildren } from 'react'
+import { useActions, useValues } from 'kea'
+import { PropsWithChildren, useCallback } from 'react'
 import { match } from 'ts-pattern'
 
 import { IconChevronRight, IconTrending } from '@posthog/icons'
@@ -22,10 +22,21 @@ import { VolumeSparkline } from './VolumeSparkline/VolumeSparkline'
 export const Metadata = ({ children, className }: PropsWithChildren<{ className?: string }>): JSX.Element => {
     const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen, issueId } =
         useValues(errorTrackingIssueSceneLogic)
+    const { setDateRange } = useActions(errorTrackingIssueSceneLogic)
     const sparklineKey = issueId || 'issue-unknown'
     const { hoverSelection } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
     const sparklineData = useSparklineDataIssueScene()
     const sparklineEvents = useSparklineEvents()
+
+    const handleRangeSelect = useCallback(
+        (startDate: Date, endDate: Date) => {
+            setDateRange({
+                date_from: startDate.toISOString(),
+                date_to: endDate.toISOString(),
+            })
+        },
+        [setDateRange]
+    )
 
     return (
         <div className={className}>
@@ -42,35 +53,31 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                 </div>
                 <div className="flex justify-end items-center h-full">
                     {match(hoverSelection)
-                        .when(
-                            (data) => shouldRenderIssueMetrics(data),
-                            () => (
-                                <>
-                                    <TimeBoundary
-                                        time={firstSeen}
-                                        loading={issueLoading}
-                                        label="First Seen"
-                                        updateDateRange={(dateRange) => {
-                                            dateRange.date_from = firstSeen?.toISOString()
-                                            return dateRange
-                                        }}
-                                    />
-                                    <IconChevronRight />
-                                    <TimeBoundary
-                                        time={lastSeen}
-                                        loading={summaryLoading}
-                                        label="Last Seen"
-                                        updateDateRange={(dateRange) => {
-                                            dateRange.date_to = lastSeen?.endOf('minute').toISOString()
-                                            return dateRange
-                                        }}
-                                    />
-                                </>
-                            )
-                        )
                         .with({ kind: 'bin' }, (data) => renderDate(data.datum.date))
                         .with({ kind: 'event' }, (data) => renderDate(data.event.date))
-                        .otherwise(() => null)}
+                        .otherwise(() => (
+                            <>
+                                <TimeBoundary
+                                    time={firstSeen}
+                                    loading={issueLoading}
+                                    label="First Seen"
+                                    updateDateRange={(dateRange) => {
+                                        dateRange.date_from = firstSeen?.toISOString()
+                                        return dateRange
+                                    }}
+                                />
+                                <IconChevronRight />
+                                <TimeBoundary
+                                    time={lastSeen}
+                                    loading={summaryLoading}
+                                    label="Last Seen"
+                                    updateDateRange={(dateRange) => {
+                                        dateRange.date_to = lastSeen?.endOf('minute').toISOString()
+                                        return dateRange
+                                    }}
+                                />
+                            </>
+                        ))}
                 </div>
             </div>
             <div onClick={cancelEvent} className="relative w-full min-h-[160px] shrink-0 flex flex-col px-4">
@@ -81,6 +88,7 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                     events={sparklineEvents}
                     sparklineKey={sparklineKey}
                     className="h-full min-h-[160px]"
+                    onRangeSelect={handleRangeSelect}
                 />
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
@@ -124,7 +132,7 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
     return (
         <>
             {match([loading])
-                .with([true], () => <LemonSkeleton className="w-[80px] h-2" />)
+                .with([true], () => <LemonSkeleton className="w-[50px] h-2" />)
                 .with([false], () => (
                     <Tooltip title={tooltip} delayMs={0} placement="right">
                         <div className="flex items-center gap-1">

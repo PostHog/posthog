@@ -16,6 +16,8 @@ from products.tasks.backend.services.agent_command import validate_sandbox_url
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 
+from ee.hogai.sandbox import is_turn_complete
+
 logger = structlog.get_logger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 30
@@ -128,21 +130,23 @@ async def _background_heartbeat(
         except TimeoutError:
             activity.heartbeat()
             # Lazy import to avoid circular dependency (workflow imports this module)
-            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT_MINUTES
+            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT
 
             now = time.monotonic()
             if (
                 workflow_handle is not None
                 and last_event_time is not None
                 and last_event_time[0] > 0
-                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT_MINUTES * 60
+                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT.total_seconds()
                 and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
                 and (agent_active is None or agent_active[0])
             ):
                 if last_workflow_signal is not None:
                     last_workflow_signal[0] = now
                 try:
-                    await workflow_handle.signal("heartbeat")
+                    await workflow_handle.signal(
+                        "heartbeat", arg=agent_active[0] if agent_active is not None else False
+                    )
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
 
@@ -239,7 +243,7 @@ async def _relay_loop(
                             ):
                                 last_workflow_signal[0] = now
                                 try:
-                                    await workflow_handle.signal("heartbeat")
+                                    await workflow_handle.signal("heartbeat", arg=True)
                                 except Exception as e:
                                     logger.warning(
                                         "relay_workflow_heartbeat_signal_failed", run_id=run_id, error=str(e)
@@ -293,13 +297,7 @@ def _is_session_update(event_data: dict) -> bool:
     return notification.get("method") == "session/update"
 
 
-def _is_end_of_turn(event_data: dict) -> bool:
-    """Check if an ACP event signals the agent finished a turn."""
-    if event_data.get("type") != "notification":
-        return False
-    notification = event_data.get("notification", {})
-    result = notification.get("result")
-    return isinstance(result, dict) and result.get("stopReason") == "end_turn"
+_is_end_of_turn = is_turn_complete
 
 
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:

@@ -1,6 +1,7 @@
 import { PipelineEvent } from '../../types'
 import { AI_EVENT_TYPES } from '../ai'
-import { drop, ok } from '../pipelines/results'
+import { PipelineWarning } from '../pipelines/pipeline.interface'
+import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 const TOKEN_PROPERTIES = [
@@ -38,6 +39,21 @@ function isValidBigDecimalInput(value: unknown): boolean {
     return false
 }
 
+/**
+ * Some SDKs (e.g. posthog-ai < 7.3.0 with Vercel AI SDK V3) send token counts
+ * as nested objects like `{ total: 10585, noCache: 10585, cacheRead: 0 }` instead
+ * of plain numbers. Extract the numeric `total` field when present.
+ */
+function normalizeTokenValue(value: unknown): unknown {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        const obj = value as Record<string, unknown>
+        if ('total' in obj) {
+            return obj.total
+        }
+    }
+    return value
+}
+
 export function createValidateAiEventTokensStep<T extends { event: PipelineEvent }>(): ProcessingStep<T, T> {
     return async function validateAiEventTokensStep(input) {
         const { event } = input
@@ -52,29 +68,29 @@ export function createValidateAiEventTokensStep<T extends { event: PipelineEvent
             return Promise.resolve(ok(input))
         }
 
-        for (const prop of TOKEN_PROPERTIES) {
-            const value = properties[prop]
+        const warnings: PipelineWarning[] = []
 
-            if (!isValidBigDecimalInput(value)) {
-                return Promise.resolve(
-                    drop(
-                        `invalid_ai_token_property:${prop}`,
-                        [],
-                        [
-                            {
-                                type: 'invalid_ai_token_property',
-                                details: {
-                                    property: prop,
-                                    value: String(value),
-                                    valueType: typeof value,
-                                },
-                            },
-                        ]
-                    )
-                )
+        for (const prop of TOKEN_PROPERTIES) {
+            if (!(prop in properties)) {
+                continue
+            }
+            const raw = properties[prop]
+            const normalized = normalizeTokenValue(raw)
+            properties[prop] = normalized
+
+            if (!isValidBigDecimalInput(normalized)) {
+                warnings.push({
+                    type: 'invalid_ai_token_property',
+                    details: {
+                        property: prop,
+                        value: String(normalized),
+                        valueType: typeof normalized,
+                    },
+                })
+                properties[prop] = null
             }
         }
 
-        return Promise.resolve(ok(input))
+        return Promise.resolve(ok(input, [], warnings))
     }
 }

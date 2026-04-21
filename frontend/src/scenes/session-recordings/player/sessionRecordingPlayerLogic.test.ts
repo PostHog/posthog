@@ -136,11 +136,10 @@ describe('findSegmentForTimestamp', () => {
         expect(result?.windowId).toBe(1)
     })
 
-    it('returns synthetic buffer when timestamp is after all segments', () => {
+    it('falls back to last segment with windowId when timestamp is after all segments', () => {
         const result = findSegmentForTimestamp(segments, 9999)
-        expect(result?.kind).toBe('buffer')
-        expect(result?.startTimestamp).toBe(9999)
-        expect(result?.endTimestamp).toBe(5001)
+        expect(result).toEqual(segments[2])
+        expect(result?.windowId).toBe(2)
     })
 
     it('skips segments without windowId when falling back', () => {
@@ -326,6 +325,38 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.unmount()
             expect(logic.cache.hasInitialized).toBeFalsy()
         })
+
+        // Seeking past the end of a recording should not leave the player
+        // stuck buffering. See #53686, #53893.
+        it('handles out-of-range ?t= parameter without getting stuck', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { t: '999' })
+
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions([
+                    sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes
+                        .loadRecordingMetaSuccess,
+                    'initializePlayerFromStart',
+                ])
+                .toFinishAllListeners()
+
+            // The player must have a valid timestamp and not be stuck in
+            // an unrecoverable state. endReached may legitimately be true
+            // here — updateAnimation detects end-of-recording after the
+            // normal BUFFER → load cycle completes. The important thing
+            // is the player initialized (didn't get stuck before
+            // tryInitReplayer) and isn't permanently buffering.
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
+            expect(logic.values.isBuffering).toBe(false)
+        })
     })
 
     describe('delete session recording', () => {
@@ -467,11 +498,9 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('the logger override', () => {
-        it('captures replayer warnings', async () => {
-            jest.useFakeTimers()
-
-            let warningCounts = 0
-            const logger = makeLogger((x) => (warningCounts += x))
+        it('captures replayer warnings and logs to window stores', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
 
             logger.logger.warn('[replayer]', 'test')
             logger.logger.warn('[replayer]', 'test2')
@@ -482,14 +511,33 @@ describe('sessionRecordingPlayerLogic', () => {
                 ['[replayer]', 'test2'],
             ])
             expect((window as any).__posthog_player_logs).toEqual([['[replayer]', 'test3']])
+            expect(categories).toEqual(['test', 'test2'])
+        })
 
-            jest.runOnlyPendingTimers()
-            expect(mockWarn).toHaveBeenCalledWith(
-                '[PostHog Replayer] 2 warnings (window.__posthog_player_warnings to safely log them)'
-            )
-            expect(mockWarn).toHaveBeenCalledWith(
-                '[PostHog Replayer] 1 logs (window.__posthog_player_logs to safely log them)'
-            )
+        it('calls onWarning with categorized message per warning', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
+
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+            logger.logger.warn('[replayer]', 'Mutation target not found')
+
+            expect(categories).toEqual([
+                'Unknown tag: custom-element',
+                'Unknown tag: custom-element',
+                'Mutation target not found',
+            ])
+        })
+
+        it('filters out ignored warnings', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
+
+            logger.logger.warn('[replayer]', 'Could not find node with id 42. Skipping mutation.')
+            logger.logger.warn('[replayer]', 'Could not find node with id 99. Skipping mutation.')
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+
+            expect(categories).toEqual(['Unknown tag: custom-element'])
         })
     })
 
@@ -653,7 +701,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.setPause()
 
                 logic.actions.incrementClickCount()
-                logic.actions.incrementWarningCount(2)
+                logic.cache.rrwebWarningCount = 2
                 logic.actions.incrementErrorCount()
 
                 logic.unmount()

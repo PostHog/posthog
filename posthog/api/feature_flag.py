@@ -77,6 +77,11 @@ from posthog.models.feature_flag.local_evaluation import (
     get_flags_response_if_none_match,
 )
 from posthog.models.feature_flag.types import PropertyFilterType
+from posthog.models.feature_flag.version_history import (
+    VersionHistoryIncomplete,
+    VersionNotFound,
+    reconstruct_flag_at_version,
+)
 from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -93,9 +98,12 @@ from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
+logger = logging.getLogger(__name__)
+
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
+MIXED_TARGETING_FLAG = "feature-flag-mixed-targeting"
 
 
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
@@ -534,10 +542,46 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
                 FeatureFlagEvaluationContext.objects.create(feature_flag=obj, evaluation_context=ctx)
 
         if to_add or to_remove:
+            self._log_evaluation_context_change(
+                obj,
+                before=sorted(current_context_names),
+                after=sorted(deduped_set),
+            )
+
             try:
                 set_feature_flags_for_team_in_cache(obj.team.project_id)
             except Exception as e:
                 capture_exception(e)
+
+    def _log_evaluation_context_change(self, obj: FeatureFlag, before: list[str], after: list[str]) -> None:
+        from loginas.utils import is_impersonated_session
+
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        request = self.context.get("request")
+        was_impersonated = is_impersonated_session(request) if request else False
+
+        log_activity(
+            organization_id=obj.team.organization_id,
+            team_id=obj.team_id,
+            user=request.user if request else obj.last_modified_by,
+            was_impersonated=was_impersonated,
+            item_id=obj.id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(
+                name=obj.key,
+                changes=[
+                    Change(
+                        type="FeatureFlag",
+                        field="evaluation_contexts",
+                        action="changed",
+                        before=before,
+                        after=after,
+                    )
+                ],
+            ),
+        )
 
     def to_representation(self, obj):
         ret = super().to_representation(obj)
@@ -620,7 +664,7 @@ class FeatureFlagSerializer(
     experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
-    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
+    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)  # ty: ignore[invalid-assignment]
     analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
         many=True,
         required=False,
@@ -713,7 +757,7 @@ class FeatureFlagSerializer(
         """Check if this feature flag is used in any team's session recording linked flag setting."""
         # Use annotated value if available (set by queryset annotation)
         if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
-            return feature_flag.is_used_in_replay_settings_annotation
+            return bool(feature_flag.is_used_in_replay_settings_annotation)
         # Return False if team is not available
         if not hasattr(feature_flag, "team") or feature_flag.team is None:
             return False
@@ -823,6 +867,7 @@ class FeatureFlagSerializer(
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
+            assert isinstance(self.instance, FeatureFlag)
             return self.instance.filters
 
         # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
@@ -892,29 +937,32 @@ class FeatureFlagSerializer(
                 condition["aggregation_group_type_index"] = flag_level_aggregation
 
         # Derive the flag-level field from condition sets for backward compatibility.
-        # If all condition sets share the same value, use that; otherwise reject.
-        # Mixed aggregation types are not yet supported by the evaluation engine.
-        # Empty groups are valid on updates (e.g. scheduled changes), so skip this check.
+        # If all condition sets share the same aggregation, use that; when mixed,
+        # set to None since the evaluation engine reads per-condition aggregation.
         condition_aggregations = [c.get("aggregation_group_type_index") for c in filters["groups"]]
         if condition_aggregations:
-            if not all(a == condition_aggregations[0] for a in condition_aggregations):
-                raise serializers.ValidationError(
-                    "Mixed aggregation types across condition sets are not yet supported. "
-                    "All condition sets must use the same aggregation type."
-                )
-            filters["aggregation_group_type_index"] = condition_aggregations[0]
+            if all(a == condition_aggregations[0] for a in condition_aggregations):
+                filters["aggregation_group_type_index"] = condition_aggregations[0]
+            else:
+                if not self._is_mixed_targeting_enabled():
+                    raise serializers.ValidationError(
+                        "Mixed aggregation types across condition sets are not yet supported. "
+                        "All condition sets must use the same aggregation type.",
+                        code="invalid_input",
+                    )
+                filters["aggregation_group_type_index"] = None
 
         # Check Early Access Feature constraint: no condition set can use group
         # aggregation if the flag is linked to an Early Access Feature.
-        resolved_aggregation = filters.get("aggregation_group_type_index")
+        has_group_condition = any(c.get("aggregation_group_type_index") is not None for c in filters["groups"])
         if (
-            resolved_aggregation is not None
+            has_group_condition
             and self.instance is not None
             and hasattr(self.instance, "features")
             and self.instance.features.exists()
         ):
             raise serializers.ValidationError(
-                "Cannot change this flag to a group-based when linked to an Early Access Feature."
+                "Cannot use group aggregation in any condition set when the flag is linked to an Early Access Feature."
             )
 
         # Validate properties per condition set against that condition set's aggregation.
@@ -945,7 +993,10 @@ class FeatureFlagSerializer(
                             "Filters are not valid (group properties must match the condition set's group type)"
                         )
 
-        if resolved_aggregation is None:
+        # Circular dependency checks only apply to person-aggregated conditions
+        # since flag-based property filters only work with person aggregation
+        has_person_condition = any(c.get("aggregation_group_type_index") is None for c in filters["groups"])
+        if has_person_condition:
             self._check_flag_circular_dependencies(filters)
 
         variant_list = (filters.get("multivariate") or {}).get("variants", [])
@@ -985,7 +1036,7 @@ class FeatureFlagSerializer(
                 if prop.type == "cohort":
                     try:
                         initial_cohort: Cohort = Cohort.objects.get(
-                            pk=prop.value, team__project_id=self.context["project_id"]
+                            pk=cast(str | int, prop.value), team__project_id=self.context["project_id"]
                         )
                         dependency_cohorts = get_all_cohort_dependencies(initial_cohort)
                         for cohort in [initial_cohort, *dependency_cohorts]:
@@ -1199,6 +1250,26 @@ class FeatureFlagSerializer(
                 dependencies.add(flag_key)
         return dependencies
 
+    def _is_mixed_targeting_enabled(self) -> bool:
+        try:
+            request = self.context.get("request")
+            if not request:
+                return False
+            user = getattr(request, "user", None)
+            if user is None or user.is_anonymous:
+                return False
+            return posthoganalytics.feature_enabled(
+                MIXED_TARGETING_FLAG,
+                user.distinct_id,
+                groups={"organization": str(user.organization.id)},
+                group_properties={"organization": {"id": str(user.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            logger.exception("Failed to check mixed targeting flag")
+            return False
+
     def _check_flag_circular_dependencies(self, filters):
         """Check for circular dependencies in feature flag conditions."""
 
@@ -1274,6 +1345,22 @@ class FeatureFlagSerializer(
 
         should_create_usage_dashboard = validated_data.pop("_should_create_usage_dashboard")
         self._update_filters(validated_data)
+
+        # Set default filters for remote config flags to 100% rollout
+        if validated_data.get("is_remote_configuration", False):
+            filters = validated_data.get("filters", {}) or {}
+            groups = filters.get("groups", [])
+
+            # If no groups exist, create one with 100% rollout
+            if not groups:
+                filters["groups"] = [{"properties": [], "rollout_percentage": 100, "variant": None}]
+                validated_data["filters"] = filters
+            else:
+                # If groups exist, update any with 0% or None rollout to 100%
+                for group in groups:
+                    if group.get("rollout_percentage") in [0, None]:
+                        group["rollout_percentage"] = 100
+
         encrypt_flag_payloads(validated_data)
 
         try:
@@ -1828,6 +1915,49 @@ class DependentFlagSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Feature flag name")
 
 
+class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
+    """Feature flag state at a given version plus reconstruction metadata."""
+
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    filters = serializers.DictField(read_only=True)
+    is_historical = serializers.BooleanField(
+        read_only=True,
+        help_text="False for the current version; true for reconstructed historical versions.",
+    )
+    version_timestamp = serializers.DateTimeField(read_only=True, allow_null=True)
+    modified_by = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="User from the activity log entry that produced this version.",
+    )
+
+    class Meta:
+        model = FeatureFlag
+        fields = [
+            "id",
+            "key",
+            "name",
+            "filters",
+            "active",
+            "deleted",
+            "version",
+            "rollback_conditions",
+            "performed_rollback",
+            "ensure_experience_continuity",
+            "has_enriched_analytics",
+            "is_remote_configuration",
+            "has_encrypted_payloads",
+            "evaluation_runtime",
+            "bucketing_identifier",
+            "last_called_at",
+            "created_at",
+            "created_by",
+            "is_historical",
+            "version_timestamp",
+            "modified_by",
+        ]
+
+
 class UserBlastRadiusRequestSerializer(serializers.Serializer):
     condition = serializers.DictField(required=True, help_text="The release condition to evaluate")
     group_type_index = serializers.IntegerField(
@@ -1839,8 +1969,10 @@ class UserBlastRadiusRequestSerializer(serializers.Serializer):
 
 
 class UserBlastRadiusResponseSerializer(serializers.Serializer):
-    users_affected = serializers.IntegerField(help_text="Number of users matching the condition")
-    total_users = serializers.IntegerField(help_text="Total number of users in the project")
+    affected = serializers.IntegerField(
+        help_text="Number of entities matching the condition (users or groups depending on group_type_index)"
+    )
+    total = serializers.IntegerField(help_text="Total number of entities of this type in the project")
 
 
 # HYPERCACHE CONTRACT: This serializer defines the JSON schema that the Rust feature-flags
@@ -2212,6 +2344,59 @@ class FeatureFlagViewSet(
             ],
             status=200,
         )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "version_number",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                required=True,
+                description="The version number to reconstruct.",
+            ),
+        ],
+        responses={
+            200: FeatureFlagVersionResponseSerializer,
+            400: OpenApiResponse(description="Version history is not available for remote configuration flags."),
+            404: OpenApiResponse(description="Version not found."),
+            422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"versions/(?P<version_number>[0-9]+)",
+        required_scopes=["feature_flag:read"],
+    )
+    def versions(self, request: request.Request, version_number: str, **kwargs) -> Response:
+        feature_flag: FeatureFlag = self.get_object()
+
+        if feature_flag.is_remote_configuration or feature_flag.has_encrypted_payloads:
+            return Response(
+                {"detail": "Version history is not available for remote configuration or encrypted flags."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        target_version = int(version_number)
+
+        try:
+            result = reconstruct_flag_at_version(
+                flag=feature_flag,
+                target_version=target_version,
+                team_id=self.team_id,
+            )
+        except VersionNotFound as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except VersionHistoryIncomplete as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(FeatureFlagVersionResponseSerializer(instance=result).data)
 
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,
@@ -2665,7 +2850,9 @@ class FeatureFlagViewSet(
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                     )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
+                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL
+                                        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
+                                        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
                                 )
                                 OR
                                 (
@@ -2686,6 +2873,7 @@ class FeatureFlagViewSet(
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                         AND elem->'variant' IS NOT NULL
+                                        AND elem->>'variant' IS NOT NULL
                                     )
                                     AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
                                 )
@@ -3042,15 +3230,9 @@ class FeatureFlagViewSet(
         condition = request.data.get("condition") or {}
         group_type_index = request.data.get("group_type_index", None)
 
-        # TODO: Handle distinct_id and $group_key properties, which are not currently supported
-        users_affected, total_users = get_user_blast_radius(self.team, condition, group_type_index)
+        result = get_user_blast_radius(self.team, condition, group_type_index)
 
-        return Response(
-            {
-                "users_affected": users_affected,
-                "total_users": total_users,
-            }
-        )
+        return Response({"affected": result.affected, "total": result.total})
 
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):

@@ -1,5 +1,6 @@
 import json
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, Literal, Optional, cast
 
 import pytest
@@ -30,6 +31,7 @@ from posthog.schema import (
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyGroupsMode,
+    SessionTableVersion,
 )
 
 from posthog.hogql import ast
@@ -170,11 +172,72 @@ class TestPrinter(BaseTest):
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
-    def test_column_aliases_non_postgres_error(self):
-        self._assert_query_error(
-            "select 1 from events as e (event_alias, ts_alias)",
-            "Table column aliases are not allowed in clickhouse dialect",
+    def test_column_aliases_select_star_subquery_uses_real_column_names(self):
+        printed = self._select("select s.* from (select 1 as x, 2 as y, 3 as z) as s (a, b, c)")
+        # ClickHouse doesn't support (a, b, c) syntax, so the printer should
+        # bake aliases into the inner SELECT
+        self.assertNotIn("(a, b, c)", printed)
+        self.assertIn("AS a", printed)
+        self.assertIn("AS b", printed)
+        self.assertIn("AS c", printed)
+
+    def test_column_aliases_explicit_aliased_refs_use_real_names(self):
+        printed = self._select("select e.a, e.b from events as e (a, b, c)")
+        # e.a should resolve to e.uuid, e.b to e.event in ClickHouse
+        self.assertIn("e.uuid", printed)
+        self.assertIn("e.event", printed)
+        self.assertNotIn("e.a", printed)
+        self.assertNotIn("e.b", printed)
+
+    def test_column_aliases_in_where_clause(self):
+        printed = self._select("select e.a from events as e (a, b, c) where e.c is not null")
+        self.assertIn("e.uuid", printed)
+        self.assertIn("e.properties", printed)
+        self.assertNotIn("e.a", printed)
+        self.assertNotIn("e.c", printed)
+
+    def test_column_aliases_unqualified_refs(self):
+        printed = self._select("select a, b from events as e (a, b, c)")
+        self.assertIn("e.uuid", printed)
+        self.assertIn("e.event", printed)
+
+    def test_column_aliases_remaining_columns_keep_original_names(self):
+        # Only 3 aliases for a table with many columns — remaining keep original names
+        printed = self._select("select e.a, e.timestamp from events as e (a, b, c)")
+        self.assertIn("e.uuid", printed)
+        self.assertIn("toTimeZone(e.timestamp", printed)
+
+    def test_column_aliases_original_name_not_accessible(self):
+        self._assert_select_error(
+            "select e.uuid from events as e (a, b, c)",
+            "Field not found: uuid",
         )
+
+    def test_column_aliases_subquery_bakes_into_inner_select(self):
+        printed = self._select("select s.a from (select 1 as x, 2 as y) as s (a, b)")
+        # For ClickHouse, column aliases are baked into the inner SELECT
+        self.assertIn("AS a", printed)
+        self.assertIn("AS b", printed)
+        self.assertNotIn("(a, b)", printed)
+
+    def test_column_aliases_too_many_error(self):
+        self._assert_query_error(
+            "select 1 from (select 1 as x) as s (a, b)",
+            "1 column(s) but 2 column name(s) were provided",
+        )
+
+    @parameterized.expand(
+        [
+            ("range", "select range from range(10)", "range() is not supported in ClickHouse dialect"),
+            (
+                "generate_series",
+                "select generate_series from generate_series(1, 10)",
+                "generate_series() is not supported in ClickHouse dialect",
+            ),
+        ]
+    )
+    def test_table_function_not_supported_in_clickhouse(self, _name, query, expected_error):
+        self._assert_select_error(query, expected_error)
 
     def test_lambda_style_clickhouse_prints(self):
         printed = self._select("select lambda x: x + 1")
@@ -1685,6 +1748,44 @@ class TestPrinter(BaseTest):
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) ASC LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    @parameterized.expand(
+        [
+            [
+                "bare",
+                "select event from events order by event WITH FILL",
+                "ORDER BY events.event ASC WITH FILL",
+            ],
+            [
+                "from_to_step",
+                "select event from events order by event WITH FILL FROM 0 TO 10 STEP 1",
+                "ORDER BY events.event ASC WITH FILL FROM 0 TO 10 STEP 1",
+            ],
+            [
+                "desc_from_to",
+                "select event from events order by event DESC WITH FILL FROM 0 TO 10",
+                "ORDER BY events.event DESC WITH FILL FROM 0 TO 10",
+            ],
+            [
+                "interpolate",
+                "select event, distinct_id from events order by event WITH FILL FROM 'a' TO 'z' INTERPOLATE (distinct_id AS 0)",
+                "ORDER BY events.event ASC WITH FILL FROM %(hogql_val_0)s TO %(hogql_val_1)s INTERPOLATE (`events.distinct_id` AS 0)",
+            ],
+            [
+                "naked_interpolate",
+                "select event from events order by event WITH FILL FROM 0 TO 10 INTERPOLATE",
+                "ORDER BY events.event ASC WITH FILL FROM 0 TO 10 INTERPOLATE",
+            ],
+            [
+                "interpolate_no_as",
+                "select event, distinct_id from events order by event WITH FILL FROM 0 TO 10 INTERPOLATE (distinct_id)",
+                "ORDER BY events.event ASC WITH FILL FROM 0 TO 10 INTERPOLATE (`events.distinct_id`)",
+            ],
+        ]
+    )
+    def test_select_order_by_with_fill(self, _name: str, query: str, expected_fragment: str):
+        result = self._select(query)
+        self.assertIn(expected_fragment, result)
+
     def test_select_limit(self):
         self.assertEqual(
             self._select("select event from events limit 10"),
@@ -2290,14 +2391,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id = 'trace123'", context)
 
         # Should generate: equals(mat_$ai_trace_id, 'trace123') without ifNull wrapper
-        # Check that the WHERE clause contains the direct equals check for $ai_trace_id
-        self.assertIn("equals(events.`mat_$ai_trace_id`, %(hogql_val_4)s)", sql)
+        # Find the placeholder that holds our value (index varies with number of joins)
+        trace_param_key = next((k for k, v in context.values.items() if v == "trace123"), None)
+        self.assertIsNotNone(trace_param_key, "Expected 'trace123' to be recorded as a parameter value")
+        self.assertIn(f"equals(events.`mat_$ai_trace_id`, %({trace_param_key})s)", sql)
         # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
-        self.assertIn("equals(events.`mat_$ai_trace_id`, %(hogql_val_4)s))", sql)
-
-        # Verify the placeholder value (it's hogql_val_4 due to other parameters in the query)
-        self.assertEqual(context.values["hogql_val_4"], "trace123")
 
         # With materialized column - no nullIf wrapping
         context = HogQLContext(team_id=self.team.pk)
@@ -2313,12 +2412,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id IN ('trace1', 'trace2')", context)
 
         # Should generate clean IN without ifNull wrapper
-        self.assertIn("in(events.`mat_$ai_trace_id`, tuple(%(hogql_val_4)s, %(hogql_val_5)s))", sql)
+        trace1_param_key = next((k for k, v in context.values.items() if v == "trace1"), None)
+        assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
+        trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
+        assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
+        self.assertIn(f"in(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
         self.assertNotIn("ifNull(in", sql)
-
-        # Verify the placeholder values
-        self.assertEqual(context.values["hogql_val_4"], "trace1")
-        self.assertEqual(context.values["hogql_val_5"], "trace2")
 
         # Verify other properties still get normal treatment
         mock_get_mat_col.return_value = None  # No materialized column for other props
@@ -2327,8 +2426,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.other_prop = 'value'", context)
 
         # Other properties should still have null handling with ifNull wrapping
+        other_prop_param_key = next((k for k, v in context.values.items() if v == "other_prop"), None)
+        assert other_prop_param_key is not None, "Expected 'other_prop' to be recorded as a parameter value"
+        value_param_key = next((k for k, v in context.values.items() if v == "value"), None)
+        assert value_param_key is not None, "Expected 'value' to be recorded as a parameter value"
         self.assertIn(
-            "ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_7)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_8)s), 0)",
+            f"ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %({other_prop_param_key})s), ''), 'null'), '^\"|\"$', ''), %({value_param_key})s), 0)",
             sql,
         )
 
@@ -2353,14 +2456,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id = 'session123'", context)
 
         # Should generate: equals(mat_$ai_session_id, 'session123') without ifNull wrapper
-        # Check that the WHERE clause contains the direct equals check for $ai_session_id
-        self.assertIn("equals(events.`mat_$ai_session_id`, %(hogql_val_4)s)", sql)
+        # Find the placeholder that holds our value (index varies with number of joins)
+        session_param_key = next((k for k, v in context.values.items() if v == "session123"), None)
+        assert session_param_key is not None, "Expected 'session123' to be recorded as a parameter value"
+        self.assertIn(f"equals(events.`mat_$ai_session_id`, %({session_param_key})s)", sql)
         # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
-        self.assertIn("equals(events.`mat_$ai_session_id`, %(hogql_val_4)s))", sql)
-
-        # Verify the placeholder value (it's hogql_val_4 due to other parameters in the query)
-        self.assertEqual(context.values["hogql_val_4"], "session123")
 
         # With materialized column - no nullIf wrapping
         context = HogQLContext(team_id=self.team.pk)
@@ -2376,12 +2477,14 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id IN ('session1', 'session2')", context)
 
         # Should generate clean IN without ifNull wrapper
-        self.assertIn("in(events.`mat_$ai_session_id`, tuple(%(hogql_val_4)s, %(hogql_val_5)s))", sql)
+        session1_param_key = next((k for k, v in context.values.items() if v == "session1"), None)
+        assert session1_param_key is not None, "Expected 'session1' to be recorded as a parameter value"
+        session2_param_key = next((k for k, v in context.values.items() if v == "session2"), None)
+        assert session2_param_key is not None, "Expected 'session2' to be recorded as a parameter value"
+        self.assertIn(
+            f"in(events.`mat_$ai_session_id`, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql
+        )
         self.assertNotIn("ifNull(in", sql)
-
-        # Verify the placeholder values
-        self.assertEqual(context.values["hogql_val_4"], "session1")
-        self.assertEqual(context.values["hogql_val_5"], "session2")
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
@@ -2975,7 +3078,31 @@ class TestPrinter(BaseTest):
         self.assertIn("SELECT argMax(events.uuid", printed)
         self.assertIn("FROM events WHERE", printed)
         self.assertIn("GROUP BY", printed)
-        self.assertIn("JSONExtractString", printed)
+        self.assertIn("JSONExtractRaw(events.properties", printed)
+
+    def test_unique_survey_submissions_filter_with_timestamps(self):
+        printed = self._print(
+            "select uuid from events where uniqueSurveySubmissionsFilter('survey123', '2025-01-01', '2025-01-31')",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+
+        self.assertIn("events.timestamp", printed)
+        self.assertIn("greaterOrEquals", printed)
+        self.assertIn("lessOrEquals", printed)
+
+    def test_unique_survey_submissions_filter_with_datetime_placeholders(self):
+        printed = self._print(
+            "select uuid from events where uniqueSurveySubmissionsFilter('survey123', {start_date}, {end_date})",
+            placeholders={
+                "start_date": ast.Constant(value=datetime(2025, 1, 1, 0, 0, 0)),
+                "end_date": ast.Constant(value=datetime(2025, 1, 31, 23, 59, 59)),
+            },
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+
+        self.assertIn("events.timestamp", printed)
+        self.assertIn("greaterOrEquals", printed)
+        self.assertIn("lessOrEquals", printed)
 
     def test_override_timezone(self):
         context = HogQLContext(
@@ -3459,6 +3586,64 @@ class TestPrinter(BaseTest):
                 assert "globalIn" not in printed
 
             assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand(
+        [
+            (SessionTableVersion.V1, "IN", "globalIn"),
+            (SessionTableVersion.V1, "NOT IN", "globalNotIn"),
+            (SessionTableVersion.V2, "IN", "globalIn"),
+            (SessionTableVersion.V2, "NOT IN", "globalNotIn"),
+            (SessionTableVersion.V3, "IN", "globalIn"),
+            (SessionTableVersion.V3, "NOT IN", "globalNotIn"),
+        ]
+    )
+    def test_sessions_filter_by_event_subquery_uses_global_in(self, version, op, expected):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=version)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        printed = self._select(
+            f"""
+            SELECT session_id
+            FROM sessions
+            WHERE session_id {op} (SELECT $session_id FROM events WHERE event = 'payment_confirm_clicked')
+            """,
+            context=context,
+        )
+        assert expected in printed, f"expected {expected} in:\n{printed}"
+
+    @parameterized.expand([("IN", "globalIn"), ("NOT IN", "globalNotIn")])
+    def test_sessions_filter_by_event_subquery_uses_global_in_with_alias(self, op, expected):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        printed = self._select(
+            f"""
+            SELECT s.session_id
+            FROM sessions AS s
+            WHERE s.session_id {op} (SELECT $session_id FROM events)
+            """,
+            context=context,
+        )
+        assert expected in printed, f"expected {expected} in:\n{printed}"
+
+    @parameterized.expand([("IN", "globalIn"), ("NOT IN", "globalNotIn")])
+    def test_events_filter_by_sessions_subquery_uses_global_in(self, op, expected):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        printed = self._select(
+            f"""
+            SELECT uuid
+            FROM events
+            WHERE $session_id {op} (SELECT session_id FROM sessions)
+            """,
+            context=context,
+        )
+        assert expected in printed, f"expected {expected} in:\n{printed}"
+
+    def test_events_in_subquery_not_promoted(self):
+        # Non-sessions case: no cross-cluster hazard, keep plain in.
+        printed = self._select(
+            "SELECT uuid FROM events WHERE event IN (SELECT event FROM events WHERE timestamp > now() - toIntervalDay(1))"
+        )
+        assert "globalIn" not in printed, f"did not expect globalIn in:\n{printed}"
 
     @parameterized.expand(
         [
@@ -4570,6 +4755,59 @@ class TestPostgresPrinter(BaseTest):
     def test_column_aliases(self):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
         self.assertIn("AS e (event_alias, ts_alias)", printed)
+
+    def test_column_aliases_explicit_refs_use_aliased_names(self):
+        printed = self._select("SELECT e.a, e.b FROM events AS e (a, b, c)")
+        # Postgres supports (a, b, c) syntax natively, so field references
+        # should use the aliased names
+        self.assertIn("e.a", printed)
+        self.assertIn("e.b", printed)
+        self.assertNotIn("e.uuid", printed)
+        self.assertNotIn("e.event", printed)
+
+    def test_column_aliases_in_where(self):
+        printed = self._select("SELECT e.a FROM events AS e (a, b, c) WHERE e.c IS NOT NULL")
+        self.assertIn("e.a", printed)
+        self.assertIn("e.c", printed)
+
+    def test_column_aliases_select_star(self):
+        printed = self._select("SELECT s.* FROM (SELECT 1 AS x, 2 AS y, 3 AS z) AS s (a, b, c)")
+        self.assertIn("s.a", printed)
+        self.assertIn("s.b", printed)
+        self.assertIn("s.c", printed)
+
+    def test_column_aliases_subquery_preserves_syntax(self):
+        printed = self._select("SELECT s.a FROM (SELECT 1 AS x, 2 AS y) AS s (a, b)")
+        self.assertIn("(a, b)", printed)
+        self.assertIn("s.a", printed)
+
+    @parameterized.expand(
+        [
+            ("range_one_arg", "SELECT range FROM range(10)", "range(10)"),
+            ("range_two_args", "SELECT range FROM range(1, 10)", "range(1, 10)"),
+            ("range_three_args", "SELECT range FROM range(0, 10, 2)", "range(0, 10, 2)"),
+            (
+                "generate_series_two_args",
+                "SELECT generate_series FROM generate_series(1, 10)",
+                "generate_series(1, 10)",
+            ),
+        ]
+    )
+    def test_range_table_function_prints(self, _name, query, expected):
+        printed = self._select(query)
+        self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            ("no_args", "SELECT range FROM range", "requires arguments"),
+            ("empty_args", "SELECT range FROM range()", "requires at least 1 argument"),
+            ("too_many_args", "SELECT range FROM range(1, 2, 3, 4)", "requires at most 3 arguments"),
+        ]
+    )
+    def test_range_table_function_arg_errors(self, _name, query, expected_error):
+        with self.assertRaises(QueryError) as ctx:
+            self._select(query)
+        self.assertIn(expected_error, str(ctx.exception))
 
     @parameterized.expand(
         [

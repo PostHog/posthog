@@ -17,6 +17,7 @@ import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management
 import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -40,7 +41,8 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 ]
 
 export function EventDefinitionsTable(): JSX.Element {
-    const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
+    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter } =
+        useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
@@ -183,6 +185,23 @@ export function EventDefinitionsTable(): JSX.Element {
                         }}
                         size="small"
                     />
+                    {showVerifiedFilter && (
+                        <>
+                            <span>Status:</span>
+                            <LemonSelect
+                                value={verifiedFilterValue(filters.verified)}
+                                options={verifiedOptions}
+                                data-attr="event-verified-filter"
+                                dropdownMatchSelectWidth={false}
+                                onChange={(value) => {
+                                    setFilters({
+                                        verified: verifiedFilterFromOption(value),
+                                    })
+                                }}
+                                size="small"
+                            />
+                        </>
+                    )}
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}

@@ -84,10 +84,10 @@ if TEST or DEBUG:
         f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
     )
 else:
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
-    DATABASES: dict[str, dict] = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=0)}
+    DATABASES: dict[str, dict] = {"default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))}
 
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -162,13 +162,13 @@ elif not persons_db_writer_url and TEST:
     persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{test_persons_db}"
 
 if persons_db_writer_url:
-    DATABASES["persons_db_writer"] = dj_database_url.config(
-        env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0
+    DATABASES["persons_db_writer"] = dict(
+        dj_database_url.config(env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0)
     )
 
     # Fall back to the writer URL if no reader URL is set
-    DATABASES["persons_db_reader"] = dj_database_url.config(
-        env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0
+    DATABASES["persons_db_reader"] = dict(
+        dj_database_url.config(env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0)
     )
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -199,11 +199,11 @@ for route in product_routes:
     if not writer_url:
         continue
 
-    DATABASES[writer_alias] = dj_database_url.parse(writer_url, conn_max_age=0)
+    DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
     reader_url = os.getenv(reader_env, writer_url)
-    DATABASES[reader_alias] = dj_database_url.parse(reader_url, conn_max_age=0)
+    DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
     if TEST:
@@ -225,7 +225,7 @@ for route in product_routes:
     direct_url = os.getenv(direct_env)
     if direct_url:
         direct_alias = f"{db}_db_direct"
-        DATABASES[direct_alias] = dj_database_url.parse(direct_url, conn_max_age=0)
+        DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
         DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -278,6 +278,9 @@ CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
+CLICKHOUSE_SATELLITE_CLUSTERS: list[str] = [
+    s.strip() for s in os.getenv("CLICKHOUSE_SATELLITE_CLUSTERS", "ai_events,aux,ops,sessions").split(",") if s.strip()
+]
 CLICKHOUSE_CA: str | None = os.getenv("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE: bool = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)
 CLICKHOUSE_VERIFY: bool = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_to_bool)
@@ -285,6 +288,7 @@ CLICKHOUSE_ENABLE_STORAGE_POLICY: bool = get_from_env("CLICKHOUSE_ENABLE_STORAGE
 CLICKHOUSE_SINGLE_SHARD_CLUSTER: str = os.getenv("CLICKHOUSE_SINGLE_SHARD_CLUSTER", "posthog_single_shard")
 CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "posthog_writable")
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
+CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
     "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", default=False, type_cast=str_to_bool
 )
@@ -322,8 +326,11 @@ CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
 )
 
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
-CLICKHOUSE_KAFKA_WARPSTREAM_NAMED_COLLECTION: str = os.getenv(
-    "CLICKHOUSE_KAFKA_WARPSTREAM_NAMED_COLLECTION", "warpstream_ingestion"
+CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION", "warpstream_ingestion"
+)
+CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION", "warpstream_calculated_events"
 )
 
 # Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
@@ -351,6 +358,22 @@ def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
     from posthog.models.instance_setting import get_instance_setting
 
     return get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
+
+
+def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
+    if team_id is None:
+        return False
+    return team_id in _get_web_analytics_events_prefilter_teams(round(time.time() / 120))
+
+
+@lru_cache(maxsize=1)
+def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
+    from posthog.models.instance_setting import get_instance_setting
+
+    try:
+        return get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+    except Exception:
+        return []
 
 
 # Set of teams querying the data before we switched to new limits

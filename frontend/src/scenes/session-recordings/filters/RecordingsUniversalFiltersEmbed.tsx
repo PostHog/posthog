@@ -60,7 +60,7 @@ import {
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
-import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
+import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
@@ -216,6 +216,7 @@ interface ReplayUniversalFiltersEmbedProps {
     totalFiltersCount?: number
     className?: string
     allowReplayHogQLFilters?: boolean
+    pinnedFilters?: UniversalFiltersGroup
 }
 
 export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
@@ -269,8 +270,10 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
 
 const RecordingsUniversalFilterGroup = ({
     hideAddFilterButton = false,
+    pinnedFilters,
 }: {
     hideAddFilterButton?: boolean
+    pinnedFilters?: UniversalFiltersGroup
 }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
@@ -283,7 +286,10 @@ const RecordingsUniversalFilterGroup = ({
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup hideAddFilterButton={hideAddFilterButton} />
+                        <RecordingsUniversalFilterGroup
+                            hideAddFilterButton={hideAddFilterButton}
+                            pinnedFilters={pinnedFilters}
+                        />
 
                         {!hideAddFilterButton && (
                             <Popover
@@ -314,7 +320,11 @@ const RecordingsUniversalFilterGroup = ({
                         key={index}
                         index={index}
                         filter={filterOrGroup}
-                        onRemove={() => removeGroupValue(index)}
+                        onRemove={
+                            pinnedFilters?.values.some((pv) => equal(pv, filterOrGroup))
+                                ? undefined
+                                : () => removeGroupValue(index)
+                        }
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen}
                         metadataSource={{ kind: NodeKind.RecordingsQuery }}
@@ -351,7 +361,10 @@ const SaveFiltersModal = ({
     }
 
     const addSavedFilter = async (): Promise<void> => {
-        const f = await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false)
+        const f = await createPlaylist(
+            { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters' },
+            false
+        )
         reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setIsOpen(false)
@@ -479,6 +492,7 @@ const ReplayFiltersTab = ({
     className,
     totalFiltersCount,
     allowReplayHogQLFilters = false,
+    pinnedFilters,
 }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
@@ -529,7 +543,7 @@ const ReplayFiltersTab = ({
         }
 
         if (pendingFilterApplication.filters) {
-            setFilters(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>)
+            setFilters(stripSessionIds(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>))
             setAppliedSavedFilter(pendingFilterApplication)
             setActiveFilterTab('filters')
         }
@@ -542,7 +556,11 @@ const ReplayFiltersTab = ({
             return
         }
 
-        const f = await updatePlaylist(appliedSavedFilter.short_id, { filters, type: 'filters' }, false)
+        const f = await updatePlaylist(
+            appliedSavedFilter.short_id,
+            { filters: stripSessionIds(filters), type: 'filters' },
+            false
+        )
         loadSavedFilters()
         setAppliedSavedFilter(f)
     }
@@ -581,7 +599,11 @@ const ReplayFiltersTab = ({
                                 size="small"
                                 icon={<IconTrash />}
                                 onClick={() =>
-                                    setFilters(appliedSavedFilter.filters as Partial<RecordingUniversalFilters>)
+                                    setFilters(
+                                        stripSessionIds(
+                                            appliedSavedFilter.filters as Partial<RecordingUniversalFilters>
+                                        )
+                                    )
                                 }
                             >
                                 Discard changes
@@ -704,7 +726,7 @@ const ReplayFiltersTab = ({
                                 { key: 'Last 3 days', values: ['-3d'] },
                                 { key: 'Last 7 days', values: ['-7d'] },
                                 { key: 'Last 30 days', values: ['-30d'] },
-                                { key: 'All time', values: ['-90d'] },
+                                { key: 'All time', values: ['-5y'] },
                             ]}
                             dropdownPlacement="bottom-start"
                             size="small"
@@ -729,7 +751,7 @@ const ReplayFiltersTab = ({
                             pageKey="session-recordings"
                             size="small"
                         />
-                        <RecordingsUniversalFilterGroup hideAddFilterButton={true} />
+                        <RecordingsUniversalFilterGroup hideAddFilterButton={true} pinnedFilters={pinnedFilters} />
                     </div>
                 </div>
             </UniversalFilters>

@@ -21,22 +21,6 @@
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
             }
-
-            .definition-popover-header-row-buttons {
-                display: flex;
-                flex-direction: row;
-                font-size: 0.8125rem;
-
-                a {
-                    margin-left: 1rem;
-                    user-select: none;
-                }
-
-                .definition-popover-disabled-button {
-                    color: var(--color-text-secondary);
-                    cursor: not-allowed;
-                }
-            }
         }
 
         .definition-popover-title {

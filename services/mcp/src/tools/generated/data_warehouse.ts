@@ -32,7 +32,7 @@ const viewList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedDataWarehouseSavedQueryMinimalList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/warehouse_saved_queries/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/`,
             query: {
                 page: params.page,
                 search: params.search,
@@ -43,7 +43,7 @@ const viewList = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/sql/?open_view=${item.id}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql/?open_view=${item.id}`))
                 ),
             },
             '/sql'
@@ -51,7 +51,14 @@ const viewList = (): ToolBase<
     },
 })
 
-const ViewCreateSchema = WarehouseSavedQueriesCreateBody
+const ViewCreateSchema = WarehouseSavedQueriesCreateBody.extend({
+    name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
+        'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
+    ),
+    query: WarehouseSavedQueriesCreateBody.shape['query'].describe(
+        'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+    ),
+})
 
 const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
     name: 'view-create',
@@ -65,12 +72,18 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.folder_id !== undefined) {
+            body['folder_id'] = params.folder_id
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
-            path: `/api/projects/${projectId}/warehouse_saved_queries/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/`,
             body,
         })
         return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
@@ -86,15 +99,25 @@ const viewGet = (): ToolBase<typeof ViewGetSchema, WithPostHogUrl<Schemas.DataWa
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'GET',
-            path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
         })
         return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
     },
 })
 
-const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project_id: true }).extend(
-    WarehouseSavedQueriesPartialUpdateBody.shape
-)
+const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project_id: true })
+    .extend(WarehouseSavedQueriesPartialUpdateBody.shape)
+    .extend({
+        name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe(
+            'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
+        ),
+        query: WarehouseSavedQueriesPartialUpdateBody.shape['query'].describe(
+            'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+        ),
+        edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
+            'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'
+        ),
+    })
 
 const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
     name: 'view-update',
@@ -108,15 +131,21 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.folder_id !== undefined) {
+            body['folder_id'] = params.folder_id
+        }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
         }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
@@ -132,7 +161,7 @@ const viewDelete = (): ToolBase<typeof ViewDeleteSchema, Schemas.DataWarehouseSa
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         return result
@@ -161,18 +190,24 @@ const viewMaterialize = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.folder_id !== undefined) {
+            body['folder_id'] = params.folder_id
+        }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
         }
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
-            path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/materialize/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/materialize/`,
             body,
         })
         return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
@@ -201,18 +236,24 @@ const viewUnmaterialize = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.folder_id !== undefined) {
+            body['folder_id'] = params.folder_id
+        }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
         }
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
-            path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/revert_materialization/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/revert_materialization/`,
             body,
         })
         return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
@@ -238,18 +279,24 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWa
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.folder_id !== undefined) {
+            body['folder_id'] = params.folder_id
+        }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
         }
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
-            path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/run/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,
             body,
         })
         return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
@@ -265,7 +312,7 @@ const viewRunHistory = (): ToolBase<typeof ViewRunHistorySchema, WithPostHogUrl<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'GET',
-            path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/run_history/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run_history/`,
         })
         return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
     },

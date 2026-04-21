@@ -90,20 +90,20 @@ operations = []
 
 # 1. Partition statistics cleanup
 for sql in DROP_MV_PARTITION_STATS:
-    operations.append(run_sql_with_exceptions(sql, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]))
+    operations.append(run_sql_with_exceptions(sql, node_roles=[NodeRole.DATA]))
 
 for sql in DROP_KAFKA_PARTITION_STATS:
-    operations.append(run_sql_with_exceptions(sql, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]))
+    operations.append(run_sql_with_exceptions(sql, node_roles=[NodeRole.DATA]))
 
-operations.append(run_sql_with_exceptions(DROP_TABLE_PARTITION_STATS, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]))
+operations.append(run_sql_with_exceptions(DROP_TABLE_PARTITION_STATS, node_roles=[NodeRole.DATA]))
 
 # 2. Session replay events v2 test cleanup
 for sql in DROP_SESSION_REPLAY_V2_TEST:
-    operations.append(run_sql_with_exceptions(sql, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]))
+    operations.append(run_sql_with_exceptions(sql, node_roles=[NodeRole.DATA]))
 
 # Sharded table only exists on DATA nodes
 operations.append(run_sql_with_exceptions(DROP_SESSION_REPLAY_V2_TEST_SHARDED, node_roles=[NodeRole.DATA]))
 
 # 3. Log entries v2 test cleanup
 for sql in DROP_LOG_ENTRIES_V2_TEST:
-    operations.append(run_sql_with_exceptions(sql, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]))
+    operations.append(run_sql_with_exceptions(sql, node_roles=[NodeRole.DATA]))

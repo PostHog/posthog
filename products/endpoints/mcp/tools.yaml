@@ -1,0 +1,177 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Endpoints
+feature: endpoints
+url_prefix: /endpoints
+tools:
+    endpoints-get-all:
+        operation: endpoints_list
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{name}'
+        list: true
+        title: Get all endpoints
+        description: >
+            Get all API endpoints in the current project. Endpoints expose saved HogQL or insight queries as callable
+            API routes. Returns name, description, query, active status, current version, and materialization info for
+            each endpoint.
+    endpoint-get:
+        operation: endpoints_retrieve
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{name}'
+        title: Get endpoint
+        description: >
+            Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version
+            info, materialization status, and column types. Supports ?version=N to retrieve a specific version.
+    endpoint-create:
+        operation: endpoints_create
+        enabled: true
+        scopes:
+            - endpoint:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{name}'
+        title: Create endpoint
+        description: >
+            Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers,
+            hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is
+            eligible.
+        include_params:
+            - name
+            - query
+            - description
+            - is_materialized
+            - cache_age_seconds
+    endpoint-update:
+        operation: endpoints_partial_update
+        enabled: true
+        scopes:
+            - endpoint:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{name}'
+        title: Update endpoint
+        description: >
+            Update an existing endpoint by name. Can update the query (auto-creates a new version), description, cache
+            age, active status, and materialization. Pass version in body to target a specific version for non-query
+            updates.
+        include_params:
+            - query
+            - description
+            - is_active
+            - is_materialized
+            - cache_age_seconds
+            - version
+    endpoint-delete:
+        operation: endpoints_destroy
+        enabled: true
+        scopes:
+            - endpoint:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete endpoint
+        description: |
+            Delete an endpoint by name. The endpoint is soft-deleted and its materialized views are cleaned up.
+        soft_delete: true
+    endpoint-run:
+        operation: endpoints_run_create
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{name}'
+        title: Run endpoint
+        description: >
+            Execute an endpoint's query and return results. Uses materialized results when available, otherwise runs
+            inline. For HogQL endpoints, variable keys must match code_name values. For insight endpoints with
+            breakdowns, use the breakdown property name as the key.
+        include_params:
+            - variables
+            - limit
+            - offset
+            - refresh
+        param_overrides:
+            variables:
+                description: >
+                    Key-value pairs to parameterize the query. For HogQL endpoints, keys match variable code_name (e.g.
+                    {"event_name": "$pageview"}). For insight endpoints with breakdowns, use the breakdown property name
+                    as key.
+    endpoint-versions:
+        operation: endpoints_versions_list
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{name}'
+        list: true
+        title: Get endpoint versions
+        description: >
+            List all versions for an endpoint, in descending order (latest first). Each version contains the query
+            snapshot, description, cache settings, and materialization status at that point in time.
+    endpoint-materialization-status:
+        operation: endpoints_materialization_status_retrieve
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{name}'
+        title: Get materialization status
+        description: >
+            Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether
+            materialization is possible, current status, last run time, and any errors. Supports ?version=N.
+    endpoints-update:
+        operation: endpoints_update
+        enabled: false
+    endpoints-run-retrieve:
+        operation: endpoints_run_retrieve
+        enabled: false
+    endpoint-openapi-spec:
+        operation: endpoints_openapi.json_retrieve
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get endpoint OpenAPI spec
+        description: >
+            Get the OpenAPI 3.0 specification for an endpoint. Returns a JSON spec that can be used
+            with SDK generators like openapi-generator or @hey-api/openapi-ts to create typed API
+            clients. Supports ?version=N to generate a spec for a specific version.
+    endpoints-last-execution-times-create:
+        operation: endpoints_last_execution_times_create
+        enabled: false
+    endpoints-materialization-preview-create:
+        operation: endpoints_materialization_preview_create
+        enabled: false

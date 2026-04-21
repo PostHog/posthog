@@ -10,7 +10,9 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
+import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
+import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -58,6 +60,8 @@ export function Dashboards(): JSX.Element {
             <NewDashboardModal />
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
+            <DashboardTemplateEditor />
+            <DashboardTemplateModal />
 
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Dashboards].name}

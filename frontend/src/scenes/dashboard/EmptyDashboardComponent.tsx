@@ -88,7 +88,7 @@ function DashboardEmptyActions({
     )
 
     return (
-        <div className="flex flex-col gap-5 w-full max-w-full">
+        <div className="flex flex-col gap-4 w-full max-w-full">
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 @min-[48rem]/main-content:justify-start">
                 {addInsightButton}
             </div>
@@ -133,7 +133,8 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
             hogLayout="responsive"
             useMainContentContainerQueries={true}
             docsURL={DASHBOARD_DOCS_URL}
-            className="mt-4 mb-2 px-4 @min-[40rem]/main-content:px-8 py-20 @min-[48rem]/main-content:py-28"
+            className="mt-2 mb-2 px-4 @min-[40rem]/main-content:px-8 py-4 @min-[48rem]/main-content:py-14"
+            contentClassName="[&>div:last-child]:!mt-4"
             actionElementOverride={
                 <DashboardEmptyActions
                     canEdit={canEdit}

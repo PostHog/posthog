@@ -1,3 +1,4 @@
+import re
 import json
 import uuid as uuid_mod
 from datetime import timedelta
@@ -38,13 +39,29 @@ from posthog.models.feature_flag.user_blast_radius import (
 )
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
+from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
 
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
-from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
+
+# Delay durations are strings like "30m", "2h", "1.5d". Must match the regex in the Node.js executor
+# (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
+DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
+
+
+class BlastRadiusRequestSerializer(serializers.Serializer):
+    filters = serializers.DictField(help_text="Property filters to apply")
+    group_type_index = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Group type index for group-based targeting"
+    )
+
+
+class BlastRadiusSerializer(serializers.Serializer):
+    affected = serializers.IntegerField(help_text="Number of users matching the filters")
+    total = serializers.IntegerField(help_text="Total number of users")
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
@@ -81,7 +98,7 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         trigger_is_function = False
         if data.get("type") == "trigger":
-            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel", "schedule"]:
+            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel"]:
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
@@ -106,6 +123,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                     properties = filters.get("properties", None)
                     if properties is not None and not isinstance(properties, list):
                         raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
+            elif data.get("config", {}).get("type") == "schedule":
+                # Schedule triggers have no extra validation - the schedule definition
+                # lives on a separate HogFlowSchedule row keyed by hog_flow_id.
+                pass
             else:
                 if not is_draft:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
@@ -160,6 +181,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                             serializer.is_valid(raise_exception=True)
                             condition["filters"] = serializer.validated_data
 
+        if data.get("type") == "delay":
+            delay_duration = data.get("config", {}).get("delay_duration")
+            if not isinstance(delay_duration, str) or not DELAY_DURATION_REGEX.match(delay_duration):
+                if not is_draft:
+                    raise serializers.ValidationError(
+                        {
+                            "config": (
+                                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
+                                "(e.g. '30m', '2h', '1d'). Seconds and ISO-8601 formats are not supported."
+                            )
+                        }
+                    )
+
         return data
 
 
@@ -174,12 +208,12 @@ class HogFlowVariableSerializer(serializers.ListSerializer):
         if len(keys) != len(set(keys)):
             raise serializers.ValidationError("Variable keys must be unique")
 
-        # Make sure entire variables definition is less than 1KB
+        # Make sure entire variables definition is less than 5KB
         # This is just a check for massive keys / default values, we also have a check for dynamically
         # set variables during execution
         total_size = sum(len(json.dumps(item)) for item in attrs)
-        if total_size > 1024:
-            raise serializers.ValidationError("Total size of variables definition must be less than 1KB")
+        if total_size > 5120:
+            raise serializers.ValidationError("Total size of variables definition must be less than 5KB")
 
         return super().validate(attrs)
 
@@ -248,6 +282,8 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         if any(field in validated_data for field in ("rrule", "starts_at", "timezone")):
             # Force the scheduler to recalculate the next occurrence on its next poll
             instance.next_run_at = None
+            if instance.status != HogFlowSchedule.Status.PAUSED:
+                instance.status = HogFlowSchedule.Status.ACTIVE
         return super().update(instance, validated_data)
 
 
@@ -516,6 +552,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         return Response(res.json())
 
+    @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: Request, **kwargs):
         if "filters" not in request.data:
@@ -524,14 +561,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         filters = request.data.get("filters", {})
         group_type_index = request.data.get("group_type_index", None)
 
-        users_affected, total_users = get_user_blast_radius(self.team, filters, group_type_index)
+        result = get_user_blast_radius(self.team, filters, group_type_index)
 
-        return Response(
-            {
-                "users_affected": users_affected,
-                "total_users": total_users,
-            }
-        )
+        return Response(BlastRadiusSerializer(result).data)
 
     @action(methods=["POST"], detail=False)
     def bulk_delete(self, request: Request, **kwargs):
@@ -637,13 +669,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         group_type_index = request.data.get("group_type_index", None)
 
         try:
-            users_affected, total_users = get_user_blast_radius(team, filters, group_type_index)
-            return Response(
-                {
-                    "users_affected": users_affected,
-                    "total_users": total_users,
-                }
-            )
+            result = get_user_blast_radius(team, filters, group_type_index)
+            return Response(BlastRadiusSerializer(result).data)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
@@ -688,6 +715,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         """
         from django.db import transaction
 
+        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
         from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
         from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
 
@@ -732,6 +760,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
             for schedule_id in due_schedule_ids:
                 try:
+                    batch_job_params: dict | None = None
+                    schedule_invocation_params: dict | None = None
                     with transaction.atomic():
                         # Per-schedule transaction: lock only one row at a time to minimize
                         # lock duration and allow concurrent replicas via skip_locked.
@@ -752,22 +782,38 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         hog_flow = schedule.hog_flow
                         trigger_type = (hog_flow.trigger or {}).get("type")
 
-                        if hog_flow.status != "active" or trigger_type != "batch":
+                        if hog_flow.status != "active" or trigger_type not in SCHEDULED_TRIGGER_TYPES:
                             schedule.next_run_at = None
                             schedule.save(update_fields=["next_run_at", "updated_at"])
                             continue
 
                         advance_next_run(schedule, after=schedule.next_run_at)
 
-                        processed.append(
-                            {
-                                "schedule_id": str(schedule.id),
+                        if trigger_type == "batch":
+                            batch_job_params = {
                                 "team_id": schedule.team_id,
-                                "hog_flow_id": str(schedule.hog_flow_id),
+                                "hog_flow": hog_flow,
+                                "variables": resolve_variables(hog_flow, schedule),
                                 "filters": (hog_flow.trigger or {}).get("filters", {}),
+                            }
+                        else:
+                            schedule_invocation_params = {
+                                "team_id": schedule.team_id,
+                                "hog_flow_id": str(hog_flow.id),
                                 "variables": resolve_variables(hog_flow, schedule),
                             }
+
+                    # Dispatch outside the transaction so HTTP calls don't hold the row lock.
+                    if batch_job_params:
+                        HogFlowBatchJob.objects.create(
+                            **batch_job_params,
+                            status=HogFlowBatchJob.State.QUEUED,
                         )
+                        processed.append(str(schedule_id))
+                    elif schedule_invocation_params:
+                        response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
+                        response.raise_for_status()
+                        processed.append(str(schedule_id))
                 except Exception:
                     logger.exception("Error processing schedule", schedule_id=str(schedule_id))
                     failed.append(str(schedule_id))
@@ -779,7 +825,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     status=HogFlowSchedule.Status.ACTIVE,
                     next_run_at__isnull=True,
                     hog_flow__status="active",
-                    hog_flow__trigger__type="batch",
+                    hog_flow__trigger__type__in=SCHEDULED_TRIGGER_TYPES,
                 ).values_list("id", flat=True)
             )
 

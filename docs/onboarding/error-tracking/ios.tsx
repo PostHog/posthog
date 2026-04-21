@@ -7,16 +7,8 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     const installSteps = getIOSStepsPA(ctx, {
-        includeExperimentalSpi: true,
-        experimentalDescription: dedent`
-            Error tracking is currently experimental. You need to import PostHog with the \`Experimental\` SPI group:
-            
-            \`\`\`swift
-            @_spi(Experimental) import PostHog
-            \`\`\`
-        `,
-        minVersionPod: '3.45',
-        minVersionSPM: '3.45.0',
+        minVersionPod: '3.50',
+        minVersionSPM: '3.50.0',
     })
 
     const exceptionAutocaptureStep: StepDefinition = {
@@ -54,7 +46,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             language: 'swift',
                             file: 'Swift',
                             code: dedent`
-                              @_spi(Experimental) import PostHog
+                              import PostHog
 
                               let config = PostHogConfig(
                                   apiKey: "<ph_project_token>",
@@ -100,7 +92,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             language: 'swift',
                             file: 'Swift',
                             code: dedent`
-                              @_spi(Experimental) import PostHog
+                              import PostHog
 
                               do {
                                   try FileManager.default.removeItem(at: badFileUrl)
@@ -187,7 +179,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             language: 'swift',
                             file: 'Swift',
                             code: dedent`
-                              @_spi(Experimental) import PostHog
+                              import PostHog
 
                               let config = PostHogConfig(
                                   apiKey: "<ph_project_token>",

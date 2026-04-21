@@ -24,10 +24,6 @@ export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 
-# Limit Rust parallel compilation jobs to reduce CPU contention when multiple
-# services start simultaneously via phrocs (they share a build lock anyway)
-export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
-
 # Use sccache for Rust compilation caching (if available via flox or homebrew)
 if [[ -z "${RUSTC_WRAPPER:-}" ]] && command -v sccache &>/dev/null; then
     export RUSTC_WRAPPER="sccache"
@@ -75,6 +71,12 @@ if [ -f .env ]; then
     set +o allexport
 fi
 
+if [ -f .env.local ]; then
+    set -o allexport
+    source .env.local
+    set +o allexport
+fi
+
 # Ducklake
 export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-db}
 export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}
@@ -85,6 +87,7 @@ export DUCKLAKE_BUCKET=${DUCKLAKE_BUCKET:-ducklake-dev}
 export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
 export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
 export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
+export POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET=${POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET:-1}
 
 # These default to localhost/127.0.0.1 in Node.js/Rust configs
 export CDP_REDIS_HOST=${CDP_REDIS_HOST:-redis7}
@@ -96,6 +99,9 @@ export PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@$
 export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
 export PERSONS_WRITE_DATABASE_URL=${PERSONS_WRITE_DATABASE_URL:-$PERSONS_DATABASE_URL}
 export PERSONS_READ_DATABASE_URL=${PERSONS_READ_DATABASE_URL:-$PERSONS_READONLY_DATABASE_URL}
+# Error tracking — Node.js ingestion consumer needs to reach Cymbal (Rust) on the host
+# Using lvh.me instead of localhost for cross-platform compatibility
+export ERROR_TRACKING_CYMBAL_BASE_URL=${ERROR_TRACKING_CYMBAL_BASE_URL:-http://lvh.me:3302}
 export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
 export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
 export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}

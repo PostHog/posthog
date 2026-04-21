@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 from django_redis import get_redis_connection
@@ -11,7 +12,7 @@ from products.tasks.backend.services.connection_token import create_sandbox_conn
 from products.tasks.backend.services.sandbox import SANDBOX_TTL_SECONDS
 from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
 
-from ee.hogai.sandbox import TURN_COMPLETE_METHOD
+from ee.hogai.sandbox import STOP_REASON_END_TURN, TURN_COMPLETE_METHOD
 
 logger = structlog.get_logger(__name__)
 
@@ -49,7 +50,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     result = send_user_message(task_run, input.message, auth_token=auth_token, timeout=SANDBOX_TTL_SECONDS)
 
     if result.success:
-        _write_turn_complete(input.run_id)
+        _write_turn_complete(input.run_id, _get_stop_reason(result.data))
         logger.info("send_followup_delivered", run_id=input.run_id)
     else:
         logger.warning(
@@ -64,14 +65,26 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         raise RuntimeError(f"send_followup failed: {error_msg}")
 
 
-def _write_turn_complete(run_id: str) -> None:
+def _get_stop_reason(result_data: dict[str, Any] | None) -> str:
+    if not isinstance(result_data, dict):
+        return STOP_REASON_END_TURN
+
+    result = result_data.get("result")
+    if not isinstance(result, dict):
+        return STOP_REASON_END_TURN
+
+    stop_reason = result.get("stopReason")
+    return stop_reason if isinstance(stop_reason, str) and stop_reason else STOP_REASON_END_TURN
+
+
+def _write_turn_complete(run_id: str, stop_reason: str = STOP_REASON_END_TURN) -> None:
     """Write a synthetic turn_complete event to the Redis stream."""
     stream_key = get_task_run_stream_key(run_id)
     event = {
         "type": "notification",
         "notification": {
             "method": TURN_COMPLETE_METHOD,
-            "params": {"source": "posthog"},
+            "params": {"source": "posthog", "stopReason": stop_reason},
         },
     }
     conn = get_redis_connection("default")

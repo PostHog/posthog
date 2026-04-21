@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
-import { CDPSession, Page } from 'puppeteer'
+import { Page } from 'puppeteer'
 
 import { CapturePage, playerHtmlCache } from '../capture/capture-page'
 
@@ -18,10 +18,11 @@ const playerHtml = '<html>player</html>'
 
 describe('capture-page', () => {
     let originalSend: jest.Mock
+    let mockSession: { send: jest.Mock; detach: jest.Mock }
 
     function createMockPage(): Page {
         originalSend = jest.fn().mockResolvedValue({ data: 'frame-data' })
-        const mockSession = { send: originalSend } as unknown as CDPSession
+        mockSession = { send: originalSend, detach: jest.fn().mockResolvedValue(undefined) }
         const mainFrame = { parentFrame: () => null }
 
         return {
@@ -31,6 +32,7 @@ describe('capture-page', () => {
             mainFrame: jest.fn().mockReturnValue(mainFrame),
             frames: jest.fn().mockReturnValue([mainFrame]),
             on: jest.fn(),
+            evaluate: jest.fn().mockResolvedValue(undefined),
         } as unknown as Page
     }
 
@@ -191,6 +193,87 @@ describe('capture-page', () => {
             await session.send('Page.navigate', { url: 'http://example.com' })
 
             expect(waitForSettled).not.toHaveBeenCalled()
+        })
+
+        it('returns result when beginFrame resolves before timeout', async () => {
+            const { page, capturePage } = await preparePage()
+            originalSend.mockResolvedValue({ data: 'frame-screenshot' })
+            capturePage.installCDPGuards('jpeg', 80, jest.fn().mockResolvedValue(undefined))
+
+            const session = await (page as any).createCDPSession()
+            const result = await session.send('HeadlessExperimental.beginFrame')
+
+            expect(result).toEqual({ data: 'frame-screenshot' })
+        })
+
+        it('throws and detaches CDP session when beginFrame exceeds 15s', async () => {
+            jest.useFakeTimers()
+            const { page, capturePage } = await preparePage()
+            originalSend.mockReturnValue(new Promise(() => {})) // never resolves
+            capturePage.installCDPGuards('jpeg', 80, jest.fn().mockResolvedValue(undefined), mockLog)
+
+            const session = await (page as any).createCDPSession()
+            const sendPromise = session.send('HeadlessExperimental.beginFrame')
+
+            // Attach the rejection handler before advancing timers so Jest
+            // doesn't see an unhandled rejection.
+            const rejection = expect(sendPromise).rejects.toThrow('beginFrame timeout (15s) — compositor deadlock')
+            await jest.advanceTimersByTimeAsync(15_001)
+            await rejection
+
+            expect(mockSession.detach).toHaveBeenCalled()
+            expect(mockLog.error).toHaveBeenCalledWith(
+                expect.objectContaining({ params: expect.any(Object) }),
+                'beginFrame timed out, detaching CDP session'
+            )
+            jest.useRealTimers()
+        })
+
+        it('swallows session.detach() failure during timeout', async () => {
+            jest.useFakeTimers()
+            const { page, capturePage } = await preparePage()
+            originalSend.mockReturnValue(new Promise(() => {}))
+            mockSession.detach.mockRejectedValue(new Error('already disconnected'))
+            capturePage.installCDPGuards('jpeg', 80, jest.fn().mockResolvedValue(undefined), mockLog)
+
+            const session = await (page as any).createCDPSession()
+            const sendPromise = session.send('HeadlessExperimental.beginFrame')
+
+            const rejection = expect(sendPromise).rejects.toThrow('compositor deadlock')
+            await jest.advanceTimersByTimeAsync(15_001)
+            await rejection
+
+            jest.useRealTimers()
+        })
+
+        it('rethrows non-timeout beginFrame errors unchanged', async () => {
+            const { page, capturePage } = await preparePage()
+            originalSend.mockRejectedValue(new Error('session closed'))
+            capturePage.installCDPGuards('jpeg', 80, jest.fn().mockResolvedValue(undefined), mockLog)
+
+            const session = await (page as any).createCDPSession()
+
+            await expect(session.send('HeadlessExperimental.beginFrame')).rejects.toThrow('session closed')
+            expect(mockSession.detach).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('installCallbackErrorGuards', () => {
+        it('calls page.evaluate to wrap timer APIs', async () => {
+            const page = createMockPage()
+            const capturePage = await CapturePage.prepare(
+                page,
+                { width: 1280, height: 720 },
+                playerUrl,
+                playerHtml,
+                false,
+                mockLog
+            )
+
+            await capturePage.installCallbackErrorGuards()
+
+            expect(page.evaluate).toHaveBeenCalledTimes(1)
+            expect(page.evaluate).toHaveBeenCalledWith(expect.any(Function))
         })
     })
 

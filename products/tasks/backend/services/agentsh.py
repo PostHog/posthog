@@ -12,6 +12,8 @@ AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
 INFRASTRUCTURE_DOMAINS = [
     "*.posthog.com",
     "api.anthropic.com",
+    "gateway.us.posthog.com",
+    "gateway.eu.posthog.com",
 ]
 
 

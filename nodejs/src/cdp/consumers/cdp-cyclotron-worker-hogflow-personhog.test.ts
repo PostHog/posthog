@@ -113,6 +113,7 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
             postgresPersonRepo,
             failingGrpc as unknown as PersonHogClient,
             100,
+            new Set(),
             'test'
         )
         const processor = new CdpCyclotronWorkerHogFlow(hub, {
@@ -160,6 +161,7 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
             postgresPersonRepo,
             failingGrpc as unknown as PersonHogClient,
             100,
+            new Set(),
             'test'
         )
         const processor = new CdpCyclotronWorkerHogFlow(hub, {

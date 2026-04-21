@@ -5,6 +5,37 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _is_session_update,
 )
 
+from ee.hogai.sandbox import TURN_COMPLETE_METHOD
+
+
+class TestIsEndOfTurn:
+    @parameterized.expand(
+        [
+            (
+                "raw_acp_end_turn",
+                {"type": "notification", "notification": {"result": {"stopReason": "end_turn"}}},
+                True,
+            ),
+            (
+                "raw_acp_non_terminal",
+                {"type": "notification", "notification": {"result": {"stopReason": "max_tokens"}}},
+                False,
+            ),
+            (
+                "synthetic_turn_complete",
+                {"type": "notification", "notification": {"method": TURN_COMPLETE_METHOD}},
+                True,
+            ),
+            (
+                "non_notification",
+                {"type": "event", "notification": {"result": {"stopReason": "end_turn"}}},
+                False,
+            ),
+        ]
+    )
+    def test_is_end_of_turn(self, _name: str, event_data: dict, expected: bool):
+        assert _is_end_of_turn(event_data) == expected
+
 
 class TestIsSessionUpdate:
     @parameterized.expand(

@@ -15,6 +15,12 @@ import { AlertType, AnomalyPoint } from './types'
 export interface InsightAlertsLogicProps {
     insightId: number
     insightLogicProps: InsightLogicProps
+    /**
+     * When true, skip the afterMount alerts fetch. Used for dashboard tiles where `insight.alerts` is often an
+     * unprefetched `[]` and we must not N+1 on mount. Call `loadAlerts()` when surfacing the UI that needs the list
+     * (e.g. before `ManageAlertsModal` opens).
+     */
+    deferInitialAlertsLoad?: boolean
 }
 
 export const areAlertsSupportedForInsight = (query?: Record<string, any> | null): boolean => {
@@ -213,7 +219,10 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, props }) => {
+        if (props.deferInitialAlertsLoad) {
+            return
+        }
         // If the insight has an alerts property (even if empty), use it - this means the backend sent us the alerts data
         if (values.insight?.alerts && Array.isArray(values.insight.alerts)) {
             actions.loadAlertsSuccess(values.insight.alerts)

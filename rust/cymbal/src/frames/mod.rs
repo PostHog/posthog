@@ -22,7 +22,7 @@ use crate::{
         ruby::RawRubyFrame,
     },
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
-    sanitize_string,
+    sanitize_source_line,
     symbol_store::Catalog,
 };
 
@@ -83,10 +83,9 @@ impl RawFrame {
             }
 
             RawFrame::Dart(frame) => (to_vec(Ok(frame.into())), "dart"),
-            RawFrame::Apple(frame) => (
-                to_vec(frame.resolve(team_id, catalog, debug_images).await),
-                "apple",
-            ),
+            RawFrame::Apple(frame) => {
+                (frame.resolve(team_id, catalog, debug_images).await, "apple")
+            }
             RawFrame::Php(frame) => (to_vec(Ok(frame.into())), "php"),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
@@ -96,7 +95,7 @@ impl RawFrame {
             RawFrame::Java(frame) => (frame.resolve(team_id, catalog).await, "java"),
         };
 
-        // The raw id of the frame is set after it's resolved
+        // The raw id of the frame is set after it's resolved.
         let res = res.map(|mut fs| {
             fs.iter_mut()
                 .enumerate()
@@ -319,10 +318,11 @@ impl ContextLine {
         if line.len() > constrained.len() {
             constrained.push_str("...✂️");
         }
-
+        // Use sanitize_source_line, not sanitize_string: source code indentation
+        // (spaces, tabs) is meaningful and must not be collapsed.
         Self {
             number,
-            line: sanitize_string(constrained),
+            line: sanitize_source_line(constrained),
         }
     }
 
@@ -340,9 +340,11 @@ impl ContextLine {
             baseline.saturating_sub((-offset) as u32)
         };
 
+        // Use sanitize_source_line, not sanitize_string: source code indentation
+        // (spaces, tabs) is meaningful and must not be collapsed.
         Self {
             number,
-            line: sanitize_string(constrained),
+            line: sanitize_source_line(constrained),
         }
     }
 }

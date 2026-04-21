@@ -110,6 +110,7 @@ UserPathsEditViewports.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
         viewportWidths: ['medium', 'wide', 'superwide'],
+        snapshotBrowsers: [],
     },
 }
 UserPathsEditViewports.play = waitForPathsCanvasToStabilize

@@ -36,6 +36,8 @@ class ServiceVersionRequirement:
         if self.service == "redis":
             return get_redis_version()
 
+        raise ValueError(f"Unknown service: {self.service}")
+
 
 def get_postgres_version() -> Version:
     from django.db import connection

@@ -233,7 +233,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/versions/")
 
         self.assertEqual(status.HTTP_200_OK, response.status_code)
-        versions = response.json()
+        versions = response.json()["results"]
         self.assertEqual(3, len(versions))
         self.assertEqual(3, versions[0]["version"])
         self.assertEqual(2, versions[1]["version"])
@@ -586,7 +586,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/versions/")
 
         self.assertEqual(status.HTTP_200_OK, response.status_code)
-        versions = response.json()
+        versions = response.json()["results"]
         self.assertEqual(1, len(versions))
         self.assertIn("is_active", versions[0])
         self.assertTrue(versions[0]["is_active"])

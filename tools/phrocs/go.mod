@@ -7,6 +7,8 @@ require (
 	charm.land/bubbletea/v2 v2.0.1
 	charm.land/lipgloss/v2 v2.0.0
 	github.com/charmbracelet/x/ansi v0.11.6
+	github.com/charmbracelet/x/term v0.2.2
+	github.com/charmbracelet/x/vt v0.0.0-20260406091427-a791e22d5143
 	github.com/creack/pty v1.1.24
 	github.com/shirou/gopsutil/v4 v4.26.2
 	gopkg.in/yaml.v3 v3.0.1
@@ -14,8 +16,8 @@ require (
 
 require (
 	github.com/charmbracelet/colorprofile v0.4.2 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260205113103-524a6607adb8 // indirect
-	github.com/charmbracelet/x/term v0.2.2 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260303162955-0b88c25f3fff // indirect
+	github.com/charmbracelet/x/exp/ordered v0.1.0 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect

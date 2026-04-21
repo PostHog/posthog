@@ -7,6 +7,76 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `starting` - Starting
+ * `completed` - Completed
+ * `failed` - Failed
+ * `skipped` - Skipped
+ */
+export type SubscriptionDeliveryStatusEnumApi =
+    (typeof SubscriptionDeliveryStatusEnumApi)[keyof typeof SubscriptionDeliveryStatusEnumApi]
+
+export const SubscriptionDeliveryStatusEnumApi = {
+    Starting: 'starting',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+export interface SubscriptionDeliveryApi {
+    /** Primary key for this delivery row. */
+    readonly id: string
+    /** Parent subscription id. */
+    readonly subscription: number
+    /** Temporal workflow id for this delivery run. */
+    readonly temporal_workflow_id: string
+    /** Dedupes activity retries for the same logical run. */
+    readonly idempotency_key: string
+    /** Why the run started (e.g. scheduled, manual, target_change). */
+    readonly trigger_type: string
+    /**
+     * Planned send time when applicable.
+     * @nullable
+     */
+    readonly scheduled_at: string | null
+    /** Channel snapshot at send time (email, slack, webhook). */
+    readonly target_type: string
+    /** Destination snapshot at send time (emails, channel id, URL). */
+    readonly target_value: string
+    /** ExportedAsset ids generated for this send. */
+    readonly exported_asset_ids: readonly number[]
+    /** Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error). */
+    readonly content_snapshot: unknown
+    /** Per-destination outcomes; items use status success, failed, or partial. */
+    readonly recipient_results: unknown
+    /** Overall run status: starting, completed, failed, or skipped.
+
+* `starting` - Starting
+* `completed` - Completed
+* `failed` - Failed
+* `skipped` - Skipped */
+    readonly status: SubscriptionDeliveryStatusEnumApi
+    /** Top-level failure payload when status is failed, if any. */
+    readonly error: unknown | null
+    /** When the delivery row was created. */
+    readonly created_at: string
+    /** Last ORM update to this row. */
+    readonly last_updated_at: string
+    /**
+     * When the run finished, if applicable.
+     * @nullable
+     */
+    readonly finished_at: string | null
+}
+
+export interface PaginatedSubscriptionDeliveryListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SubscriptionDeliveryApi[]
+}
+
 export interface OrganizationDomainApi {
     readonly id: string
     /** @maxLength 128 */
@@ -191,45 +261,6 @@ export interface PaginatedOrganizationInviteListApi {
     /** @nullable */
     previous?: string | null
     results: OrganizationInviteApi[]
-}
-
-export interface OrganizationMemberApi {
-    readonly id: string
-    readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
-    readonly joined_at: string
-    readonly updated_at: string
-    readonly is_2fa_enabled: boolean
-    readonly has_social_auth: boolean
-    readonly last_login: string
-}
-
-export interface PaginatedOrganizationMemberListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationMemberApi[]
-}
-
-export interface PatchedOrganizationMemberApi {
-    readonly id?: string
-    readonly user?: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
-    readonly joined_at?: string
-    readonly updated_at?: string
-    readonly is_2fa_enabled?: boolean
-    readonly has_social_auth?: boolean
-    readonly last_login?: string
 }
 
 /**
@@ -512,11 +543,6 @@ export interface ProjectBackwardCompatApi {
     readonly uuid: string
     readonly api_token: string
     app_urls?: (string | null)[]
-    /**
-     * @maxLength 500
-     * @nullable
-     */
-    slack_incoming_webhook?: string | null
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
     readonly ingested_event: boolean
@@ -659,11 +685,6 @@ export interface PatchedProjectBackwardCompatApi {
     readonly uuid?: string
     readonly api_token?: string
     app_urls?: (string | null)[]
-    /**
-     * @maxLength 500
-     * @nullable
-     */
-    slack_incoming_webhook?: string | null
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
     readonly ingested_event?: boolean
@@ -767,97 +788,6 @@ export interface PatchedProjectBackwardCompatApi {
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
-export type RoleApiMembersItem = { [key: string]: unknown }
-
-export interface RoleApi {
-    readonly id: string
-    /** @maxLength 200 */
-    name: string
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** Members assigned to this role */
-    readonly members: readonly RoleApiMembersItem[]
-    readonly is_default: boolean
-}
-
-export interface PaginatedRoleListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: RoleApi[]
-}
-
-export type PatchedRoleApiMembersItem = { [key: string]: unknown }
-
-export interface PatchedRoleApi {
-    readonly id?: string
-    /** @maxLength 200 */
-    name?: string
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    /** Members assigned to this role */
-    readonly members?: readonly PatchedRoleApiMembersItem[]
-    readonly is_default?: boolean
-}
-
-export interface CommentApi {
-    readonly id: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    deleted?: boolean | null
-    mentions?: number[]
-    slug?: string
-    /** @nullable */
-    content?: string | null
-    rich_content?: unknown | null
-    readonly version: number
-    readonly created_at: string
-    /**
-     * @maxLength 72
-     * @nullable
-     */
-    item_id?: string | null
-    item_context?: unknown | null
-    /** @maxLength 79 */
-    scope: string
-    /** @nullable */
-    source_comment?: string | null
-}
-
-export interface PaginatedCommentListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CommentApi[]
-}
-
-export interface PatchedCommentApi {
-    readonly id?: string
-    readonly created_by?: UserBasicApi
-    /** @nullable */
-    deleted?: boolean | null
-    mentions?: number[]
-    slug?: string
-    /** @nullable */
-    content?: string | null
-    rich_content?: unknown | null
-    readonly version?: number
-    readonly created_at?: string
-    /**
-     * @maxLength 72
-     * @nullable
-     */
-    item_id?: string | null
-    item_context?: unknown | null
-    /** @maxLength 79 */
-    scope?: string
-    /** @nullable */
-    source_comment?: string | null
-}
-
 /**
  * * `team` - Only team
  * `global` - Global
@@ -893,8 +823,7 @@ export interface DashboardTemplateApi {
     deleted?: boolean | null
     /** @nullable */
     readonly created_at: string | null
-    /** @nullable */
-    created_by?: number | null
+    readonly created_by: UserBasicApi
     /**
      * @maxLength 8201
      * @nullable
@@ -930,8 +859,7 @@ export interface PatchedDashboardTemplateApi {
     deleted?: boolean | null
     /** @nullable */
     readonly created_at?: string | null
-    /** @nullable */
-    created_by?: number | null
+    readonly created_by?: UserBasicApi
     /**
      * @maxLength 8201
      * @nullable
@@ -1083,124 +1011,6 @@ export interface SharingConfigurationApi {
     readonly share_passwords: readonly SharePasswordApi[]
 }
 
-/**
- * * `slack` - Slack
- * `slack-posthog-code` - Slack Posthog Code
- * `salesforce` - Salesforce
- * `hubspot` - Hubspot
- * `google-pubsub` - Google Pubsub
- * `google-cloud-storage` - Google Cloud Storage
- * `google-ads` - Google Ads
- * `google-sheets` - Google Sheets
- * `google-cloud-service-account` - Google Cloud Service Account
- * `snapchat` - Snapchat
- * `linkedin-ads` - Linkedin Ads
- * `reddit-ads` - Reddit Ads
- * `tiktok-ads` - Tiktok Ads
- * `bing-ads` - Bing Ads
- * `intercom` - Intercom
- * `email` - Email
- * `linear` - Linear
- * `github` - Github
- * `gitlab` - Gitlab
- * `meta-ads` - Meta Ads
- * `twilio` - Twilio
- * `clickup` - Clickup
- * `vercel` - Vercel
- * `databricks` - Databricks
- * `azure-blob` - Azure Blob
- * `firebase` - Firebase
- * `jira` - Jira
- * `pinterest-ads` - Pinterest Ads
- */
-export type Kind8d6EnumApi = (typeof Kind8d6EnumApi)[keyof typeof Kind8d6EnumApi]
-
-export const Kind8d6EnumApi = {
-    Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
-    Salesforce: 'salesforce',
-    Hubspot: 'hubspot',
-    GooglePubsub: 'google-pubsub',
-    GoogleCloudStorage: 'google-cloud-storage',
-    GoogleAds: 'google-ads',
-    GoogleSheets: 'google-sheets',
-    GoogleCloudServiceAccount: 'google-cloud-service-account',
-    Snapchat: 'snapchat',
-    LinkedinAds: 'linkedin-ads',
-    RedditAds: 'reddit-ads',
-    TiktokAds: 'tiktok-ads',
-    BingAds: 'bing-ads',
-    Intercom: 'intercom',
-    Email: 'email',
-    Linear: 'linear',
-    Github: 'github',
-    Gitlab: 'gitlab',
-    MetaAds: 'meta-ads',
-    Twilio: 'twilio',
-    Clickup: 'clickup',
-    Vercel: 'vercel',
-    Databricks: 'databricks',
-    AzureBlob: 'azure-blob',
-    Firebase: 'firebase',
-    Jira: 'jira',
-    PinterestAds: 'pinterest-ads',
-} as const
-
-/**
- * Standard Integration serializer.
- */
-export interface IntegrationApi {
-    readonly id: number
-    kind: Kind8d6EnumApi
-    config?: unknown
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly errors: string
-    readonly display_name: string
-}
-
-export interface PaginatedIntegrationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: IntegrationApi[]
-}
-
-/**
- * Standard Integration serializer.
- */
-export interface PatchedIntegrationApi {
-    readonly id?: number
-    kind?: Kind8d6EnumApi
-    config?: unknown
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly errors?: string
-    readonly display_name?: string
-}
-
-export interface GitHubBranchesResponseApi {
-    /** List of branch names */
-    branches: string[]
-    /**
-     * The default branch of the repository
-     * @nullable
-     */
-    default_branch?: string | null
-}
-
-export interface GitHubRepoApi {
-    id: number
-    name: string
-    full_name: string
-}
-
-export interface GitHubReposResponseApi {
-    repositories: GitHubRepoApi[]
-}
-
 export interface ProjectSecretAPIKeyApi {
     readonly id: string
     /** @maxLength 40 */
@@ -1251,9 +1061,9 @@ export interface PatchedProjectSecretAPIKeyApi {
  * `Boolean` - Boolean
  * `Duration` - Duration
  */
-export type PropertyType549EnumApi = (typeof PropertyType549EnumApi)[keyof typeof PropertyType549EnumApi]
+export type PropertyType02dEnumApi = (typeof PropertyType02dEnumApi)[keyof typeof PropertyType02dEnumApi]
 
-export const PropertyType549EnumApi = {
+export const PropertyType02dEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -1275,7 +1085,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyType02dEnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -1307,13 +1117,57 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyType02dEnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
 }
 
 /**
@@ -1335,9 +1189,10 @@ export const TargetTypeEnumApi = {
  * `monthly` - Monthly
  * `yearly` - Yearly
  */
-export type FrequencyEnumApi = (typeof FrequencyEnumApi)[keyof typeof FrequencyEnumApi]
+export type SubscriptionFrequencyEnumApi =
+    (typeof SubscriptionFrequencyEnumApi)[keyof typeof SubscriptionFrequencyEnumApi]
 
-export const FrequencyEnumApi = {
+export const SubscriptionFrequencyEnumApi = {
     Daily: 'daily',
     Weekly: 'weekly',
     Monthly: 'monthly',
@@ -1370,51 +1225,96 @@ export const ByweekdayEnumApi = {
  */
 export interface SubscriptionApi {
     readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    dashboard_export_insights?: number[]
-    target_type: TargetTypeEnumApi
-    target_value: string
-    frequency: FrequencyEnumApi
     /**
+     * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+     * @nullable
+     */
+    dashboard?: number | null
+    /**
+     * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+     * @nullable
+     */
+    insight?: number | null
+    /** @nullable */
+    readonly insight_short_id: string | null
+    /** @nullable */
+    readonly resource_name: string | null
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+    dashboard_export_insights?: number[]
+    /** Delivery channel: email, slack, or webhook.
+
+* `email` - Email
+* `slack` - Slack
+* `webhook` - Webhook */
+    target_type: TargetTypeEnumApi
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
+    target_value: string
+    /** How often to deliver: daily, weekly, monthly, or yearly.
+
+* `daily` - Daily
+* `weekly` - Weekly
+* `monthly` - Monthly
+* `yearly` - Yearly */
+    frequency: SubscriptionFrequencyEnumApi
+    /**
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     interval?: number
-    /** @nullable */
+    /**
+     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * @nullable
+     */
     byweekday?: ByweekdayEnumApi[] | null
     /**
+     * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     bysetpos?: number | null
     /**
+     * Total number of deliveries before the subscription stops. Null for unlimited.
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     count?: number | null
+    /** When to start delivering (ISO 8601 datetime). */
     start_date: string
-    /** @nullable */
+    /**
+     * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+     * @nullable
+     */
     until_date?: string | null
     readonly created_at: string
     readonly created_by: UserBasicApi
+    /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
     deleted?: boolean
     /**
+     * Human-readable name for this subscription.
      * @maxLength 100
      * @nullable
      */
     title?: string | null
+    /** Human-readable schedule summary, e.g. 'sent daily'. */
     readonly summary: string
     /** @nullable */
     readonly next_delivery_date: string | null
-    /** @nullable */
+    /**
+     * ID of a connected Slack integration. Required when target_type is slack.
+     * @nullable
+     */
     integration_id?: number | null
-    /** @nullable */
+    /**
+     * Optional message included in the invitation email when adding new recipients.
+     * @nullable
+     */
     invite_message?: string | null
+    summary_enabled?: boolean
+    /** @maxLength 500 */
+    summary_prompt_guide?: string
 }
 
 export interface PaginatedSubscriptionListApi {
@@ -1431,51 +1331,96 @@ export interface PaginatedSubscriptionListApi {
  */
 export interface PatchedSubscriptionApi {
     readonly id?: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    dashboard_export_insights?: number[]
-    target_type?: TargetTypeEnumApi
-    target_value?: string
-    frequency?: FrequencyEnumApi
     /**
+     * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+     * @nullable
+     */
+    dashboard?: number | null
+    /**
+     * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+     * @nullable
+     */
+    insight?: number | null
+    /** @nullable */
+    readonly insight_short_id?: string | null
+    /** @nullable */
+    readonly resource_name?: string | null
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+    dashboard_export_insights?: number[]
+    /** Delivery channel: email, slack, or webhook.
+
+* `email` - Email
+* `slack` - Slack
+* `webhook` - Webhook */
+    target_type?: TargetTypeEnumApi
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
+    target_value?: string
+    /** How often to deliver: daily, weekly, monthly, or yearly.
+
+* `daily` - Daily
+* `weekly` - Weekly
+* `monthly` - Monthly
+* `yearly` - Yearly */
+    frequency?: SubscriptionFrequencyEnumApi
+    /**
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     interval?: number
-    /** @nullable */
+    /**
+     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * @nullable
+     */
     byweekday?: ByweekdayEnumApi[] | null
     /**
+     * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     bysetpos?: number | null
     /**
+     * Total number of deliveries before the subscription stops. Null for unlimited.
      * @minimum -2147483648
      * @maximum 2147483647
      * @nullable
      */
     count?: number | null
+    /** When to start delivering (ISO 8601 datetime). */
     start_date?: string
-    /** @nullable */
+    /**
+     * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+     * @nullable
+     */
     until_date?: string | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
+    /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
     deleted?: boolean
     /**
+     * Human-readable name for this subscription.
      * @maxLength 100
      * @nullable
      */
     title?: string | null
+    /** Human-readable schedule summary, e.g. 'sent daily'. */
     readonly summary?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
-    /** @nullable */
+    /**
+     * ID of a connected Slack integration. Required when target_type is slack.
+     * @nullable
+     */
     integration_id?: number | null
-    /** @nullable */
+    /**
+     * Optional message included in the invitation email when adding new recipients.
+     * @nullable
+     */
     invite_message?: string | null
+    summary_enabled?: boolean
+    /** @maxLength 500 */
+    summary_prompt_guide?: string
 }
 
 /**
@@ -1569,7 +1514,8 @@ export interface OrganizationApi {
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
-    is_member_join_email_enabled?: boolean
+    /** Legacy field; member-join emails are controlled per user in account notification settings. */
+    readonly is_member_join_email_enabled: boolean
     readonly metadata: OrganizationApiMetadata
     /** @nullable */
     readonly customer_id: string | null
@@ -1604,6 +1550,11 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_not_active_reason: string | null
+    /**
+     * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+     * @nullable
+     */
+    readonly is_pending_deletion: boolean | null
 }
 
 /**
@@ -1634,6 +1585,11 @@ export interface OrganizationBasicApi {
      * @nullable
      */
     is_not_active_reason?: string | null
+    /**
+     * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+     * @nullable
+     */
+    is_pending_deletion?: boolean | null
 }
 
 export interface ScenePersonalisationBasicApi {
@@ -1802,6 +1758,27 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
 }
 
+export type SubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: SubscriptionsDeliveriesListStatus
+}
+
+export type SubscriptionsDeliveriesListStatus =
+    (typeof SubscriptionsDeliveriesListStatus)[keyof typeof SubscriptionsDeliveriesListStatus]
+
+export const SubscriptionsDeliveriesListStatus = {
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+    Starting: 'starting',
+} as const
+
 export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -1814,17 +1791,6 @@ export type DomainsListParams = {
 }
 
 export type InvitesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type MembersListParams = {
     /**
      * Number of results to return per page.
      */
@@ -1859,24 +1825,6 @@ export type List2Params = {
      * A search term.
      */
     search?: string
-}
-
-export type RolesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type CommentsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
 }
 
 export type ExportsListParams = {
@@ -1921,25 +1869,6 @@ export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
  * Unspecified response body
  */
 export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
-
-export type IntegrationsList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type IntegrationsGithubBranchesRetrieveParams = {
-    /**
-     * Repository in owner/repo format
-     * @minLength 1
-     */
-    repo: string
-}
 
 export type ProjectSecretApiKeysListParams = {
     /**
@@ -2017,6 +1946,11 @@ export type PropertyDefinitionsListParams = {
  * @minLength 1
  */
     type?: PropertyDefinitionsListType
+    /**
+     * Filter by verified status. True returns only verified, false returns only unverified.
+     * @nullable
+     */
+    verified?: boolean | null
 }
 
 export type PropertyDefinitionsListType = (typeof PropertyDefinitionsListType)[keyof typeof PropertyDefinitionsListType]
@@ -2030,6 +1964,18 @@ export const PropertyDefinitionsListType = {
 
 export type SubscriptionsListParams = {
     /**
+     * Filter by creator user UUID.
+     */
+    created_by?: string
+    /**
+     * Filter by dashboard ID.
+     */
+    dashboard?: number
+    /**
+     * Filter by insight ID.
+     */
+    insight?: number
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -2037,7 +1983,39 @@ export type SubscriptionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+    /**
+     * Filter by subscription resource: insight vs dashboard export.
+     */
+    resource_type?: SubscriptionsListResourceType
+    /**
+     * A search term.
+     */
+    search?: string
+    /**
+     * Filter by delivery channel (email, Slack, or webhook).
+     */
+    target_type?: SubscriptionsListTargetType
 }
+
+export type SubscriptionsListResourceType =
+    (typeof SubscriptionsListResourceType)[keyof typeof SubscriptionsListResourceType]
+
+export const SubscriptionsListResourceType = {
+    Dashboard: 'dashboard',
+    Insight: 'insight',
+} as const
+
+export type SubscriptionsListTargetType = (typeof SubscriptionsListTargetType)[keyof typeof SubscriptionsListTargetType]
+
+export const SubscriptionsListTargetType = {
+    Email: 'email',
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
 
 export type UsersListParams = {
     email?: string

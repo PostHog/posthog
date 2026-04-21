@@ -28,9 +28,9 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStreamUpdate
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.summarize_session_group import execute_summarize_session_group
+from posthog.temporal.session_replay.session_summary.types.group import SessionSummaryStreamUpdate
 from posthog.utils import relative_date_parse
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
@@ -372,7 +372,7 @@ class SessionGroupSummaryMinimalSerializer(serializers.ModelSerializer):
     def get_session_count(self, obj: SessionGroupSummary) -> int:
         # Use annotated value if available (from list action), otherwise calculate
         if hasattr(obj, "session_count"):
-            return obj.session_count or 0
+            return int(obj.session_count or 0)
         return len(obj.session_ids) if obj.session_ids else 0
 
 

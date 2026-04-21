@@ -74,15 +74,25 @@ export const dashboardsModel = kea<dashboardsModelType>([
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
         addDashboardSuccess: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
-        // this is moved out of dashboardLogic, so that you can click "undo" on an item move when already
-        // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
-        // can provide extra dashboard ids if not all listeners will choose to respond to this action
-        // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
-        // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
-        // if an update is made against an insight it will hold color in dashboard context
-        updateDashboardInsight: (insight: QueryBasedInsightModel, extraDashboardIds?: number[]) => ({
+        /**
+         * this is moved out of dashboardLogic, so that you can click "undo" on an item move when already
+         * on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
+         * can provide extra dashboard ids if not all listeners will choose to respond to this action
+         * not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
+         * specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
+         * if an update is made against an insight it will hold color in dashboard context
+         * @param extraDashboardIds - Same meaning as before: merged with `dashboard_tiles` so listeners still match
+         *   when placement info is incomplete (copy/move/remove).
+         * @param sourceDashboardId - Set for a dashboard-scoped GET/refresh; merged `query` is only valid for that dashboard.
+         */
+        updateDashboardInsight: (
+            insight: QueryBasedInsightModel,
+            extraDashboardIds?: number[],
+            sourceDashboardId?: number
+        ) => ({
             insight,
             extraDashboardIds,
+            sourceDashboardId,
         }),
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),

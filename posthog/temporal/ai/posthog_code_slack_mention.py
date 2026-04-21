@@ -22,6 +22,7 @@ def _safe_react(client: Any, channel: str, timestamp: str, name: str) -> None:
 
 
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
+_RESUME_ERROR_MSG = "Sorry, I ran into an internal error restarting the agent. Please try again in a minute."
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
     "Please select the repository for this task. "
@@ -249,7 +250,16 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 thread_messages,
                 repository,
             )
-        except Exception:
+        except Exception as exc:
+            workflow.logger.exception(
+                "posthog_code_workflow_unhandled_exception",
+                extra={
+                    "channel": channel,
+                    "thread_ts": thread_ts,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
             await _execute_posthog_code_activity(
                 post_posthog_code_internal_error_activity,
                 inputs,
@@ -978,7 +988,7 @@ def forward_posthog_code_followup_activity(
         if result.retryable and result.status_code == 504:
             # Agent is still processing. relayAgentResponse fires when it
             # finishes, delivering the correct response to Slack.
-            _set_followup_done_reaction(slack, channel, user_message_ts, "white_check_mark")
+            _set_followup_done_reaction(slack, channel, user_message_ts, "hedgehog")
             _delete_followup_progress(
                 integration_id=inputs.integration_id,
                 channel=channel,
@@ -996,7 +1006,7 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    _set_followup_done_reaction(slack, channel, user_message_ts, "white_check_mark")
+    _set_followup_done_reaction(slack, channel, user_message_ts, "hedgehog")
 
     _delete_followup_progress(
         integration_id=inputs.integration_id,
@@ -1044,7 +1054,7 @@ def _resume_task_with_new_run(
         return True
 
     extra_state: dict[str, Any] = {
-        "interaction_origin": "slack",
+        "interaction_origin": "slack",  # Makes the agent auto-push and open a draft PR
     }
 
     previous_state = previous_run.state or {}
@@ -1073,7 +1083,21 @@ def _resume_task_with_new_run(
     if user_message_ts:
         extra_state["pending_user_message_ts"] = user_message_ts
 
-    new_run = mapping.task.create_run(mode="interactive", extra_state=extra_state)
+    try:
+        new_run = mapping.task.create_run(mode="interactive", extra_state=extra_state)
+    except Exception:
+        log.exception(
+            "posthog_code_resume_create_run_failed",
+            channel=channel,
+            thread_ts=thread_ts,
+            task_id=str(mapping.task.id),
+        )
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=_RESUME_ERROR_MSG,
+        )
+        return True
 
     slack_thread_context = SlackThreadContext(
         integration_id=inputs.integration_id,
@@ -1104,7 +1128,7 @@ def _resume_task_with_new_run(
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="Sorry, I ran into an internal error restarting the agent. Please try again in a minute.",
+            text=_RESUME_ERROR_MSG,
         )
         return True
 
@@ -1307,6 +1331,18 @@ def post_posthog_code_picker_timeout_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
+
+    from products.slack_app.backend.models import SlackThreadTaskMapping
+
+    # If another workflow already created a task for this thread (e.g. the user
+    # sent a follow-up message instead of using the picker), skip the expired
+    # message — the thread is already being handled.
+    if SlackThreadTaskMapping.objects.filter(
+        integration_id=inputs.integration_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    ).exists():
+        return
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,

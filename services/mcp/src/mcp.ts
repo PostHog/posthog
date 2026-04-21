@@ -5,7 +5,7 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient, type GroupType } from '@/api/client'
-import { AnalyticsEvent, generateId, getPostHogClient } from '@/lib/analytics'
+import { AnalyticsEvent, evaluateFeatureFlags, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
     CUSTOM_API_BASE_URL,
@@ -14,8 +14,9 @@ import {
     getBaseUrlForRegion,
     toCloudRegion,
 } from '@/lib/constants'
-import { handleToolError } from '@/lib/errors'
+import { handleToolError, wrapError } from '@/lib/errors'
 import { buildInstructionsV1, buildInstructionsV2 } from '@/lib/instructions'
+import { initMcpCatObservability } from '@/lib/mcpcat'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -25,7 +26,14 @@ import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
-import type { CloudRegion, Context, State, Tool } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type CloudRegion,
+    type Context,
+    type State,
+    type Tool,
+} from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
 export type RequestProperties = {
@@ -33,6 +41,7 @@ export type RequestProperties = {
     apiToken: string
     sessionId?: string
     features?: string[]
+    tools?: string[]
     region?: string
     version?: number
     organizationId?: string
@@ -40,6 +49,7 @@ export type RequestProperties = {
     clientUserAgent?: string
     readOnly?: boolean
     transport?: 'streamable-http' | 'sse'
+    requestStartTime?: number
 }
 
 export class MCP extends McpAgent<Env> {
@@ -171,6 +181,10 @@ export class MCP extends McpAgent<Env> {
     }
 
     async api(): Promise<ApiClient> {
+        // Token rotation on warm DOs is handled by setName(), which mutates
+        // this._api.config.apiToken in place. That keeps references captured
+        // during init() — e.g. the `context.api` passed to every tool handler
+        // in getContext() — seeing the latest token on subsequent fetches.
         if (!this._api) {
             const baseUrl = await this.getBaseUrl()
             await this.resolveClientInfo()
@@ -187,13 +201,52 @@ export class MCP extends McpAgent<Env> {
         return this._api
     }
 
+    /**
+     * partyserver's `setName` only re-runs `onStart` (and therefore
+     * `updateProps`) on cold-start DOs. On warm DOs it updates the private
+     * `#_props` and returns early, leaving our cached `_api.config.apiToken`
+     * stale across token rotations for the same `mcp-session-id`. Rotate
+     * just the cached token here — leave `this.props` and storage alone.
+     */
+    async setName(name: string, props?: RequestProperties): Promise<void> {
+        this.rotateCachedApiToken(props?.apiToken)
+        await super.setName(name, props)
+    }
+
+    /**
+     * Called by the `agents` SDK on cold start / hibernation wake to persist
+     * and hydrate props. Apply the token + `this.props` synchronously BEFORE
+     * awaiting storage: the SDK fires `updateProps` without awaiting and then
+     * calls `fetch()`, so yielding first would let a tool handler read stale
+     * state off `context.api.config.apiToken`.
+     */
+    async updateProps(props?: RequestProperties): Promise<void> {
+        this.props = props as RequestProperties
+        this.rotateCachedApiToken(props?.apiToken)
+        await super.updateProps(props)
+    }
+
+    /**
+     * Rotate the cached ApiClient's auth token in place. Tool handlers read
+     * the token off `context.api.config.apiToken` — the captured ApiClient
+     * from init() — so replacing the instance would leave those references
+     * stale. Mutating in place keeps them pointing at the latest token.
+     * No-op when there's no cached client, no incoming token, or the token
+     * already matches.
+     */
+    private rotateCachedApiToken(apiToken: string | undefined): void {
+        if (this._api && apiToken && this._api.config.apiToken !== apiToken) {
+            this._api.config.apiToken = apiToken
+        }
+    }
+
     async getDistinctId(): Promise<string> {
         let _distinctId = await this.cache.get('distinctId')
 
         if (!_distinctId) {
             const userResult = await (await this.api()).users().me()
             if (!userResult.success) {
-                throw new Error(`Failed to get user: ${userResult.error.message}`)
+                throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
             }
             await this.cache.set('distinctId', userResult.data.distinct_id)
             _distinctId = userResult.data.distinct_id as string
@@ -206,7 +259,7 @@ export class MCP extends McpAgent<Env> {
         try {
             const distinctId = await this.getDistinctId()
 
-            const client = getPostHogClient(!!CUSTOM_API_BASE_URL)
+            const client = getPostHogClient()
 
             await this.resolveClientInfo()
 
@@ -239,40 +292,11 @@ export class MCP extends McpAgent<Env> {
         handler: (params: z.infer<TSchema>) => Promise<any>
     ): void {
         const wrappedHandler = async (params: z.infer<TSchema>): Promise<any> => {
-            const traceId = generateId()
-            const spanId = generateId()
-            const spanName = `mcp/${tool.name}`
-            const startTime = performance.now()
-            const inputState = params
             const validation = tool.schema.safeParse(params)
 
             if (!validation.success) {
-                await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
-                    tool: tool.name,
-                    valid_input: false,
-                    input: params,
-                })
-                const latency = (performance.now() - startTime) / 1000
                 const errorOutput = `Invalid input: ${validation.error.message}`
-                const outputState = { error: errorOutput }
-                await this.trackEvent(AnalyticsEvent.AI_TRACE, {
-                    $ai_trace_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_latency: latency,
-                    $ai_is_error: true,
-                    ai_product: 'mcp',
-                })
-                await this.trackEvent(AnalyticsEvent.AI_SPAN, {
-                    $ai_trace_id: traceId,
-                    $ai_span_id: spanId,
-                    $ai_parent_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_input_state: inputState,
-                    $ai_output_state: outputState,
-                    $ai_latency: latency,
-                    $ai_is_error: true,
-                    ai_product: 'mcp',
-                })
+
                 return {
                     content: [
                         {
@@ -283,43 +307,20 @@ export class MCP extends McpAgent<Env> {
                 }
             }
 
-            await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
-                tool: tool.name,
-                valid_input: true,
-            })
-
             try {
-                const result = await handler(params)
-                const latency = (performance.now() - startTime) / 1000
-                const outputState = result
-
-                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, {
-                    tool: tool.name,
-                })
-                await this.trackEvent(AnalyticsEvent.AI_TRACE, {
-                    $ai_trace_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_latency: latency,
-                    ai_product: 'mcp',
-                })
-                await this.trackEvent(AnalyticsEvent.AI_SPAN, {
-                    $ai_trace_id: traceId,
-                    $ai_span_id: spanId,
-                    $ai_parent_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_input_state: inputState,
-                    $ai_output_state: outputState,
-                    $ai_latency: latency,
-                    ai_product: 'mcp',
-                })
+                // Handler can return a special key POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY in the result which,
+                // when present, is used as the text content instead of TOON-encoding the raw result.
+                // This is useful for tools that want to return pre-formatted text (e.g. tables)
+                // or return JSON for programmatic consumption.
+                const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedResults, ...rawResult } =
+                    await handler(params)
 
                 // For tools with UI resources, include structuredContent for better UI rendering
                 // structuredContent is not added to model context, only used by UI apps
                 const hasUiResource = tool._meta?.ui?.resourceUri
 
                 // If there's a UI resource, include analytics metadata for the UI app
-                // The structuredContent is typed as WithAnalytics<T> where T is the tool result
-                let structuredContent: WithAnalytics<typeof result> | typeof result = result
+                let structuredContent: WithAnalytics<typeof rawResult> | typeof rawResult = rawResult
                 if (hasUiResource) {
                     const distinctId = await this.getDistinctId()
                     const analyticsMetadata: AnalyticsMetadata = {
@@ -327,43 +328,25 @@ export class MCP extends McpAgent<Env> {
                         toolName: tool.name,
                     }
                     structuredContent = {
-                        ...result,
+                        ...rawResult,
                         _analytics: analyticsMetadata,
                     }
                 }
+
+                const useJson = tool._meta?.[POSTHOG_META_KEY]?.responseFormat === 'json'
+                const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: formatResponse(result),
+                            text,
                         },
                     ],
-                    // Include raw result as structuredContent for UI apps to consume
+                    // Include raw result as structuredContent for UI apps to consume only in case there is a UI resource
                     ...(hasUiResource ? { structuredContent } : {}),
                 }
             } catch (error: any) {
-                const latency = (performance.now() - startTime) / 1000
-                const errorMessage = error instanceof Error ? error.message : String(error)
-                const outputState = { error: errorMessage }
-                await this.trackEvent(AnalyticsEvent.AI_TRACE, {
-                    $ai_trace_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_latency: latency,
-                    $ai_is_error: true,
-                    ai_product: 'mcp',
-                })
-                await this.trackEvent(AnalyticsEvent.AI_SPAN, {
-                    $ai_trace_id: traceId,
-                    $ai_span_id: spanId,
-                    $ai_parent_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_input_state: inputState,
-                    $ai_output_state: outputState,
-                    $ai_latency: latency,
-                    $ai_is_error: true,
-                    ai_product: 'mcp',
-                })
                 const distinctId = await this.getDistinctId()
                 return handleToolError(
                     error,
@@ -411,7 +394,11 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, version, organizationId, projectId, readOnly } = this.requestProperties
+        const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
+
+        // Start feature flag resolution in parallel with cache seeding
+        const flagPromise = this.resolveVersionFlag()
+        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
 
         // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
@@ -427,6 +414,10 @@ export class MCP extends McpAgent<Env> {
         if (!organizationId || !projectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
+
+        const flagVersion = await flagPromise
+        const toolFeatureFlags = await toolFlagsPromise
+        const version = flagVersion ?? clientVersion ?? 1
 
         // Fetch group types and metadata in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
@@ -459,9 +450,11 @@ export class MCP extends McpAgent<Env> {
         const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
+            tools,
             version,
             excludeTools,
             readOnly,
+            featureFlags: toolFeatureFlags,
         })
 
         // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
@@ -474,6 +467,60 @@ export class MCP extends McpAgent<Env> {
         for (const tool of allTools) {
             const typedTool = tool as Tool<z.ZodObject>
             this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
+        }
+
+        await initMcpCatObservability(this.server, {
+            getDistinctId: () => this.getDistinctId(),
+            getSessionUuid: async () =>
+                this.requestProperties.sessionId
+                    ? this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
+                    : undefined,
+            getMcpClientName: () => this._mcpClientName,
+            getMcpClientVersion: () => this._mcpClientVersion,
+            getMcpProtocolVersion: () => this._mcpProtocolVersion,
+            getRegion: () => this.requestProperties.region,
+            getOrganizationId: () => this.requestProperties.organizationId,
+            getProjectId: () => this.requestProperties.projectId,
+            getClientUserAgent: () => this.requestProperties.clientUserAgent,
+            getVersion: () => this.requestProperties.version,
+        })
+
+        const initDurationMs = this.requestProperties.requestStartTime
+            ? Date.now() - this.requestProperties.requestStartTime
+            : undefined
+
+        this.ctx.waitUntil(
+            this.trackEvent(AnalyticsEvent.MCP_INIT, {
+                tool_count: allTools.length,
+                mcp_version: version,
+                has_organization_id: !!organizationId,
+                has_project_id: !!projectId,
+                read_only: !!readOnly,
+                ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
+            })
+        )
+    }
+
+    private async resolveVersionFlag(): Promise<number | undefined> {
+        try {
+            const distinctId = await this.getDistinctId()
+            return (await isFeatureFlagEnabled('mcp-version-2', distinctId)) ? 2 : undefined
+        } catch {
+            return undefined
+        }
+    }
+
+    private async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
+        try {
+            const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
+            const flagKeys = getRequiredFeatureFlags(version)
+            if (flagKeys.length === 0) {
+                return undefined
+            }
+            const distinctId = await this.getDistinctId()
+            return await evaluateFeatureFlags(flagKeys, distinctId)
+        } catch {
+            return undefined
         }
     }
 
@@ -507,7 +554,7 @@ export class MCP extends McpAgent<Env> {
             if (cached !== undefined) {
                 this.ctx.waitUntil(
                     fetchAndCache().catch((error) => {
-                        getPostHogClient(!!CUSTOM_API_BASE_URL).captureException(error, undefined, {
+                        getPostHogClient().captureException(error, undefined, {
                             tag: 'max_ai',
                             context: `${opts.name}_background_revalidation`,
                         })
@@ -518,7 +565,7 @@ export class MCP extends McpAgent<Env> {
 
             return await fetchAndCache()
         } catch (error) {
-            getPostHogClient(!!CUSTOM_API_BASE_URL).captureException(error, undefined, {
+            getPostHogClient().captureException(error, undefined, {
                 tag: 'max_ai',
                 context: `get_or_fetch_${opts.name}`,
             })

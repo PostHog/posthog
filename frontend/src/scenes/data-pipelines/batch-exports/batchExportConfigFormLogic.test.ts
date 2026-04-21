@@ -242,7 +242,6 @@ describe('batchExportConfigFormLogic', () => {
                     'catalog',
                     'schema',
                     'table_name',
-                    'use_variant_type',
                 ],
             },
             {

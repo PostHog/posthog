@@ -132,11 +132,12 @@ class ExportedAsset(models.Model):
         filename = "export"
 
         if self.export_context and self.export_context.get("filename"):
-            filename = slugify(self.export_context.get("filename"))
+            filename = slugify(str(self.export_context.get("filename")))
         elif self.dashboard and self.dashboard.name is not None:
             filename = f"{filename}-{slugify(self.dashboard.name)}"
         elif self.insight:
-            filename = f"{filename}-{slugify(self.insight.name or self.insight.derived_name)}"
+            insight_name = self.insight.name or self.insight.derived_name or "insight"
+            filename = f"{filename}-{slugify(insight_name)}"
 
         timestamp = self.created_at.strftime("%Y-%m-%d-%H%M%S") if self.created_at else ""
         if timestamp:
@@ -149,6 +150,19 @@ class ExportedAsset(models.Model):
     @property
     def file_ext(self):
         return self.export_format.split("/")[1]
+
+    @property
+    def export_type(self) -> str:
+        if self.insight_id is not None:
+            return "insight"
+        if self.dashboard_id is not None:
+            return "dashboard"
+        ctx = self.export_context or {}
+        if ctx.get("session_recording_id"):
+            return "recording"
+        if ctx.get("heatmap_url"):
+            return "heatmap"
+        return "unknown"
 
     def get_analytics_metadata(self):
         return {

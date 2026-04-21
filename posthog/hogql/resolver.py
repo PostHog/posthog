@@ -682,7 +682,7 @@ class Resolver(CloningVisitor):
             else:
                 select_nodes.append(new_expr)
 
-        columns_with_visible_alias = {}
+        columns_with_visible_alias: dict[str, bool] = {}
         for new_expr in select_nodes:
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias
@@ -703,10 +703,10 @@ class Resolver(CloningVisitor):
                 # Make a reference of the first visible or last hidden expr for each unique alias name.
                 if isinstance(new_expr, ast.Alias) and new_expr.hidden:
                     if alias not in node_type.columns or not columns_with_visible_alias.get(alias, False):
-                        node_type.columns[alias] = new_expr.type
+                        node_type.columns[alias] = new_expr.type or ast.UnknownType()
                         columns_with_visible_alias[alias] = False
                 else:
-                    node_type.columns[alias] = new_expr.type
+                    node_type.columns[alias] = new_expr.type or ast.UnknownType()
                     columns_with_visible_alias[alias] = True
 
             # add the column to the new select query
@@ -730,6 +730,8 @@ class Resolver(CloningVisitor):
         new_node.group_by_mode = node.group_by_mode
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
+        if node.interpolate is not None:
+            new_node.interpolate = [self.visit(expr) for expr in node.interpolate]
         new_node.limit_by = self.visit(node.limit_by)
         new_node.limit = self.visit(node.limit)
         new_node.limit_with_ties = node.limit_with_ties
@@ -753,6 +755,8 @@ class Resolver(CloningVisitor):
 
         If we have a chain prefix (for example, in the case of a table alias), we prepend it to the chain of the new fields.
         """
+        if isinstance(asterisk.table_type, ast.ColumnAliasedTableType):
+            return [ast.Field(chain=[*chain_prefix, key]) for key in asterisk.table_type.alias_to_original]
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table(self.context)
             database_fields = table.get_asterisk()
@@ -793,10 +797,13 @@ class Resolver(CloningVisitor):
                     raw_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
                 except QueryError:
                     continue
-                column_aliases = table_column_aliases.get(alias)
                 resolved_fields: list[ast.Expr] = list(raw_fields)
-                if column_aliases:
-                    resolved_fields = self._apply_column_aliases(resolved_fields, column_aliases)
+                # For ColumnAliasedTableType, _asterisk_columns already returns
+                # aliased names. Only apply manual remapping for other types.
+                if not isinstance(table_type, ast.ColumnAliasedTableType):
+                    column_aliases = table_column_aliases.get(alias)
+                    if column_aliases:
+                        resolved_fields = self._apply_column_aliases(resolved_fields, column_aliases)
                 for field in resolved_fields:
                     table_fields.append((alias, field))
 
@@ -1051,7 +1058,33 @@ class Resolver(CloningVisitor):
 
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
-            if table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+            if node.column_aliases:
+                # Build alias→original mapping from the table's visible columns
+                asterisk_fields = list(database_table.get_asterisk().keys())
+                if len(node.column_aliases) > len(asterisk_fields):
+                    raise QueryError(
+                        f"Table has {len(asterisk_fields)} column(s) available for aliasing "
+                        f"but {len(node.column_aliases)} alias(es) were provided"
+                    )
+                seen_aliases: set[str] = set()
+                for alias_name in node.column_aliases:
+                    if alias_name in seen_aliases:
+                        raise QueryError(f"Duplicate column alias '{alias_name}' in table alias '{table_alias}'")
+                    seen_aliases.add(alias_name)
+                alias_to_original: dict[str, str] = {}
+                aliased_originals = set()
+                for alias_name, orig_name in zip(node.column_aliases, asterisk_fields):
+                    alias_to_original[alias_name] = orig_name
+                    aliased_originals.add(orig_name)
+                # Remaining columns keep their original names, unless
+                # their name collides with an already-defined alias.
+                for orig_name in asterisk_fields:
+                    if orig_name not in aliased_originals and orig_name not in alias_to_original:
+                        alias_to_original[orig_name] = orig_name
+                node_type = ast.ColumnAliasedTableType(
+                    alias=table_alias, table_type=node_table_type, alias_to_original=alias_to_original
+                )
+            elif table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
@@ -1064,7 +1097,7 @@ class Resolver(CloningVisitor):
             scope.tables[table_alias] = node_type
             scope_table_names = self._get_scope_table_names(scope)
             scope_table_names[table_alias] = ".".join(table_name_chain)
-            if node.column_aliases:
+            if node.column_aliases and not isinstance(node_type, ast.ColumnAliasedTableType):
                 scope_table_column_aliases = self._get_scope_table_column_aliases(scope)
                 scope_table_column_aliases[table_alias] = node.column_aliases
 
@@ -1082,7 +1115,9 @@ class Resolver(CloningVisitor):
             if USE_GLOBAL_JOINS:
                 global_table: ast.TableType | None = None
 
-                if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
+                if isinstance(node.type, (ast.TableAliasType, ast.ColumnAliasedTableType)) and isinstance(
+                    node.type.table_type, ast.TableType
+                ):
                     global_table = node.type.table_type
                 elif isinstance(node.type, ast.TableType):
                     global_table = node.type
@@ -1115,7 +1150,7 @@ class Resolver(CloningVisitor):
             node.sample = self.visit(node.sample)
 
             # In case we had a function call table, and had to add an alias where none was present, mark it here
-            if isinstance(node_type, ast.TableAliasType) and node.alias is None:
+            if isinstance(node_type, (ast.TableAliasType, ast.ColumnAliasedTableType)) and node.alias is None:
                 node.alias = node_type.alias
 
             return node
@@ -1158,6 +1193,25 @@ class Resolver(CloningVisitor):
                     new_name: (expr.type if expr.type is not None else ast.UnknownType())
                     for new_name, expr in zip(node.column_aliases, select_list)
                 }
+
+                # For non-postgres dialects, bake column aliases into the inner
+                # SELECT as AS aliases so ClickHouse/HogQL (which don't support
+                # the ``AS t(col1, col2)`` syntax) get correct column names.
+                if self.dialect != "postgres":
+                    inner_query = cast(ast.SelectQuery, inner_select)
+                    new_select: list[ast.Expr] = []
+                    for i, expr in enumerate(inner_query.select):
+                        if i < len(node.column_aliases):
+                            alias_name = node.column_aliases[i]
+                            # Avoid wrapping if the expression is already aliased with the same name
+                            if isinstance(expr, ast.Alias) and expr.alias == alias_name:
+                                new_select.append(expr)
+                            else:
+                                new_select.append(ast.Alias(alias=alias_name, expr=expr, type=expr.type))
+                        else:
+                            new_select.append(expr)
+                    inner_query.select = new_select
+                    node.column_aliases = None
 
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
                 if node.alias in scope.tables:
@@ -1596,7 +1650,7 @@ class Resolver(CloningVisitor):
         if not type:
             if self.context.globals is not None and name in self.context.globals:
                 parsed_chain: list[str] = []
-                value = self.context.globals
+                value: Any = self.context.globals
                 for link in node.chain:
                     parsed_chain.append(str(link))
                     if isinstance(value, dict):
@@ -1772,46 +1826,42 @@ class Resolver(CloningVisitor):
 
     def visit_between_expr(self, node: ast.BetweenExpr):
         node = super().visit_between_expr(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(nullable=False)
         return node
 
     def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
         node = super().visit_is_distinct_from(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(nullable=False)
         return node
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
-        if node is None:
-            return None
         node.type = resolve_constant_data_type(node.value)
         return node
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(
-            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+            nullable=any(
+                (expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable for expr in node.exprs
+            )
         )
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        if node is None:
-            return None
         node.type = ast.BooleanType(
-            nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
+            nullable=any(
+                (expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable for expr in node.exprs
+            )
         )
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
+        node.type = ast.BooleanType(
+            nullable=(node.expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable
+        )
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
@@ -1847,6 +1897,16 @@ class Resolver(CloningVisitor):
             else:
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and isinstance(node.right, ast.SelectQuery)
+            and (self._is_sessions_table(node.left) or self._select_reads_sessions(node.right))
+        ):
+            if node.op == ast.CompareOperationOp.In:
+                node.op = ast.CompareOperationOp.GlobalIn
+            else:
+                node.op = ast.CompareOperationOp.GlobalNotIn
+
         return node
 
     def _get_scope(self):
@@ -1865,7 +1925,7 @@ class Resolver(CloningVisitor):
             if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
                 return alias, table_type.table
 
-            if isinstance(table_type, ast.TableAliasType):
+            if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 if isinstance(table_type.table_type, ast.TableType) and isinstance(
                     table_type.table_type.table, EventsTable
                 ):
@@ -1877,15 +1937,65 @@ class Resolver(CloningVisitor):
         while isinstance(node, ast.Alias):
             node = node.expr
         if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
-            if isinstance(node.type.table_type, ast.TableAliasType):
+            if isinstance(node.type.table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 return isinstance(node.type.table_type.table_type.table, EventsTable)
             if isinstance(node.type.table_type, ast.TableType):
                 return isinstance(node.type.table_type.table, EventsTable)
         elif isinstance(node, ast.Field) and isinstance(node.type, ast.PropertyType):
-            if isinstance(node.type.field_type.table_type, ast.TableAliasType):
+            if isinstance(node.type.field_type.table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 return isinstance(node.type.field_type.table_type.table_type.table, EventsTable)
             if isinstance(node.type.field_type.table_type, ast.TableType):
                 return isinstance(node.type.field_type.table_type.table, EventsTable)
+        return False
+
+    # The set of "sessions-cluster" tables is whatever the current database resolves
+    # for these names — adding a new sessions version means wiring it up in
+    # database.py, and this helper picks it up automatically.
+    _SESSIONS_TABLE_NAMES = ("sessions", "raw_sessions", "raw_sessions_v3")
+
+    def _sessions_table_classes(self) -> tuple[type, ...]:
+        database = self.context.database
+        if database is None:
+            return ()
+        return tuple(
+            {type(database.get_table(name)) for name in self._SESSIONS_TABLE_NAMES if database.has_table(name)}
+        )
+
+    def _is_sessions_table(self, node: ast.Expr) -> bool:
+        classes = self._sessions_table_classes()
+        if not classes:
+            return False
+        while isinstance(node, ast.Alias):
+            node = node.expr
+        if not isinstance(node, ast.Field):
+            return False
+        field_type = node.type
+        if isinstance(field_type, ast.PropertyType):
+            field_type = field_type.field_type
+        if not isinstance(field_type, ast.FieldType):
+            return False
+        table_type = field_type.table_type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            table_type = table_type.table_type
+        if isinstance(table_type, (ast.LazyTableType, ast.TableType)):
+            return isinstance(table_type.table, classes)
+        if isinstance(table_type, ast.LazyJoinType):
+            return isinstance(table_type.lazy_join.join_table, classes)
+        return False
+
+    def _select_reads_sessions(self, node: ast.SelectQuery) -> bool:
+        classes = self._sessions_table_classes()
+        if not classes:
+            return False
+        join = node.select_from
+        while join is not None:
+            if isinstance(join.table, ast.Field) and isinstance(join.table.type, ast.BaseTableType):
+                table_type: ast.Type = join.table.type
+                while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+                    table_type = table_type.table_type
+                if isinstance(table_type, (ast.LazyTableType, ast.TableType)) and isinstance(table_type.table, classes):
+                    return True
+            join = join.next_join
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
@@ -1896,14 +2006,14 @@ class Resolver(CloningVisitor):
             and node.select_from
             and isinstance(node.select_from.type, ast.BaseTableType)
         ):
-            if isinstance(node.select_from.type, ast.TableAliasType):
+            if isinstance(node.select_from.type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 return isinstance(node.select_from.type.table_type.table, S3Table)
             elif isinstance(node.select_from.type, ast.TableType):
                 return isinstance(node.select_from.type.table, S3Table)
         return False
 
     def _is_s3_table(self, table: ast.TableOrSelectType) -> bool:
-        if isinstance(table, ast.TableAliasType):
+        if isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             return self._is_s3_table(table.table_type)
 
         if isinstance(table, ast.CTETableAliasType):
@@ -1921,7 +2031,10 @@ class Resolver(CloningVisitor):
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
         if node is None:
             return False
-        if isinstance(node.type, (ast.TableAliasType, ast.CTETableAliasType, ast.CTETableType, ast.TableType)):
+        if isinstance(
+            node.type,
+            (ast.TableAliasType, ast.ColumnAliasedTableType, ast.CTETableAliasType, ast.CTETableType, ast.TableType),
+        ):
             return self._is_s3_table(node.type)
         return False
 

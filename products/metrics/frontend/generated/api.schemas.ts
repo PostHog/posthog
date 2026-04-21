@@ -7,6 +7,22 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AppMetricSeriesApi {
+    name: string
+    values: number[]
+}
+
+export interface AppMetricsResponseApi {
+    labels: string[]
+    series: AppMetricSeriesApi[]
+}
+
+export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
+
+export interface AppMetricsTotalsResponseApi {
+    totals: AppMetricsTotalsResponseApiTotals
+}
+
 /**
  * * `numeric` - numeric
  * `currency` - currency

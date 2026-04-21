@@ -31,7 +31,7 @@ operations = [
     # Distributed table for reads - Distributed engine
     run_sql_with_exceptions(
         ADD_IS_DELETED_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

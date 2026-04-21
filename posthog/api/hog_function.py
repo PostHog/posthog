@@ -253,6 +253,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return super().to_internal_value(data)
 
     def validate_type(self, value):
+        if value == HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value:
+            raise serializers.ValidationError(
+                "Cannot create or modify warehouse source webhook functions via this API."
+            )
+
         # Ensure it is only set when creating a new function
         if self.context.get("view") and self.context["view"].action == "create":
             return value

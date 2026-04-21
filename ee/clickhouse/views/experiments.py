@@ -1,16 +1,20 @@
 import asyncio
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
+from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import ExperimentApiExposureCriteria, ExperimentApiMetric, ExperimentParameters
+
 from posthog.api.cohort import CohortSerializer
+from posthog.api.documentation import extend_schema_field
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -23,18 +27,23 @@ from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.filters.filter import Filter
+from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
+from posthog.user_permissions import UserPermissions
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentTimeseriesRecalculation,
+    experiment_has_legacy_metrics,
 )
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -44,16 +53,130 @@ from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
+class _ExperimentApiMetricsList(PydanticRootModel):
+    """List wrapper for OpenAPI schema generation — the field stores an array of metrics."""
+
+    root: list[ExperimentApiMetric]
+
+
+@extend_schema_field(_ExperimentApiMetricsList)  # type: ignore[arg-type]
+class ExperimentMetricsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(ExperimentParameters)  # type: ignore[arg-type]
+class ExperimentParametersField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(ExperimentApiExposureCriteria)  # type: ignore[arg-type]
+class ExperimentExposureCriteriaField(serializers.JSONField):
+    pass
+
+
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
-    feature_flag_key = serializers.CharField(source="get_feature_flag_key")
+    feature_flag_key = serializers.CharField(
+        source="get_feature_flag_key",
+        help_text=(
+            "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. "
+            "Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+        ),
+    )
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
     holdout = ExperimentHoldoutSerializer(read_only=True)
     holdout_id = TeamScopedPrimaryKeyRelatedField(
-        queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
+        queryset=ExperimentHoldout.objects.all(),
+        source="holdout",
+        required=False,
+        allow_null=True,
+        help_text="ID of a holdout group to exclude from the experiment.",
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
-    saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
+    saved_metrics_ids = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        allow_null=True,
+        help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
+    )
+    allow_unknown_events = serializers.BooleanField(required=False, default=False, write_only=True)
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Name of the experiment.",
+    )
+    description = serializers.CharField(
+        max_length=3000,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Description of the experiment hypothesis and expected outcomes.",
+    )
+    parameters = ExperimentParametersField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Variant definitions and statistical configuration. "
+            "Set feature_flag_variants to customize the split (default: 50/50 control/test). "
+            "Each variant needs a key and rollout_percentage; percentages must sum to 100. "
+            "Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+        ),
+    )
+    metrics = ExperimentMetricsField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
+            "'mean' (set source to an EventsNode with an event name), "
+            "'funnel' (set series to an array of EventsNode steps), "
+            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'retention' (set start_event and completion_event). "
+            "Use the event-definitions-list tool to find available events in the project."
+        ),
+    )
+    metrics_secondary = ExperimentMetricsField(
+        required=False,
+        allow_null=True,
+        help_text="Secondary metrics for additional measurements. Same format as primary metrics.",
+    )
+    exposure_criteria = ExperimentExposureCriteriaField(
+        required=False,
+        allow_null=True,
+        help_text="Exposure configuration including filter test accounts and custom exposure events.",
+    )
+    conclusion = serializers.ChoiceField(
+        choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
+        required=False,
+        allow_null=True,
+        help_text="Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.",
+    )
+    conclusion_comment = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Comment about the experiment conclusion.",
+    )
+    archived = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the experiment is archived.",
+    )
+    type = serializers.ChoiceField(
+        choices=["web", "product"],
+        required=False,
+        allow_null=True,
+        help_text="Experiment type: web for frontend UI changes, product for backend/API changes.",
+    )
+    update_feature_flag_params = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text=(
+            "When true, sync feature flag configuration from parameters "
+            "to the linked feature flag. Draft experiments always sync "
+            "regardless of update_feature_flag_params, so only required "
+            "for non-drafts."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -85,13 +208,14 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "metrics_secondary",
             "stats_config",
             "scheduling_config",
+            "allow_unknown_events",
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
-            "exposure_preaggregation_enabled",
             "only_count_matured_users",
+            "update_feature_flag_params",
             "status",
             "user_access_level",
         ]
@@ -126,22 +250,32 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "date_to": data["end_date"] if data["end_date"] else "",
             "explicitDate": True,
         }
+
+        # Refresh action names in inline metrics (metrics and metrics_secondary)
         for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
-            for metric in metrics_list:
+            for i, metric in enumerate(metrics_list):
+                # Refresh action names to show current names instead of stale cached values
+                refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
+                if refreshed_metric:
+                    metrics_list[i] = refreshed_metric
+                    metric = refreshed_metric
+
                 if metric.get("count_query", {}).get("dateRange"):
                     metric["count_query"]["dateRange"] = new_date_range
                 if metric.get("funnels_query", {}).get("dateRange"):
                     metric["funnels_query"]["dateRange"] = new_date_range
 
+        # Update date ranges in saved metrics
+        # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
         for saved_metric in data.get("saved_metrics", []):
-            if saved_metric.get("query", {}).get("count_query", {}).get("dateRange"):
-                saved_metric["query"]["count_query"]["dateRange"] = new_date_range
-            if saved_metric.get("query", {}).get("funnels_query", {}).get("dateRange"):
-                saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
-
-            # Add fingerprint to saved metric returned from API
-            # so that frontend knows what timeseries records to query
             if saved_metric.get("query"):
+                if saved_metric["query"].get("count_query", {}).get("dateRange"):
+                    saved_metric["query"]["count_query"]["dateRange"] = new_date_range
+                if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
+                    saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+
+                # Add fingerprint to saved metric returned from API
+                # so that frontend knows what timeseries records to query
                 saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
                     saved_metric["query"],
                     instance.start_date,
@@ -198,12 +332,13 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         secondary_metrics_ordered_uuids = validated_data.pop("secondary_metrics_ordered_uuids", None)
         filters = validated_data.pop("filters", None)
         scheduling_config = validated_data.pop("scheduling_config", None)
-        exposure_preaggregation_enabled = validated_data.pop("exposure_preaggregation_enabled", False)
         only_count_matured_users = validated_data.pop("only_count_matured_users", False)
         archived = validated_data.pop("archived", False)
         deleted = validated_data.pop("deleted", False)
         conclusion = validated_data.pop("conclusion", None)
         conclusion_comment = validated_data.pop("conclusion_comment", None)
+        allow_unknown_events = validated_data.pop("allow_unknown_events", False)
+        validated_data.pop("update_feature_flag_params", None)
 
         if validated_data:
             raise ValidationError(f"Can't create keys: {', '.join(sorted(validated_data))} on Experiment")
@@ -231,19 +366,22 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             create_in_folder=create_in_folder,
             filters=filters,
             scheduling_config=scheduling_config,
-            exposure_preaggregation_enabled=exposure_preaggregation_enabled,
             only_count_matured_users=only_count_matured_users,
             archived=archived,
             deleted=deleted,
             conclusion=conclusion,
             conclusion_comment=conclusion_comment,
             serializer_context=self.context,
+            allow_unknown_events=allow_unknown_events,
         )
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
+        allow_unknown_events = validated_data.pop("allow_unknown_events", False)
         team = Team.objects.get(id=self.context["team_id"])
         service = ExperimentService(team=team, user=self.context["request"].user)
-        return service.update_experiment(instance, validated_data, serializer_context=self.context)
+        return service.update_experiment(
+            instance, validated_data, serializer_context=self.context, allow_unknown_events=allow_unknown_events
+        )
 
 
 class EndExperimentSerializer(serializers.Serializer):
@@ -263,6 +401,20 @@ class EndExperimentSerializer(serializers.Serializer):
 
 class ShipVariantSerializer(EndExperimentSerializer):
     variant_key = serializers.CharField(help_text="The key of the variant to ship to 100% of users.")
+
+
+class CopyExperimentToProjectSerializer(serializers.Serializer):
+    target_team_id = serializers.IntegerField(help_text="The team ID to copy the experiment to.")
+    feature_flag_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional feature flag key to use in the destination team.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the copied experiment.",
+    )
 
 
 @extend_schema_view(
@@ -520,13 +672,7 @@ class EnterpriseExperimentsViewSet(
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
 
-        legacy_kinds = ("ExperimentTrendsQuery", "ExperimentFunnelsQuery")
-        all_metrics = (source_experiment.metrics or []) + (source_experiment.metrics_secondary or [])
-        has_legacy_inline = any(m.get("kind") in legacy_kinds for m in all_metrics)
-        has_legacy_saved = source_experiment.experimenttosavedmetric_set.filter(
-            saved_metric__query__kind__in=legacy_kinds
-        ).exists()
-        if has_legacy_inline or has_legacy_saved:
+        if experiment_has_legacy_metrics(source_experiment):
             return Response(
                 {"detail": "Duplication is not supported for experiments using legacy metrics."},
                 status=400,
@@ -546,6 +692,59 @@ class EnterpriseExperimentsViewSet(
         return Response(
             ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
         )
+
+    @extend_schema(
+        request=CopyExperimentToProjectSerializer,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
+    def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        source_experiment: Experiment = self.get_object()
+
+        if experiment_has_legacy_metrics(source_experiment):
+            return Response(
+                {"detail": "Copying is not supported for experiments using legacy metrics."},
+                status=400,
+            )
+
+        request_serializer = CopyExperimentToProjectSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        target_team_id = request_serializer.validated_data["target_team_id"]
+        target_team = Team.objects.filter(id=target_team_id, organization_id=self.team.organization_id).first()
+        if target_team is None:
+            return Response({"detail": "Target team not found."}, status=404)
+
+        user_permissions = UserPermissions(user=cast(User, request.user))
+        target_team_permissions = user_permissions.team(target_team)
+        effective_level = target_team_permissions.effective_membership_level
+        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
+            return Response({"detail": "You do not have write access to the target project."}, status=403)
+
+        feature_flag_key = request_serializer.validated_data.get("feature_flag_key")
+        name = request_serializer.validated_data.get("name")
+
+        service = ExperimentService(team=self.team, user=request.user)
+        new_experiment = service.copy_experiment_to_project(
+            source_experiment,
+            target_team,
+            feature_flag_key=feature_flag_key,
+            name=name,
+            serializer_context={
+                "request": request,
+                "team_id": target_team.id,
+                "project_id": target_team.project_id,
+                "get_team": lambda: target_team,
+            },
+        )
+
+        target_context = {
+            **self.get_serializer_context(),
+            "team_id": target_team.id,
+            "project_id": target_team.project_id,
+            "get_team": lambda: target_team,
+        }
+        return Response(ExperimentSerializer(new_experiment, context=target_context).data, status=201)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
