@@ -69,7 +69,14 @@ class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):
 
     def _parse_and_transform(self, query: str):
         node = parse_select(query)
-        context = HogQLContext(team_id=self.team.pk, team=self.team, database=Database.create_for(team=self.team))
+        # Database.create_for validates the team's timezone, which a couple of tests set to an
+        # invalid value to assert the transform disables itself. In those cases leave the context
+        # without a database — the transform's timezone guard returns early before looking at it.
+        try:
+            database = Database.create_for(team=self.team)
+        except ValueError:
+            database = None
+        context = HogQLContext(team_id=self.team.pk, team=self.team, database=database)
         transformed = do_preaggregated_table_transforms(node, context)
         return str(transformed)
 
