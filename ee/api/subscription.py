@@ -480,7 +480,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 "dashboard_id": subscription.dashboard_id,
                 "temporal_workflow_id": workflow_id,
             },
-            groups=groups(subscription.team.organization, subscription.team),
+            groups=groups(None, subscription.team),
         )
 
         return Response(status=status.HTTP_202_ACCEPTED)
