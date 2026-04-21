@@ -1,7 +1,10 @@
 import copy
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.linear.linear import (
     LinearResumeConfig,
@@ -51,106 +54,50 @@ def _make_resumable_manager(*, can_resume: bool = False, saved: LinearResumeConf
     return manager
 
 
+# (has_next, end_cursor) per page. Nodes are synthetic; only pagination matters.
+PageSpec = tuple[bool, str | None]
+
+
 class TestMakePaginatedRequest:
-    @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
-    def test_fresh_run_saves_cursor_after_each_page_with_next(self, mock_session_cls: MagicMock) -> None:
-        session = MagicMock()
-        snapshots = _capture_post_calls(
-            session,
-            [
-                _make_response([{"id": "1"}], True, "cursor-1"),
-                _make_response([{"id": "2"}], True, "cursor-2"),
-                _make_response([{"id": "3"}], False, None),
-            ],
-        )
-        mock_session_cls.return_value = session
-
-        manager = _make_resumable_manager(can_resume=False)
-        logger = MagicMock()
-
-        pages = list(
-            _make_paginated_request(
-                access_token="tok",
-                endpoint_name="issues",
-                logger=logger,
-                resumable_source_manager=manager,
-            )
-        )
-
-        assert pages == [[{"id": "1"}], [{"id": "2"}], [{"id": "3"}]]
-        manager.load_state.assert_not_called()
-        # Saved after page 1 and page 2 (both had hasNextPage=True), not after the final page.
-        assert manager.save_state.call_args_list == [
-            ((LinearResumeConfig(cursor="cursor-1"),),),
-            ((LinearResumeConfig(cursor="cursor-2"),),),
+    @parameterized.expand(
+        [
+            # Fresh runs
+            ("fresh_multi_page", False, None, [(True, "c1"), (True, "c2"), (False, None)], None, ["c1", "c2"], False),
+            ("fresh_single_empty", False, None, [(False, None)], None, [], False),
+            ("fresh_with_filter", False, None, [(True, "c1"), (False, None)], "2026-01-01T00:00:00Z", ["c1"], False),
+            # Resume runs
+            ("resume_final_page_only", True, "saved-c", [(False, None)], None, [], True),
+            ("resume_then_more_pages", True, "saved-c", [(True, "c1"), (False, None)], None, ["c1"], True),
+            (
+                "resume_with_filter",
+                True,
+                "saved-c",
+                [(True, "c1"), (False, None)],
+                "2026-01-01T00:00:00Z",
+                ["c1"],
+                True,
+            ),
         ]
-        # First request must NOT carry a cursor; subsequent ones do.
-        assert "cursor" not in snapshots[0]
-        assert snapshots[1]["cursor"] == "cursor-1"
-        assert snapshots[2]["cursor"] == "cursor-2"
-
+    )
     @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
-    def test_resume_seeds_cursor_from_saved_state(self, mock_session_cls: MagicMock) -> None:
+    def test_pagination_state(
+        self,
+        _name: str,
+        can_resume: bool,
+        saved_cursor: str | None,
+        page_specs: list[PageSpec],
+        filter_gte: str | None,
+        expected_save_cursors: list[str],
+        first_request_has_cursor: bool,
+        mock_session_cls: MagicMock,
+    ) -> None:
         session = MagicMock()
-        snapshots = _capture_post_calls(
-            session,
-            [_make_response([{"id": "42"}], False, None)],
-        )
+        responses = [_make_response([{"id": f"{i}"}], has_next, end) for i, (has_next, end) in enumerate(page_specs)]
+        snapshots = _capture_post_calls(session, responses)
         mock_session_cls.return_value = session
 
-        manager = _make_resumable_manager(can_resume=True, saved=LinearResumeConfig(cursor="saved-cursor"))
-        logger = MagicMock()
-
-        pages = list(
-            _make_paginated_request(
-                access_token="tok",
-                endpoint_name="issues",
-                logger=logger,
-                resumable_source_manager=manager,
-            )
-        )
-
-        assert pages == [[{"id": "42"}]]
-        manager.load_state.assert_called_once()
-        # The very first request should carry the resumed cursor, not start over.
-        assert snapshots[0]["cursor"] == "saved-cursor"
-        # Final page — no save on a page that has no next.
-        manager.save_state.assert_not_called()
-
-    @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
-    def test_empty_single_page_does_not_save_state(self, mock_session_cls: MagicMock) -> None:
-        session = MagicMock()
-        session.post.return_value = _make_response([], False, None)
-        mock_session_cls.return_value = session
-
-        manager = _make_resumable_manager(can_resume=False)
-        logger = MagicMock()
-
-        pages = list(
-            _make_paginated_request(
-                access_token="tok",
-                endpoint_name="issues",
-                logger=logger,
-                resumable_source_manager=manager,
-            )
-        )
-
-        assert pages == [[]]
-        manager.save_state.assert_not_called()
-
-    @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
-    def test_incremental_filter_preserved_across_pages(self, mock_session_cls: MagicMock) -> None:
-        session = MagicMock()
-        snapshots = _capture_post_calls(
-            session,
-            [
-                _make_response([{"id": "1"}], True, "cursor-1"),
-                _make_response([{"id": "2"}], False, None),
-            ],
-        )
-        mock_session_cls.return_value = session
-
-        manager = _make_resumable_manager(can_resume=False)
+        saved_config = LinearResumeConfig(cursor=saved_cursor) if saved_cursor is not None else None
+        manager = _make_resumable_manager(can_resume=can_resume, saved=saved_config)
         logger = MagicMock()
 
         list(
@@ -159,12 +106,23 @@ class TestMakePaginatedRequest:
                 endpoint_name="issues",
                 logger=logger,
                 resumable_source_manager=manager,
-                updated_at_gte="2026-01-01T00:00:00Z",
+                updated_at_gte=filter_gte,
             )
         )
 
-        for variables in snapshots:
-            assert variables["filter"] == {"updatedAt": {"gt": "2026-01-01T00:00:00Z"}}
+        # Resume path: first request carries the saved cursor; fresh path: no cursor on first request.
+        if first_request_has_cursor:
+            assert snapshots[0]["cursor"] == saved_cursor
+        else:
+            assert "cursor" not in snapshots[0]
+
+        # Each non-final page checkpoints the cursor of the next page.
+        assert manager.save_state.call_args_list == [((LinearResumeConfig(cursor=c),),) for c in expected_save_cursors]
+
+        # The updated_at filter, if any, must be applied on every page including the resumed first request.
+        if filter_gte is not None:
+            for variables in snapshots:
+                assert variables["filter"] == {"updatedAt": {"gt": filter_gte}}
 
 
 class TestLinearSource:
@@ -201,7 +159,7 @@ class TestLinearSource:
             logger=logger,
             resumable_source_manager=manager,
         )
-        pages = list(response.items())
+        pages = list(cast(Iterable[Any], response.items()))
 
         assert pages == [[{"id": "a"}], [{"id": "b"}]]
         manager.save_state.assert_called_once_with(LinearResumeConfig(cursor="cursor-a"))
