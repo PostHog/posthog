@@ -36,6 +36,16 @@ const emailTrackingErrorsCounter = new Counter({
     labelNames: ['error_type', 'source'],
 })
 
+// Separate counter for expected, non-error skip paths (e.g. SES webhook for a
+// hog_function rather than a hog_flow — hog_functions legitimately don't write log
+// entries). Kept off the errors counter so alerts/dashboards built on
+// `email_tracking_errors_total` don't fire on normal traffic.
+const emailTrackingLogSkipsCounter = new Counter({
+    name: 'email_tracking_log_skips_total',
+    help: 'Total number of email tracking log entries skipped (expected, non-error)',
+    labelNames: ['reason', 'source'],
+})
+
 export const generateTrackingRedirectUrl = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
         state?: { actionId?: string }
@@ -181,7 +191,7 @@ export class EmailTrackingService {
 
             const hogFlow = hogFlows[entry.functionId]
             if (!hogFlow) {
-                emailTrackingErrorsCounter.inc({ error_type: 'log_skipped_non_flow', source: 'ses' })
+                emailTrackingLogSkipsCounter.inc({ reason: 'non_flow', source: 'ses' })
                 continue
             }
 

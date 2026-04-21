@@ -139,6 +139,11 @@ const SesRejectEventSchema = SesCommonEventBase.extend({
     reject: z.object({ reason: z.string().optional() }).optional(),
 })
 
+// Accepted-but-unmodeled: we acknowledge the event so SNS doesn't retry forever, but we
+// don't surface details. SES emits DeliveryDelay on soft failures (e.g. destination MTA
+// greylisting) that resolve themselves, so the extra log noise would outweigh the signal.
+const SesDeliveryDelayEventSchema = SesCommonEventBase.extend({ eventType: z.literal('DeliveryDelay') })
+
 const SesEventRecordSchema = z.union([
     SesOpenEventSchema,
     SesClickEventSchema,
@@ -148,6 +153,7 @@ const SesEventRecordSchema = z.union([
     SesRenderingFailureSchema,
     SesSendEventSchema,
     SesRejectEventSchema,
+    SesDeliveryDelayEventSchema,
 ])
 
 const SesEventBatchSchema = z.array(SesEventRecordSchema)
