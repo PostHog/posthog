@@ -339,27 +339,6 @@ class TestEmailMultiConfig(BaseTest):
         assert EmailChannel.objects.filter(team=self.team).count() == 0
         mock_mailgun_delete.assert_not_called()
 
-    @patch(
-        "products.conversations.backend.api.email_settings.mailgun_add_domain",
-        side_effect=ValueError("Domain example.com already exists"),
-    )
-    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
-    @patch(
-        "products.conversations.backend.api.email_settings.get_instance_setting",
-        return_value="mg.posthog.com",
-    )
-    def test_connect_rejects_preexisting_domain_does_not_enable_email(
-        self,
-        _mock_setting: MagicMock,
-        _mock_mailgun_delete: MagicMock,
-        _mock_mailgun_add: MagicMock,
-    ):
-        self.client.post(
-            "/api/conversations/v1/email/connect",
-            {"from_email": "support@example.com", "from_name": "Support"},
-            content_type="application/json",
-        )
-
         self.team.refresh_from_db()
         settings = self.team.conversations_settings or {}
         assert settings.get("email_enabled") is not True

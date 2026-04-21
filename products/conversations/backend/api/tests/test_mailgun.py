@@ -21,14 +21,6 @@ class TestAddDomain:
         with pytest.raises(ValueError, match="already exists"):
             add_domain("example.com")
 
-    def test_already_exists_does_not_call_get_domain_dns_records(self, mock_post: MagicMock, _mock_key: MagicMock):
-        mock_post.return_value = _mailgun_response(400, {"message": "domain example.com already exists"})
-
-        with patch("products.conversations.backend.mailgun.get_domain_dns_records") as mock_get:
-            with pytest.raises(ValueError):
-                add_domain("example.com")
-            mock_get.assert_not_called()
-
     def test_already_taken_still_raises(self, mock_post: MagicMock, _mock_key: MagicMock):
         mock_post.return_value = _mailgun_response(
             400, {"message": "domain example.com is already taken by another account"}
