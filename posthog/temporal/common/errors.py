@@ -9,7 +9,6 @@ MAX_ERROR_TRACE_CHARS = 32_000
 
 
 def truncate_for_temporal_payload(value: str, limit: int) -> str:
-    """Trim ``value`` to ``limit`` chars plus a ~40-char marker (max output ~``limit + 40``)."""
     if len(value) <= limit:
         return value
     return f"{value[:limit]}… (truncated, original {len(value)} chars)"

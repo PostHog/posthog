@@ -21,6 +21,8 @@ def test_truncate_for_temporal_payload(value, limit, expected):
 
 
 def test_default_limits_fit_under_temporal_payload_limit():
-    # UTF-8 is up to 4 bytes/char; assert the worst case stays under Temporal's 2 MiB limit.
-    worst_case_bytes = (MAX_ERROR_MESSAGE_CHARS + MAX_ERROR_TRACE_CHARS) * 4
-    assert worst_case_bytes < 2 * 1024 * 1024
+    # Temporal's hard limit is 2 MiB for the whole payload — activity metadata, input ref,
+    # envelope framing, and our error strings all share that budget. Assert our error strings
+    # fit inside 1 MiB (worst-case UTF-8: 4 bytes/char) to leave headroom for everything else.
+    worst_case_error_bytes = (MAX_ERROR_MESSAGE_CHARS + MAX_ERROR_TRACE_CHARS) * 4
+    assert worst_case_error_bytes < 1 * 1024 * 1024
