@@ -30,6 +30,24 @@ export const buildMCPAnalyticsGroups = ({
     ...(projectUuid ? { project: projectUuid } : {}),
 })
 
+/**
+ * Convert the workspace context (camelCase) into snake_case event properties.
+ * Single source of truth for this mapping — every callsite that would otherwise
+ * hand-roll `{ organization_id, project_id, project_uuid, project_name }` should
+ * go through this helper so adding a field is a one-touch change.
+ *
+ * `prefix` is used to emit `previous_*` properties on context-switch events.
+ */
+export const buildMCPContextProperties = (
+    ctx: MCPAnalyticsContext,
+    { prefix = '' }: { prefix?: string } = {}
+): Record<string, string> => ({
+    ...(ctx.organizationId ? { [`${prefix}organization_id`]: ctx.organizationId } : {}),
+    ...(ctx.projectId ? { [`${prefix}project_id`]: ctx.projectId } : {}),
+    ...(ctx.projectUuid ? { [`${prefix}project_uuid`]: ctx.projectUuid } : {}),
+    ...(ctx.projectName ? { [`${prefix}project_name`]: ctx.projectName } : {}),
+})
+
 export const getPostHogClient = (): PostHog => {
     if (!_client) {
         _client = new PostHog(env.POSTHOG_ANALYTICS_API_KEY, {

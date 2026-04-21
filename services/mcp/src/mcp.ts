@@ -8,6 +8,7 @@ import { ApiClient } from '@/api/client'
 import {
     AnalyticsEvent,
     buildMCPAnalyticsGroups,
+    buildMCPContextProperties,
     evaluateFeatureFlags,
     getPostHogClient,
     isFeatureFlagEnabled,
@@ -261,7 +262,7 @@ export class MCP extends McpAgent<Env> {
     async trackEvent(
         event: AnalyticsEvent,
         properties: Record<string, any> = {},
-        options?: { context?: MCPAnalyticsContext }
+        options?: { context?: MCPAnalyticsContext; previousContext?: MCPAnalyticsContext }
     ): Promise<void> {
         try {
             const distinctId = await this.getDistinctId()
@@ -272,13 +273,9 @@ export class MCP extends McpAgent<Env> {
 
             const clientName = await this.cache.get('clientName')
 
-            const contextProperties = options?.context
-                ? {
-                      ...(options.context.organizationId ? { organization_id: options.context.organizationId } : {}),
-                      ...(options.context.projectId ? { project_id: options.context.projectId } : {}),
-                      ...(options.context.projectUuid ? { project_uuid: options.context.projectUuid } : {}),
-                      ...(options.context.projectName ? { project_name: options.context.projectName } : {}),
-                  }
+            const contextProperties = options?.context ? buildMCPContextProperties(options.context) : {}
+            const previousContextProperties = options?.previousContext
+                ? buildMCPContextProperties(options.previousContext, { prefix: 'previous_' })
                 : {}
             const groups = options?.context ? buildMCPAnalyticsGroups(options.context) : {}
 
@@ -302,6 +299,7 @@ export class MCP extends McpAgent<Env> {
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...contextProperties,
+                    ...previousContextProperties,
                     ...properties,
                 },
             })
@@ -340,12 +338,8 @@ export class MCP extends McpAgent<Env> {
 
         await this.trackEvent(
             event,
-            {
-                previous_organization_id: previousContext?.organizationId,
-                previous_project_id: previousContext?.projectId,
-                previous_project_uuid: previousContext?.projectUuid,
-            },
-            { context: resolvedContext }
+            {},
+            { context: resolvedContext, ...(previousContext ? { previousContext } : {}) }
         )
     }
 
