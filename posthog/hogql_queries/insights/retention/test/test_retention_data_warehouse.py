@@ -113,10 +113,10 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                 ),
             )
 
-            response = RetentionQueryRunner(team=self.team, query=query).calculate()
+            results = RetentionQueryRunner(team=self.team, query=query).calculate().model_dump()["results"]
 
         # Count users cohorted on the first day (2025-11-04): user-1, user-2, user-3 -> 3
-        day_0 = next(row for row in response.results if row["date"].strftime("%Y-%m-%d") == "2025-11-04")
+        day_0 = next(row for row in results if row["date"].strftime("%Y-%m-%d") == "2025-11-04")
         self.assertEqual(day_0["values"][0]["count"], 3)  # day 0 cohort size
         # Users from day 0 who returned on day 1 (2025-11-05): only user-1
         self.assertEqual(day_0["values"][1]["count"], 1)
@@ -125,20 +125,35 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         # Day 3 (2025-11-07) returners from day-0 cohort: user-1
         self.assertEqual(day_0["values"][3]["count"], 1)
 
-        day_1 = next(row for row in response.results if row["date"].strftime("%Y-%m-%d") == "2025-11-05")
+        day_1 = next(row for row in results if row["date"].strftime("%Y-%m-%d") == "2025-11-05")
         # Cohort for 2025-11-05: user-1, user-4 -> 2
         self.assertEqual(day_1["values"][0]["count"], 2)
 
     @parameterized.expand(
         [
-            ("24_hour_windows", {"timeWindowMode": "24_hour_windows"}, "24 hour windows"),
-            ("first_time", {"retentionType": "retention_first_time"}, "First-time"),
-            ("first_ever", {"retentionType": "retention_first_ever_occurrence"}, "First-time"),
-            ("custom_brackets", {"retentionCustomBrackets": [1, 2, 3]}, "Custom retention brackets"),
-            ("sum_aggregation", {"aggregationType": "sum", "aggregationProperty": "x"}, "Sum/avg"),
+            ("24_hour_windows", {"timeWindowMode": "24_hour_windows"}, {}, "24 hour windows"),
+            ("first_time", {"retentionType": "retention_first_time"}, {}, "First-time"),
+            ("first_ever", {"retentionType": "retention_first_ever_occurrence"}, {}, "First-time"),
+            ("custom_brackets", {"retentionCustomBrackets": [1, 2, 3]}, {}, "Custom retention brackets"),
+            ("sum_aggregation", {"aggregationType": "sum", "aggregationProperty": "x"}, {}, "Sum/avg"),
+            ("minimum_occurrences", {"minimumOccurrences": 2}, {}, "Minimum occurrences"),
+            ("sampling_factor", {}, {"samplingFactor": 0.5}, "Sampling"),
+            ("test_account_filters", {}, {"filterTestAccounts": True}, "Test account"),
+            (
+                "breakdowns",
+                {},
+                {"breakdownFilter": {"breakdown": "browser", "breakdown_type": "event"}},
+                "Breakdowns",
+            ),
         ]
     )
-    def test_validation_rejects_unsupported(self, _name: str, extra: dict, expected_message_fragment: str) -> None:
+    def test_validation_rejects_unsupported(
+        self,
+        _name: str,
+        retention_extra: dict,
+        query_extra: dict,
+        expected_message_fragment: str,
+    ) -> None:
         with self.assertRaises(ValidationError) as cm:
             RetentionQueryRunner(
                 team=self.team,
@@ -149,8 +164,9 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                         totalIntervals=4,
                         targetEntity=self._dw_entity("any_table"),
                         returningEntity=self._dw_entity("any_table"),
-                        **extra,
+                        **retention_extra,
                     ),
+                    **query_extra,
                 ),
             )
 

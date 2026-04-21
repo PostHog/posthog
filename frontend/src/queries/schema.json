@@ -32277,7 +32277,7 @@
             "type": "object"
         },
         "RetentionEntityKind": {
-            "enum": ["ActionsNode", "DataWarehouseNode", "EventsNode"],
+            "enum": ["ActionsNode", "EventsNode", "DataWarehouseNode"],
             "type": "string"
         },
         "RetentionFilter": {

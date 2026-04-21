@@ -155,9 +155,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         if self.group_type_index is not None:
             raise ValidationError("Group aggregation is not supported for data warehouse retention.")
         if retention_filter and retention_filter.aggregationType in (AggregationType.SUM, AggregationType.AVG):
-            raise ValidationError(
-                "Sum/avg aggregation is not yet supported for data warehouse retention."
-            )
+            raise ValidationError("Sum/avg aggregation is not yet supported for data warehouse retention.")
         if retention_filter and (retention_filter.minimumOccurrences or 1) > 1:
             raise ValidationError(
                 "Minimum occurrences greater than 1 is not yet supported for data warehouse retention."
@@ -180,23 +178,22 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     @cached_property
     def _data_warehouse_table_name(self) -> str:
         assert self.is_data_warehouse_retention
-        table_name = self.start_event.table_name or self.return_event.table_name
-        assert table_name is not None
-        return table_name
+        # `_validate_data_warehouse_retention` has already enforced that both entities reference
+        # the same table/fields, so reading them off `start_event` is sufficient.
+        assert self.start_event.table_name is not None
+        return self.start_event.table_name
 
     @cached_property
     def _data_warehouse_timestamp_field(self) -> str:
         assert self.is_data_warehouse_retention
-        field = self.start_event.timestamp_field or self.return_event.timestamp_field
-        assert field is not None
-        return field
+        assert self.start_event.timestamp_field is not None
+        return self.start_event.timestamp_field
 
     @cached_property
     def _data_warehouse_distinct_id_field(self) -> str:
         assert self.is_data_warehouse_retention
-        field = self.start_event.distinct_id_field or self.return_event.distinct_id_field
-        assert field is not None
-        return field
+        assert self.start_event.distinct_id_field is not None
+        return self.start_event.distinct_id_field
 
     @cached_property
     def _source_table_chain(self) -> list[str | int]:
@@ -207,17 +204,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     @cached_property
     def _source_timestamp_chain(self) -> list[str | int]:
         if self.is_data_warehouse_retention:
-            return cast(
-                list[str | int], [self._data_warehouse_table_name, self._data_warehouse_timestamp_field]
-            )
+            return cast(list[str | int], [self._data_warehouse_table_name, self._data_warehouse_timestamp_field])
         return cast(list[str | int], ["events", "timestamp"])
 
     @cached_property
     def _actor_id_chain(self) -> list[str | int]:
         if self.is_data_warehouse_retention:
-            return cast(
-                list[str | int], [self._data_warehouse_table_name, self._data_warehouse_distinct_id_field]
-            )
+            return cast(list[str | int], [self._data_warehouse_table_name, self._data_warehouse_distinct_id_field])
         return cast(list[str | int], ["events", self.target_field])
 
     def update_hogql_modifiers(self) -> None:
