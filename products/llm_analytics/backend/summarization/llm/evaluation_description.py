@@ -3,11 +3,10 @@
 from typing import Any, cast
 
 import structlog
-from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from rest_framework import exceptions
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import get_async_llm_client
 
 from ..constants import SUMMARIZATION_TIMEOUT
 from ..models import OpenAIModel
@@ -75,12 +74,10 @@ async def generate_evaluation_description(
 
     user_prompt = "Generate a concise description for this evaluation."
 
-    sync_client = get_llm_client("llma_eval_description")
-    client = AsyncOpenAI(
-        base_url=sync_client.base_url,
-        api_key=sync_client.api_key,
-        timeout=SUMMARIZATION_TIMEOUT,
-    )
+    # Reuse the registered "llma_eval_summary" product slug — this endpoint is semantically
+    # part of the same feature. Adding a new slug requires a coordinated change in
+    # services/llm-gateway/src/llm_gateway/products/config.py.
+    client = get_async_llm_client("llma_eval_summary").with_options(timeout=SUMMARIZATION_TIMEOUT)
 
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt},

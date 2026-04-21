@@ -5,6 +5,7 @@ Tests for evaluation description generation API endpoint.
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.llm_analytics.backend.summarization.llm.description_schema import EvaluationDescriptionResponse
@@ -63,72 +64,54 @@ class TestEvaluationDescriptionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_llm_judge_requires_name_or_prompt(self):
+    @parameterized.expand(
+        [
+            ("llm_judge", {"evaluation_type": "llm_judge", "name": "", "prompt": ""}),
+            ("hog", {"evaluation_type": "hog", "name": "", "source": ""}),
+        ]
+    )
+    def test_requires_name_or_config(self, _label, payload):
         self._approve_ai()
 
-        response = self.client.post(
-            self._url(),
-            {"evaluation_type": "llm_judge", "name": "", "prompt": ""},
-            format="json",
-        )
+        response = self.client.post(self._url(), payload, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_hog_requires_name_or_source(self):
-        self._approve_ai()
-
-        response = self.client.post(
-            self._url(),
-            {"evaluation_type": "hog", "name": "", "source": ""},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
+    @parameterized.expand(
+        [
+            (
+                "llm_judge",
+                {
+                    "evaluation_type": "llm_judge",
+                    "name": "Helpfulness",
+                    "prompt": "Is the response helpful and accurate?",
+                    "allows_na": False,
+                },
+                "Checks whether the assistant's response directly answers the user's question.",
+            ),
+            (
+                "hog",
+                {
+                    "evaluation_type": "hog",
+                    "name": "Non-empty output",
+                    "source": "return length(output) > 0",
+                },
+                "Verifies the response is non-empty.",
+            ),
+        ]
+    )
     @patch("products.llm_analytics.backend.api.evaluation_description.async_to_sync")
-    def test_successful_generation_llm_judge(self, mock_async_to_sync):
+    def test_successful_generation(self, _label, payload, generated_description, mock_async_to_sync):
         self._approve_ai()
 
         mock_async_to_sync.return_value = lambda **kwargs: EvaluationDescriptionResponse(
-            description="Checks whether the assistant's response directly answers the user's question."
+            description=generated_description
         )
 
-        response = self.client.post(
-            self._url(),
-            {
-                "evaluation_type": "llm_judge",
-                "name": "Helpfulness",
-                "prompt": "Is the response helpful and accurate?",
-                "allows_na": False,
-            },
-            format="json",
-        )
+        response = self.client.post(self._url(), payload, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.data["description"] == (
-            "Checks whether the assistant's response directly answers the user's question."
-        )
-
-    @patch("products.llm_analytics.backend.api.evaluation_description.async_to_sync")
-    def test_successful_generation_hog(self, mock_async_to_sync):
-        self._approve_ai()
-
-        mock_async_to_sync.return_value = lambda **kwargs: EvaluationDescriptionResponse(
-            description="Verifies the response is non-empty."
-        )
-
-        response = self.client.post(
-            self._url(),
-            {
-                "evaluation_type": "hog",
-                "name": "Non-empty output",
-                "source": "return length(output) > 0",
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data["description"] == "Verifies the response is non-empty."
+        assert response.data["description"] == generated_description
 
     @patch("products.llm_analytics.backend.api.evaluation_description.async_to_sync")
     def test_passes_existing_description(self, mock_async_to_sync):
@@ -157,6 +140,27 @@ class TestEvaluationDescriptionAPI(APIBaseTest):
         assert captured_kwargs["existing_description"] == "Old description that's outdated."
         assert captured_kwargs["evaluation_type"] == "llm_judge"
         assert captured_kwargs["evaluation_prompt"] == "Is the response helpful?"
+
+    @patch("products.llm_analytics.backend.api.evaluation_description.async_to_sync")
+    def test_accepts_long_existing_description(self, mock_async_to_sync):
+        self._approve_ai()
+
+        mock_async_to_sync.return_value = lambda **kwargs: EvaluationDescriptionResponse(description="Updated.")
+
+        # Simulates a legacy record whose description exceeds the UI cap of 500 chars.
+        long_existing = "x" * 4000
+        response = self.client.post(
+            self._url(),
+            {
+                "evaluation_type": "llm_judge",
+                "name": "Helpfulness",
+                "prompt": "Is the response helpful?",
+                "existing_description": long_existing,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
 
     @patch("products.llm_analytics.backend.api.evaluation_description.async_to_sync")
     def test_truncates_long_description(self, mock_async_to_sync):

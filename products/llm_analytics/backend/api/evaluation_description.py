@@ -39,6 +39,10 @@ from products.llm_analytics.backend.summarization.models import OpenAIModel
 logger = structlog.get_logger(__name__)
 
 DESCRIPTION_MAX_LENGTH = 500
+# The Evaluation.description field is an unbounded TextField and may legitimately
+# exceed the UI cap for legacy or API-set values. Accept a longer hint so
+# regeneration requests for those records aren't hard-rejected.
+EXISTING_DESCRIPTION_MAX_LENGTH = 20000
 PROMPT_MAX_LENGTH = 20000
 SOURCE_MAX_LENGTH = 20000
 
@@ -84,7 +88,7 @@ class EvaluationDescriptionRequestSerializer(serializers.Serializer):
     existing_description = serializers.CharField(
         required=False,
         allow_blank=True,
-        max_length=DESCRIPTION_MAX_LENGTH,
+        max_length=EXISTING_DESCRIPTION_MAX_LENGTH,
         default="",
         help_text="The current description, if any, to use as a hint",
     )
