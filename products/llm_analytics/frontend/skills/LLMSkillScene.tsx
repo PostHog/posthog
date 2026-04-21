@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { useCallback, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useRef, useState } from 'react'
 
-import { IconChevronRight, IconDocument, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { IconChevronRight, IconColumns, IconDocument, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -30,6 +30,8 @@ import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
+
+const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
 export const scene: SceneExport<SkillLogicProps> = {
     component: LLMSkillScene,
@@ -251,8 +253,9 @@ export function LLMSkillScene(): JSX.Element {
 }
 
 function SkillViewDetails(): JSX.Element {
-    const { skill, isOutlineExpanded } = useValues(llmSkillLogic)
-    const { toggleOutlineExpanded } = useActions(llmSkillLogic)
+    const { skill, isOutlineExpanded, isDiffVisible, canCompareVersions, compareVersionOptions } =
+        useValues(llmSkillLogic)
+    const { toggleOutlineExpanded, setCompareVersion } = useActions(llmSkillLogic)
     const markdownContainerRef = useRef<HTMLDivElement | null>(null)
 
     if (!skill || !isSkill(skill)) {
@@ -320,22 +323,53 @@ function SkillViewDetails(): JSX.Element {
             )}
 
             <div>
-                <label className="text-xs font-semibold uppercase text-secondary">Skill body</label>
-                <MarkdownOutline
-                    markdownText={skill.body}
-                    containerRef={markdownContainerRef}
-                    className="mt-2"
-                    label="Skill outline"
-                    tooltipText="Navigate the sections of this skill. Click a heading to scroll to it."
-                    dataAttrPrefix="llma-skill"
-                    isExpanded={isOutlineExpanded}
-                    onToggleExpanded={toggleOutlineExpanded}
-                />
-                <div ref={markdownContainerRef}>
-                    <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
-                        {skill.body}
-                    </LemonMarkdown>
+                <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold uppercase text-secondary">Skill body</label>
+                    {canCompareVersions && (
+                        <LemonButton
+                            size="xsmall"
+                            type={isDiffVisible ? 'primary' : 'secondary'}
+                            icon={<IconColumns />}
+                            onClick={() => {
+                                if (isDiffVisible) {
+                                    setCompareVersion(null)
+                                } else {
+                                    const firstOption = compareVersionOptions[0]?.value
+                                    const defaultVersion = compareVersionOptions.some(
+                                        (o) => o.value === skill.version - 1
+                                    )
+                                        ? skill.version - 1
+                                        : (firstOption ?? null)
+                                    setCompareVersion(defaultVersion)
+                                }
+                            }}
+                            data-attr="llma-skill-compare-versions-button"
+                        >
+                            Compare versions
+                        </LemonButton>
+                    )}
                 </div>
+                {isDiffVisible ? (
+                    <SkillDiffView />
+                ) : (
+                    <>
+                        <MarkdownOutline
+                            markdownText={skill.body}
+                            containerRef={markdownContainerRef}
+                            className="mt-2"
+                            label="Skill outline"
+                            tooltipText="Navigate the sections of this skill. Click a heading to scroll to it."
+                            dataAttrPrefix="llma-skill"
+                            isExpanded={isOutlineExpanded}
+                            onToggleExpanded={toggleOutlineExpanded}
+                        />
+                        <div ref={markdownContainerRef}>
+                            <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
+                                {skill.body}
+                            </LemonMarkdown>
+                        </div>
+                    </>
+                )}
             </div>
 
             {skill.files && skill.files.length > 0 && (
@@ -360,6 +394,74 @@ function SkillViewDetails(): JSX.Element {
                 <div>Published {dayjs(skill.created_at).format('MMM D, YYYY h:mm A')}</div>
                 <div>First version created {dayjs(skill.first_version_created_at).format('MMM D, YYYY h:mm A')}</div>
             </div>
+        </div>
+    )
+}
+
+function SkillDiffView(): JSX.Element {
+    const { skill, compareSkill, compareSkillLoading, compareVersion, compareVersionOptions } = useValues(llmSkillLogic)
+    const { setCompareVersion } = useActions(llmSkillLogic)
+
+    if (!skill || !isSkill(skill)) {
+        return <></>
+    }
+
+    const currentVersion = skill.version
+    const original = compareSkill?.body ?? ''
+    const modified = skill.body
+
+    return (
+        <div className="mt-2 space-y-3" data-attr="llma-skill-diff-view">
+            <div className="flex items-center gap-2">
+                <span className="text-sm text-secondary">Comparing</span>
+                <LemonSelect
+                    size="small"
+                    value={compareVersion}
+                    options={compareVersionOptions}
+                    onChange={(value) => setCompareVersion(value)}
+                    data-attr="llma-skill-diff-version-select"
+                />
+                <span className="text-sm text-secondary">with v{currentVersion} (current)</span>
+            </div>
+            {compareSkillLoading ? (
+                <div className="space-y-2 rounded border p-4">
+                    <LemonSkeleton active className="h-4 w-full" />
+                    <LemonSkeleton active className="h-4 w-3/4" />
+                    <LemonSkeleton active className="h-4 w-1/2" />
+                </div>
+            ) : !compareSkill ? (
+                <LemonBanner type="warning">
+                    Failed to load version for comparison. Try selecting a different version.
+                </LemonBanner>
+            ) : (
+                <div className="overflow-hidden rounded border">
+                    <Suspense
+                        fallback={
+                            <div className="space-y-2 p-4">
+                                <LemonSkeleton active className="h-4 w-full" />
+                                <LemonSkeleton active className="h-4 w-3/4" />
+                            </div>
+                        }
+                    >
+                        <MonacoDiffEditor
+                            original={original}
+                            value={modified}
+                            modified={modified}
+                            language="markdown"
+                            options={{
+                                readOnly: true,
+                                renderSideBySide: true,
+                                minimap: { enabled: false },
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                lineNumbers: 'off',
+                                folding: false,
+                                hideUnchangedRegions: { enabled: true },
+                            }}
+                        />
+                    </Suspense>
+                </div>
+            )}
         </div>
     )
 }
@@ -734,6 +836,9 @@ function SkillVersionSidebar({
     loadMoreVersions: () => void
     searchParams: Record<string, any>
 }): JSX.Element {
+    const { compareVersion } = useValues(llmSkillLogic)
+    const { setCompareVersion } = useActions(llmSkillLogic)
+
     return (
         <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:mt-3 xl:w-80">
             <div className="rounded border bg-surface-primary p-4">
@@ -749,6 +854,8 @@ function SkillVersionSidebar({
                 <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
                     {versions.map((versionSkill) => {
                         const selected = skill?.id === versionSkill.id
+                        const isCompareTarget = compareVersion === versionSkill.version
+                        const canCompare = skill?.version !== versionSkill.version
                         const cleanedParams = { ...searchParams }
                         delete cleanedParams.edit
                         const versionUrl = combineUrl(urls.llmAnalyticsSkill(skillName), {
@@ -763,7 +870,9 @@ function SkillVersionSidebar({
                                 className={`block rounded border p-3 no-underline ${
                                     selected
                                         ? 'border-primary bg-primary-highlight'
-                                        : 'border-primary/10 hover:bg-fill-secondary'
+                                        : isCompareTarget
+                                          ? 'border-warning bg-warning-highlight'
+                                          : 'border-primary/10 hover:bg-fill-secondary'
                                 }`}
                                 data-attr={`llma-skill-version-link-${versionSkill.version}`}
                             >
@@ -775,7 +884,30 @@ function SkillVersionSidebar({
                                                 Latest
                                             </LemonTag>
                                         ) : null}
+                                        {isCompareTarget ? (
+                                            <LemonTag type="warning" size="small">
+                                                Comparing
+                                            </LemonTag>
+                                        ) : null}
                                     </div>
+                                    {canCompare && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            noPadding
+                                            icon={<IconColumns />}
+                                            tooltip={
+                                                isCompareTarget
+                                                    ? 'Stop comparing'
+                                                    : `Compare with v${versionSkill.version}`
+                                            }
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                                setCompareVersion(isCompareTarget ? null : versionSkill.version)
+                                            }}
+                                            data-attr={`llma-skill-compare-version-${versionSkill.version}`}
+                                        />
+                                    )}
                                 </div>
                                 <div className="text-xs text-secondary">
                                     {dayjs(versionSkill.created_at).format('MMM D, YYYY h:mm A')}

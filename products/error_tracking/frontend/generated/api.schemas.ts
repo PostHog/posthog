@@ -488,9 +488,9 @@ export interface PropertyGroupFilterValueApi {
  * * `user` - user
  * `role` - role
  */
-export type Type079EnumApi = (typeof Type079EnumApi)[keyof typeof Type079EnumApi]
+export type TypeDe9EnumApi = (typeof TypeDe9EnumApi)[keyof typeof TypeDe9EnumApi]
 
-export const Type079EnumApi = {
+export const TypeDe9EnumApi = {
     User: 'user',
     Role: 'role',
 } as const
@@ -500,7 +500,7 @@ export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: Type079EnumApi
+    type: TypeDe9EnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -589,6 +589,15 @@ export interface PaginatedErrorTrackingFingerprintListApi {
     results: ErrorTrackingFingerprintApi[]
 }
 
+export interface GitProviderFileLinkResolveResponseApi {
+    /** Whether a matching file URL was found. */
+    found: boolean
+    /** Resolved URL for the matching file. */
+    url?: string
+    /** Error message when input parameters are invalid. */
+    error?: string
+}
+
 /**
  * @nullable
  */
@@ -634,7 +643,7 @@ export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: Type079EnumApi
+    type: TypeDe9EnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -1017,6 +1026,52 @@ export type ErrorTrackingFingerprintsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string
+}
+
+export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string
 }
 
 export type ErrorTrackingIssuesListParams = {
