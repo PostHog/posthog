@@ -130,41 +130,25 @@ export class VisualReviewClient {
      * Upload artifact to S3 using presigned URL from createRun response.
      */
     async uploadToS3(uploadTarget: UploadTargetApi, data: Buffer): Promise<void> {
-        const maxRetries = 2
-        const baseDelayMs = 1000
+        const formData = new FormData()
 
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const formData = new FormData()
+        // Add all presigned fields
+        for (const [key, value] of Object.entries(uploadTarget.fields) as [string, string][]) {
+            formData.append(key, value)
+        }
 
-            // Add all presigned fields
-            for (const [key, value] of Object.entries(uploadTarget.fields) as [string, string][]) {
-                formData.append(key, value)
-            }
+        // Content-Type must be in form data (required by presigned POST policy)
+        formData.append('Content-Type', 'image/png')
 
-            // Content-Type must be in form data (required by presigned POST policy)
-            formData.append('Content-Type', 'image/png')
+        // Add file data (must be last field in form data for S3)
+        formData.append('file', new Blob([new Uint8Array(data)], { type: 'image/png' }))
 
-            // Add file data (must be last field in form data for S3)
-            formData.append('file', new Blob([new Uint8Array(data)], { type: 'image/png' }))
+        const response = await fetch(uploadTarget.url, {
+            method: 'POST',
+            body: formData,
+        })
 
-            const response = await fetch(uploadTarget.url, {
-                method: 'POST',
-                body: formData,
-            })
-
-            if (response.ok) {
-                return
-            }
-
-            if (shouldRetry(response.status, attempt, maxRetries)) {
-                const delayMs = baseDelayMs * Math.pow(2, attempt)
-                console.warn(
-                    `[vr] S3 upload returned ${response.status}, retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})...`
-                )
-                await sleep(delayMs)
-                continue
-            }
-
+        if (!response.ok) {
             throw new Error(`S3 upload failed: ${response.status}`)
         }
     }
