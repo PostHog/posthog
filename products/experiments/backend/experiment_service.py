@@ -29,6 +29,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
 
@@ -42,6 +43,7 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
     holdout_filters_for_flag,
 )
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -404,7 +406,7 @@ class ExperimentService:
         create_in_folder: str | None = None,
         filters: dict | None = None,
         scheduling_config: dict | None = None,
-        only_count_matured_users: bool = False,
+        only_count_matured_users: bool | None = None,
         archived: bool = False,
         deleted: bool = False,
         conclusion: str | None = None,
@@ -438,8 +440,12 @@ class ExperimentService:
             serializer_context=serializer_context,
         )
 
-        stats_config = self._apply_stats_config_defaults(stats_config)
+        team_config = self._get_team_experiments_config()
+        stats_config = self._apply_stats_config_defaults(stats_config, team_config)
         exposure_criteria = self._apply_exposure_criteria_defaults(exposure_criteria)
+
+        if only_count_matured_users is None:
+            only_count_matured_users = team_config.default_only_count_matured_users
 
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
         if metrics is not None:
@@ -674,14 +680,15 @@ class ExperimentService:
             updated.append(metric_copy)
         return updated
 
-    def _apply_stats_config_defaults(self, stats_config: dict | None) -> dict:
+    def _get_team_experiments_config(self) -> TeamExperimentsConfig:
+        return get_or_create_team_extension(self.team, TeamExperimentsConfig)
+
+    def _apply_stats_config_defaults(
+        self, stats_config: dict | None, team_config: TeamExperimentsConfig | None = None
+    ) -> dict:
         """Apply team-level defaults to stats_config."""
-        from posthog.models.team.extensions import get_or_create_team_extension
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
         result = dict(stats_config or {})
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config = team_config or self._get_team_experiments_config()
 
         if not result.get("method"):
             default_method = config.default_experiment_stats_method or "bayesian"

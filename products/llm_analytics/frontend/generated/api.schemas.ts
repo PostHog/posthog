@@ -583,7 +583,7 @@ export interface EvaluationReportApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between reports in every_n mode to prevent spam. Min 60.
+     * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
      * @minimum -2147483648
      * @maximum 2147483647
      */
@@ -655,7 +655,7 @@ export interface PatchedEvaluationReportApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between reports in every_n mode to prevent spam. Min 60.
+     * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
      * @minimum -2147483648
      * @maximum 2147483647
      */
