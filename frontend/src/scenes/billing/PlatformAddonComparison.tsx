@@ -13,6 +13,7 @@ import {
     IconShield,
     IconShieldLock,
     IconShieldPeople,
+    IconX,
 } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -27,7 +28,6 @@ import { BillingFeatureType, BillingPlan, BillingProductV2AddonType, BillingProd
 import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
-import { PlanIcon } from './PlanComparison'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 type CoreFeature = { icon: JSX.Element; label: string }
@@ -140,9 +140,9 @@ const PlanCard = ({
 }
 
 const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
-    const { currentAndUpgradePlans, surveyID } = useValues(billingProductLogic({ product: addon }))
+    const { surveyID } = useValues(billingProductLogic({ product: addon }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product: addon }))
-    const currentPlan = currentAndUpgradePlans?.currentPlan
+    const pricedPlan = addon.plans?.find((p) => p.flat_rate)
 
     return (
         <div className="flex flex-col gap-3 p-5 rounded bg-surface-secondary ring-1 ring-accent">
@@ -154,17 +154,16 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                         <LemonTag type="warning">Legacy</LemonTag>
                     </div>
                     <div>
-                        You're subscribed to our legacy {addon.name} plan. Compare plans to see if it makes sense to
-                        switch.
+                        You're on our legacy {addon.name} add-on. Compare the new plans below if you'd like to switch.
                     </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 self-center">
-                    {currentPlan?.flat_rate && (
+                    {pricedPlan?.flat_rate && (
                         <div className="flex items-baseline gap-x-1">
                             <span className="font-bold text-3xl leading-none">
-                                {humanFriendlyCurrency(Number(currentPlan.unit_amount_usd), 0)}
+                                {humanFriendlyCurrency(Number(pricedPlan.unit_amount_usd), 0)}
                             </span>
-                            {currentPlan.unit && <span className="text-secondary">/ {currentPlan.unit}</span>}
+                            {pricedPlan.unit && <span className="text-secondary">/ {pricedPlan.unit}</span>}
                         </div>
                     )}
                     <More
@@ -219,14 +218,30 @@ const ComparisonTable = ({
                             <div className="text-xs text-secondary mt-1">{feature.description}</div>
                         )}
                     </div>
-                    {addons.map((addon) => (
-                        <div
-                            key={addon.type}
-                            className="px-4 py-4 flex items-center justify-center border-l border-primary"
-                        >
-                            <PlanIcon feature={feature.includedIn.get(addon.type)} />
-                        </div>
-                    ))}
+                    {addons.map((addon) => {
+                        const cellFeature = feature.includedIn.get(addon.type)
+                        return (
+                            <div
+                                key={addon.type}
+                                className="px-4 py-4 flex items-center justify-center text-center text-sm border-l border-primary"
+                            >
+                                {!cellFeature ? (
+                                    <IconX className="text-danger text-lg" />
+                                ) : cellFeature.note || cellFeature.limit ? (
+                                    <div className="flex flex-col items-center gap-y-1">
+                                        {cellFeature.note && <span>{cellFeature.note}</span>}
+                                        {cellFeature.limit && (
+                                            <span>
+                                                {cellFeature.limit} {cellFeature.unit}
+                                            </span>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <IconCheckCircle className="text-success text-lg" />
+                                )}
+                            </div>
+                        )
+                    })}
                 </div>
             ))}
         </div>
@@ -238,8 +253,9 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
         .map((type) => product.addons?.find((addon) => addon.type === type && !addon.legacy_product))
         .filter((addon): addon is BillingProductV2AddonType => !!addon)
     const legacyAddon = product.addons?.find((addon) => addon.legacy_product && addon.subscribed) ?? null
-    const hasPlatformAddon = comparableAddons.some((addon) => addon.subscribed)
-    const [isCompareOpen, setIsCompareOpen] = useState(hasPlatformAddon || !!legacyAddon)
+    const [isCompareOpen, setIsCompareOpen] = useState(
+        comparableAddons.some((addon) => addon.subscribed) || !!legacyAddon
+    )
 
     if (comparableAddons.length === 0) {
         return null
@@ -247,13 +263,13 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
 
     const tableAddons = legacyAddon ? [legacyAddon, ...comparableAddons] : comparableAddons
 
-    // Features appear in the order the backend returns them (boost → scale-only → enterprise-only).
+    // plan.features is the full inherited superset for each tier.
+    // The billing API marks tier-own features with entitlement_only=false and inherited ones with entitlement_only=true
+    // TODO: do not show entitlement-only features that are not inherited, such as "Product Analytics AI"
     const featuresByKey = new Map<string, ComparisonFeature>()
     tableAddons.forEach((addon) => {
-        addon.features?.forEach((feature) => {
-            if (feature.entitlement_only) {
-                return
-            }
+        const planFeatures = (addon.plans?.find((p) => p.flat_rate) ?? addon.plans?.[0])?.features
+        planFeatures?.forEach((feature) => {
             const existing = featuresByKey.get(feature.key)
             if (existing) {
                 existing.includedIn.set(addon.type, feature)
