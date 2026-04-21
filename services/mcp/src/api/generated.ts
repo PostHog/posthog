@@ -15384,8 +15384,13 @@ export namespace Schemas {
        * @nullable
        */
       name?: string | null;
-      /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. */
-      rollout_percentage: number;
+      /** @nullable */
+      rollout_percentage?: number | null;
+      /**
+       * Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.
+       * @nullable
+       */
+      split_percent?: number | null;
     }
 
     export interface ExperimentParameters {
@@ -15581,7 +15586,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
@@ -19946,15 +19951,20 @@ export namespace Schemas {
     } as const;
 
     export interface LogsAlertConfiguration {
+      /** Unique identifier for this alert. */
       readonly id: string;
-      /** @maxLength 255 */
+      /**
+       * Human-readable name for this alert.
+       * @maxLength 255
+       */
       name: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
       filters: unknown;
       /**
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
        * @minimum 1
-       * @maximum 2147483647
        */
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -19962,12 +19972,18 @@ export namespace Schemas {
     * `above` - Above
     * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
-      /**
-       * @minimum 0
-       * @maximum 2147483647
-       */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+    * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+    * `broken` - Broken */
       readonly state: LogsAlertConfigurationStateEnum;
       /**
        * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -19982,27 +19998,44 @@ export namespace Schemas {
        */
       datapoints_to_alarm?: number;
       /**
+       * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
        * @minimum 0
-       * @maximum 2147483647
        */
       cooldown_minutes?: number;
-      /** @nullable */
+      /**
+       * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+       * @nullable
+       */
       snooze_until?: string | null;
-      /** @nullable */
+      /**
+       * When the next evaluation is scheduled. Server-managed.
+       * @nullable
+       */
       readonly next_check_at: string | null;
-      /** @nullable */
+      /**
+       * When the last notification was sent. Server-managed.
+       * @nullable
+       */
       readonly last_notified_at: string | null;
-      /** @nullable */
+      /**
+       * When the alert was last evaluated. Server-managed.
+       * @nullable
+       */
       readonly last_checked_at: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
       readonly consecutive_failures: number;
       /**
        * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
        * @nullable
        */
       readonly last_error_message: string | null;
+      /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
-      /** @nullable */
+      /**
+       * When the alert was last modified.
+       * @nullable
+       */
       readonly updated_at: string | null;
     }
 
@@ -25369,7 +25402,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
@@ -26059,15 +26092,20 @@ export namespace Schemas {
     }
 
     export interface PatchedLogsAlertConfiguration {
+      /** Unique identifier for this alert. */
       readonly id?: string;
-      /** @maxLength 255 */
+      /**
+       * Human-readable name for this alert.
+       * @maxLength 255
+       */
       name?: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
       filters?: unknown;
       /**
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
        * @minimum 1
-       * @maximum 2147483647
        */
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -26075,12 +26113,18 @@ export namespace Schemas {
     * `above` - Above
     * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
-      /**
-       * @minimum 0
-       * @maximum 2147483647
-       */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes?: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+
+    * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+    * `broken` - Broken */
       readonly state?: LogsAlertConfigurationStateEnum;
       /**
        * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -26095,27 +26139,44 @@ export namespace Schemas {
        */
       datapoints_to_alarm?: number;
       /**
+       * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
        * @minimum 0
-       * @maximum 2147483647
        */
       cooldown_minutes?: number;
-      /** @nullable */
+      /**
+       * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+       * @nullable
+       */
       snooze_until?: string | null;
-      /** @nullable */
+      /**
+       * When the next evaluation is scheduled. Server-managed.
+       * @nullable
+       */
       readonly next_check_at?: string | null;
-      /** @nullable */
+      /**
+       * When the last notification was sent. Server-managed.
+       * @nullable
+       */
       readonly last_notified_at?: string | null;
-      /** @nullable */
+      /**
+       * When the alert was last evaluated. Server-managed.
+       * @nullable
+       */
       readonly last_checked_at?: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
       readonly consecutive_failures?: number;
       /**
        * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
        * @nullable
        */
       readonly last_error_message?: string | null;
+      /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
-      /** @nullable */
+      /**
+       * When the alert was last modified.
+       * @nullable
+       */
       readonly updated_at?: string | null;
     }
 

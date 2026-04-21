@@ -66,7 +66,29 @@ class ExperimentMetricsField(serializers.JSONField):
 
 @extend_schema_field(ExperimentParameters)  # type: ignore[arg-type]
 class ExperimentParametersField(serializers.JSONField):
-    pass
+    def to_representation(self, value: Any) -> Any:
+        from copy import deepcopy
+
+        # Add split_percent to outside representation for each variant to simplify frontend logic. The internal representation only uses rollout_percentage to avoid redundancy, but the frontend needs split_percent to display the variant splits in the UI and to support editing the splits in a user-friendly way (editing rollout_percentage directly would be more complex since it's not variant-specific and needs to be inferred from the variants' split_percent values).
+        # Deep copy to avoid mutating the model instance's in-memory parameters dict
+        data: Any = deepcopy(super().to_representation(value))
+        if isinstance(data, dict) and "feature_flag_variants" in data:
+            for variant in data["feature_flag_variants"]:
+                if isinstance(variant, dict) and "rollout_percentage" in variant:
+                    variant["split_percent"] = variant["rollout_percentage"]
+        return data
+
+    def to_internal_value(self, data: Any) -> Any:
+        from copy import deepcopy
+
+        # Deep copy to avoid mutating the caller's dict (e.g. serializer.initial_data / request.data)
+        if isinstance(data, dict) and "feature_flag_variants" in data:
+            data = deepcopy(data)
+            for variant in data["feature_flag_variants"]:
+                if isinstance(variant, dict) and "split_percent" in variant:
+                    # split_percent wins in case both keys present, as rollout_percentage deprecated
+                    variant["rollout_percentage"] = variant.pop("split_percent")
+        return super().to_internal_value(data)
 
 
 @extend_schema_field(ExperimentApiExposureCriteria)  # type: ignore[arg-type]
@@ -117,7 +139,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         help_text=(
             "Variant definitions and statistical configuration. "
             "Set feature_flag_variants to customize the split (default: 50/50 control/test). "
-            "Each variant needs a key and rollout_percentage; percentages must sum to 100. "
+            "Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. "
             "Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
         ),
     )

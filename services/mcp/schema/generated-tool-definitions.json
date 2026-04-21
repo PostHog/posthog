@@ -2025,6 +2025,86 @@
             "readOnlyHint": true
         }
     },
+    "logs-alerts-list": {
+        "description": "List log alert configurations in the current project, newest first. Returns alert name, state, threshold, filters, and scheduling details. Use this to review existing alerts before creating or modifying them.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "List log alerts",
+        "title": "List log alerts",
+        "required_scopes": ["logs:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-create": {
+        "description": "Create a threshold-based alert on log streams. The alert periodically counts log entries matching the given filters and fires when the count crosses the threshold. Maximum 20 alerts per project.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Create log alert",
+        "title": "Create log alert",
+        "required_scopes": ["logs:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-retrieve": {
+        "description": "Get a log alert configuration by ID. Returns full details including current state, threshold settings, filters, and scheduling information.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Get log alert",
+        "title": "Get log alert",
+        "required_scopes": ["logs:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-partial-update": {
+        "description": "Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust thresholds, filters, enable/disable alerts, or snooze them.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Update log alert",
+        "title": "Update log alert",
+        "required_scopes": ["logs:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-destroy": {
+        "description": "Permanently delete a log alert configuration by ID.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Delete log alert",
+        "title": "Delete log alert",
+        "required_scopes": ["logs:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
     "logs-sparkline-query": {
         "description": "Get a time-bucketed sparkline of log volume, broken down by severity or service. Use this to understand log volume patterns before querying individual log entries — it is much cheaper than a full log query.\n\nAll parameters must be nested inside a `query` object.\n\n# Parameters\n\n## query.dateRange\n\nDate range for the sparkline. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nFilter by service names.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.searchTerm\n\nFull-text search across log bodies.\n\n## query.filterGroup\n\nProperty filters to narrow results. Same format as `query-logs` filters.\n\n## query.sparklineBreakdownBy\n\nBreak down the sparkline by `\"severity\"` (default) or `\"service\"`. Use `\"service\"` to see which services are producing the most logs.\n\n# Examples\n\n## Error volume over the last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Log volume by service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"sparklineBreakdownBy\": \"service\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Log volume by severity\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"sparklineBreakdownBy\": \"severity\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```",
         "category": "Logs",
