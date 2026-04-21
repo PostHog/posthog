@@ -50,7 +50,9 @@ pub async fn run(client: CannonClient, args: DiscoverArgs) -> Result<()> {
             args.person_ids.len(),
             args.team_id
         );
-        let persons = client.get_persons(args.team_id, args.person_ids.clone()).await?;
+        let persons = client
+            .get_persons(args.team_id, args.person_ids.clone())
+            .await?;
         let found_ids: std::collections::HashSet<i64> = persons.iter().map(|p| p.id).collect();
 
         for person in persons {
@@ -98,10 +100,7 @@ pub async fn run(client: CannonClient, args: DiscoverArgs) -> Result<()> {
             row.version.to_string(),
             row.is_identified.to_string(),
             row.property_count.to_string(),
-            row.distinct_id
-                .as_deref()
-                .unwrap_or("-")
-                .to_string(),
+            row.distinct_id.as_deref().unwrap_or("-").to_string(),
         ]);
     }
 

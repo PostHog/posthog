@@ -7,7 +7,12 @@ use std::time::Duration;
     about = "Load testing & validation harness for personhog"
 )]
 pub struct Cli {
-    #[arg(long, env = "ROUTER_URL", default_value = "http://localhost:50052", global = true)]
+    #[arg(
+        long,
+        env = "ROUTER_URL",
+        default_value = "http://localhost:50052",
+        global = true
+    )]
     pub router_url: String,
 
     #[command(subcommand)]

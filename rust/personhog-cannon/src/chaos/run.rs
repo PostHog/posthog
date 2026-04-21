@@ -113,13 +113,7 @@ pub async fn run(client: CannonClient, args: ChaosRunArgs) -> Result<()> {
 
                 let start = Instant::now();
                 match client
-                    .update_properties(
-                        team_id,
-                        person_id,
-                        props,
-                        serde_json::json!({}),
-                        vec![],
-                    )
+                    .update_properties(team_id, person_id, props, serde_json::json!({}), vec![])
                     .await
                 {
                     Ok(resp) => {
@@ -127,9 +121,7 @@ pub async fn run(client: CannonClient, args: ChaosRunArgs) -> Result<()> {
                         if let Some(person) = resp.person {
                             let mut written = HashMap::new();
                             written.insert(key, serde_json::Value::String(value));
-                            state
-                                .record_write(person_id, person.version, written)
-                                .await;
+                            state.record_write(person_id, person.version, written).await;
                         }
                     }
                     Err(_) => {
@@ -293,8 +285,7 @@ async fn execute_action(
             Ok(())
         }
         ChaosAction::ScaleUp => {
-            let current =
-                k8s::get_statefulset_replicas(namespace, statefulset_name).await?;
+            let current = k8s::get_statefulset_replicas(namespace, statefulset_name).await?;
             let target = current + 1;
             println!("    Scaling {statefulset_name} from {current} to {target}...");
             k8s::scale_statefulset(namespace, statefulset_name, target).await?;

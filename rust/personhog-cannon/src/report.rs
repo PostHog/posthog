@@ -59,7 +59,14 @@ pub fn print_report(
         .load_preset(UTF8_FULL_CONDENSED)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec![
-            "Operation", "Total", "Success", "Failed", "p50", "p95", "p99", "RPS",
+            "Operation",
+            "Total",
+            "Success",
+            "Failed",
+            "p50",
+            "p95",
+            "p99",
+            "RPS",
         ]);
 
     if write_snap.total > 0 {
@@ -73,14 +80,13 @@ pub fn print_report(
     println!();
 
     if violations.is_empty() {
-        println!(
-            "  {}",
-            "Consistency violations: 0".green()
-        );
+        println!("  {}", "Consistency violations: 0".green());
     } else {
         println!(
             "  {}",
-            format!("Consistency violations: {}", violations.len()).red().bold()
+            format!("Consistency violations: {}", violations.len())
+                .red()
+                .bold()
         );
         println!();
         for v in violations.iter().take(20) {

@@ -119,10 +119,7 @@ pub async fn scale_statefulset(
 }
 
 /// Get the current replica count of a StatefulSet.
-pub async fn get_statefulset_replicas(
-    namespace: &str,
-    statefulset_name: &str,
-) -> Result<u32> {
+pub async fn get_statefulset_replicas(namespace: &str, statefulset_name: &str) -> Result<u32> {
     let output = Command::new("kubectl")
         .args([
             "get",
@@ -150,11 +147,7 @@ pub async fn get_statefulset_replicas(
 }
 
 /// Wait for a specific pod to become Ready.
-pub async fn wait_for_pod_ready(
-    namespace: &str,
-    pod_name: &str,
-    timeout_secs: u64,
-) -> Result<()> {
+pub async fn wait_for_pod_ready(namespace: &str, pod_name: &str, timeout_secs: u64) -> Result<()> {
     let output = Command::new("kubectl")
         .args([
             "wait",

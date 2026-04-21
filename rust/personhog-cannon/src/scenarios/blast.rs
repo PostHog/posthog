@@ -59,18 +59,11 @@ pub async fn run(client: CannonClient, args: BlastArgs) -> Result<()> {
 
                 let key = format!("{prefix}{worker_id}_{counter}");
                 let value = uuid::Uuid::new_v4().to_string();
-                let props =
-                    serde_json::json!({ &key: &value });
+                let props = serde_json::json!({ &key: &value });
 
                 let start = Instant::now();
                 match client
-                    .update_properties(
-                        team_id,
-                        person_id,
-                        props,
-                        serde_json::json!({}),
-                        vec![],
-                    )
+                    .update_properties(team_id, person_id, props, serde_json::json!({}), vec![])
                     .await
                 {
                     Ok(resp) => {
@@ -78,9 +71,7 @@ pub async fn run(client: CannonClient, args: BlastArgs) -> Result<()> {
                         if let Some(person) = resp.person {
                             let mut written = HashMap::new();
                             written.insert(key, serde_json::Value::String(value));
-                            state
-                                .record_write(person_id, person.version, written)
-                                .await;
+                            state.record_write(person_id, person.version, written).await;
                         }
                     }
                     Err(e) => {

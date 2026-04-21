@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use personhog_proto::personhog::{
     service::v1::person_hog_service_client::PersonHogServiceClient,
     types::v1::{
-        ConsistencyLevel, GetPersonRequest, GetPersonsRequest,
-        GetPersonsByDistinctIdsInTeamRequest, Person, PersonWithDistinctIds, ReadOptions,
+        ConsistencyLevel, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
+        GetPersonsRequest, Person, PersonWithDistinctIds, ReadOptions,
         UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     },
 };

@@ -16,10 +16,7 @@ pub async fn run(args: ChaosStatusArgs) -> Result<()> {
     let total = etcd.get_total_partitions().await.unwrap_or(0);
 
     println!();
-    println!(
-        "{}",
-        "=== personhog coordination status ===".bold()
-    );
+    println!("{}", "=== personhog coordination status ===".bold());
     println!(
         "  etcd: {}  prefix: {}",
         args.etcd_endpoints, args.etcd_prefix
@@ -89,7 +86,13 @@ pub async fn run(args: ChaosStatusArgs) -> Result<()> {
         let now = now_secs();
         let router_info: Vec<String> = routers
             .iter()
-            .map(|r| format!("{} (heartbeat {})", r.router_name, format_age(now, r.last_heartbeat)))
+            .map(|r| {
+                format!(
+                    "{} (heartbeat {})",
+                    r.router_name,
+                    format_age(now, r.last_heartbeat)
+                )
+            })
             .collect();
         println!("  Routers: {}", router_info.join(", "));
     }
