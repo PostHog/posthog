@@ -30,10 +30,6 @@ import type { legacyExperimentModalsLogicType } from './legacyExperimentModalsLo
 export const legacyExperimentModalsLogic = kea<legacyExperimentModalsLogicType>([
     path(['scenes', 'experiments', 'legacy', 'legacyExperimentModalsLogic']),
     actions({
-        // Description editing
-        openDescriptionModal: true,
-        closeDescriptionModal: true,
-
         // Shared metrics - Primary
         openPrimarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => ({ sharedMetricId }),
         closePrimarySharedMetricModal: true,
@@ -59,15 +55,6 @@ export const legacyExperimentModalsLogic = kea<legacyExperimentModalsLogicType>(
         closeSecondaryMetricSourceModal: true,
     }),
     reducers({
-        // Description modal state
-        isDescriptionModalOpen: [
-            false,
-            {
-                openDescriptionModal: () => true,
-                closeDescriptionModal: () => false,
-            },
-        ],
-
         // Primary shared metric modal state
         isPrimarySharedMetricModalOpen: [
             false,
