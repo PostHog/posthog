@@ -1322,11 +1322,13 @@ class BasePrinter(Visitor[str]):
 
         materialized_property_source = self._get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
-            # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
-            if (
-                len(type.chain) == 1
-                and type.chain[0] in ("$ai_trace_id", "$ai_session_id", "$ai_is_error")
-                and isinstance(materialized_property_source, PrintableMaterializedColumn)
+            # Emit the mat column raw when the caller opted out of nullIf wrapping
+            # (e.g. the JSONExtractString rewrite preserving raw semantics) or when
+            # the property is in the known $ai_* set where we skip the wrap for
+            # skip-index optimization.
+            if isinstance(materialized_property_source, PrintableMaterializedColumn) and (
+                type.skip_nullable_wrap
+                or (len(type.chain) == 1 and type.chain[0] in ("$ai_trace_id", "$ai_session_id", "$ai_is_error"))
             ):
                 materialized_property_sql = str(materialized_property_source)
             elif (

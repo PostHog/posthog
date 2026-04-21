@@ -9,6 +9,7 @@ from posthog.test.base import (
     _create_event,
     flush_persons_and_events,
     get_indexes_from_explain,
+    materialized,
 )
 
 from django.test import override_settings
@@ -227,11 +228,16 @@ class TestPropertyTypes(BaseTest):
 
 
 class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
-    # Value semantics after the rewrite are NOT always equivalent to raw JSONExtractString.
-    # The non-nullable mat column path adds nullIf(nullIf(mat_col, ''), 'null') wrapping,
-    # which collapses unset/empty/'null' results into SQL NULL (original path returns '').
-    # The nullable mat column path skips the nullIf wrapping, so empty string and the
-    # literal string 'null' round-trip unchanged — only unset keys diverge (NULL vs '').
+    # Value semantics of JSONExtractString(properties, 'x') after the transform
+    # replaces the call with a mat_x column read:
+    # - Non-nullable mat columns: byte-equivalent to the raw JSONExtractString call.
+    #   PropertyType.skip_nullable_wrap=True keeps the printer from adding its usual
+    #   nullIf(nullIf(col, ''), 'null') wrap, and since the column's DEFAULT is the
+    #   same JSONExtractString call, unset/empty/'null' all round-trip unchanged.
+    # - Nullable mat columns: empty string and literal 'null' round-trip, but unset
+    #   keys return SQL NULL (the mat column uses JSONHas gating) where raw
+    #   JSONExtractString would return ''. Callers who need strict equivalence for
+    #   unset keys should wrap in ifNull(..., '') explicitly.
     # See test_rewrite_value_semantics_* for the concrete matrix.
     def _print_select(self, select: str):
         expr = parse_select(select)
@@ -249,8 +255,6 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_jsonextractstring_rewritten_to_mat_column(self, _name: str, query: str):
-        from posthog.test.base import materialized
-
         with materialized("events", "$browser"):
             printed = self._print_select(query)
             assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
@@ -268,8 +272,6 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
 
     def test_jsonextractint_not_rewritten_even_with_mat_column(self):
-        from posthog.test.base import materialized
-
         with materialized("events", "$browser"):
             printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
             assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
@@ -318,22 +320,19 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": ""}
 
     def test_rewrite_value_semantics_non_nullable_mat_column(self):
-        # Non-nullable mat column: the printer applies nullIf(nullIf(mat_col, ''), 'null'),
-        # which collapses unset, empty string, and the literal string 'null' into SQL NULL.
-        # This diverges from the raw JSONExtractString behavior (returns '' / '' / 'null').
-        from posthog.test.base import materialized
-
+        # Non-nullable mat column: the rewrite sets skip_nullable_wrap on the PropertyType,
+        # so the printer emits the bare mat column (no nullIf wrap). The mat column's
+        # DEFAULT expression is the same JSONExtractString call, so values round-trip
+        # exactly — this path is byte-equivalent to raw JSONExtractString.
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=False):
             values = self._run_and_collect()
-        assert values == {"set": "Chrome", "empty": None, "null_str": None, "unset": None}
+        assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": ""}
 
     def test_rewrite_value_semantics_nullable_mat_column(self):
         # Nullable mat column: no nullIf wrapping. Empty string and the literal string 'null'
         # round-trip unchanged. Only unset keys diverge from raw JSONExtractString: the mat
         # column stores NULL for missing keys while raw extract returns ''.
-        from posthog.test.base import materialized
-
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=True):
             values = self._run_and_collect()

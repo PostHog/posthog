@@ -4657,6 +4657,16 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ImpossibleASTError):
             execute_hogql_query(team=self.team, query=query)
 
+    def test_jsonextractstring_rewrite_emits_bare_mat_column(self) -> None:
+        # The JSONExtractString rewrite sets PropertyType.skip_nullable_wrap=True,
+        # so the printer emits the bare mat column — no nullIf(nullIf(..., ''), 'null')
+        # wrap. This preserves raw JSONExtractString semantics and keeps skip indexes
+        # usable on the mat column.
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            printed = self._expr("JSONExtractString(properties, 'test_prop')")
+            assert printed == f"events.{mat_col.name}"
+            assert "nullIf" not in printed
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):
