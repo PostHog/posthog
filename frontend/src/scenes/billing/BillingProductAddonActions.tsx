@@ -251,13 +251,19 @@ export const BillingProductAddonActions = ({
             return null
         }
 
-        const showPricing = upgradePlan.flat_rate
+        const hasFlatRate = !!upgradePlan.flat_rate
+        const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
+        const showLabel = hasFlatRate && !(hidePricingNote && !isProrated)
 
         return (
             <>
-                {showPricing && (
+                {showLabel && (
                     <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
-                        {formatFlatRate(Number(upgradePlan.unit_amount_usd), upgradePlan.unit)}
+                        {hidePricingNote && isProrated ? (
+                            <span>${amountDue.toFixed(2)} today (prorated)</span>
+                        ) : (
+                            formatFlatRate(Number(upgradePlan.unit_amount_usd), upgradePlan.unit)
+                        )}
                     </h4>
                 )}
 
