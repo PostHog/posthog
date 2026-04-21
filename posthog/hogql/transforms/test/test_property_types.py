@@ -303,20 +303,24 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-    def _run_and_collect(self) -> dict[str, Any]:
+    def _run_and_collect(self) -> tuple[dict[str, Any], str]:
         hogql = (
             "SELECT properties.tag, JSONExtractString(properties, '$browser') "
             "FROM events WHERE event = 'pageview' ORDER BY properties.tag"
         )
         response = execute_hogql_query(hogql, team=self.team)
         assert response.results is not None
-        return {row[0]: row[1] for row in response.results}
+        values = {row[0]: row[1] for row in response.results}
+        return values, response.clickhouse or ""
 
     def test_rewrite_value_semantics_no_mat_column(self):
         # Baseline: no materialized column, no rewrite. JSONExtractString returns ''
         # for every non-string case (unset, empty string), and 'null' for the literal string.
         self._seed_edge_case_events()
-        values = self._run_and_collect()
+        values, sql = self._run_and_collect()
+        # No rewrite — the raw JSONExtractString call stays in the compiled SQL.
+        assert "JSONExtractString(events.properties" in sql, sql
+        assert "mat_$browser" not in sql, sql
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": ""}
 
     def test_rewrite_value_semantics_non_nullable_mat_column(self):
@@ -326,7 +330,12 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         # exactly — this path is byte-equivalent to raw JSONExtractString.
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=False):
-            values = self._run_and_collect()
+            values, sql = self._run_and_collect()
+        # Rewrite fired: raw JSONExtractString on properties replaced by the bare mat
+        # column, no nullIf wrap (thanks to skip_nullable_wrap).
+        assert "JSONExtractString(events.properties" not in sql, sql
+        assert "mat_$browser" in sql, sql
+        assert "nullIf" not in sql, sql
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": ""}
 
     def test_rewrite_value_semantics_nullable_mat_column(self):
@@ -335,7 +344,11 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         # column stores NULL for missing keys while raw extract returns ''.
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=True):
-            values = self._run_and_collect()
+            values, sql = self._run_and_collect()
+        # Rewrite fired: raw JSONExtractString replaced by the nullable mat column
+        # (nullable columns are already emitted raw by the printer).
+        assert "JSONExtractString(events.properties" not in sql, sql
+        assert "mat_$browser" in sql, sql
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": None}
 
 
