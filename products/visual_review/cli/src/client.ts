@@ -4,6 +4,7 @@
  * Simple fetch-based implementation for CLI usage.
  * Uses generated types from the frontend package.
  */
+import { Agent, RetryAgent } from 'undici'
 import type {
     ApproveSnapshotInputApi,
     ArtifactApi,
@@ -26,12 +27,20 @@ export type {
     UploadTargetApi as UploadTarget,
 }
 
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function shouldRetry(status: number, attempt: number, maxRetries: number): boolean {
-    return status >= 500 && attempt < maxRetries
+/**
+ * Create a RetryAgent that retries on 5xx errors with exponential backoff.
+ * Uses undici's built-in retry mechanism — no manual sleep loops.
+ */
+function createRetryDispatcher(): RetryAgent {
+    return new RetryAgent(new Agent(), {
+        maxRetries: 3,
+        minTimeout: 1_000,  // 1s initial delay
+        maxTimeout: 8_000,  // 8s cap
+        timeoutFactor: 2,   // exponential: 1s, 2s, 4s
+        statusCodes: [502, 503, 504],
+        methods: ['GET', 'POST', 'PUT', 'DELETE'],
+        retryAfter: true,
+    })
 }
 
 export interface ClientConfig {
@@ -45,6 +54,7 @@ export class VisualReviewClient {
     private apiUrl: string
     private teamId: string
     private headers: Record<string, string>
+    private dispatcher: RetryAgent
 
     constructor(config: ClientConfig) {
         this.apiUrl = config.apiUrl.replace(/\/$/, '')
@@ -57,6 +67,7 @@ export class VisualReviewClient {
         } else if (config.sessionCookie) {
             this.headers['Cookie'] = config.sessionCookie
         }
+        this.dispatcher = createRetryDispatcher()
     }
 
     private url(path: string): string {
@@ -64,38 +75,21 @@ export class VisualReviewClient {
     }
 
     private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-        const maxRetries = 3
-        const baseDelayMs = 1000
+        const response = await fetch(this.url(path), {
+            ...options,
+            headers: {
+                ...this.headers,
+                ...options.headers,
+            },
+            dispatcher: this.dispatcher,
+        } as RequestInit)
 
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const response = await fetch(this.url(path), {
-                ...options,
-                headers: {
-                    ...this.headers,
-                    ...options.headers,
-                },
-            })
-
-            if (response.ok) {
-                return response.json() as Promise<T>
-            }
-
+        if (!response.ok) {
             const text = await response.text()
-
-            if (shouldRetry(response.status, attempt, maxRetries)) {
-                const delayMs = baseDelayMs * Math.pow(2, attempt)
-                console.warn(
-                    `[vr] API returned ${response.status}, retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})...`
-                )
-                await sleep(delayMs)
-                continue
-            }
-
             throw new Error(`API error ${response.status}: ${text}`)
         }
 
-        // Unreachable, but TypeScript needs it
-        throw new Error('Unexpected: exhausted retries without throwing')
+        return response.json() as Promise<T>
     }
 
     /**
