@@ -74,6 +74,10 @@ class TestRecommendationsAPI(APIBaseTest):
         mock_exception_autocapture_compute.assert_called_once()
 
     @patch(
+        "products.error_tracking.backend.recommendations.exception_autocapture.ExceptionAutocaptureRecommendation.compute",
+        return_value=MOCK_EXCEPTION_AUTOCAPTURE_META,
+    )
+    @patch(
         "products.error_tracking.backend.recommendations.weekly_digest.WeeklyDigestRecommendation.compute",
         return_value=MOCK_WEEKLY_DIGEST_META,
     )
@@ -86,7 +90,7 @@ class TestRecommendationsAPI(APIBaseTest):
         return_value=MOCK_META,
     )
     def test_second_list_within_interval_does_not_recompute(
-        self, mock_compute, mock_alerts_compute, mock_weekly_digest_compute
+        self, mock_compute, mock_alerts_compute, mock_weekly_digest_compute, mock_exception_autocapture_compute
     ):
         self._list()
         mock_compute.assert_called_once()
@@ -130,6 +134,10 @@ class TestRecommendationsAPI(APIBaseTest):
 
     @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
     @patch(
+        "products.error_tracking.backend.recommendations.exception_autocapture.ExceptionAutocaptureRecommendation.compute",
+        return_value=MOCK_EXCEPTION_AUTOCAPTURE_META,
+    )
+    @patch(
         "products.error_tracking.backend.recommendations.weekly_digest.WeeklyDigestRecommendation.compute",
         return_value=MOCK_WEEKLY_DIGEST_META,
     )
@@ -141,7 +149,12 @@ class TestRecommendationsAPI(APIBaseTest):
         "products.error_tracking.backend.recommendations.cross_sell.CrossSellRecommendation.compute",
     )
     def test_refresh_before_interval_returns_cached(
-        self, mock_compute, mock_alerts_compute, mock_weekly_digest_compute, frozen_time
+        self,
+        mock_compute,
+        mock_alerts_compute,
+        mock_weekly_digest_compute,
+        mock_exception_autocapture_compute,
+        frozen_time,
     ):
         mock_compute.return_value = MOCK_META
         response = self._list()
@@ -159,6 +172,10 @@ class TestRecommendationsAPI(APIBaseTest):
 
     @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
     @patch(
+        "products.error_tracking.backend.recommendations.exception_autocapture.ExceptionAutocaptureRecommendation.compute",
+        return_value=MOCK_EXCEPTION_AUTOCAPTURE_META,
+    )
+    @patch(
         "products.error_tracking.backend.recommendations.weekly_digest.WeeklyDigestRecommendation.compute",
         return_value=MOCK_WEEKLY_DIGEST_META,
     )
@@ -170,7 +187,12 @@ class TestRecommendationsAPI(APIBaseTest):
         "products.error_tracking.backend.recommendations.cross_sell.CrossSellRecommendation.compute",
     )
     def test_refresh_after_interval_recomputes(
-        self, mock_compute, mock_alerts_compute, mock_weekly_digest_compute, frozen_time
+        self,
+        mock_compute,
+        mock_alerts_compute,
+        mock_weekly_digest_compute,
+        mock_exception_autocapture_compute,
+        frozen_time,
     ):
         mock_compute.return_value = MOCK_META
         response = self._list()
@@ -208,6 +230,10 @@ class TestRecommendationsAPI(APIBaseTest):
         self.assertFalse(WeeklyDigestRecommendation().compute(self.team, self.user)["enabled"])
 
     @patch(
+        "products.error_tracking.backend.recommendations.exception_autocapture.ExceptionAutocaptureRecommendation.compute",
+        return_value=MOCK_EXCEPTION_AUTOCAPTURE_META,
+    )
+    @patch(
         "products.error_tracking.backend.recommendations.weekly_digest.WeeklyDigestRecommendation.compute",
         return_value=MOCK_WEEKLY_DIGEST_META,
     )
@@ -220,7 +246,7 @@ class TestRecommendationsAPI(APIBaseTest):
         return_value=MOCK_META,
     )
     def test_weekly_digest_is_user_scoped_and_not_visible_to_other_users(
-        self, mock_compute, mock_alerts_compute, mock_weekly_digest_compute
+        self, mock_compute, mock_alerts_compute, mock_weekly_digest_compute, mock_exception_autocapture_compute
     ):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
