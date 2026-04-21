@@ -10,6 +10,7 @@ function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
         stateManager: { getProjectId: vi.fn().mockResolvedValue('42') } as any,
         env: {} as any,
         sessionManager: {} as any,
+        cache: {} as any,
     }
 }
 
@@ -56,7 +57,7 @@ describe('externalDataSourcesDbSchema', () => {
             payload: { host: 'db.example.com' },
         })
 
-        const body = requestMock.mock.calls[0][0].body
+        const body = requestMock.mock.calls[0]![0].body
         expect(body).not.toHaveProperty('payload')
         expect(body.host).toBe('db.example.com')
         expect(body.source_type).toBe('MySQL')
@@ -94,7 +95,7 @@ describe('externalDataSourcesJobs', () => {
 
         await tool.handler(context, { id: 'source-456' })
 
-        const query = requestMock.mock.calls[0][0].query
+        const query = requestMock.mock.calls[0]![0].query
         expect(query).toEqual({})
         expect(query).not.toHaveProperty('after')
         expect(query).not.toHaveProperty('before')
@@ -111,7 +112,7 @@ describe('externalDataSourcesJobs', () => {
             after: '2025-06-01T00:00:00Z',
         })
 
-        const query = requestMock.mock.calls[0][0].query
+        const query = requestMock.mock.calls[0]![0].query
         expect(query).toEqual({ after: '2025-06-01T00:00:00Z' })
     })
 })
