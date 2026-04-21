@@ -161,8 +161,10 @@ export function useToolResult<T = unknown>({
                     hasArguments: !!data.arguments,
                 })
             }
+
             // Do NOT register partial tool input handler (streaming)
             // This is too noisy, happens for each chunk of input we get from the server
+            // appInstance.ontoolinputpartial = () => {}
 
             // Register tool cancelled handler
             appInstance.ontoolcancelled = (params) => {
