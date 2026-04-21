@@ -124,6 +124,35 @@ class TestMakePaginatedRequest:
             for variables in snapshots:
                 assert variables["filter"] == {"updatedAt": {"gt": filter_gte}}
 
+    @parameterized.expand([("null_end_cursor", None), ("empty_end_cursor", "")])
+    @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
+    def test_stops_when_has_next_page_but_cursor_missing(
+        self,
+        _name: str,
+        bad_cursor: str | None,
+        mock_session_cls: MagicMock,
+    ) -> None:
+        session = MagicMock()
+        session.post.side_effect = [_make_response([{"id": "a"}], True, bad_cursor)]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager(can_resume=False)
+        logger = MagicMock()
+
+        pages = list(
+            _make_paginated_request(
+                access_token="tok",
+                endpoint_name="issues",
+                logger=logger,
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert pages == [[{"id": "a"}]]
+        manager.save_state.assert_not_called()
+        logger.warning.assert_called_once()
+        assert session.post.call_count == 1
+
 
 class TestLinearSource:
     def test_source_response_wires_primary_key_and_items(self) -> None:

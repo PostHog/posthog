@@ -107,10 +107,19 @@ def _make_paginated_request(
             page_info = payload["data"][graphql_query_name]["pageInfo"]
             has_next_page = page_info["hasNextPage"]
             if has_next_page:
-                variables["cursor"] = page_info["endCursor"]
-                # Checkpoint points at the next page to fetch; duplicates on resume
-                # are dedup'd via the endpoint's primary_key.
-                resumable_source_manager.save_state(LinearResumeConfig(cursor=page_info["endCursor"]))
+                end_cursor = page_info.get("endCursor")
+                if not end_cursor:
+                    # Defensive: if the API ever reports hasNextPage=True with a missing/null
+                    # endCursor we'd loop forever on the first page. Stop instead.
+                    logger.warning(
+                        f"Linear: hasNextPage=True but endCursor is empty for {endpoint_name}, stopping pagination"
+                    )
+                    break
+                variables["cursor"] = end_cursor
+                # Checkpoint points at the next page to fetch. On resume the first request
+                # re-fetches that page; full-refresh appends and incremental merges on the
+                # endpoint's primary_key, so duplicates are tolerated.
+                resumable_source_manager.save_state(LinearResumeConfig(cursor=end_cursor))
     finally:
         sess.close()
 
