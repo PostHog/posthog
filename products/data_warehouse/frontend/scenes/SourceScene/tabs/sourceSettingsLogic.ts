@@ -36,6 +36,7 @@ export interface SourceSettingsLogicProps {
 }
 
 const REFRESH_INTERVAL = 5000
+const MAX_JOBS_REFRESH_INTERVAL = 60000
 const SCHEMA_UPDATE_DEBOUNCE_MS = 500
 
 interface PendingSchemaUpdate {
@@ -49,6 +50,24 @@ interface SchemaUpdateCache {
     schemaUpdateRevisions?: Record<string, number>
     schemaUpdateFlushTimer?: ReturnType<typeof setTimeout> | null
     reapplyingOptimisticSource?: boolean
+}
+
+// Native browser fetch failures (offline, transient DNS/TLS blips, navigation
+// aborts, backgrounded tabs) surface as TypeError / AbortError / NetworkError
+// rather than as ApiError with a status code. Treating them the same as real
+// API errors floods error tracking and — on polling loops — hammers the
+// backend once connectivity returns.
+function isTransientFetchError(error: unknown): boolean {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+        return true
+    }
+    if (error instanceof TypeError) {
+        return true
+    }
+    if (error instanceof Error) {
+        return /failed to fetch|network\s*error|load failed/i.test(error.message)
+    }
+    return false
 }
 
 function applySchemaToSource(
@@ -222,7 +241,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         }),
         updateSchemaFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         source: [
             null as ExternalDataSource | null,
             {
@@ -237,31 +256,50 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 loadJobs: async () => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
 
-                    if (values.jobs.length === 0) {
-                        return await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+                    try {
+                        let nextJobs: ExternalDataJob[]
+                        if (values.jobs.length === 0) {
+                            nextJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+                        } else {
+                            // Re-fetch recent jobs without an `after` filter to get updated statuses.
+                            // The API returns up to 50 jobs sorted by created_at desc, so this
+                            // will refresh the status of recent jobs (e.g. Running -> Completed).
+                            const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+
+                            // Merge fresh jobs with existing jobs, preferring the fresh data
+                            const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
+                            for (const job of freshJobs) {
+                                jobsById.set(job.id, job)
+                            }
+
+                            // Sort by created_at descending (newest first)
+                            nextJobs = Array.from(jobsById.values()).sort(
+                                (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                            )
+                        }
+                        cache.consecutiveJobsFailures = 0
+                        return nextJobs
+                    } catch (error) {
+                        if (isTransientFetchError(error)) {
+                            // Silently keep the existing jobs in state so a transient
+                            // browser-level fetch failure doesn't surface as an uncaught
+                            // rejection or clear the UI. The failure listener (and the
+                            // backoff below) handles rescheduling.
+                            cache.consecutiveJobsFailures = (cache.consecutiveJobsFailures ?? 0) + 1
+                            return values.jobs
+                        }
+                        throw error
                     }
-
-                    // Re-fetch recent jobs without an `after` filter to get updated statuses.
-                    // The API returns up to 50 jobs sorted by created_at desc, so this
-                    // will refresh the status of recent jobs (e.g. Running -> Completed).
-                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
-
-                    // Merge fresh jobs with existing jobs, preferring the fresh data
-                    const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
-                    for (const job of freshJobs) {
-                        jobsById.set(job.id, job)
-                    }
-
-                    // Sort by created_at descending (newest first)
-                    return Array.from(jobsById.values()).sort(
-                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                    )
                 },
                 loadMoreJobs: async () => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
                     const hasJobs = values.jobs.length > 0
-                    if (hasJobs) {
-                        const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
+                    if (!hasJobs) {
+                        return values.jobs
+                    }
+
+                    const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
+                    try {
                         const oldJobs = await api.externalDataSources.jobs(
                             values.sourceId,
                             lastJobCreatedAt,
@@ -275,9 +313,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         }
 
                         return [...values.jobs, ...oldJobs]
+                    } catch (error) {
+                        if (isTransientFetchError(error)) {
+                            return values.jobs
+                        }
+                        throw error
                     }
-
-                    return values.jobs
                 },
             },
         ],
@@ -436,6 +477,17 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     })),
     listeners(({ values, actions, props, cache }) => {
         const schemaUpdateCache = getSchemaUpdateCache(cache)
+
+        const computeJobsRefreshDelay = (): number => {
+            const failures = cache.consecutiveJobsFailures ?? 0
+            if (failures <= 0) {
+                return REFRESH_INTERVAL
+            }
+            // Exponential backoff (5s → 10s → 20s → 40s → 60s cap) so a
+            // transiently-unreachable backend isn't polled at the base cadence
+            // every 5 seconds while the browser is offline.
+            return Math.min(REFRESH_INTERVAL * 2 ** failures, MAX_JOBS_REFRESH_INTERVAL)
+        }
 
         const scheduleSchemaUpdateFlush = (): void => {
             if (schemaUpdateCache.schemaUpdateFlushTimer) {
@@ -605,18 +657,21 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadJobs()
             },
             loadJobsSuccess: () => {
+                const delay = computeJobsRefreshDelay()
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         actions.loadJobs()
-                    }, REFRESH_INTERVAL)
+                    }, delay)
                     return () => clearTimeout(timerId)
                 }, 'jobsRefreshTimeout')
             },
             loadJobsFailure: () => {
+                cache.consecutiveJobsFailures = (cache.consecutiveJobsFailures ?? 0) + 1
+                const delay = computeJobsRefreshDelay()
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
                         actions.loadJobs()
-                    }, REFRESH_INTERVAL)
+                    }, delay)
                     return () => clearTimeout(timerId)
                 }, 'jobsRefreshTimeout')
             },

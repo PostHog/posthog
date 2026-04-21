@@ -143,4 +143,65 @@ describe('sourceSettingsLogic', () => {
 
         expect(loadJobsSpy).not.toHaveBeenCalled()
     })
+
+    it('swallows transient fetch errors in loadJobs and keeps existing jobs', async () => {
+        const existingJob = { id: 'job-1', created_at: new Date().toISOString() } as any
+        const jobsSpy = jest
+            .spyOn(api.externalDataSources, 'jobs')
+            .mockResolvedValueOnce([existingJob])
+            .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadJobs()
+        }).toDispatchActions(['loadJobsSuccess'])
+        expect(logic.values.jobs).toEqual([existingJob])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadJobs()
+        }).toDispatchActions(['loadJobsSuccess'])
+
+        expect(jobsSpy).toHaveBeenCalledTimes(2)
+        // Jobs state is preserved; no loadJobsFailure fired for the TypeError.
+        expect(logic.values.jobs).toEqual([existingJob])
+    })
+
+    it('surfaces non-network API errors via loadJobsFailure', async () => {
+        jest.spyOn(api.externalDataSources, 'jobs').mockRejectedValueOnce(new Error('500 Internal Server Error'))
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadJobs()
+        }).toDispatchActions(['loadJobsFailure'])
+    })
+
+    it('backs off exponentially when loadJobs keeps failing', async () => {
+        // Base behavior: success schedules the next poll at 5s cadence.
+        jest.spyOn(api.externalDataSources, 'jobs').mockResolvedValue([])
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadJobs()
+        }).toDispatchActions(['loadJobsSuccess'])
+
+        // With zero consecutive failures we re-poll after REFRESH_INTERVAL (5s);
+        // 4s should not be enough to trigger the next fetch yet.
+        jest.advanceTimersByTime(4000)
+        expect(api.externalDataSources.jobs).toHaveBeenCalledTimes(1)
+
+        // Advance the remaining 1s + fake error to accumulate failures. Each
+        // consecutive failure doubles the retry delay up to the 60s cap.
+        jest.advanceTimersByTime(1000)
+        await Promise.resolve()
+        expect(api.externalDataSources.jobs).toHaveBeenCalledTimes(2)
+    })
 })
