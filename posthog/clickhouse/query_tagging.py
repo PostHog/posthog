@@ -329,23 +329,32 @@ def get_team_query_tags(team: "int | Team") -> dict[str, Any]:
     prefetched, accessing .organization will lazy-load it (one extra query); prefetch with
     `select_related("team__organization")` upstream to avoid that.
 
-    Returns only {"team_id": team_id} if the id doesn't resolve to an existing team; emits
-    a structured warning so the gap is observable.
+    Returns only {"team_id": team_id} when:
+    - the id doesn't resolve to an existing team, or
+    - the team's organization FK is orphaned (Organization.DoesNotExist).
+    Both cases emit a structured warning so the gap is observable.
     """
-    if isinstance(team, int):
-        from posthog.models.team import Team as TeamModel
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
 
-        resolved = TeamModel.objects.select_related("organization").filter(id=team).first()
+    team_team: Team
+    if isinstance(team, int):
+        resolved = Team.objects.select_related("organization").filter(id=team).first()
         if resolved is None:
             logger.warning("get_team_query_tags_team_not_found", team_id=team)
             return {"team_id": team}
-        team = resolved
+        team_team = resolved
+    else:
+        team_team = team
 
-    return {
-        "team_id": team.pk,
-        "org_id": team.organization_id,
-        "ai_data_processing_approved": team.organization.is_ai_data_processing_approved,
-    }
+    tags: dict[str, Any] = {"team_id": team_team.pk}
+    try:
+        organization = team_team.organization
+        tags["org_id"] = organization.pk
+        tags["ai_data_processing_approved"] = organization.is_ai_data_processing_approved
+    except Organization.DoesNotExist:
+        logger.warning("get_team_query_tags_org_not_found", team_id=team_team.pk)
+    return tags
 
 
 def clear_tag(key):

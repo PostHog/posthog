@@ -281,18 +281,22 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
 
-        # Wrap the consent read in try/except so an orphaned FK row (or replica lag hiding
-        # the organization) doesn't 500 the request. On the two branches above that did
-        # not select_related("organization") (token-auth and user.team), this access
+        # Wrap the organization access in try/except so an orphaned FK row (or replica lag
+        # hiding the organization) doesn't 500 the request. On the two branches above that
+        # did not select_related("organization") (token-auth and user.team), this access
         # lazy-loads the organization — accepted as a per-request cost for uniform tagging
         # coverage across all branches.
+        org_id: Optional[UUID] = None
+        ai_data_processing_approved: Optional[bool] = None
         try:
-            ai_data_processing_approved: Optional[bool] = team.organization.is_ai_data_processing_approved
+            organization = team.organization
+            org_id = organization.pk
+            ai_data_processing_approved = organization.is_ai_data_processing_approved
         except Organization.DoesNotExist:
-            ai_data_processing_approved = None
+            pass
         tag_queries(
             team_id=team.pk,
-            org_id=team.organization_id,
+            org_id=org_id,
             ai_data_processing_approved=ai_data_processing_approved,
         )
         return team
