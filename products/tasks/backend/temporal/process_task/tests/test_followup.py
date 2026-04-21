@@ -238,10 +238,9 @@ class TestCIFollowUpLoop:
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=4),
+                    start_signal="update_pr_url",
+                    start_signal_args=["https://github.com/org/repo/pull/1"],
                 )
-                # CI follow-up is gated on _pr_url — arm it before advancing time.
-                await asyncio.sleep(2)
-                await handle.signal(ProcessTaskWorkflow.update_pr_url, "https://github.com/org/repo/pull/1")
                 result = await handle.result()
 
         assert result.success is True
@@ -265,9 +264,9 @@ class TestCIFollowUpLoop:
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=4),
+                    start_signal="update_pr_url",
+                    start_signal_args=["https://github.com/org/repo/pull/1"],
                 )
-                await asyncio.sleep(2)
-                await handle.signal(ProcessTaskWorkflow.update_pr_url, "https://github.com/org/repo/pull/1")
                 await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 10)
                 await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
                 await handle.result()
@@ -342,9 +341,9 @@ class TestCIFollowUpLoop:
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=2),
+                    start_signal="update_pr_url",
+                    start_signal_args=["https://github.com/org/repo/pull/1"],
                 )
-                await asyncio.sleep(2)
-                await handle.signal(ProcessTaskWorkflow.update_pr_url, "https://github.com/org/repo/pull/1")
                 near_delay = CI_FOLLOW_UP_DELAY.total_seconds() - 30
                 await env.sleep(near_delay)
                 await handle.signal(ProcessTaskWorkflow.heartbeat, args=[True])

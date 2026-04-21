@@ -645,9 +645,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     @temporalio.workflow.signal
     async def update_pr_url(self, pr_url: str) -> None:
         self._pr_url = pr_url
+        try:
+            run_id = self.context.run_id
+        except Exception:
+            run_id = "unknown"
         workflow.logger.info(
-            "pr_url_updated",
-            run_id=self.context.run_id,
+            "update_pr_url_signal_received",
+            run_id=run_id,
             pr_url=pr_url,
         )
 
