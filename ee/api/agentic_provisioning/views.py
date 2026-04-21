@@ -1819,6 +1819,7 @@ def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Res
         count = cache.incr(cache_key)
     except ValueError:
         logger.warning("partner_rate_limit_cache_error", endpoint=endpoint, partner_id=str(partner.id))
+        cache.set(cache_key, 1, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
         count = 1
 
     if count > limit:
