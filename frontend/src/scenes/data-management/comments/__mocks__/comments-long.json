@@ -1,0 +1,81 @@
+{
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "id": "01984696-0000-0000-0000-00000000bbbb",
+            "created_by": {
+                "id": 1,
+                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "distinct_id": "xugZUZjVMSe5Ceo67Y1KX85kiQqB4Gp5OSdC02cjsWl",
+                "first_name": "fasda",
+                "last_name": "",
+                "email": "paul@posthog.com",
+                "is_email_verified": false,
+                "hedgehog_config": null,
+                "role_at_organization": "other"
+            },
+            "deleted": false,
+            "content": "User struggled to find the export button — it's hidden behind the overflow menu and they spent about 40 seconds hovering over the top-right area before giving up.\n\nFollow-ups:\n- Promote the export action out of the overflow menu on the trends view\n- Check whether the same issue shows up for funnels and retention\n- Write a short loom walking through what the user tried",
+            "rich_content": null,
+            "version": 0,
+            "created_at": "2025-07-26T12:05:00.000000Z",
+            "item_id": "019838c8-8f12-7dfa-b651-abf957639b4b",
+            "item_context": {
+                "time_in_recording": "2025-07-23T19:35:47.216Z"
+            },
+            "scope": "recording",
+            "source_comment": null
+        },
+        {
+            "id": "01984696-0000-0000-0000-00000000cccc",
+            "created_by": {
+                "id": 1,
+                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "distinct_id": "xugZUZjVMSe5Ceo67Y1KX85kiQqB4Gp5OSdC02cjsWl",
+                "first_name": "David",
+                "last_name": "",
+                "email": "david@posthog.com",
+                "is_email_verified": false,
+                "hedgehog_config": null,
+                "role_at_organization": "other"
+            },
+            "deleted": false,
+            "content": "Repro: open the session, click the timeline scrubber, drag past the 3-minute mark. The page briefly shows a 'connection lost' toast even though the network tab is quiet. Seems related to the websocket reconnect logic we changed last week. Needs a real repro in Playwright before we can triage.",
+            "rich_content": null,
+            "version": 0,
+            "created_at": "2025-07-26T12:03:00.000000Z",
+            "item_id": "019838c8-8f12-7dfa-b651-abf957639b4b",
+            "item_context": {
+                "time_in_recording": "2025-07-23T19:38:12.010Z"
+            },
+            "scope": "recording",
+            "source_comment": null
+        },
+        {
+            "id": "01984696-0000-0000-0000-00000000dddd",
+            "created_by": {
+                "id": 1,
+                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "distinct_id": "xugZUZjVMSe5Ceo67Y1KX85kiQqB4Gp5OSdC02cjsWl",
+                "first_name": "fasda",
+                "last_name": "",
+                "email": "paul@posthog.com",
+                "is_email_verified": false,
+                "hedgehog_config": null,
+                "role_at_organization": "other"
+            },
+            "deleted": false,
+            "content": "quick fix",
+            "rich_content": null,
+            "version": 0,
+            "created_at": "2025-07-26T12:01:00.000000Z",
+            "item_id": "019838c8-8f12-7dfa-b651-abf957639b4b",
+            "item_context": {
+                "time_in_recording": "2025-07-23T19:40:00.000Z"
+            },
+            "scope": "recording",
+            "source_comment": null
+        }
+    ]
+}
