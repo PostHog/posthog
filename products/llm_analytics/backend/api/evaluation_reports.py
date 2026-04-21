@@ -186,6 +186,30 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class EvaluationReportListSerializer(EvaluationReportSerializer):
+    """List serializer — drops heavy per-item fields (delivery targets, rrule, prompt guidance) for token efficiency."""
+
+    class Meta(EvaluationReportSerializer.Meta):
+        fields = [
+            f
+            for f in EvaluationReportSerializer.Meta.fields
+            if f
+            not in (
+                "rrule",
+                "starts_at",
+                "timezone_name",
+                "delivery_targets",
+                "max_sample_size",
+                "deleted",
+                "report_prompt_guidance",
+                "cooldown_minutes",
+                "daily_run_cap",
+                "created_by",
+            )
+        ]
+        read_only_fields = [f for f in EvaluationReportSerializer.Meta.read_only_fields if f != "created_by"]
+
+
 class EvaluationReportRunSerializer(serializers.ModelSerializer):
     class Meta:
         model = EvaluationReportRun
@@ -221,6 +245,11 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     permission_classes = [AccessControlPermission]
     serializer_class = EvaluationReportSerializer
     queryset = EvaluationReport.objects.all()
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return EvaluationReportListSerializer
+        return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[EvaluationReport]) -> QuerySet[EvaluationReport]:
         queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")

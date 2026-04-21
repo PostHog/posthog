@@ -69,6 +69,7 @@ export const EvaluationsCreateParams = /* @__PURE__ */ zod.object({
 
 export const evaluationsCreateBodyNameMax = 400
 
+export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
@@ -85,17 +86,35 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
             "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog"
         ),
     evaluation_config: zod
-        .unknown()
+        .union([
+            zod.object({
+                prompt: zod
+                    .string()
+                    .min(1)
+                    .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+            }),
+            zod.object({
+                source: zod
+                    .string()
+                    .min(1)
+                    .describe('Hog source code. Must return true (pass), false (fail), or null for N/A.'),
+            }),
+        ])
         .optional()
-        .describe("Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}."),
+        .describe("Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."),
     output_type: zod
         .enum(['boolean'])
         .describe('* `boolean` - Boolean (Pass/Fail)')
         .describe("Output format. Currently only 'boolean' is supported.\n\n* `boolean` - Boolean (Pass/Fail)"),
     output_config: zod
-        .unknown()
+        .object({
+            allows_na: zod
+                .boolean()
+                .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
+                .describe('Whether the evaluation can return N/A for non-applicable generations.'),
+        })
         .optional()
-        .describe("Optional output config, e.g. {'allows_na': true} to allow N/A results."),
+        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
     conditions: zod
         .unknown()
         .optional()
@@ -138,6 +157,7 @@ export const EvaluationsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const evaluationsPartialUpdateBodyNameMax = 400
 
+export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -155,18 +175,36 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
             "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog"
         ),
     evaluation_config: zod
-        .unknown()
+        .union([
+            zod.object({
+                prompt: zod
+                    .string()
+                    .min(1)
+                    .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+            }),
+            zod.object({
+                source: zod
+                    .string()
+                    .min(1)
+                    .describe('Hog source code. Must return true (pass), false (fail), or null for N/A.'),
+            }),
+        ])
         .optional()
-        .describe("Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}."),
+        .describe("Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."),
     output_type: zod
         .enum(['boolean'])
         .describe('* `boolean` - Boolean (Pass/Fail)')
         .optional()
         .describe("Output format. Currently only 'boolean' is supported.\n\n* `boolean` - Boolean (Pass/Fail)"),
     output_config: zod
-        .unknown()
+        .object({
+            allows_na: zod
+                .boolean()
+                .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
+                .describe('Whether the evaluation can return N/A for non-applicable generations.'),
+        })
         .optional()
-        .describe("Optional output config, e.g. {'allows_na': true} to allow N/A results."),
+        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
     conditions: zod
         .unknown()
         .optional()

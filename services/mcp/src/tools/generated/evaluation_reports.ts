@@ -17,13 +17,13 @@ const EvaluationReportsListSchema = LlmAnalyticsEvaluationReportsListQueryParams
 
 const evaluationReportsList = (): ToolBase<
     typeof EvaluationReportsListSchema,
-    Schemas.PaginatedEvaluationReportList
+    Schemas.PaginatedEvaluationReportListList
 > => ({
     name: 'evaluation-reports-list',
     schema: EvaluationReportsListSchema,
     handler: async (context: Context, params: z.infer<typeof EvaluationReportsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedEvaluationReportList>({
+        const result = await context.api.request<Schemas.PaginatedEvaluationReportListList>({
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/`,
             query: {

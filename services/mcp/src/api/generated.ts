@@ -14834,14 +14834,39 @@ export namespace Schemas {
     }
 
     /**
+     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     */
+    export type EvaluationEvaluationConfig = {
+      /**
+       * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+       * @minLength 1
+       */
+      prompt: string;
+    } | {
+      /**
+       * Hog source code. Must return true (pass), false (fail), or null for N/A.
+       * @minLength 1
+       */
+      source: string;
+    };
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     */
+    export type EvaluationOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+    };
+
+    /**
      * * `active` - Active
     * `paused` - Paused
     * `error` - Error
      */
-    export type EvaluationStatusEnum = typeof EvaluationStatusEnum[keyof typeof EvaluationStatusEnum];
+    export type StatusCbbEnum = typeof StatusCbbEnum[keyof typeof StatusCbbEnum];
 
 
-    export const EvaluationStatusEnum = {
+    export const StatusCbbEnum = {
       Active: 'active',
       Paused: 'paused',
       Error: 'error',
@@ -14925,27 +14950,58 @@ export namespace Schemas {
       description?: string;
       /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
-      readonly status: EvaluationStatusEnum;
+      readonly status: StatusCbbEnum;
       readonly status_reason: StatusReasonEnum | NullEnum | null;
       /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
     * `llm_judge` - LLM as a judge
     * `hog` - Hog */
       evaluation_type: EvaluationTypeEnum;
-      /** Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}. */
-      evaluation_config?: unknown;
+      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      evaluation_config?: EvaluationEvaluationConfig;
       /** Output format. Currently only 'boolean' is supported.
 
     * `boolean` - Boolean (Pass/Fail) */
       output_type: OutputTypeEnum;
-      /** Optional output config, e.g. {'allows_na': true} to allow N/A results. */
-      output_config?: unknown;
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      output_config?: EvaluationOutputConfig;
       /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
       conditions?: unknown;
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
       readonly created_by: UserBasic;
+      /** Set to true to soft-delete the evaluation. */
+      deleted?: boolean;
+    }
+
+    /**
+     * List serializer — drops heavy per-item fields for token efficiency in MCP and API list responses.
+     */
+    export interface EvaluationList {
+      readonly id: string;
+      /**
+       * Name of the evaluation.
+       * @maxLength 400
+       */
+      name: string;
+      /** Optional description of what this evaluation checks. */
+      description?: string;
+      /** Whether the evaluation runs automatically on new $ai_generation events. */
+      enabled?: boolean;
+      readonly status: StatusCbbEnum;
+      readonly status_reason: StatusReasonEnum | NullEnum | null;
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+
+    * `llm_judge` - LLM as a judge
+    * `hog` - Hog */
+      evaluation_type: EvaluationTypeEnum;
+      /** Output format. Currently only 'boolean' is supported.
+
+    * `boolean` - Boolean (Pass/Fail) */
+      output_type: OutputTypeEnum;
+      readonly created_at: string;
+      readonly updated_at: string;
       /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
     }
@@ -14961,10 +15017,10 @@ export namespace Schemas {
      * * `scheduled` - Scheduled
     * `every_n` - Every N
      */
-    export type EvaluationReportFrequencyEnum = typeof EvaluationReportFrequencyEnum[keyof typeof EvaluationReportFrequencyEnum];
+    export type Frequency162Enum = typeof Frequency162Enum[keyof typeof Frequency162Enum];
 
 
-    export const EvaluationReportFrequencyEnum = {
+    export const Frequency162Enum = {
       Scheduled: 'scheduled',
       EveryN: 'every_n',
     } as const;
@@ -14977,7 +15033,7 @@ export namespace Schemas {
 
     * `scheduled` - Scheduled
     * `every_n` - Every N */
-      frequency?: EvaluationReportFrequencyEnum;
+      frequency?: Frequency162Enum;
       /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
       rrule?: string;
       /**
@@ -15029,6 +15085,34 @@ export namespace Schemas {
       daily_run_cap?: number;
       /** @nullable */
       readonly created_by: number | null;
+      readonly created_at: string;
+    }
+
+    /**
+     * List serializer — drops heavy per-item fields (delivery targets, rrule, prompt guidance) for token efficiency.
+     */
+    export interface EvaluationReportList {
+      readonly id: string;
+      /** UUID of the evaluation this report config belongs to. */
+      evaluation: string;
+      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+
+    * `scheduled` - Scheduled
+    * `every_n` - Every N */
+      frequency?: Frequency162Enum;
+      /** @nullable */
+      readonly next_delivery_date: string | null;
+      /** Whether report delivery is active. */
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_delivered_at: string | null;
+      /**
+       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      trigger_threshold?: number | null;
       readonly created_at: string;
     }
 
@@ -21533,22 +21617,22 @@ export namespace Schemas {
       results: ErrorTrackingSymbolSet[];
     }
 
-    export interface PaginatedEvaluationList {
+    export interface PaginatedEvaluationListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: Evaluation[];
+      results: EvaluationList[];
     }
 
-    export interface PaginatedEvaluationReportList {
+    export interface PaginatedEvaluationReportListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: EvaluationReport[];
+      results: EvaluationReportList[];
     }
 
     export interface PaginatedEvaluationReportRunList {
@@ -25223,6 +25307,31 @@ export namespace Schemas {
       readonly release?: PatchedErrorTrackingSymbolSetRelease;
     }
 
+    /**
+     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     */
+    export type PatchedEvaluationEvaluationConfig = {
+      /**
+       * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+       * @minLength 1
+       */
+      prompt: string;
+    } | {
+      /**
+       * Hog source code. Must return true (pass), false (fail), or null for N/A.
+       * @minLength 1
+       */
+      source: string;
+    };
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     */
+    export type PatchedEvaluationOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+    };
+
     export interface PatchedEvaluation {
       readonly id?: string;
       /**
@@ -25234,21 +25343,21 @@ export namespace Schemas {
       description?: string;
       /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
-      readonly status?: EvaluationStatusEnum;
+      readonly status?: StatusCbbEnum;
       readonly status_reason?: StatusReasonEnum | NullEnum | null;
       /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
     * `llm_judge` - LLM as a judge
     * `hog` - Hog */
       evaluation_type?: EvaluationTypeEnum;
-      /** Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}. */
-      evaluation_config?: unknown;
+      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      evaluation_config?: PatchedEvaluationEvaluationConfig;
       /** Output format. Currently only 'boolean' is supported.
 
     * `boolean` - Boolean (Pass/Fail) */
       output_type?: OutputTypeEnum;
-      /** Optional output config, e.g. {'allows_na': true} to allow N/A results. */
-      output_config?: unknown;
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      output_config?: PatchedEvaluationOutputConfig;
       /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
       conditions?: unknown;
       model_configuration?: ModelConfiguration | null;
@@ -25267,7 +25376,7 @@ export namespace Schemas {
 
     * `scheduled` - Scheduled
     * `every_n` - Every N */
-      frequency?: EvaluationReportFrequencyEnum;
+      frequency?: Frequency162Enum;
       /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
       rrule?: string;
       /**
