@@ -196,17 +196,19 @@ Every request is scoped to a **product**. The product determines which models an
 
 Defined in `src/llm_gateway/products/config.py`:
 
+OAuth access is permitted only for products with an explicit `allowed_application_ids` allowlist. All other products are API-key-only by default.
+
 | Product              | Auth            | Models                     | Notes                           |
 | -------------------- | --------------- | -------------------------- | ------------------------------- |
-| `llm_gateway`        | API key + OAuth | All                        | Default when no product in path |
+| `llm_gateway`        | API key only    | All                        | Default when no product in path |
 | `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
-| `wizard`             | OAuth only      | All                        | Max AI assistant                |
-| `django`             | API key + OAuth | All                        | Server-side Django calls        |
-| `growth`             | API key + OAuth | All                        | Growth team                     |
-| `llma_translation`   | API key + OAuth | gpt-4.1-mini               | LLM analytics translation       |
-| `llma_summarization` | API key + OAuth | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
-| `llma_eval_summary`  | API key + OAuth | gpt-5-mini                 | LLM analytics eval summary      |
+| `wizard`             | API key + OAuth | All                        | Max AI assistant                |
+| `django`             | API key only    | All                        | Server-side Django calls        |
+| `growth`             | API key only    | All                        | Growth team                     |
+| `llma_translation`   | API key only    | gpt-4.1-mini               | LLM analytics translation       |
+| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
+| `llma_eval_summary`  | API key only    | gpt-5-mini                 | LLM analytics eval summary      |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 
@@ -216,9 +218,9 @@ Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `sl
 
    ```python
    "my_product": ProductConfig(
-       allowed_application_ids=None,  # None = any OAuth app, or frozenset({...}) to restrict
-       allowed_models=None,           # None = all models, or frozenset({...}) to restrict
-       allow_api_keys=True,           # False = OAuth only
+       allowed_application_ids=frozenset({...}),  # empty/None = no OAuth apps allowed; list IDs to permit OAuth
+       allowed_models=None,                       # None = all models, or frozenset({...}) to restrict
+       allow_api_keys=True,                       # False = OAuth only
    ),
    ```
 
