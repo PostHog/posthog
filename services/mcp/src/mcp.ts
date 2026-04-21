@@ -343,11 +343,7 @@ export class MCP extends McpAgent<Env> {
             return
         }
 
-        await this.trackEvent(
-            event,
-            {},
-            { context: resolvedContext, ...(previousContext ? { previousContext } : {}) }
-        )
+        await this.trackEvent(event, {}, { context: resolvedContext, ...(previousContext ? { previousContext } : {}) })
     }
 
     registerTool<TSchema extends z.ZodObject>(
@@ -564,13 +560,8 @@ export class MCP extends McpAgent<Env> {
                 name: t.name,
                 category: getToolDefinition(t.name, version).category,
             }))
-            const commandReference = buildInstructionsV2(
-                CLI_PROXY_COMMAND,
-                guidelines,
-                groupTypes,
-                metadata,
-                toolInfos
-            )
+            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, groupTypes, metadata, toolInfos)
+
             const execTool = createExecTool(allTools, context, CLI_PROXY_TOOL, commandReference)
             const typedExecTool = execTool as Tool<z.ZodObject>
             this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))

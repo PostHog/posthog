@@ -203,7 +203,7 @@ If the required events or properties do not exist, inform the user immediately i
 
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
 
-{group_types}
+Defined group types: {defined_groups}
 
 {metadata}
 
