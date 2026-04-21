@@ -17,6 +17,7 @@ import {
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
+    QuickFilterItem,
     SelectedProperties,
     SimpleOption,
     SkeletonItem,
@@ -74,6 +75,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     PropertyFilterType,
+    PropertyOperator,
     QueryBasedInsightModel,
     SessionRecordingPlaylistType,
     TeamType,
@@ -109,6 +111,37 @@ const SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType
     TaxonomicFilterGroupType.EmailAddresses,
     TaxonomicFilterGroupType.AutocaptureEvents,
 ])
+
+// Interaction verbs that posthog-js autocapture records in `$event_type`. Surfacing these in
+// Suggested filters lets users search by the verb they mean (e.g. "click") instead of having
+// to know that it's captured as `$autocapture`.
+const AUTOCAPTURE_INTERACTIONS: Array<{ label: string; eventType: string }> = [
+    { label: 'Click', eventType: 'click' },
+    { label: 'Change', eventType: 'change' },
+    { label: 'Submit', eventType: 'submit' },
+    { label: 'Touch', eventType: 'touch' },
+    { label: 'Scroll', eventType: 'scroll' },
+    { label: 'Toggle', eventType: 'toggle' },
+    { label: 'Swipe', eventType: 'swipe' },
+    { label: 'Long press', eventType: 'long_press' },
+    { label: 'Pinch', eventType: 'pinch' },
+    { label: 'Pan', eventType: 'pan' },
+    { label: 'Rotation', eventType: 'rotation' },
+    { label: 'Value changed', eventType: 'value_changed' },
+    { label: 'Menu action', eventType: 'menu_action' },
+]
+
+function buildAutocaptureInteractionQuickFilters(): QuickFilterItem[] {
+    return AUTOCAPTURE_INTERACTIONS.map(({ label, eventType }) => ({
+        _type: 'quick_filter',
+        name: `${label} (autocapture)`,
+        filterValue: eventType,
+        operator: PropertyOperator.Exact,
+        propertyKey: '$event_type',
+        propertyFilterType: PropertyFilterType.Event,
+        eventName: '$autocapture',
+    }))
+}
 
 export const DEFAULT_SLOTS_PER_GROUP = 5
 export const MAX_TOP_MATCHES_PER_GROUP = 10
@@ -1234,10 +1267,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         isLocalOnly: true,
                         isMetaGroup: true,
                         options: eventNames.includes('$autocapture')
-                            ? (['text', 'selector'] as const).map((name) => ({
-                                  name,
-                                  group: TaxonomicFilterGroupType.Elements,
-                              }))
+                            ? [
+                                  ...(['text', 'selector'] as const).map((name) => ({
+                                      name,
+                                      group: TaxonomicFilterGroupType.Elements,
+                                  })),
+                                  ...buildAutocaptureInteractionQuickFilters(),
+                              ]
                             : [],
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>

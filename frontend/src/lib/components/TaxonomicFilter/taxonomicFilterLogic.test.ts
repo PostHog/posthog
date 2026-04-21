@@ -9,7 +9,12 @@ import {
     SKELETON_ROWS_PER_GROUP,
     taxonomicFilterLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import {
+    isQuickFilterItem,
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+} from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -542,28 +547,68 @@ describe('taxonomicFilterLogic', () => {
     })
 
     describe('autocapture context', () => {
-        it.each([
-            {
-                description: 'SuggestedFilters has text/selector options when eventNames includes $autocapture',
+        it('SuggestedFilters exposes Elements + autocapture interaction quick filters when $autocapture is captured', () => {
+            const testLogicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testAutocaptureSuggested-present',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
                 eventNames: ['$autocapture'],
-                expectedOptions: [
+            }
+            const testLogic = taxonomicFilterLogic(testLogicProps)
+            testLogic.mount()
+
+            const suggestedGroup = testLogic.values.taxonomicGroups.find(
+                (group: TaxonomicFilterGroup) => group.type === TaxonomicFilterGroupType.SuggestedFilters
+            )
+            const options: Array<{ name: string }> = suggestedGroup?.options ?? []
+
+            expect(options).toEqual(
+                expect.arrayContaining([
                     { name: 'text', group: TaxonomicFilterGroupType.Elements },
                     { name: 'selector', group: TaxonomicFilterGroupType.Elements },
-                ],
-            },
+                ])
+            )
+
+            const clickSuggestion = options.find((option) => option.name === 'Click (autocapture)')
+            expect(clickSuggestion).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            expect(isQuickFilterItem(clickSuggestion)).toBe(true)
+            expect(clickSuggestion).toMatchObject({
+                _type: 'quick_filter',
+                name: 'Click (autocapture)',
+                eventName: '$autocapture',
+                propertyKey: '$event_type',
+                filterValue: 'click',
+                propertyFilterType: 'event',
+                operator: 'exact',
+            })
+
+            for (const expectedName of [
+                'Change (autocapture)',
+                'Submit (autocapture)',
+                'Scroll (autocapture)',
+                'Touch (autocapture)',
+                'Value changed (autocapture)',
+            ]) {
+                expect(options.some((option) => option.name === expectedName)).toBe(true)
+            }
+
+            testLogic.unmount()
+        })
+
+        it.each([
             {
                 description: 'SuggestedFilters has empty options when eventNames does not include $autocapture',
                 eventNames: ['$pageview'],
-                expectedOptions: [],
             },
             {
                 description: 'SuggestedFilters has empty options when eventNames is empty',
                 eventNames: [] as string[],
-                expectedOptions: [],
             },
-        ])('$description', ({ eventNames, expectedOptions }) => {
+        ])('$description', ({ eventNames }) => {
             const testLogicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: `testAutocaptureSuggested-${eventNames.join('-')}`,
+                taxonomicFilterLogicKey: `testAutocaptureSuggested-${eventNames.join('-') || 'empty'}`,
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.EventProperties,
@@ -576,7 +621,7 @@ describe('taxonomicFilterLogic', () => {
             const suggestedGroup = testLogic.values.taxonomicGroups.find(
                 (g) => g.type === TaxonomicFilterGroupType.SuggestedFilters
             )
-            expect(suggestedGroup?.options).toEqual(expectedOptions)
+            expect(suggestedGroup?.options).toEqual([])
 
             testLogic.unmount()
         })
