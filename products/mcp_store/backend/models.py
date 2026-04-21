@@ -24,9 +24,8 @@ class SensitiveConfig(TypedDict, total=False):
     token_retrieved_at: int
     expires_in: int
     needs_reauth: bool
-    # Set on custom (non-template) OAuth installs. Each user gets their own
-    # DCR client so the upstream provider can quarantine a single user without
-    # affecting others. `dcr_is_user_provided` is true when the creds came from
+    # Set on custom (non-template) OAuth installs.
+    # `dcr_is_user_provided` is true when the creds came from
     # the install form instead of a DCR handshake.
     dcr_client_id: str
     dcr_client_secret: str

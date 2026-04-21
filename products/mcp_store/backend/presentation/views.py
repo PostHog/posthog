@@ -871,9 +871,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         token_hash = _hash_oauth_state_token(state_token)
         now = timezone.now()
         with transaction.atomic():
-            # Lock only the oauth_state row. `server` is nullable (and `template` will be too),
-            # which turns the select_related joins into LEFT OUTER JOINs — Postgres rejects
-            # FOR UPDATE on the nullable side of an outer join, so scope the lock with `of=`.
+            # Lock only the oauth_state row to avoid issues with nullable joins in select_related.
             oauth_state = (
                 MCPOAuthState.objects.select_for_update(of=("self",))
                 .select_related("installation", "server")
