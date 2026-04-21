@@ -1668,7 +1668,7 @@ def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
                 status=429,
             )
 
-    if error := _enforce_cimd_domain_rate_limit(client_id):
+    if error := _enforce_cimd_domain_rate_limit(cast(str, client_id)):
         return error
 
     return None
