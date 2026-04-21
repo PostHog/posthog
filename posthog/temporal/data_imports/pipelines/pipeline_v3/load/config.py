@@ -14,3 +14,4 @@ class ConsumerConfig:
     health_timeout_seconds: float = 60.0
     max_retries: int = 3
     retry_backoff_seconds: float = 1.0
+    max_poll_interval_ms: int = 900_000

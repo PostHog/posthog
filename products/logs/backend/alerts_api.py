@@ -4,7 +4,7 @@ from typing import Final, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import F, OuterRef, Q, QuerySet, Subquery
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -59,16 +59,44 @@ def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, f
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="Unique identifier for this alert.",
+    )
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Human-readable name for this alert.",
+    )
+    enabled = serializers.BooleanField(
+        default=True,
+        help_text="Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+    )
     filters = serializers.JSONField(
         help_text="Filter criteria — subset of LogsViewerFilters. Must contain at least one of: "
         "severityLevels (list of severity strings), serviceNames (list of service name strings), "
         "or filterGroup (property filter group object)."
     )
+    threshold_count = serializers.IntegerField(
+        min_value=1,
+        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window.",
+    )
     threshold_operator = serializers.ChoiceField(
         choices=LogsAlertConfiguration.ThresholdOperator.choices,
         default=LogsAlertConfiguration.ThresholdOperator.ABOVE,
         help_text="Whether the alert fires when the count is above or below the threshold.",
+    )
+    window_minutes = serializers.IntegerField(
+        default=5,
+        help_text="Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+    )
+    check_interval_minutes = serializers.IntegerField(
+        read_only=True,
+        help_text="How often the alert is evaluated, in minutes. Server-managed.",
+    )
+    state = serializers.ChoiceField(
+        choices=LogsAlertConfiguration.State.choices,
+        read_only=True,
+        help_text="Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.",
     )
     evaluation_periods = serializers.IntegerField(
         default=1,
@@ -82,6 +110,35 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         max_value=MAX_EVALUATION_PERIODS,
         help_text="How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
     )
+    cooldown_minutes = serializers.IntegerField(
+        default=0,
+        min_value=0,
+        help_text="Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+    )
+    snooze_until = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.",
+    )
+    next_check_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the next evaluation is scheduled. Server-managed.",
+    )
+    last_notified_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the last notification was sent. Server-managed.",
+    )
+    last_checked_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the alert was last evaluated. Server-managed.",
+    )
+    consecutive_failures = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of consecutive evaluation failures. Resets on success. Server-managed.",
+    )
     last_error_message = serializers.SerializerMethodField(
         help_text=(
             "Error message from the most recent errored check, or null if the alert's "
@@ -89,26 +146,16 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "denormalization so retention-aware cleanup rules stay the only source of truth."
         ),
     )
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
-        # The viewset annotates `_latest_error_message` via Subquery to avoid N+1 on list.
-        # Fallback direct query covers callers that construct this serializer outside the
-        # viewset (tests, admin actions).
-        annotated = getattr(obj, "_latest_error_message", _NOT_ANNOTATED)
-        if annotated is not _NOT_ANNOTATED:
-            # Subquery annotation yields either the error_message string or None.
-            return cast(str | None, annotated)
-        return (
-            LogsAlertEvent.objects.filter(
-                alert=obj,
-                kind=LogsAlertEvent.Kind.CHECK,
-                error_message__isnull=False,
-            )
-            .order_by("-created_at")
-            .values_list("error_message", flat=True)
-            .first()
-        )
+    created_at = serializers.DateTimeField(
+        read_only=True,
+        help_text="When the alert was created.",
+    )
+    created_by = UserBasicSerializer(read_only=True)
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the alert was last modified.",
+    )
 
     class Meta:
         model = LogsAlertConfiguration
@@ -148,6 +195,26 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
         ]
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
+        # The viewset annotates `_latest_error_message` via Subquery to avoid N+1 on list.
+        # Fallback direct query covers callers that construct this serializer outside the
+        # viewset (tests, admin actions).
+        annotated = getattr(obj, "_latest_error_message", _NOT_ANNOTATED)
+        if annotated is not _NOT_ANNOTATED:
+            # Subquery annotation yields either the error_message string or None.
+            return cast(str | None, annotated)
+        return (
+            LogsAlertEvent.objects.filter(
+                alert=obj,
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=False,
+            )
+            .order_by("-created_at")
+            .values_list("error_message", flat=True)
+            .first()
+        )
 
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
@@ -247,6 +314,23 @@ def _validate_filters(filters: dict) -> None:
         raise ValidationError(
             {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
         )
+
+
+class LogsAlertEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LogsAlertEvent
+        fields = [
+            "id",
+            "created_at",
+            "kind",
+            "state_before",
+            "state_after",
+            "threshold_breached",
+            "result_count",
+            "error_message",
+            "query_duration_ms",
+        ]
+        read_only_fields = fields
 
 
 class LogsAlertSimulateBucketSerializer(serializers.Serializer):
@@ -560,6 +644,43 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         return serializer.save(team=team)
+
+    @extend_schema(
+        request=None,
+        responses={200: LogsAlertEventSerializer(many=True)},
+        description=(
+            "Paginated event history for this alert, newest first. Returns state transitions, "
+            "errored checks, and user-initiated control-plane rows (reset, enable/disable, "
+            "snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't "
+            "change and there was no error) are filtered out since only the last 10 are kept "
+            "and they carry no forensic value. Optional `?kind=...` narrows to a single kind."
+        ),
+    )
+    @action(detail=True, methods=["GET"], url_path="events")
+    def events(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        queryset = (
+            LogsAlertEvent.objects.filter(alert=alert)
+            .filter(
+                ~Q(kind=LogsAlertEvent.Kind.CHECK) | Q(error_message__isnull=False) | ~Q(state_before=F("state_after"))
+            )
+            .order_by("-created_at")
+        )
+
+        kind = request.query_params.get("kind")
+        if kind is not None:
+            valid_kinds = LogsAlertEvent.Kind.values
+            if kind not in valid_kinds:
+                raise ValidationError({"kind": f"Must be one of {sorted(valid_kinds)}."})
+            queryset = queryset.filter(kind=kind)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = LogsAlertEventSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = LogsAlertEventSerializer(queryset, many=True)
+        return Response(serializer.data)
 
     @extend_schema(
         request=None,

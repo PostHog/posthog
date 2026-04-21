@@ -99,6 +99,25 @@ class ExperimentService:
                 raise ValidationError(f"Feature flag variant at index {i} must have a 'key' field")
 
     @staticmethod
+    def validate_variant_percentages(parameters: dict | None) -> None:
+        """Each variant must carry split_percent (recommended) or rollout_percentage (deprecated).
+
+        The API serializer translates split_percent to rollout_percentage before this runs, but we
+        check for either field so direct service callers (facade, max_tools) are also covered.
+        Once we fully migrate to split_percent, we can remove this validation and make split_percent
+        required in the type system instead.
+        """
+        if not parameters:
+            return
+        for variant in parameters.get("feature_flag_variants", []) or []:
+            if not isinstance(variant, dict):
+                continue  # validate_variant_shapes handles this
+            if "split_percent" not in variant and "rollout_percentage" not in variant:
+                raise ValidationError(
+                    "Each variant must include split_percent (recommended) or rollout_percentage (deprecated)."
+                )
+
+    @staticmethod
     def validate_experiment_parameters(parameters: dict | None) -> None:
         """Validate experiment parameters accepted by the API layer.
 
@@ -109,6 +128,7 @@ class ExperimentService:
             return
 
         ExperimentService.validate_variant_shapes(parameters)
+        ExperimentService.validate_variant_percentages(parameters)
 
         variants = parameters.get("feature_flag_variants", [])
 
@@ -168,10 +188,18 @@ class ExperimentService:
                 try:
                     validated_metric = ExperimentMetric.model_validate(metric)
 
-                    # Additional validation for funnel metrics with DW steps
                     # ExperimentMetric is a RootModel wrapping a union, so access .root to get the actual type
                     actual_metric = validated_metric.root
                     if isinstance(actual_metric, ExperimentFunnelMetric):
+                        # The experiment exposure event is prepended as step_0 at query time,
+                        # so series must contain at least one user-supplied step for the funnel
+                        # to yield a meaningful conversion metric.
+                        if not actual_metric.series:
+                            raise ValidationError(
+                                f"Invalid metric at index {i}: funnel metrics require at least one step. "
+                                "The experiment exposure event is added as the initial step automatically."
+                            )
+                        # Additional validation for funnel metrics with DW steps
                         FunnelDWValidator.validate_funnel_metric(actual_metric)
 
                 except pydantic.ValidationError as e:
@@ -388,6 +416,7 @@ class ExperimentService:
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         self.validate_variant_shapes(parameters)
+        self.validate_variant_percentages(parameters)
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         self.validate_metric_action_ids(metrics, self.team.id)
@@ -1260,13 +1289,21 @@ class ExperimentService:
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
         if "metrics" in update_data:
+            self.validate_experiment_metrics(update_data["metrics"])
             self.validate_metric_action_ids(update_data["metrics"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"])
+            for metric in update_data["metrics"] or []:
+                if not metric.get("uuid"):
+                    metric["uuid"] = str(uuid4())
         if "metrics_secondary" in update_data:
+            self.validate_experiment_metrics(update_data["metrics_secondary"])
             self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
+            for metric in update_data["metrics_secondary"] or []:
+                if not metric.get("uuid"):
+                    metric["uuid"] = str(uuid4())
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag

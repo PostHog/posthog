@@ -213,6 +213,9 @@ class LogsAlertEvent(UUIDModel):
 
     class Meta:
         db_table = "logs_logsalertevent"
+        indexes = [
+            models.Index(fields=["alert", "-created_at"], name="logs_alert_event_alert_ts_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"LogsAlertEvent for {self.alert.name} at {self.created_at}"

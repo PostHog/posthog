@@ -19,7 +19,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { CoreEventsSettings } from 'scenes/settings/environment/CoreEventsSettings'
 import { urls } from 'scenes/urls'
-import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb } from '~/types'
@@ -47,7 +46,6 @@ export enum DataManagementTab {
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
     CoreEvents = 'core-events',
-    MarketingAnalytics = 'marketing-analytics',
     DataWarehouseManagedViewsets = 'data-warehouse-managed-viewsets',
     Variables = 'variables',
 }
@@ -174,19 +172,6 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         content: <IngestionWarningsView />,
         tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
     },
-    [DataManagementTab.MarketingAnalytics]: {
-        url: urls.marketingAnalytics(),
-        label: (
-            <>
-                Marketing{' '}
-                <LemonTag type="warning" size="small" className="ml-2">
-                    BETA
-                </LemonTag>
-            </>
-        ),
-        content: <MarketingAnalyticsSettings />,
-        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-    },
     [DataManagementTab.DataWarehouseManagedViewsets]: {
         url: urls.dataWarehouseManagedViewsets(),
         label: 'Managed viewsets',
@@ -273,15 +258,6 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                             name: sceneConfigurations[Scene.IngestionWarnings].name,
                             path: urls.ingestionWarnings(),
                             iconType: sceneConfigurations[Scene.IngestionWarnings].iconType || 'default_icon_type',
-                        },
-                    ]
-                } else if (tab === DataManagementTab.MarketingAnalytics) {
-                    return [
-                        {
-                            key: Scene.WebAnalyticsMarketing,
-                            name: sceneConfigurations[Scene.WebAnalyticsMarketing].name,
-                            path: urls.marketingAnalytics(),
-                            iconType: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
                         },
                     ]
                 }

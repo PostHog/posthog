@@ -1265,7 +1265,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return date
 
     def get_bracket_labels(self) -> list[str]:
-        labels = [f"{self.query_date_range.interval_name.title()} 0"]
+        labels: list[str] = [f"{self.query_date_range.interval_name.title()} 0"]
         if self.is_custom_bracket_retention and self.query.retentionFilter.retentionCustomBrackets:
             unit = self.query_date_range.interval_name.title()
             cumulative_total = 1  # Return periods start from day 1
