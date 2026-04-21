@@ -1,5 +1,6 @@
 import uuid
 import datetime
+import threading
 from typing import TYPE_CHECKING, Optional
 
 import orjson as json
@@ -55,8 +56,11 @@ class QueryStatusManager:
     DEDUP_TTL_SECONDS = 60 * 20  # 20 minutes
     POLL_INTERVAL_SECONDS = 20
     HEARTBEAT_TTL_SECONDS = POLL_INTERVAL_SECONDS * 3
+    WORKER_HEARTBEAT_INTERVAL_SECONDS = 15
+    REAPER_GRACE_SECONDS = 90
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
     KEY_PREFIX_RUNNING_QUERIES = "running_queries"
+    IN_PROGRESS_INDEX_KEY = "query_async:in_progress"
 
     def __init__(self, query_id: str, team_id: int):
         self.redis_client = redis.get_client()
@@ -173,6 +177,55 @@ class QueryStatusManager:
         """Unregister a query that's no longer running."""
         self.redis_client.hdel(self.running_queries_key, cache_key)
 
+    @property
+    def in_progress_index_member(self) -> str:
+        return f"{self.team_id}:{self.query_id}"
+
+    def add_to_in_progress_index(self, pickup_timestamp: float) -> None:
+        self.redis_client.zadd(self.IN_PROGRESS_INDEX_KEY, {self.in_progress_index_member: pickup_timestamp})
+
+    def remove_from_in_progress_index(self) -> None:
+        self.redis_client.zrem(self.IN_PROGRESS_INDEX_KEY, self.in_progress_index_member)
+
+    def write_worker_heartbeat(self) -> None:
+        self.redis_client.set(self.heartbeat_key, "1", ex=self.HEARTBEAT_TTL_SECONDS)
+
+    def is_worker_alive(self) -> bool:
+        return self.redis_client.exists(self.heartbeat_key) == 1
+
+
+class _WorkerHeartbeatThread:
+    """Daemon thread that writes a heartbeat key to Redis while a query task executes.
+
+    The heartbeat expires after HEARTBEAT_TTL_SECONDS. If the worker dies (e.g. OOMKilled),
+    the thread dies with it, the key expires, and the reaper picks up the orphan.
+    """
+
+    def __init__(self, manager: QueryStatusManager):
+        self._manager = manager
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._run, name=f"query-heartbeat-{manager.query_id}", daemon=True)
+
+    def _run(self) -> None:
+        # Write immediately so the key exists before the first interval elapses.
+        self._safe_write_heartbeat()
+        while not self._stop_event.wait(self._manager.WORKER_HEARTBEAT_INTERVAL_SECONDS):
+            self._safe_write_heartbeat()
+
+    def _safe_write_heartbeat(self) -> None:
+        try:
+            self._manager.write_worker_heartbeat()
+        except Exception as e:
+            logger.warning("Failed to write query worker heartbeat", error=str(e), query_id=self._manager.query_id)
+
+    def __enter__(self) -> "_WorkerHeartbeatThread":
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self._stop_event.set()
+        self._thread.join(timeout=5)
+
 
 def execute_process_query(
     team_id: int,
@@ -205,6 +258,7 @@ def execute_process_query(
 
     query_status.pickup_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
+    manager.add_to_in_progress_index(query_status.pickup_time.timestamp())
 
     query_status.error = True  # Assume error in case nothing below ends up working
     query_status.complete = True
@@ -218,44 +272,47 @@ def execute_process_query(
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
     try:
-        results = process_query_dict(
-            team=team,
-            query_json=query_json,
-            limit_context=limit_context,
-            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            insight_id=query_status.insight_id,
-            dashboard_id=query_status.dashboard_id,
-            user=user,
-            is_query_service=is_query_service,
-            analytics_props=analytics_props,
-        )
-        if isinstance(results, BaseModel):
-            results = results.model_dump(by_alias=True)
-        logger.info("Got results for team %s query %s", team_id, query_id)
-        query_status.error = False
-        query_status.results = results
-        process_duration = (datetime.datetime.now(datetime.UTC) - query_status.pickup_time) / datetime.timedelta(
-            seconds=1
-        )
-        QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
-    except CHQueryErrorTooManySimultaneousQueries:
-        raise
-    except Exception as err:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        with _WorkerHeartbeatThread(manager):
+            try:
+                results = process_query_dict(
+                    team=team,
+                    query_json=query_json,
+                    limit_context=limit_context,
+                    execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                    insight_id=query_status.insight_id,
+                    dashboard_id=query_status.dashboard_id,
+                    user=user,
+                    is_query_service=is_query_service,
+                    analytics_props=analytics_props,
+                )
+                if isinstance(results, BaseModel):
+                    results = results.model_dump(by_alias=True)
+                logger.info("Got results for team %s query %s", team_id, query_id)
+                query_status.error = False
+                query_status.results = results
+                process_duration = (
+                    datetime.datetime.now(datetime.UTC) - query_status.pickup_time
+                ) / datetime.timedelta(seconds=1)
+                QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
+            except CHQueryErrorTooManySimultaneousQueries:
+                raise
+            except Exception as err:
+                from posthog.rbac.user_access_control import UserAccessControlError
 
-        query_status.results = None  # Clear results in case they are faulty
-        if (
-            isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError)
-            or is_staff_user
-        ):
-            # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
-            query_status.error_message = str(err)
-        logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        capture_exception(err)
-        # Do not raise here, the task itself did its job and we cannot recover
+                query_status.results = None  # Clear results in case they are faulty
+                if (
+                    isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError)
+                    or is_staff_user
+                ):
+                    # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
+                    query_status.error_message = str(err)
+                logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
+                capture_exception(err)
+                # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
         manager.store_query_status(query_status)
+        manager.remove_from_in_progress_index()
         cache_key = None
         try:
             if query_status.results:
@@ -402,5 +459,6 @@ def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str
         message = "Cancelled query on clickhouse"
 
     manager.delete_query_status()
+    manager.remove_from_in_progress_index()
 
     return message

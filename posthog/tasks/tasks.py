@@ -53,6 +53,16 @@ COHORT_DELETION_RUN_FAILURE_COUNTER = Counter(
     "Times cohort deletion run failed",
 )
 
+QUERY_ASYNC_ORPHANED_REAPED_COUNTER = Counter(
+    "query_async_orphaned_reaped_total",
+    "Async query statuses marked as errored because their worker heartbeat expired",
+)
+
+QUERY_ASYNC_IN_PROGRESS_INDEX_SIZE_GAUGE = Gauge(
+    "query_async_in_progress_index_size",
+    "Number of async queries currently tracked in the in-progress index",
+)
+
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
@@ -134,6 +144,92 @@ def process_query_task(
         is_query_service=is_query_service,
         analytics_props=analytics_props,
     )
+
+
+@shared_task(
+    ignore_result=True,
+    # Runs on DEFAULT — must NOT be ANALYTICS_QUERIES, since workers on that queue are what we're reaping for.
+    queue=CeleryQueue.DEFAULT.value,
+    expires=60,
+)
+def reap_orphaned_query_statuses() -> None:
+    """Find async query statuses whose worker died uncatchably (OOMKilled/SIGKILL) and mark them as errored.
+
+    A task-level heartbeat key with a short TTL is written by a daemon thread while the worker executes
+    the query. When the worker dies, the thread dies with it and the key expires. This sweep catches the
+    orphan and flips the status to complete+error so polling clients stop hanging until the 20-minute
+    status TTL expires.
+    """
+    import datetime as _dt
+
+    from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager
+
+    redis_client = get_client()
+
+    lock_acquired = redis_client.set("query_async:reaper_lock", "1", nx=True, ex=60)
+    if not lock_acquired:
+        return
+
+    now = _dt.datetime.now(_dt.UTC)
+    stale_cutoff = now.timestamp() - QueryStatusManager.REAPER_GRACE_SECONDS
+
+    index_size = redis_client.zcard(QueryStatusManager.IN_PROGRESS_INDEX_KEY)
+    QUERY_ASYNC_IN_PROGRESS_INDEX_SIZE_GAUGE.set(index_size)
+
+    stale_members = redis_client.zrangebyscore(QueryStatusManager.IN_PROGRESS_INDEX_KEY, 0, stale_cutoff)
+
+    for raw_member in stale_members:
+        member = raw_member.decode("utf-8") if isinstance(raw_member, bytes) else raw_member
+        try:
+            team_id_str, query_id = member.split(":", 1)
+            team_id = int(team_id_str)
+        except ValueError:
+            logger.warning("Skipping malformed in-progress index member", member=member)
+            redis_client.zrem(QueryStatusManager.IN_PROGRESS_INDEX_KEY, raw_member)
+            continue
+
+        manager = QueryStatusManager(query_id, team_id)
+
+        if manager.is_worker_alive():
+            continue
+
+        try:
+            query_status = manager.get_query_status()
+        except QueryNotFoundError:
+            # Status TTL already expired (20 minutes). Nothing to mark — just clean up the index entry.
+            manager.remove_from_in_progress_index()
+            continue
+        except Exception as e:
+            logger.exception("Failed to read query status during reap", query_id=query_id, team_id=team_id, error=e)
+            continue
+
+        if query_status.complete:
+            manager.remove_from_in_progress_index()
+            continue
+
+        query_status.complete = True
+        query_status.error = True
+        query_status.error_message = (
+            "Query worker terminated unexpectedly (likely OOMKilled or pod eviction). Please retry."
+        )
+        query_status.end_time = now
+
+        try:
+            manager.store_query_status(query_status)
+            if query_status.results:
+                cache_key = query_status.results.get("cache_key")
+                if cache_key:
+                    manager.unregister_cache_key_mapping(cache_key)
+        finally:
+            manager.remove_from_in_progress_index()
+
+        QUERY_ASYNC_ORPHANED_REAPED_COUNTER.inc()
+        logger.warning(
+            "Reaped orphaned async query status",
+            query_id=query_id,
+            team_id=team_id,
+            pickup_time=query_status.pickup_time.isoformat() if query_status.pickup_time else None,
+        )
 
 
 @shared_task(ignore_result=True)

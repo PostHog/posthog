@@ -118,6 +118,7 @@
     'posthog.tasks.tasks.poll_query_performance',
     'posthog.tasks.tasks.process_query_task',
     'posthog.tasks.tasks.process_scheduled_changes',
+    'posthog.tasks.tasks.reap_orphaned_query_statuses',
     'posthog.tasks.tasks.redis_celery_queue_depth',
     'posthog.tasks.tasks.redis_heartbeat',
     'posthog.tasks.tasks.refresh_activity_log_fields_cache',

@@ -58,6 +58,7 @@ from posthog.tasks.tasks import (
     pg_row_count,
     pg_table_cache_hit_rate,
     process_scheduled_changes,
+    reap_orphaned_query_statuses,
     redis_celery_queue_depth,
     redis_heartbeat,
     refresh_activity_log_fields_cache,
@@ -170,6 +171,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         QueryStatusManager.POLL_INTERVAL_SECONDS,
         start_poll_query_performance.s(),
         name="query performance heartbeat",
+    )
+
+    sender.add_periodic_task(
+        30,
+        reap_orphaned_query_statuses.s(),
+        name="reap orphaned async query statuses",
     )
 
     sender.add_periodic_task(

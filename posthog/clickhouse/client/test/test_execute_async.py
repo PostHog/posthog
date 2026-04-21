@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 from typing import Any
 
@@ -19,7 +20,12 @@ from posthog.clickhouse.client import (
     sync_execute,
 )
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.execute_async import (
+    QueryNotFoundError,
+    QueryStatusManager,
+    _WorkerHeartbeatThread,
+    execute_process_query,
+)
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
@@ -130,10 +136,13 @@ class TestExecuteProcessQuery(TestCase):
         mock_redis_client.assert_called_once()
         mock_process_query_dict.assert_called_once()
 
-        # Assert that Redis set method was called with the correct arguments
-        self.assertEqual(mock_redis.set.call_count, 2)  # Once on pickup, once on completion
-        args, kwargs = mock_redis.set.call_args
-        args_loaded = json.loads(args[1])
+        # store_query_status is called on pickup and on completion. The heartbeat thread also calls `set`
+        # during task execution, so we filter to just the store_query_status calls by their key prefix.
+        results_key = f"query_async:{self.team.id}:{self.query_id}"
+        store_calls = [call for call in mock_redis.set.call_args_list if call.args and call.args[0] == results_key]
+        self.assertEqual(len(store_calls), 2)  # Once on pickup, once on completion
+        final_call_args = store_calls[-1].args
+        args_loaded = json.loads(final_call_args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
 
 
@@ -549,3 +558,132 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         assert not new_status.complete
         # Stale mapping was replaced with the new query's mapping
         assert expired_manager.get_running_query_by_cache_key(cache_key) == new_status.id
+
+
+class TestInProgressIndex(TestCase):
+    def setUp(self):
+        self.user = User.objects.create(email="test@posthog.com")
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.query_id = "in_progress_index_test_query"
+        self.query_json = {}
+        self.manager = QueryStatusManager(self.query_id, self.team.id)
+        get_client().flushall()
+
+    def _index_members(self) -> list[str]:
+        raw = get_client().zrange(QueryStatusManager.IN_PROGRESS_INDEX_KEY, 0, -1)
+        return [m.decode("utf-8") if isinstance(m, bytes) else m for m in raw]
+
+    def _seed_initial_status(self) -> None:
+        self.manager.store_query_status(QueryStatus(id=self.query_id, team_id=self.team.id))
+
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_adds_to_index_on_pickup_and_removes_in_finally_on_success(self, mock_process_query_dict):
+        mock_process_query_dict.return_value = {"results": [[2]]}
+        self._seed_initial_status()
+
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, None)
+
+        assert self._index_members() == []
+        assert self.manager.get_query_status().complete is True
+        assert self.manager.get_query_status().error is False
+
+    @patch("posthog.api.services.query.process_query_dict", side_effect=RuntimeError("boom"))
+    def test_adds_to_index_on_pickup_and_removes_in_finally_on_handled_exception(self, mock_process_query_dict):
+        self._seed_initial_status()
+
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, None)
+
+        assert self._index_members() == []
+        final_status = self.manager.get_query_status()
+        assert final_status.complete is True
+        assert final_status.error is True
+
+    @patch(
+        "posthog.api.services.query.process_query_dict",
+        side_effect=CHQueryErrorTooManySimultaneousQueries("throttled"),
+    )
+    def test_removes_from_index_even_when_exception_is_reraised(self, mock_process_query_dict):
+        self._seed_initial_status()
+
+        with self.assertRaises(CHQueryErrorTooManySimultaneousQueries):
+            execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, None)
+
+        assert self._index_members() == []
+
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_in_progress_entry_scored_by_pickup_time(self, mock_process_query_dict):
+        # Arrange for execute to start but hang inside process_query_dict so we can observe the mid-execution state.
+        pickup_observed = {}
+
+        def _slow(*args, **kwargs):
+            pickup_observed["members_with_scores"] = get_client().zrange(
+                QueryStatusManager.IN_PROGRESS_INDEX_KEY, 0, -1, withscores=True
+            )
+            return {"results": []}
+
+        mock_process_query_dict.side_effect = _slow
+        self._seed_initial_status()
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, None)
+
+        members = pickup_observed["members_with_scores"]
+        assert len(members) == 1
+        member_bytes, score = members[0]
+        member = member_bytes.decode("utf-8") if isinstance(member_bytes, bytes) else member_bytes
+        assert member == f"{self.team.id}:{self.query_id}"
+        # Score is a unix timestamp — sanity-check it's in the last few seconds.
+        assert abs(score - time.time()) < 10
+
+
+class TestWorkerHeartbeatThread(SimpleTestCase):
+    def setUp(self):
+        get_client().flushall()
+        self.query_id = "heartbeat-test"
+        self.team_id = 7777
+        self.manager = QueryStatusManager(self.query_id, self.team_id)
+
+    def test_writes_heartbeat_immediately_and_on_interval(self):
+        with patch.object(QueryStatusManager, "WORKER_HEARTBEAT_INTERVAL_SECONDS", 0.05):
+            with _WorkerHeartbeatThread(self.manager):
+                # Immediate write happens before the first sleep — verify without racing on the interval.
+                deadline = time.time() + 0.5
+                while time.time() < deadline:
+                    if get_client().exists(self.manager.heartbeat_key):
+                        break
+                    time.sleep(0.01)
+                assert self.manager.is_worker_alive()
+
+                # Let at least one periodic iteration run, then confirm the key is still being refreshed.
+                time.sleep(0.15)
+                assert self.manager.is_worker_alive()
+
+    def test_thread_stops_writing_after_context_exit(self):
+        with patch.object(QueryStatusManager, "WORKER_HEARTBEAT_INTERVAL_SECONDS", 0.05):
+            with _WorkerHeartbeatThread(self.manager):
+                time.sleep(0.1)
+
+        # After exit, delete the key and confirm no further writes refresh it.
+        get_client().delete(self.manager.heartbeat_key)
+        time.sleep(0.15)
+        assert not self.manager.is_worker_alive()
+
+    def test_heartbeat_write_errors_do_not_kill_thread(self):
+        call_count = {"n": 0}
+
+        def _flaky_write():
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise RuntimeError("transient redis failure")
+            self.manager.redis_client.set(self.manager.heartbeat_key, "1", ex=self.manager.HEARTBEAT_TTL_SECONDS)
+
+        with patch.object(QueryStatusManager, "WORKER_HEARTBEAT_INTERVAL_SECONDS", 0.05):
+            with patch.object(self.manager, "write_worker_heartbeat", side_effect=_flaky_write):
+                with _WorkerHeartbeatThread(self.manager):
+                    deadline = time.time() + 1.0
+                    while time.time() < deadline:
+                        if call_count["n"] >= 2:
+                            break
+                        time.sleep(0.02)
+
+        # Thread survived the first failure and made at least one successful write
+        assert call_count["n"] >= 2
