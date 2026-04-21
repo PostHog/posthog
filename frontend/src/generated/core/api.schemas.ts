@@ -1061,9 +1061,9 @@ export interface PatchedProjectSecretAPIKeyApi {
  * `Boolean` - Boolean
  * `Duration` - Duration
  */
-export type PropertyType549EnumApi = (typeof PropertyType549EnumApi)[keyof typeof PropertyType549EnumApi]
+export type PropertyType02dEnumApi = (typeof PropertyType02dEnumApi)[keyof typeof PropertyType02dEnumApi]
 
-export const PropertyType549EnumApi = {
+export const PropertyType02dEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -1085,7 +1085,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyType02dEnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -1117,7 +1117,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyType02dEnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null

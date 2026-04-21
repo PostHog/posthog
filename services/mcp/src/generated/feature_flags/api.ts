@@ -183,9 +183,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
-                                            .enum(['is_date_exact', 'is_date_after', 'is_date_before'])
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
                                             )
                                             .describe(
                                                 'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
@@ -500,9 +500,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
-                                            .enum(['is_date_exact', 'is_date_after', 'is_date_before'])
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
                                             )
                                             .describe(
                                                 'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'

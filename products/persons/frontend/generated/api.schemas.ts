@@ -94,9 +94,9 @@ export const NullEnumApi = {} as const
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type Type3f6EnumApi = (typeof Type3f6EnumApi)[keyof typeof Type3f6EnumApi]
+export type TypeE27EnumApi = (typeof TypeE27EnumApi)[keyof typeof TypeE27EnumApi]
 
-export const Type3f6EnumApi = {
+export const TypeE27EnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -132,7 +132,7 @@ export interface PropertyItemApi {
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string | number | boolean | (string | number)[]
     operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: Type3f6EnumApi | BlankEnumApi
+    type?: TypeE27EnumApi | BlankEnumApi
 }
 
 export interface PropertyApi {

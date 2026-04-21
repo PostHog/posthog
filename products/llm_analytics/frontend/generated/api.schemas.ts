@@ -64,9 +64,9 @@ export const OutputTypeEnumApi = {
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
  */
-export type Provider519EnumApi = (typeof Provider519EnumApi)[keyof typeof Provider519EnumApi]
+export type Provider2f4EnumApi = (typeof Provider2f4EnumApi)[keyof typeof Provider2f4EnumApi]
 
-export const Provider519EnumApi = {
+export const Provider2f4EnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
@@ -78,7 +78,7 @@ export const Provider519EnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: Provider519EnumApi
+    provider: Provider2f4EnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -573,7 +573,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: Provider519EnumApi
+    provider: Provider2f4EnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -599,7 +599,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: Provider519EnumApi
+    provider?: Provider2f4EnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
@@ -698,9 +698,9 @@ export interface PatchedReviewQueueUpdateApi {
  * `numeric` - numeric
  * `boolean` - boolean
  */
-export type Kind01eEnumApi = (typeof Kind01eEnumApi)[keyof typeof Kind01eEnumApi]
+export type KindD08EnumApi = (typeof KindD08EnumApi)[keyof typeof KindD08EnumApi]
 
-export const Kind01eEnumApi = {
+export const KindD08EnumApi = {
     Categorical: 'categorical',
     Numeric: 'numeric',
     Boolean: 'boolean',
@@ -786,7 +786,7 @@ export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    readonly kind: Kind01eEnumApi
+    readonly kind: KindD08EnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -825,7 +825,7 @@ export interface ScoreDefinitionCreateApi {
 * `categorical` - categorical
 * `numeric` - numeric
 * `boolean` - boolean */
-    kind: Kind01eEnumApi
+    kind: KindD08EnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -907,9 +907,9 @@ export const SummarizeTypeEnumApi = {
  * * `minimal` - minimal
  * `detailed` - detailed
  */
-export type Mode02aEnumApi = (typeof Mode02aEnumApi)[keyof typeof Mode02aEnumApi]
+export type ModeE35EnumApi = (typeof ModeE35EnumApi)[keyof typeof ModeE35EnumApi]
 
-export const Mode02aEnumApi = {
+export const ModeE35EnumApi = {
     Minimal: 'minimal',
     Detailed: 'detailed',
 } as const
@@ -924,7 +924,7 @@ export interface SummarizeRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: Mode02aEnumApi
+    mode?: ModeE35EnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
     /** Force regenerate summary, bypassing cache */
@@ -990,7 +990,7 @@ export interface BatchCheckRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: Mode02aEnumApi
+    mode?: ModeE35EnumApi
     /**
      * LLM model used for cached summaries
      * @nullable
