@@ -8332,7 +8332,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
 
-        with patch("posthog.api.feature_flag.settings.INTERNAL_REQUEST_TOKEN", None):
+        with patch("posthog.api.feature_flag.os.getenv", return_value=None):
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
                 {"distinct_id": "test-user"},
