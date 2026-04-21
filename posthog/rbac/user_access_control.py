@@ -64,6 +64,8 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "session_recording",
     "survey",
+    "warehouse_table",
+    "warehouse_view",
     "web_analytics",
     "activity_log",
     "error_tracking",
@@ -277,6 +279,12 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "external_data_source"
     if name == "externaldataschema":
         return "external_data_schema"
+    if name == "datawarehousesavedquery":
+        return "warehouse_view"
+    if name == "datawarehousesavedqueryfolder":
+        return "warehouse_view"
+    if name == "datawarehousetable":
+        return "warehouse_table"
     if name == "customerjourney":
         return "customer_journey"
 

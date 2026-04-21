@@ -19,6 +19,8 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.api.external_data_source import SimpleExternalDataSourceSerializers
@@ -45,7 +47,7 @@ class CredentialSerializer(serializers.ModelSerializer):
         extra_kwargs = {"access_key": {"write_only": "True"}, "access_secret": {"write_only": "True"}}
 
 
-class TableSerializer(serializers.ModelSerializer):
+class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
     columns = serializers.SerializerMethodField(read_only=True)
@@ -68,8 +70,17 @@ class TableSerializer(serializers.ModelSerializer):
             "external_data_source",
             "external_schema",
             "options",
+            "user_access_level",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "columns",
+            "external_data_source",
+            "external_schema",
+            "user_access_level",
+        ]
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
@@ -177,13 +188,13 @@ class TableSerializer(serializers.ModelSerializer):
         return name
 
 
-class SimpleTableSerializer(serializers.ModelSerializer):
+class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = DataWarehouseTable
-        fields = ["id", "name", "columns", "row_count"]
-        read_only_fields = ["id", "name", "columns", "row_count"]
+        fields = ["id", "name", "columns", "row_count", "user_access_level"]
+        read_only_fields = ["id", "name", "columns", "row_count", "user_access_level"]
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
@@ -212,7 +223,7 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         ]
 
 
-class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
