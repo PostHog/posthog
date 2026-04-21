@@ -135,6 +135,15 @@ export function LogsAlertList(): JSX.Element {
             ),
         },
         {
+            title: 'Created by',
+            dataIndex: 'created_by',
+            render: (_, alert) => (
+                <span className="text-muted text-xs">
+                    {alert.created_by?.first_name || alert.created_by?.email || '—'}
+                </span>
+            ),
+        },
+        {
             title: 'Enabled',
             dataIndex: 'enabled',
             render: (_, alert) => (
