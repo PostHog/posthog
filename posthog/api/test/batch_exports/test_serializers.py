@@ -1,8 +1,10 @@
 from typing import cast
 
+import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
+from rest_framework import serializers as drf_serializers
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
@@ -11,7 +13,7 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 
-from posthog.batch_exports.http import BatchExportSerializer
+from posthog.batch_exports.http import BatchExportSerializer, _validate_identifier_fields
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
@@ -130,3 +132,77 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
         # The alias must be wrapped in backticks, keeping the malicious string as a single identifier
         assert field["alias"] == "`x, (SELECT query FROM another_table LIMIT 100) AS leaked`"
         assert field["expression"] == "events.uuid"
+
+
+_IDENTIFIER_FIELDS_BY_TYPE_CASES = [
+    ("Snowflake", "database"),
+    ("Snowflake", "warehouse"),
+    ("Snowflake", "schema"),
+    ("Snowflake", "table_name"),
+    ("Snowflake", "role"),
+    ("Databricks", "catalog"),
+    ("Databricks", "schema"),
+    ("Databricks", "table_name"),
+    ("Redshift", "database"),
+    ("Redshift", "schema"),
+    ("Redshift", "table_name"),
+    ("Postgres", "database"),
+    ("Postgres", "schema"),
+    ("Postgres", "table_name"),
+    ("BigQuery", "project_id"),
+    ("BigQuery", "dataset_id"),
+    ("BigQuery", "table_id"),
+]
+
+_FORBIDDEN_PAYLOADS = [
+    'events"; DROP TABLE x; --',
+    "events`; DROP TABLE x; --",
+    "events\x00extra",
+    "events\nextra",
+    "events\rextra",
+]
+
+
+class TestValidateIdentifierFields:
+    @parameterized.expand(
+        [
+            (f"{destination}-{field}-{idx}", destination, field, payload)
+            for destination, field in _IDENTIFIER_FIELDS_BY_TYPE_CASES
+            for idx, payload in enumerate(_FORBIDDEN_PAYLOADS)
+        ]
+    )
+    def test_rejects_forbidden_chars(self, _name, destination, field, payload):
+        with pytest.raises(drf_serializers.ValidationError, match=f"'{field}' contains forbidden characters"):
+            _validate_identifier_fields(destination, {field: payload})
+
+    @parameterized.expand(
+        [
+            (
+                "snowflake",
+                "Snowflake",
+                {"database": "ANALYTICS", "warehouse": "WH", "schema": "public", "table_name": "events"},
+            ),
+            ("databricks", "Databricks", {"catalog": "main", "schema": "default", "table_name": "events"}),
+            ("redshift", "Redshift", {"database": "prod", "schema": "public", "table_name": "events"}),
+            ("postgres", "Postgres", {"database": "prod", "schema": "public", "table_name": "events"}),
+            ("bigquery", "BigQuery", {"project_id": "my-project-123", "dataset_id": "analytics", "table_id": "events"}),
+        ]
+    )
+    def test_accepts_benign_identifiers(self, _name, destination, config):
+        _validate_identifier_fields(destination, config)
+
+    def test_non_sql_destination_types_are_skipped(self):
+        # Destinations not in the identifier map (S3, AzureBlob, HTTP, etc.) must not reject
+        # config values — they don't reach SQL identifier positions.
+        _validate_identifier_fields("S3", {"bucket_name": 'evil"; DROP'})
+        _validate_identifier_fields("HTTP", {"url": "https://evil`.example"})
+
+    def test_non_string_values_are_skipped(self):
+        # Type checks are handled by the destination-field type validation earlier in
+        # the serializer; this helper only filters dangerous chars from strings.
+        _validate_identifier_fields("Snowflake", {"table_name": 123, "schema": None})
+
+    def test_unrelated_fields_are_not_checked(self):
+        # A forbidden char in a non-identifier field (e.g. 'user') must not raise — only
+        # fields that reach SQL identifier positions are validated here.
+        _validate_identifier_fields("Snowflake", {"user": 'svc"; DROP', "table_name": "events"})

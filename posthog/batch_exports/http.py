@@ -233,6 +233,31 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         return response.Response({"cancelled": True})
 
 
+# Identifier fields per destination type that reach SQL identifier positions
+# (quoted table/schema/database/warehouse names). Values for these fields must
+# not contain characters that could break out of the quoting used downstream.
+_IDENTIFIER_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
+    "Snowflake": frozenset({"database", "warehouse", "schema", "table_name", "role"}),
+    "Databricks": frozenset({"catalog", "schema", "table_name"}),
+    "Redshift": frozenset({"database", "schema", "table_name"}),
+    "Postgres": frozenset({"database", "schema", "table_name"}),
+    "BigQuery": frozenset({"project_id", "dataset_id", "table_id"}),
+}
+_FORBIDDEN_IDENTIFIER_CHARS: tuple[str, ...] = ('"', "`", "\x00", "\r", "\n")
+
+
+def _validate_identifier_fields(destination_type: str, config: collections.abc.Mapping[str, typing.Any]) -> None:
+    identifier_fields = _IDENTIFIER_FIELDS_BY_TYPE.get(destination_type)
+    if not identifier_fields:
+        return
+    for field in identifier_fields:
+        value = config.get(field)
+        if not isinstance(value, str):
+            continue
+        if any(char in value for char in _FORBIDDEN_IDENTIFIER_CHARS):
+            raise serializers.ValidationError(f"Configuration field '{field}' contains forbidden characters")
+
+
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
@@ -313,6 +338,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
                     )
 
                 config[destination_field.name] = config_value
+
+        _validate_identifier_fields(export_type, config)
 
         return data
 
@@ -970,6 +997,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     batch_export.destination.config,
                     destination_data.get("config", {}),
                 )
+                _validate_identifier_fields(batch_export.destination.type, batch_export.destination.config)
                 integration = destination_data.get("integration", batch_export.destination.integration)
                 batch_export.destination.integration = integration
 
