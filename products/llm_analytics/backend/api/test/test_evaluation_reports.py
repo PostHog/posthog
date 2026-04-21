@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
@@ -60,11 +61,38 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_list_reports(self):
-        self._create_report()
+        self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
         self._create_report()
         response = self.client.get(self.base_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 2)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        # Default (non-MCP) list keeps the full payload the web UI relies on.
+        first = results[0]
+        for field in ("delivery_targets", "rrule", "starts_at", "timezone_name", "report_prompt_guidance"):
+            self.assertIn(field, first)
+
+    def test_mcp_list_returns_slim_payload(self):
+        self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
+        response = self.client.get(self.base_url, HTTP_X_POSTHOG_CLIENT="mcp")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        first = results[0]
+        for dropped in (
+            "rrule",
+            "starts_at",
+            "timezone_name",
+            "delivery_targets",
+            "max_sample_size",
+            "report_prompt_guidance",
+            "cooldown_minutes",
+            "daily_run_cap",
+            "created_by",
+        ):
+            self.assertNotIn(dropped, first)
+        self.assertIn("id", first)
+        self.assertIn("evaluation", first)
 
     def test_list_excludes_deleted(self):
         self._create_report()
@@ -287,6 +315,48 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertIn("count", body)
         self.assertEqual(body["count"], 1)
         self.assertEqual(len(body["results"]), 1)
+
+    # The /runs/ and /generate/ custom @actions have to declare required_scopes explicitly;
+    # without them the default scope resolver returns None for non-CRUD action names and PAK
+    # requests are rejected with "This action does not support Personal API Key access".
+    @parameterized.expand(
+        [
+            ("read_scope_allowed", ["llm_analytics:read"], status.HTTP_200_OK),
+            ("wrong_scope_denied", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_runs_action_pak_scope(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.get(f"{self.base_url}{report.id}/runs/")
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("write_scope_allowed", ["llm_analytics:write"], status.HTTP_202_ACCEPTED),
+            ("wrong_scope_denied", ["llm_analytics:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("products.llm_analytics.backend.api.evaluation_reports.async_to_sync")
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_generate_action_pak_scope(
+        self,
+        _name: str,
+        scopes: list[str],
+        expected_status: int,
+        mock_sync_connect: MagicMock,
+        mock_async_to_sync: MagicMock,
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.post(f"{self.base_url}{report.id}/generate/")
+        self.assertEqual(response.status_code, expected_status)
 
     @patch("products.llm_analytics.backend.api.evaluation_reports.report_user_action")
     def test_create_reports_user_action(self, mock_report: MagicMock) -> None:

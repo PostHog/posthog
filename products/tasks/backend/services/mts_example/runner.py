@@ -30,7 +30,7 @@ MAX_CURSED_ITEMS = 10
 async def run_cursed_identifier_research(
     context: CustomPromptSandboxContext,
     *,
-    branch: str = "master",
+    branch: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
 ) -> ReportResearchOutput:
