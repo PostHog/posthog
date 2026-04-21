@@ -349,8 +349,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         currentTeam: (currentTeam) => {
             const urls =
                 (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
-                    ? currentTeam.recording_domains
-                    : currentTeam.app_urls) || []
+                    ? currentTeam?.recording_domains
+                    : currentTeam?.app_urls) || []
             actions.setAuthorizedUrls(urls.filter(Boolean))
         },
     })),
