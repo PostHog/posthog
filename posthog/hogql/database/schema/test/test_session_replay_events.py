@@ -463,3 +463,43 @@ class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results == [("This is an info message",), ("This is a generic message",)]
+
+
+@freeze_time("2021-01-01T13:46:23")
+class TestSelectSessionReplayAggregateFields(ClickhouseTestMixin, APIBaseTest):
+    """Regression tests for the session_replay_events lazy table that aggregates array
+    columns via ``groupUniqArrayArray``. These fields previously failed to print because
+    ``groupUniqArrayArray`` was missing from the HogQL aggregate function registry."""
+
+    def setUp(self):
+        super().setUp()
+
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id="d1",
+            session_id="session_with_aggregates",
+        )
+
+    def test_select_all_urls_does_not_raise(self):
+        response = execute_hogql_query(
+            parse_select("select session_id, all_urls from session_replay_events order by session_id asc"),
+            self.team,
+        )
+
+        assert response.results is not None
+        assert len(response.results) == 1
+        assert response.results[0][0] == "session_with_aggregates"
+
+    def test_select_ai_tag_aggregates_does_not_raise(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select session_id, ai_tags_fixed, ai_tags_freeform from session_replay_events order by session_id asc"
+            ),
+            self.team,
+        )
+
+        assert response.results is not None
+        assert len(response.results) == 1
+        assert response.results[0][0] == "session_with_aggregates"

@@ -695,6 +695,8 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'groupArray',
         'groupUniqArray',
         'groupUniqArrayIf',
+        'groupUniqArrayArray',
+        'groupUniqArrayArrayIf',
         'groupArrayInsertAt',
         'groupArrayInsertAtIf',
         'groupArrayMovingAvg',
