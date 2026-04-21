@@ -244,6 +244,10 @@ class TestUtils(BaseTest):
             ("FunnelsQuery is insight", {"kind": "FunnelsQuery"}, True, True),
             ("HogQLQuery is insight", {"kind": "HogQLQuery"}, True, True),
             ("TracesQuery is async only", {"kind": "TracesQuery"}, False, True),
+            ("ExperimentQuery is async only", {"kind": "ExperimentQuery"}, False, True),
+            ("ExperimentTrendsQuery is async only", {"kind": "ExperimentTrendsQuery"}, False, True),
+            ("ExperimentFunnelsQuery is async only", {"kind": "ExperimentFunnelsQuery"}, False, True),
+            ("ExperimentExposureQuery is async only", {"kind": "ExperimentExposureQuery"}, False, True),
             (
                 "DataTableNode wrapping TrendsQuery",
                 {"kind": "DataTableNode", "source": {"kind": "TrendsQuery"}},

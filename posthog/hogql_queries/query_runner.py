@@ -165,24 +165,6 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
 }
 
-# Maps each async-capable ExecutionMode to the blocking variant with the closest cache semantics.
-# Used when a query runner opts out of async execution via `force_blocking_execution`.
-_ASYNC_TO_BLOCKING_EXECUTION_MODE: dict[ExecutionMode, ExecutionMode] = {
-    ExecutionMode.CALCULATE_ASYNC_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS: (
-        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-    ),
-    ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-}
-
-FORCE_BLOCKING_EXECUTION_QUERY_KINDS: set[str] = {
-    "ExperimentExposureQuery",
-    "ExperimentFunnelsQuery",
-    "ExperimentQuery",
-    "ExperimentTrendsQuery",
-}
-
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
@@ -265,21 +247,11 @@ def get_query_runner(
     timings: Optional[HogQLTimings] = None,
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    execution_mode: Optional[ExecutionMode] = None,
 ) -> "QueryRunner":
     try:
         kind = get_from_dict_or_attr(query, "kind")
     except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
-
-    if (
-        limit_context is None
-        and execution_mode in _ASYNC_TO_BLOCKING_EXECUTION_MODE
-        and kind in FORCE_BLOCKING_EXECUTION_QUERY_KINDS
-    ):
-        # These runners keep async requests in the web request. Preserve the timeout
-        # context the skipped Celery task would have used.
-        limit_context = LimitContext.QUERY_ASYNC
 
     if kind == "TrendsQuery":
         # Check if this should use calendar heatmap runner instead
@@ -1032,10 +1004,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
     workload: Workload
-    # When True, async ExecutionModes are coerced to their blocking equivalent in `run()` so the
-    # query never gets enqueued to Celery. Set on runners whose callers request async modes but
-    # that we want served directly from the web request (e.g. experiments).
-    force_blocking_execution: bool = False
 
     def __init__(
         self,
@@ -1318,9 +1286,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.user = user
         start_time = perf_counter()
         cache_key = self.get_cache_key()
-
-        if self.force_blocking_execution:
-            execution_mode = _ASYNC_TO_BLOCKING_EXECUTION_MODE.get(execution_mode, execution_mode)
 
         with posthoganalytics.new_context():
             posthoganalytics.tag("cache_key", cache_key)

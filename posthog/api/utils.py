@@ -304,11 +304,17 @@ INSIGHT_KINDS = {
     "LifecycleQuery",
 }
 
-# Queries that should run asynchronously with an extended ClickHouse timeout.
+# Queries that should be granted an extended ClickHouse timeout via LimitContext.QUERY_ASYNC.
 # Superset of INSIGHT_KINDS — includes expensive non-insight queries like TracesQuery
 # whose two-phase GROUP BY over the events table can exceed the default 60s limit.
+# Experiment queries are also here: they run synchronously in the web request but can be
+# expensive enough to need the longer timeout.
 ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
     "TracesQuery",
+    "ExperimentQuery",
+    "ExperimentTrendsQuery",
+    "ExperimentFunnelsQuery",
+    "ExperimentExposureQuery",
 }
 _EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 

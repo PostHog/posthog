@@ -370,7 +370,7 @@ const loadMetrics = async ({
                 response = await performQuery(
                     setLatestVersionsOnQuery(queryWithExperimentId),
                     undefined,
-                    refresh ? 'force_async' : 'async'
+                    refresh ? 'force_blocking' : 'blocking'
                 )
 
                 const durationMs = Math.round(performance.now() - startTime)
@@ -2366,7 +2366,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         end_date: experiment.end_date,
                         holdout: experiment.holdout,
                     })
-                    return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
+                    return await performQuery(query, undefined, refresh ? 'force_blocking' : 'blocking')
                 },
             },
         ],

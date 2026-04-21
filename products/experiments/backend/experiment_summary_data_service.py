@@ -26,6 +26,8 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import EventSource
@@ -194,9 +196,10 @@ class ExperimentSummaryDataService:
                         query=experiment_query,
                         team=experiment.team,
                         workload=Workload.ONLINE,
+                        limit_context=LimitContext.QUERY_ASYNC,
                     )
                     result = query_runner.run(
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                         analytics_props={"source": EventSource.POSTHOG_AI},
                     )
                 refresh_time = getattr(result, "last_refresh", None)
@@ -245,9 +248,10 @@ class ExperimentSummaryDataService:
                         exposure_runner = ExperimentExposuresQueryRunner(
                             query=exposure_query,
                             team=experiment.team,
+                            limit_context=LimitContext.QUERY_ASYNC,
                         )
                         exposure_result = exposure_runner.run(
-                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                             analytics_props={"source": EventSource.POSTHOG_AI},
                         )
 

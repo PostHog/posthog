@@ -172,7 +172,11 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         /**
                          * perform the query - use cache on normal load, force refresh when explicitly requested
                          */
-                        const response = (await performQuery(query, undefined, refresh ? 'force_async' : 'async')) as {
+                        const response = (await performQuery(
+                            query,
+                            undefined,
+                            refresh ? 'force_blocking' : 'blocking'
+                        )) as {
                             results: FunnelStep[] | FunnelStep[][]
                             last_refresh?: string
                         }

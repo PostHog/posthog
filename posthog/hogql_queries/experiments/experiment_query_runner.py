@@ -79,8 +79,6 @@ class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
     actors_query: Optional[ExperimentActorsQuery] = None
-    # Experiment queries are served synchronously from the web request; never enqueue to Celery.
-    force_blocking_execution = True
 
     def __init__(
         self,

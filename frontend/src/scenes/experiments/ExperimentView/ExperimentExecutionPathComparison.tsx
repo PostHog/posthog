@@ -148,7 +148,7 @@ function MetricComparison({
             }
             const startTime = performance.now()
             try {
-                const response = await performQuery(setLatestVersionsOnQuery(query), undefined, 'force_async')
+                const response = await performQuery(setLatestVersionsOnQuery(query), undefined, 'force_blocking')
                 setter({
                     response: response as ExperimentQueryResponse,
                     durationMs: Math.round(performance.now() - startTime),

@@ -51,8 +51,6 @@ SRM_MINIMUM_SAMPLE_SIZE = 100  # Minimum total exposures required for SRM calcul
 class ExperimentExposuresQueryRunner(QueryRunner):
     query: ExperimentExposureQuery
     cached_response: CachedExperimentExposureQueryResponse
-    # Experiment queries are served synchronously from the web request; never enqueue to Celery.
-    force_blocking_execution = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -55,8 +55,6 @@ from products.experiments.backend.models.experiment import Experiment
 class ExperimentTrendsQueryRunner(QueryRunner):
     query: ExperimentTrendsQuery
     cached_response: CachedExperimentTrendsQueryResponse
-    # Experiment queries are served synchronously from the web request; never enqueue to Celery.
-    force_blocking_execution = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
