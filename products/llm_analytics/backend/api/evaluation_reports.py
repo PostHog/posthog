@@ -51,6 +51,31 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "next_delivery_date", "last_delivered_at", "created_by", "created_at"]
+        extra_kwargs = {
+            "evaluation": {"help_text": "UUID of the evaluation this report config belongs to."},
+            "frequency": {
+                "help_text": "'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule."
+            },
+            "rrule": {"help_text": "RFC 5545 recurrence rule string. Required when frequency is 'scheduled'."},
+            "starts_at": {"help_text": "Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'."},
+            "timezone_name": {"help_text": "IANA timezone name for scheduled delivery (e.g. 'America/New_York')."},
+            "delivery_targets": {
+                "help_text": "List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}."
+            },
+            "max_sample_size": {"help_text": "Max number of evaluation runs included in each report. Defaults to 100."},
+            "enabled": {"help_text": "Whether report delivery is active."},
+            "deleted": {"help_text": "Set to true to soft-delete this report config."},
+            "report_prompt_guidance": {
+                "help_text": "Optional custom instructions injected into the AI report prompt to focus analysis."
+            },
+            "trigger_threshold": {
+                "help_text": "Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000."
+            },
+            "cooldown_minutes": {
+                "help_text": "Minimum minutes between reports in every_n mode to prevent spam. Min 60."
+            },
+            "daily_run_cap": {"help_text": "Max reports generated per day. Defaults to 3."},
+        }
 
     def validate_evaluation(self, value):
         # Prevent creating a report in team A that references team B's evaluation:
@@ -176,8 +201,19 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "UUID of this report run."},
+            "report": {"help_text": "UUID of the report config that generated this run."},
+            "content": {"help_text": "Generated report content (markdown or structured text)."},
+            "metadata": {"help_text": "Run metadata including model used, token counts, and generation stats."},
+            "period_start": {"help_text": "Start of the evaluation window covered by this report."},
+            "period_end": {"help_text": "End of the evaluation window covered by this report."},
+            "delivery_status": {"help_text": "'pending', 'delivered', or 'failed'."},
+            "delivery_errors": {"help_text": "List of delivery error messages if delivery failed."},
+        }
 
 
+@extend_schema(tags=["llm_analytics"])
 class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """CRUD for evaluation report configurations + report run history."""
 

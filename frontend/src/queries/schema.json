@@ -10098,7 +10098,7 @@
                     "type": "string"
                 },
                 "displayType": {
-                    "enum": ["auto", "line", "bar"],
+                    "enum": ["auto", "line", "bar", "area"],
                     "type": "string"
                 },
                 "label": {

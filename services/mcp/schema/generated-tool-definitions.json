@@ -1259,6 +1259,186 @@
             "readOnlyHint": true
         }
     },
+    "evaluation-reports-list": {
+        "description": "List all evaluation report configurations for the current project. Optionally filter by evaluation UUID using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are generated and delivered (email or Slack).",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluation report configs",
+        "title": "List evaluation report configs",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-report-get": {
+        "description": "Get a specific evaluation report configuration by UUID. Returns the full config including frequency, delivery targets, trigger thresholds, and schedule settings.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation report config",
+        "title": "Get evaluation report config",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-report-update": {
+        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), change frequency ('every_n' or 'scheduled'), set trigger_threshold and cooldown_minutes for every_n mode, or set rrule/starts_at for scheduled mode. Set deleted=true to soft-delete the config.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update evaluation report config",
+        "title": "Update evaluation report config",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-report-generate": {
+        "description": "Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns 202 on success. Duplicate requests within the same minute are coalesced — only one report is generated. Rate-limited by daily_run_cap.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Trigger evaluation report generation",
+        "title": "Trigger evaluation report generation",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-report-runs-list": {
+        "description": "List the run history for a specific evaluation report config. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluation report runs",
+        "title": "List evaluation report runs",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluations-get": {
+        "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluations",
+        "title": "List evaluations",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-get": {
+        "description": "Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation",
+        "title": "Get evaluation",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-create": {
+        "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create evaluation",
+        "title": "Create evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-update": {
+        "description": "Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt or Hog source), or change the model configuration.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update evaluation",
+        "title": "Update evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-delete": {
+        "description": "Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete evaluation",
+        "title": "Delete evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-test-hog": {
+        "description": "Test Hog evaluation source code against a sample of recent $ai_generation events without saving. Returns per-event results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Test Hog evaluation code",
+        "title": "Test Hog evaluation code",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-run": {
+        "description": "Manually trigger an evaluation run for a specific $ai_generation event. Enqueues a Temporal workflow that asynchronously executes the evaluation and stores the result as a '$ai_evaluation' event. Returns a workflow_id and status \"started\". Pair with execute-sql to query results: SELECT * FROM events WHERE event = '$ai_evaluation'.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Run evaluation",
+        "title": "Run evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "experiment-get-all": {
         "description": "Get all experiments in the project.",
         "category": "Experiments",
