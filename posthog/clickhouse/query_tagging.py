@@ -312,41 +312,34 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
-def tag_team_queries(team: "int | Team", **extra_tags: Any) -> None:
+def get_team_query_tags(team: "int | Team") -> dict[str, Any]:
     """
-    Like tag_queries, but also tags the org-level fields that the HTTP dispatch hook
-    (TeamAndOrgViewSetMixin.team) sets for HTTP requests: org_id and ai_data_processing_approved.
-    Use this from Celery/Temporal/Dagster entry points so their log_comment rows carry the same
-    org metadata as HTTP requests.
+    Returns a dict of tags derived from the team — team_id, org_id, and
+    ai_data_processing_approved — for the caller to pass to tag_queries(). Use from
+    Celery/Temporal/Dagster entry points so their log_comment rows carry the same org
+    metadata as HTTP requests (where TeamAndOrgViewSetMixin.team tags these directly):
 
-    Accepts either a team_id (int) — which triggers one select_related'd Team fetch — or a
-    Team instance, which skips the fetch. If a Team is passed without its organization
+        tag_queries(**get_team_query_tags(insight.team), insight_id=insight.pk, ...)
+
+    Accepts either a team_id (int) — which triggers one select_related'd Team fetch — or
+    a Team instance, which skips the fetch. If a Team is passed without its organization
     prefetched, accessing .organization will lazy-load it (one extra query).
 
-    Short-circuits if org_id is already tagged (e.g. the HTTP path got here first) to avoid
-    a redundant Postgres lookup.
+    Returns only {"team_id": team_id} if the id doesn't resolve to an existing team.
     """
-    team_id = team if isinstance(team, int) else team.pk
-
-    if get_query_tag_value("org_id") is not None:
-        tag_queries(team_id=team_id, **extra_tags)
-        return
-
     if isinstance(team, int):
         from posthog.models.team import Team as TeamModel
 
         resolved = TeamModel.objects.select_related("organization").filter(id=team).first()
         if resolved is None:
-            tag_queries(team_id=team_id, **extra_tags)
-            return
+            return {"team_id": team}
         team = resolved
 
-    tag_queries(
-        team_id=team_id,
-        org_id=team.organization_id,
-        ai_data_processing_approved=team.organization.is_ai_data_processing_approved,
-        **extra_tags,
-    )
+    return {
+        "team_id": team.pk,
+        "org_id": team.organization_id,
+        "ai_data_processing_approved": team.organization.is_ai_data_processing_approved,
+    }
 
 
 def clear_tag(key):
