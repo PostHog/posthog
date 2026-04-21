@@ -142,6 +142,8 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     export_pairs = tile_insight_pairs[: inputs.max_asset_count]
 
     expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
+    # created_by lets the subscription owner retrieve the asset via /api/environments/:team/exports/:id/content/
+    # (ExportedAssetViewSet.safely_get_queryset filters by created_by=request.user).
     assets = [
         ExportedAsset(
             team=team,
@@ -149,6 +151,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             insight=insight,
             dashboard=dashboard,
             expires_after=expiry,
+            created_by=subscription.created_by,
         )
         for _tile, insight in export_pairs
     ]

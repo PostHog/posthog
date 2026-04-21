@@ -482,6 +482,9 @@ async def test_create_export_assets_creates_exported_assets(
     assert asset.team_id == team.id
     assert asset.insight_id == insight.id
     assert asset.export_format == "image/png"
+    # created_by must be set so the subscription owner can retrieve the image via the authed
+    # content endpoint (safely_get_queryset filters by created_by=request.user).
+    assert asset.created_by_id == user.id
 
     # SLO started is emitted by the interceptor, not this activity
     mock_analytics.capture.assert_not_called()
