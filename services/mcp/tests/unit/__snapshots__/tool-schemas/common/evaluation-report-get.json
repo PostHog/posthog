@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "A UUID string identifying this evaluation.",
+            "description": "A UUID string identifying this evaluation report.",
             "type": "string"
         }
     },
