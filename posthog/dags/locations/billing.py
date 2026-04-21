@@ -7,6 +7,7 @@ from ee.billing.dags.customer_archetype import (
     archetype_weekly_schedule,
 )
 from ee.billing.dags.job_switchers import job_switchers_daily_schedule, job_switchers_job, job_switchers_to_clay
+from ee.billing.dags.lemlist.dag import lemlist_campaigns_and_stats, lemlist_daily_schedule, lemlist_job
 from ee.billing.dags.productled_outbound_targets import (
     plo_base_targets,
     plo_daily_schedule,
@@ -25,8 +26,14 @@ defs = dagster.Definitions(
         plo_qualified_to_clay,
         archetype_account_data,
         archetype_classify_and_sync,
+        lemlist_campaigns_and_stats,
     ],
-    jobs=[job_switchers_job, plo_job, archetype_job],
-    schedules=[job_switchers_daily_schedule, plo_daily_schedule, archetype_weekly_schedule],
+    jobs=[job_switchers_job, plo_job, archetype_job, lemlist_job],
+    schedules=[
+        job_switchers_daily_schedule,
+        plo_daily_schedule,
+        archetype_weekly_schedule,
+        lemlist_daily_schedule,
+    ],
     resources=resources,
 )

@@ -15,6 +15,8 @@ from posthog.dags.common.resources import (
     kafka_producer_resource,
 )
 
+from ee.billing.dags.lemlist.auth import LemlistAuthResource
+
 # Define resources for different environments
 resources_by_env = {
     "prod": {
@@ -53,6 +55,8 @@ resources_by_env = {
             webhook_url=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_WEBHOOK_URL"),
             api_key=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_API_KEY"),
         ),
+        # Lemlist API auth for the billing outbound-campaign ETL
+        "lemlist_auth": LemlistAuthResource(api_key=dagster.EnvVar("LEMLIST_API_KEY")),
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
@@ -89,6 +93,8 @@ resources_by_env = {
             webhook_url=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_WEBHOOK_URL"),
             api_key=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_API_KEY"),
         ),
+        # Lemlist API auth for the billing outbound-campaign ETL
+        "lemlist_auth": LemlistAuthResource(api_key=dagster.EnvVar("LEMLIST_API_KEY")),
     },
 }
 
