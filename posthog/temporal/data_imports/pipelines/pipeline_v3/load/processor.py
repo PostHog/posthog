@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 import s3fs
 import pyarrow as pa
+import deltalake as deltalake
 import structlog
 import pyarrow.compute as pc
 import posthoganalytics
@@ -12,7 +13,10 @@ from posthog.temporal.data_imports.pipelines.common.load import run_post_load_op
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from posthog.temporal.data_imports.pipelines.pipeline.utils import append_partition_key_to_table
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    append_partition_key_to_table,
+    pyarrow_schema_from_arrow_exportable,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import ExportSignalMessage, SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
@@ -31,7 +35,7 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models import ExternalDataJob
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
@@ -47,8 +51,11 @@ def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_
 
 
 def _apply_partitioning(
-    export_signal: ExportSignalMessage, pa_table: Any, existing_delta_table: Any, schema: Any
-) -> Any:
+    export_signal: ExportSignalMessage,
+    pa_table: pa.Table,
+    existing_delta_table: deltalake.DeltaTable | None,
+    schema: ExternalDataSchema,
+) -> pa.Table:
     """Apply partitioning to the table if configured."""
     partition_keys = export_signal.partition_keys
 
@@ -98,8 +105,8 @@ def _apply_partitioning(
 async def _handle_partial_data_loading(
     export_signal: ExportSignalMessage,
     job: ExternalDataJob,
-    schema: Any,
-    delta_table: Any,
+    schema: ExternalDataSchema,
+    delta_table: deltalake.DeltaTable,
     previous_file_uris: list[str],
     internal_schema: HogQLSchema,
 ) -> None:
@@ -192,7 +199,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
         pa_table = read_parquet(export_signal.s3_path)
         internal_schema = HogQLSchema()
-        internal_schema.add_pyarrow_schema(pa.schema(delta_table.schema().to_arrow()))
+        internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
         internal_schema.add_pyarrow_table(pa_table)
         table_schema_dict = internal_schema.to_hogql_types()
 
@@ -274,8 +281,30 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         team_id_str = str(export_signal.team_id)
         schema_id_str = str(export_signal.schema_id)
 
+        # Build the helper early so the idempotency check can use it as a
+        # delta-history fallback when the Redis dedup flag is missing — the case
+        # where the writer crashed between `write_to_deltalake` committing and
+        # `mark_batch_as_processed` being called.
+        job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
+            id=export_signal.job_id
+        )
+        schema = job.schema
+        if schema is None:
+            raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
+
+        delta_table_helper = DeltaTableHelper(
+            resource_name=export_signal.resource_name,
+            job=job,
+            logger=logger,
+            is_first_sync=export_signal.is_first_ever_sync,
+        )
+
         already_processed = is_batch_already_processed(
-            export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
+            export_signal.team_id,
+            export_signal.schema_id,
+            export_signal.run_uuid,
+            export_signal.batch_index,
+            delta_table_helper=delta_table_helper,
         )
 
         if already_processed and not export_signal.is_final_batch:
@@ -313,20 +342,6 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
             sync_type=export_signal.sync_type,
         )
 
-        job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
-            id=export_signal.job_id
-        )
-        schema = job.schema
-        if schema is None:
-            raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
-
-        delta_table_helper = DeltaTableHelper(
-            resource_name=export_signal.resource_name,
-            job=job,
-            logger=logger,
-            is_first_sync=export_signal.is_first_ever_sync,
-        )
-
         with PARQUET_READ_DURATION_SECONDS.time():
             pa_table = read_parquet(export_signal.s3_path)
 
@@ -347,6 +362,14 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
 
         primary_keys = export_signal.primary_keys
         cdc_write_mode = export_signal.cdc_write_mode
+
+        # Tag every delta commit with (run_uuid, batch_index) so that a Kafka
+        # redelivery after a writer crash can detect "already committed" even when
+        # the Redis dedup flag is missing. See `is_batch_already_processed`.
+        commit_metadata = {
+            "run_uuid": export_signal.run_uuid,
+            "batch_index": str(export_signal.batch_index),
+        }
 
         # Cross-batch DELETE enrichment: fill data columns on DELETE rows from the
         # existing DeltaLake state. Batch-internal enrichment was already applied
@@ -415,6 +438,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                 delta_table = async_to_sync(delta_table_helper.write_scd2_to_deltalake)(
                     data=pa_table,
                     primary_keys=primary_keys or [],
+                    commit_metadata=commit_metadata,
                 )
         else:
             write_type = _get_write_type(export_signal.sync_type)
@@ -439,6 +463,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                     should_overwrite_table=should_overwrite_table,
                     primary_keys=primary_keys,
                     progress_callback=progress_callback,
+                    commit_metadata=commit_metadata,
                 )
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
@@ -446,7 +471,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
         # all batches, then overlay the current batch for JSON detection.
-        internal_schema.add_pyarrow_schema(pa.schema(delta_table.schema().to_arrow()))  # type: ignore[arg-type]  # arro3 Schema implements the Arrow C Data Interface
+        internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
         internal_schema.add_pyarrow_table(pa_table)
 
         logger.debug(

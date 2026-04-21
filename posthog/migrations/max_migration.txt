@@ -1,1 +1,1 @@
-1102_organizationmembership_org_joined_idx
+1104_alter_organization_is_ai_data_processing_approved

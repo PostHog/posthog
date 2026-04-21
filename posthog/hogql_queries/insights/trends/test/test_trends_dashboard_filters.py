@@ -397,7 +397,7 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.breakdownFilter == BreakdownFilter(breakdown="abc", breakdown_limit=5)  # Small enough
         assert query_runner.query.trendsFilter is None
 
-        query_runner.query.breakdownFilter.breakdown_limit = 50
+        query_runner.query.breakdownFilter.breakdown_limit = 50  # ty: ignore[invalid-assignment]
 
         query_runner.apply_dashboard_filters(DashboardFilter())
 

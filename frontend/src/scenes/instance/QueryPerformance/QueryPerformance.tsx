@@ -114,7 +114,14 @@ export function QueryPerformance(): JSX.Element {
         {
             title: 'Organization',
             render: function OrgCell(_, item) {
-                return <span>{item.organization_name || <span className="text-muted">Unknown</span>}</span>
+                return (
+                    <div className="flex items-center gap-1">
+                        <span>{item.organization_name || <span className="text-muted">Unknown</span>}</span>
+                        {item.organization_mrr != null && (
+                            <LemonTag type="completion">${item.organization_mrr.toLocaleString()}</LemonTag>
+                        )}
+                    </div>
+                )
             },
         },
         {

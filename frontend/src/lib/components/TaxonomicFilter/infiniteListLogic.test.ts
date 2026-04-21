@@ -157,6 +157,112 @@ describe('infiniteListLogic', () => {
                 })
         })
 
+        describe('"All events" visibility', () => {
+            it('shows "All events" when the search query is empty', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 1,
+                            results: [{ name: 'All events', value: null }],
+                        }),
+                    })
+            })
+
+            it.each([
+                ['All e', 'prefix'],
+                ['all events', 'lowercase'],
+                ['ALL EVENTS', 'uppercase'],
+                ['All Events', 'title case'],
+                ['events', 'suffix only'],
+                ['ll ev', 'mid substring'],
+            ])('shows "All events" when the search query is %s (%s)', async (query) => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery(query)
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 1,
+                            results: [{ name: 'All events', value: null }],
+                        }),
+                    })
+            })
+
+            it.each([
+                ['mcp tool call', 'long unrelated query'],
+                ['foobar', 'short unrelated query'],
+                ['xyz', 'no overlap'],
+                ['$pageview', 'real event name'],
+            ])('hides "All events" when the search query is %s (%s)', async (query) => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery(query)
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 0,
+                            results: [],
+                        }),
+                    })
+            })
+
+            it('excludes "All events" from the combined items list for a non-matching query but keeps remote events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('event')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        // Remote /event_definitions mock returns 3 events whose names contain "event".
+                        // "All events" also contains "event" so the meta option is kept as the first local item.
+                        items: partial({
+                            count: 4,
+                            results: partial([{ name: 'All events', value: null }, partial({ name: 'event1' })]),
+                        }),
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('mcp tool call')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        // Remote mock returns 0 matches; local "All events" is filtered out by substring match.
+                        items: partial({
+                            count: 0,
+                            results: [],
+                        }),
+                    })
+            })
+
+            it('restores "All events" when the search query is cleared', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('mcp tool call')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({ count: 0 }),
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 1,
+                            results: [{ name: 'All events', value: null }],
+                        }),
+                    })
+            })
+        })
+
         it('resets pinned state when the search query changes', async () => {
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
             await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({
@@ -265,6 +371,73 @@ describe('infiniteListLogic', () => {
                         }),
                     })
             })
+        })
+    })
+
+    describe('internal events local options filtering', () => {
+        // The Internal Events group has multiple local options ("All internal events" plus
+        // product filter options), so substring matching needs to cover both the meta option
+        // and the concrete labels.
+        let internalLogic: ReturnType<typeof infiniteListLogic.build>
+
+        beforeEach(() => {
+            internalLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testListInternal',
+                listGroupType: TaxonomicFilterGroupType.InternalEvents,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.InternalEvents],
+                showNumericalPropsOnly: false,
+            })
+            internalLogic.mount()
+        })
+
+        it('shows all options when the search query is empty', async () => {
+            await expectLogic(internalLogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        results: partial([partial({ name: 'All internal events' })]),
+                    }),
+                })
+            expect(internalLogic.values.localItems.count).toBeGreaterThanOrEqual(1)
+        })
+
+        it('keeps "All internal events" when the search query matches it', async () => {
+            await expectLogic(internalLogic, () => {
+                internalLogic.actions.setSearchQuery('internal')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        results: partial([{ name: 'All internal events', value: null }]),
+                    }),
+                })
+        })
+
+        it('hides "All internal events" when the search query does not match any option', async () => {
+            await expectLogic(internalLogic, () => {
+                internalLogic.actions.setSearchQuery('mcp tool call')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        count: 0,
+                        results: [],
+                    }),
+                })
+        })
+
+        it('keeps option labels when the search query matches them (case-insensitive)', async () => {
+            await expectLogic(internalLogic, () => {
+                internalLogic.actions.setSearchQuery('TEAM')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .toFinishAllListeners()
+            // "Team activity" is one of the default activity-log product filter options.
+            const names = internalLogic.values.localItems.results.map((item: any) => item.name)
+            expect(names).toContain('Team activity')
+            expect(names).not.toContain('All internal events')
         })
     })
 
