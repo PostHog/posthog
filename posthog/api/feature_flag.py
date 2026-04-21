@@ -367,6 +367,26 @@ def calculate_filter_size_bytes(filters: dict | None) -> int:
     return len(filter_json.encode("utf-8"))
 
 
+def _filter_person_properties_for_flag(flag: FeatureFlag, person_properties: dict[str, Any]) -> dict[str, Any]:
+    """
+    Filter person_properties to only include keys referenced by the flag's conditions.
+    This addresses the scope concern where feature_flag:read tokens can access all person properties.
+    """
+    # Extract person property keys from flag conditions
+    referenced_keys = set()
+
+    groups = flag.filters.get("groups", [])
+    for group in groups:
+        properties = group.get("properties", [])
+        for prop in properties:
+            # Only include person-type properties
+            if prop.get("type") == "person" and prop.get("key"):
+                referenced_keys.add(prop["key"])
+
+    # Only return properties that are referenced in the flag
+    return {key: value for key, value in person_properties.items() if key in referenced_keys}
+
+
 def check_flag_limits_for_team(
     team_id: int,
     is_create: bool = True,
@@ -3588,27 +3608,32 @@ class FeatureFlagViewSet(
                     reason = reason_data.get("code", "unknown") if reason_data else "unknown"
                     condition_index = reason_data.get("condition_index") if reason_data else None
                     payload = metadata.get("payload") if metadata else None
-                    # Try to find conditions in different possible locations
-                    detailed_conditions = (
-                        flag_result.get("conditions", [])
-                        or flag_result.get("analysis", {}).get("conditions", [])
-                        or rust_response.get("conditions", [])
-                        or rust_response.get("analysis", {}).get("conditions", [])
-                        or []
-                    )
+                    # Extract conditions from flag result (only valid path per Rust FlagDetails contract)
+                    detailed_conditions = flag_result.get("conditions", [])
+                    if not detailed_conditions:
+                        # Log warning when expected conditions key is missing
+                        logger.warning(
+                            "Missing 'conditions' key in flag evaluation response",
+                            extra={"flag_key": feature_flag.key, "response_keys": list(flag_result.keys())},
+                        )
 
                     # If there's a variant, use it as the result
                     if variant is not None:
                         result = variant
-                elif isinstance(flag_result, bool):
-                    result = flag_result
-                    reason = "flag_matched" if flag_result else "no_condition_match"
-                elif isinstance(flag_result, str):
-                    result = flag_result
-                    reason = "flag_matched"
                 else:
-                    result = bool(flag_result)
-                    reason = "flag_matched" if result else "no_condition_match"
+                    # /flags endpoint with v=2 always returns dict, these branches should never fire
+                    logger.error(
+                        "Unexpected flag_result type in test_evaluation",
+                        extra={
+                            "flag_key": feature_flag.key,
+                            "result_type": type(flag_result).__name__,
+                            "result_value": str(flag_result)[:100],
+                        },
+                    )
+                    return Response(
+                        {"error": "Unexpected response format from flag evaluation service"},
+                        status=status.HTTP_502_BAD_GATEWAY,
+                    )
 
             response_data = {
                 "flag_key": feature_flag.key,
@@ -3616,7 +3641,7 @@ class FeatureFlagViewSet(
                 "reason": reason,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": person_properties,
+                "person_properties": _filter_person_properties_for_flag(feature_flag, person_properties),
                 "conditions": detailed_conditions,
             }
 
