@@ -104,7 +104,7 @@ def count_collection_recordings(
     playlist_items: QuerySet[SessionRecordingPlaylistItem] = playlist.playlist_items.exclude(deleted=True)
     watched_playlist_items = current_user_viewed(
         # mypy can't detect that it's safe to pass queryset to list() 🤷
-        list(playlist.playlist_items.values_list("session_id", flat=True)),  # type: ignore
+        list(playlist.playlist_items.values_list("recording_id", flat=True)),  # type: ignore
         user,
         team,
     )
@@ -273,7 +273,7 @@ def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user
     # Separate scan for session_ids — includes soft-deleted rows to preserve the
     # watched-count semantics of the pre-change count_collection_recordings.
     session_ids_by_playlist: dict[int, list[str]] = defaultdict(list)
-    for playlist_id, session_id in base_qs.values_list("playlist_id", "session_id"):
+    for playlist_id, session_id in base_qs.values_list("playlist_id", "recording_id"):
         if session_id is not None:
             session_ids_by_playlist[playlist_id].append(session_id)
 
