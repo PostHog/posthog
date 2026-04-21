@@ -959,6 +959,103 @@ class TestExports(APIBaseTest):
         self.assertEqual(error_data["attr"], "export_limit_exceeded")
         self.assertIn("reached the limit of 3 full video exports this month", error_data["detail"])
 
+    @parameterized.expand(
+        [
+            # name, available_product_features, expected_limit
+            ("free", [], 10),
+            (
+                "paid",
+                [{"key": "recordings_file_export", "name": "Recordings file export"}],
+                15,
+            ),
+            (
+                "enterprise_via_role_based_access",
+                [
+                    {"key": "recordings_file_export", "name": "Recordings file export"},
+                    {"key": "role_based_access", "name": "Role based access"},
+                ],
+                25,
+            ),
+            (
+                "enterprise_via_saml",
+                [
+                    {"key": "recordings_file_export", "name": "Recordings file export"},
+                    {"key": "saml", "name": "SAML"},
+                ],
+                25,
+            ),
+        ]
+    )
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_limit_varies_by_plan_tier(
+        self,
+        _name: str,
+        available_product_features: list[dict],
+        expected_limit: int,
+        mock_async_connect,
+        mock_async_to_sync,
+    ) -> None:
+        """The monthly video export limit scales with the organization's plan tier."""
+        self.organization.available_product_features = available_product_features
+        self.organization.save()
+
+        for i in range(expected_limit):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"session_recording_id": f"session_{i}"},
+                created_by=self.user,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "session_recording_id": "session_over_limit",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertEqual(error_data["attr"], "export_limit_exceeded")
+        self.assertIn(f"reached the limit of {expected_limit} full video exports this month", error_data["detail"])
+
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_extra_settings_override_wins_over_plan_tier(
+        self, mock_async_connect, mock_async_to_sync
+    ) -> None:
+        """A per-team override in extra_settings takes precedence over the plan default (e.g. support bumps)."""
+        # Paid tier: default would be 15, but the team has a manual override of 20.
+        self.organization.available_product_features = [
+            {"key": "recordings_file_export", "name": "Recordings file export"}
+        ]
+        self.organization.save()
+        self.team.extra_settings = {"full_video_exports_limit": 20}
+        self.team.save()
+
+        for i in range(20):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"session_recording_id": f"session_{i}"},
+                created_by=self.user,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "session_recording_id": "session_over_limit",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("reached the limit of 20 full video exports this month", response.json()["detail"])
+
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_export_records_failure_on_query_error(self, mock_export_direct) -> None:
         """Test that export_asset records failure info on the asset when a QueryError occurs.

@@ -18,10 +18,12 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource, get_event_source, groups
 from posthog.models import Insight, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
+from posthog.models.organization import Organization
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
@@ -30,8 +32,41 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
-# Allow max 10 full video exports per team per calendar month
-FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
+# Full video exports per team per calendar month, tiered by plan.
+FREE_FULL_VIDEO_EXPORTS_LIMIT = 10
+PAID_FULL_VIDEO_EXPORTS_LIMIT = 15
+ENTERPRISE_FULL_VIDEO_EXPORTS_LIMIT = 25
+
+# Features only granted on the Enterprise plan (see ee.models.license.ENTERPRISE_FEATURES).
+# Presence of any of these signals the org is on Enterprise.
+_ENTERPRISE_ONLY_FEATURES: frozenset[str] = frozenset(
+    {
+        AvailableFeature.ADVANCED_PERMISSIONS,
+        AvailableFeature.SAML,
+        AvailableFeature.SCIM,
+        AvailableFeature.SSO_ENFORCEMENT,
+        AvailableFeature.ROLE_BASED_ACCESS,
+    }
+)
+
+
+def get_full_video_exports_limit_for_organization(organization: Organization | None) -> int:
+    """Return the monthly full video export limit based on the organization's plan tier."""
+    if organization is None:
+        return FREE_FULL_VIDEO_EXPORTS_LIMIT
+
+    available_keys = {
+        feature.get("key")
+        for feature in (organization.available_product_features or [])
+        if feature and feature.get("key")
+    }
+
+    if available_keys & _ENTERPRISE_ONLY_FEATURES:
+        return ENTERPRISE_FULL_VIDEO_EXPORTS_LIMIT
+    if AvailableFeature.RECORDINGS_FILE_EXPORT in available_keys:
+        return PAID_FULL_VIDEO_EXPORTS_LIMIT
+    return FREE_FULL_VIDEO_EXPORTS_LIMIT
+
 
 logger = structlog.get_logger(__name__)
 
@@ -125,25 +160,25 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 created_at__gte=start_of_month,
             ).count()
 
-            # Get team-specific limit from extra_settings, fallback to default
-            team_limit = FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM
+            # Plan-tier default, with an optional per-team override in extra_settings.
             get_team = self.context.get("get_team")
-            if get_team is not None:
-                team = get_team()
-                if team is not None and team.extra_settings and "full_video_exports_limit" in team.extra_settings:
-                    limit_value = team.extra_settings["full_video_exports_limit"]
-                    try:
-                        team_limit = int(limit_value)
-                        if team_limit <= 0:
-                            raise ValueError("Limit must be positive")
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            "invalid_full_video_exports_limit",
-                            team_id=team.id,
-                            limit_value=limit_value,
-                            limit_value_type=type(limit_value).__name__,
-                        )
-                        team_limit = FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM
+            team = get_team() if get_team is not None else None
+            team_limit = get_full_video_exports_limit_for_organization(team.organization if team is not None else None)
+
+            if team is not None and team.extra_settings and "full_video_exports_limit" in team.extra_settings:
+                limit_value = team.extra_settings["full_video_exports_limit"]
+                try:
+                    override_limit = int(limit_value)
+                    if override_limit <= 0:
+                        raise ValueError("Limit must be positive")
+                    team_limit = override_limit
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "invalid_full_video_exports_limit",
+                        team_id=team.id,
+                        limit_value=limit_value,
+                        limit_value_type=type(limit_value).__name__,
+                    )
 
             if not self.context["request"].user.is_staff and existing_full_video_exports_count >= team_limit:
                 raise ValidationError(
