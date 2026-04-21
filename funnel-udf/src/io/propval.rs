@@ -70,16 +70,13 @@ pub fn shape_output_type(shape: BreakdownShape) -> DataTypeNode {
 }
 
 /// Picks the breakdown shape from the prop_vals element type on the wire.
-/// Each shape accepts a family of near-variants (see column.rs for why):
+/// Peels LowCardinality and Nullable so the shape matches the underlying kind:
 ///   U64           — any integer element (cohort ids)
-///   ArrayString   — Array(String) with or without LowCardinality wrap
-///   NullableString — Nullable(String) or plain String
+///   ArrayString   — nested Array(String) (element Nullable/LC irrelevant)
+///   NullableString — anything string-like
 pub fn detect_shape(prop_vals_type: &DataTypeNode) -> CodecResult<BreakdownShape> {
     let inner = array_elem(prop_vals_type, "detect_shape on prop_vals")?;
-    let peeled = match inner {
-        DataTypeNode::LowCardinality(x) => x.as_ref(),
-        other => other,
-    };
+    let peeled = peel_shape_wrappers(inner);
     match peeled {
         DataTypeNode::UInt8
         | DataTypeNode::UInt16
@@ -89,18 +86,19 @@ pub fn detect_shape(prop_vals_type: &DataTypeNode) -> CodecResult<BreakdownShape
         | DataTypeNode::Int16
         | DataTypeNode::Int32
         | DataTypeNode::Int64 => Ok(BreakdownShape::U64),
-        DataTypeNode::Array(el)
-            if matches!(**el, DataTypeNode::String | DataTypeNode::LowCardinality(_)) =>
-        {
-            Ok(BreakdownShape::ArrayString)
-        }
-        DataTypeNode::Nullable(el) if matches!(**el, DataTypeNode::String) => {
-            Ok(BreakdownShape::NullableString)
-        }
-        DataTypeNode::String => Ok(BreakdownShape::NullableString),
+        DataTypeNode::Array(_) => Ok(BreakdownShape::ArrayString),
+        DataTypeNode::String | DataTypeNode::FixedString(_) => Ok(BreakdownShape::NullableString),
         other => Err(CodecError::TypeMismatch(format!(
             "prop_vals: unsupported element type {other}"
         ))),
+    }
+}
+
+fn peel_shape_wrappers(t: &DataTypeNode) -> &DataTypeNode {
+    let t = t.remove_low_cardinality();
+    match t {
+        DataTypeNode::Nullable(inner) => inner.remove_low_cardinality(),
+        other => other,
     }
 }
 
