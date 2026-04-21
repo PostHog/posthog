@@ -6,7 +6,7 @@ import socket
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from urllib.parse import urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -145,6 +145,8 @@ class Integration(models.Model):
         "project",
         "admin",
     )
+    repository_cache = models.JSONField(default=list, blank=True)
+    repository_cache_updated_at = models.DateTimeField(null=True, blank=True)
 
     errors = models.TextField()
 
@@ -2002,6 +2004,10 @@ class GitHubCommitAuthor:
 # GitHub on every paginated branch request while keeping the window in which a
 # renamed default branch stays stale tolerably short.
 GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS = 60 * 60 * 6
+GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
+GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS = 30
+GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
+GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 
 @dataclass(frozen=True)
@@ -2426,10 +2432,234 @@ class GitHubIntegration:
 
         return result, has_more
 
-    def list_all_repositories(self, max_repos: int = 500) -> list[dict]:
+    def list_all_repositories(self) -> list[dict]:
         """Fetch all accessible repositories, paginating through GitHub's API."""
-        repos, _ = self.list_repositories(limit=max_repos, offset=0)
-        return repos
+        all_repositories: list[dict] = []
+        offset = 0
+        page_size = 100
+
+        while True:
+            repositories, has_more = self.list_repositories(limit=page_size, offset=offset)
+            all_repositories.extend(repositories)
+
+            if not has_more or not repositories:
+                return all_repositories
+
+            offset += len(repositories)
+
+    def _get_repository_cache(self) -> list[dict] | None:
+        cached = self.integration.repository_cache
+        if not isinstance(cached, list):
+            return None
+
+        repositories: list[dict] = []
+        for repo in cached:
+            if (
+                isinstance(repo, dict)
+                and isinstance(repo.get("id"), int)
+                and isinstance(repo.get("name"), str)
+                and isinstance(repo.get("full_name"), str)
+            ):
+                repositories.append(
+                    {
+                        "id": repo["id"],
+                        "name": repo["name"],
+                        "full_name": repo["full_name"],
+                    }
+                )
+
+        return repositories
+
+    def repository_cache_is_stale(self) -> bool:
+        updated_at = self.integration.repository_cache_updated_at
+        if updated_at is None:
+            return True
+
+        return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
+
+    def sync_repository_cache(self, min_refresh_interval_seconds: int | None = None) -> list[dict]:
+        cached_repositories = self._get_repository_cache()
+        updated_at = self.integration.repository_cache_updated_at
+        if (
+            min_refresh_interval_seconds is not None
+            and cached_repositories is not None
+            and updated_at is not None
+            and (timezone.now() - updated_at).total_seconds() < min_refresh_interval_seconds
+        ):
+            return cached_repositories
+
+        repositories = self.list_all_repositories()
+        self.integration.repository_cache = repositories
+        self.integration.repository_cache_updated_at = timezone.now()
+        self.integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
+        return repositories
+
+    def list_cached_repositories(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
+        cached_repositories = self._get_repository_cache()
+        updated_at = self.integration.repository_cache_updated_at
+        has_cached_snapshot = updated_at is not None
+        cache_is_stale = self.repository_cache_is_stale()
+        should_refresh = cached_repositories is None or cache_is_stale
+
+        if should_refresh:
+            try:
+                cached_repositories = self.sync_repository_cache()
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: failed to refresh repository cache",
+                    integration_id=self.integration.id,
+                    exc_info=True,
+                )
+                if not has_cached_snapshot:
+                    raise
+
+        if cached_repositories is None:
+            cached_repositories = []
+
+        result = cached_repositories[offset : offset + limit]
+        has_more = offset + limit < len(cached_repositories)
+        return result, has_more
+
+    def list_all_cached_repositories(self, max_repos: int | None = None) -> list[dict]:
+        cached_repositories = self._get_repository_cache()
+        updated_at = self.integration.repository_cache_updated_at
+        has_cached_snapshot = updated_at is not None
+        cache_is_stale = self.repository_cache_is_stale()
+        should_refresh = cached_repositories is None or cache_is_stale
+
+        if should_refresh:
+            try:
+                cached_repositories = self.sync_repository_cache()
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: failed to refresh repository cache",
+                    integration_id=self.integration.id,
+                    exc_info=True,
+                )
+                if not has_cached_snapshot:
+                    raise
+
+        if cached_repositories is None:
+            cached_repositories = []
+
+        if max_repos is not None:
+            return cached_repositories[:max_repos]
+
+        return cached_repositories
+
+    @database_sync_to_async
+    def list_cached_repositories_async(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
+        return self.list_cached_repositories(limit=limit, offset=offset)
+
+    @database_sync_to_async
+    def list_all_cached_repositories_async(self, max_repos: int | None = None) -> list[dict]:
+        return self.list_all_cached_repositories(max_repos=max_repos)
+
+    def _get_branch_cache_key(self, repo: str) -> str:
+        return f"github_integration:branches:{self.integration.id}:{repo.lower()}"
+
+    def _get_branch_cache(self, repo: str) -> dict[str, Any] | None:
+        cached = cache.get(self._get_branch_cache_key(repo))
+        if not isinstance(cached, dict):
+            return None
+
+        branches = cached.get("branches")
+        default_branch = cached.get("default_branch")
+        updated_at = cached.get("updated_at")
+        if not isinstance(branches, list) or not all(isinstance(branch, str) for branch in branches):
+            return None
+        if default_branch is not None and not isinstance(default_branch, str):
+            return None
+        if not isinstance(updated_at, (int, float)):
+            return None
+
+        return {
+            "branches": branches,
+            "default_branch": default_branch,
+            "updated_at": updated_at,
+        }
+
+    def branch_cache_is_stale(self, repo: str) -> bool:
+        cached = self._get_branch_cache(repo)
+        if cached is None:
+            return True
+
+        return time.time() - float(cached["updated_at"]) >= GITHUB_BRANCH_CACHE_TTL_SECONDS
+
+    def list_all_branches(self, repo: str) -> list[str]:
+        """Fetch all branches for a repository, paginating through GitHub's API."""
+        all_branches: list[str] = []
+        offset = 0
+        page_size = 100
+
+        while True:
+            branches, has_more = self.list_branches(repo, limit=page_size, offset=offset)
+            all_branches.extend(branches)
+
+            if not has_more or not branches:
+                return all_branches
+
+            offset += len(branches)
+
+    def sync_branch_cache(self, repo: str) -> tuple[list[str], str | None]:
+        branches = self.list_all_branches(repo)
+
+        try:
+            default_branch = self.get_default_branch(repo)
+        except Exception:
+            default_branch = None
+
+        if default_branch:
+            branches = [branch for branch in branches if branch != default_branch]
+            branches.insert(0, default_branch)
+
+        cache.set(
+            self._get_branch_cache_key(repo),
+            {
+                "branches": branches,
+                "default_branch": default_branch,
+                "updated_at": time.time(),
+            },
+            timeout=GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS,
+        )
+
+        return branches, default_branch
+
+    def list_cached_branches(
+        self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
+    ) -> tuple[list[str], str | None, bool]:
+        cached = self._get_branch_cache(repo)
+        should_refresh = cached is None or self.branch_cache_is_stale(repo)
+
+        if should_refresh:
+            try:
+                branches, default_branch = self.sync_branch_cache(repo)
+                cached = {
+                    "branches": branches,
+                    "default_branch": default_branch,
+                }
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: failed to refresh branch cache",
+                    integration_id=self.integration.id,
+                    repo=repo,
+                    exc_info=True,
+                )
+                if cached is None:
+                    raise
+
+        assert cached is not None
+        branches = cast(list[str], cached["branches"])
+        default_branch = cast(str | None, cached["default_branch"])
+
+        normalized_search = search.strip().casefold()
+        filtered_branches = (
+            [branch for branch in branches if normalized_search in branch.casefold()] if normalized_search else branches
+        )
+
+        result = filtered_branches[offset : offset + limit]
+        has_more = offset + limit < len(filtered_branches)
+        return result, default_branch, has_more
 
     def get_top_starred_repository(self) -> str | None:
         """Get the repository with the most stars from the GitHub integration.
