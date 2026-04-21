@@ -20,6 +20,28 @@ def load_structure() -> dict:
     return yaml.safe_load(STRUCTURE_FILE.read_text())
 
 
+def load_product_yaml(name: str) -> dict:
+    """Load a product's product.yaml (best-effort, returns {} if missing)."""
+    path = PRODUCTS_DIR / name / "product.yaml"
+    if not path.exists():
+        return {}
+    try:
+        return yaml.safe_load(path.read_text()) or {}
+    except yaml.YAMLError:
+        return {}
+
+
+def load_all_product_yamls() -> dict[str, dict]:
+    """Load product.yaml for all products. Keyed by product directory name."""
+    result: dict[str, dict] = {}
+    for d in sorted(PRODUCTS_DIR.iterdir()):
+        if d.is_dir() and (d / "__init__.py").exists():
+            data = load_product_yaml(d.name)
+            if data:
+                result[d.name] = data
+    return result
+
+
 def get_tach_block(module_path: str) -> str:
     """Extract the tach.toml block for a given module path."""
     if not TACH_TOML.exists():

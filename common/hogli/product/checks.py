@@ -490,7 +490,75 @@ class IsolationChainCheck(ProductCheck):
         return result
 
 
+class ProductYamlCheck(ProductCheck):
+    """Validates product.yaml exists and has valid content."""
+
+    label = "product.yaml"
+
+    _gh_teams: set[str] | None = None
+
+    @classmethod
+    def _get_gh_teams(cls) -> set[str] | None:
+        """Fetch GitHub team slugs (cached, best-effort)."""
+        if cls._gh_teams is not None:
+            return cls._gh_teams
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ["gh", "api", "orgs/PostHog/teams", "--paginate", "--jq", ".[].slug"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                cls._gh_teams = set(result.stdout.strip().split("\n"))
+                return cls._gh_teams
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        cls._gh_teams = set()
+        return None
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        from .paths import load_product_yaml
+
+        meta = load_product_yaml(ctx.name)
+        yaml_path = ctx.product_dir / "product.yaml"
+
+        if not yaml_path.exists():
+            return CheckResult(
+                lines=["✗ missing"],
+                issues=["Missing product.yaml — every product needs name and owners"],
+                file=f"products/{ctx.name}",
+            )
+
+        result = CheckResult(file=f"products/{ctx.name}/product.yaml")
+
+        if not meta.get("name"):
+            result.issues.append("product.yaml missing 'name' field")
+
+        owners = meta.get("owners", [])
+        if not owners:
+            result.issues.append("product.yaml missing 'owners' field — who owns this product?")
+
+        gh_teams = self._get_gh_teams()
+        if gh_teams and owners:
+            for owner in owners:
+                if owner not in gh_teams:
+                    result.issues.append(
+                        f"owner '{owner}' is not a GitHub team in PostHog org — "
+                        "check https://github.com/orgs/PostHog/teams"
+                    )
+
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        else:
+            result.lines = ["✓ ok"]
+        return result
+
+
 CHECKS: list[ProductCheck] = [
+    ProductYamlCheck(),
     RequiredRootFilesCheck(),
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),
