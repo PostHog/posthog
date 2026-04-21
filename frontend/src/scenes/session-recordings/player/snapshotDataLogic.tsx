@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { keyForSource } from '@posthog/replay-shared'
 import { SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
-import api, { RecordingDeletedError } from 'lib/api'
+import api, { ApiError, RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -27,6 +27,35 @@ import type { snapshotDataLogicType } from './snapshotDataLogicType'
 const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
 const MAX_V2_POLLING_INTERVAL_MS = 60000
 const POLLING_INACTIVITY_TIMEOUT_MS = 5 * MAX_V2_POLLING_INTERVAL_MS
+
+// Browser-level fetch failures surface as TypeError with one of these messages
+// (Chrome/Edge: "Failed to fetch"; Firefox: "NetworkError when attempting to fetch resource.";
+// Safari: "Load failed"). handleFetch in lib/api wraps them in ApiError with no status.
+// These are environmental — offline tabs, backgrounded/aborted navigation, CORS blocks, and
+// ad-blocker interference — not product bugs, so we classify and swallow them to keep the
+// error-tracking signal meaningful. apiStatusLogic already surfaces a connection notice.
+const NETWORK_FAILURE_MESSAGE_RE = /failed to fetch|networkerror|load failed/i
+
+export function isBenignFetchError(error: unknown): boolean {
+    if (!error) {
+        return false
+    }
+    if (error instanceof Error && error.name === 'AbortError') {
+        return true
+    }
+    const message = error instanceof Error ? error.message : ''
+    if (!NETWORK_FAILURE_MESSAGE_RE.test(message)) {
+        return false
+    }
+    if (error instanceof TypeError) {
+        return true
+    }
+    // handleFetch wraps the original TypeError in ApiError with status undefined
+    if (error instanceof ApiError && error.status === undefined) {
+        return true
+    }
+    return false
+}
 
 export interface SnapshotLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -127,7 +156,23 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, headers)
+                    let response
+                    try {
+                        response = await api.recordings.listSnapshotSources(props.sessionRecordingId, headers)
+                    } catch (error) {
+                        if (isBenignFetchError(error)) {
+                            posthog.capture('recording_snapshot_sources_network_error', {
+                                session_recording_id: props.sessionRecordingId,
+                                error_name: error instanceof Error ? error.name : typeof error,
+                                error_message: error instanceof Error ? error.message : String(error),
+                                is_polling: values.isPolling,
+                            })
+                            // Preserve existing sources — returning [] during polling would wipe
+                            // cache.store via the sourcesChanged branch in loadSnapshotSourcesSuccess.
+                            return values.snapshotSources ?? []
+                        }
+                        throw error
+                    }
 
                     if (!response || !response.sources) {
                         return []

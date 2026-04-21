@@ -1,14 +1,14 @@
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
 import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
 
-import { RecordingDeletedError } from 'lib/api'
+import { ApiError, RecordingDeletedError } from 'lib/api'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
-import { snapshotDataLogic } from './snapshotDataLogic'
+import { isBenignFetchError, snapshotDataLogic } from './snapshotDataLogic'
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {
     source: 'blob_v2',
@@ -35,6 +35,24 @@ describe('snapshotDataLogic', () => {
             blobV2PollingDisabled: true,
         })
         logic.mount()
+    })
+
+    describe('isBenignFetchError', () => {
+        it.each([
+            ['Chrome/Edge TypeError', new TypeError('Failed to fetch'), true],
+            ['Firefox TypeError', new TypeError('NetworkError when attempting to fetch resource.'), true],
+            ['Safari TypeError', new TypeError('Load failed'), true],
+            ['AbortError', Object.assign(new Error('The user aborted'), { name: 'AbortError' }), true],
+            ['ApiError wrapping fetch failure', new ApiError('TypeError: Failed to fetch', undefined), true],
+            ['ApiError with HTTP status', new ApiError('Bad request', 400), false],
+            ['generic Error', new Error('Something went wrong'), false],
+            ['RecordingDeletedError', new RecordingDeletedError(1700000000, 'x@y.com'), false],
+            ['null', null, false],
+            ['undefined', undefined, false],
+            ['string', 'boom', false],
+        ])('classifies %s correctly', (_label, error, expected) => {
+            expect(isBenignFetchError(error)).toBe(expected)
+        })
     })
 
     describe('recording deleted selectors', () => {
