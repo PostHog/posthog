@@ -1,0 +1,69 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cooldown_minutes": {
+            "default": 0,
+            "description": "Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "datapoints_to_alarm": {
+            "default": 1,
+            "description": "How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "number"
+        },
+        "enabled": {
+            "default": true,
+            "description": "Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+            "type": "boolean"
+        },
+        "evaluation_periods": {
+            "default": 1,
+            "description": "Total number of check periods in the sliding evaluation window for firing (M in N-of-M).",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "number"
+        },
+        "filters": {
+            "description": "Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object)."
+        },
+        "name": {
+            "description": "Human-readable name for this alert.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "snooze_until": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze."
+        },
+        "threshold_count": {
+            "description": "Number of matching log entries that constitutes a threshold breach within the evaluation window.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "threshold_operator": {
+            "default": "above",
+            "description": "Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below",
+            "enum": ["above", "below"],
+            "type": "string"
+        },
+        "window_minutes": {
+            "default": 5,
+            "description": "Time window in minutes over which log entries are counted. Allowed values: 1, 5, 10, 15, 30, 60.",
+            "type": "number"
+        }
+    },
+    "required": ["name", "filters", "threshold_count"],
+    "type": "object"
+}
