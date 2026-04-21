@@ -365,13 +365,36 @@ code()
 | **bold** |`
 
             const result = markdownToTiptap(markdown)
-            expect(result).toHaveLength(1)
-            expect(result[0].type).toBe('table')
-            // Check that body cell contains bold text
-            const bodyRow = result[0].content![1]
-            const cell = bodyRow.content![0]
-            const paragraph = cell.content![0]
-            expect(paragraph.content).toEqual([{ type: 'text', text: 'bold', marks: [{ type: 'bold' }] }])
+            expect(result).toEqual([
+                {
+                    type: 'table',
+                    content: [
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableHeader',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Header' }] }],
+                                },
+                            ],
+                        },
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableCell',
+                                    content: [
+                                        {
+                                            type: 'paragraph',
+                                            content: [{ type: 'text', text: 'bold', marks: [{ type: 'bold' }] }],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ])
         })
     })
 
