@@ -311,7 +311,9 @@ class TestLinkedinAdsSource:
             logger=mock.MagicMock(),
         )
 
-        rows = list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        rows = list(items)
         assert len(rows) == 3
 
         mock_client.get_data_by_resource.assert_called_once()
@@ -344,7 +346,9 @@ class TestLinkedinAdsSource:
             logger=mock.MagicMock(),
         )
 
-        rows = list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        rows = list(items)
         assert len(rows) == 1
         assert len(rows[0]) == 1
         assert rows[0][0]["id"] == "c2"
@@ -373,6 +377,8 @@ class TestLinkedinAdsSource:
             logger=mock.MagicMock(),
         )
 
-        rows = list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        rows = list(items)
         assert rows == []
         manager.save_state.assert_not_called()
