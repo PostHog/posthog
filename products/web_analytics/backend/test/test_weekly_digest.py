@@ -179,6 +179,8 @@ class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
         assert len(result) >= 2
         assert result[0]["visitors"] >= result[-1]["visitors"]
         assert "path" in result[0]
+        assert "change" in result[0]
+        assert result[0]["change"] is None
 
     def test_respects_limit(self):
         with freeze_time(QUERY_TIMESTAMP):
@@ -224,6 +226,8 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
         sources = [r["source"] for r in result]
         assert sources == ["google.com"]
         assert all(r["visitors"] > 0 for r in result)
+        assert "change" in result[0]
+        assert result[0]["change"] is None
 
     def test_filters_out_empty_sources(self):
         with freeze_time(QUERY_TIMESTAMP):

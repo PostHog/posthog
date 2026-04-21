@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -57,6 +57,15 @@ export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const ListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const RetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this organization.'),
+})
+
 export const MembersListParams = /* @__PURE__ */ zod.object({
     organization_id: zod.string(),
 })
@@ -64,6 +73,7 @@ export const MembersListParams = /* @__PURE__ */ zod.object({
 export const MembersListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order: zod.string().optional().describe('Sort order. Defaults to `-joined_at`.'),
 })
 
 export const RolesListParams = /* @__PURE__ */ zod.object({
@@ -260,6 +270,7 @@ export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
+export const advancedActivityLogsListQueryClientsDefault = []
 export const advancedActivityLogsListQueryItemIdsDefault = []
 export const advancedActivityLogsListQueryPageSizeDefault = 100
 export const advancedActivityLogsListQueryPageSizeMax = 1000
@@ -269,6 +280,7 @@ export const advancedActivityLogsListQueryUsersDefault = []
 
 export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
     activities: zod.array(zod.string()).default(advancedActivityLogsListQueryActivitiesDefault),
+    clients: zod.array(zod.string()).default(advancedActivityLogsListQueryClientsDefault),
     detail_filters: zod.string().optional(),
     end_date: zod.iso.datetime({}).optional(),
     hogql_filter: zod.string().optional(),

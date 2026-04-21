@@ -49,6 +49,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
+    ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
@@ -63,6 +64,7 @@ from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
+    EvaluationReportViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
@@ -80,6 +82,7 @@ from products.llm_analytics.backend.api import (
     ScoreDefinitionViewSet,
     TraceReviewViewSet,
 )
+from products.llm_analytics.backend.api.skills import LLMSkillViewSet
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
@@ -155,6 +158,7 @@ from . import (
     user_home_settings,
     web_vitals,
     webauthn,
+    welcome,
 )
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
@@ -288,6 +292,7 @@ project_features_router = projects_router.register(
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
+projects_router.register(r"task_automations", tasks.TaskAutomationViewSet, "project_task_automations", ["team_id"])
 projects_router.register(
     r"sandbox_environments",
     tasks.SandboxEnvironmentViewSet,
@@ -338,6 +343,13 @@ environments_router.register(
     r"llm_prompts",
     LLMPromptViewSet,
     "environment_llm_prompts",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_skills",
+    LLMSkillViewSet,
+    "environment_llm_skills",
     ["team_id"],
 )
 
@@ -679,6 +691,12 @@ organizations_router.register(
     "organization_resource_transfers",
     ["organization_id"],
 )
+organizations_router.register(
+    r"welcome",
+    welcome.WelcomeViewSet,
+    "organization_welcome",
+    ["organization_id"],
+)
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")
@@ -932,6 +950,13 @@ environments_router.register(
     r"error_tracking/suppression_rules",
     ErrorTrackingSuppressionRuleViewSet,
     "environment_error_tracking_suppression_rule",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/recommendations",
+    ErrorTrackingRecommendationViewSet,
+    "environment_error_tracking_recommendation",
     ["team_id"],
 )
 
@@ -1402,6 +1427,13 @@ environments_router.register(
     r"llm_analytics/trace_reviews",
     TraceReviewViewSet,
     "environment_llm_analytics_trace_reviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/evaluation_reports",
+    EvaluationReportViewSet,
+    "environment_llm_analytics_evaluation_reports",
     ["team_id"],
 )
 
