@@ -1276,7 +1276,7 @@ def provisioning_resources_create(request: Request) -> Response:
     if app and app.is_provisioning_partner:
         if error := _enforce_partner_rate_limit(app, "resource_creates"):
             # Resource endpoints use {"status": "error"} envelope, not {"type": "error"}
-            retry_after = error.get("Retry-After", "3600")
+            retry_after = error["Retry-After"] if "Retry-After" in error else "3600"
             response = _error_response(
                 "rate_limited", "Rate limit exceeded for this partner. Try again later.", status=429
             )
