@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconGithub } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Link, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { IconGear, IconGithub } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -65,6 +65,16 @@ export function VisualReviewRunsScene(): JSX.Element {
             render: (_, run) => <BranchCell run={run} repoFullName={repoFullName} />,
         },
         {
+            title: 'Type',
+            key: 'run_type',
+            width: 90,
+            render: (_, run) => (
+                <LemonTag type="muted" size="small" className="uppercase">
+                    {run.run_type}
+                </LemonTag>
+            ),
+        },
+        {
             title: 'Commit',
             key: 'commit',
             width: 90,
@@ -119,16 +129,21 @@ export function VisualReviewRunsScene(): JSX.Element {
                 name="Visual review"
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => {
-                            loadRuns()
-                            loadCounts()
-                        }}
-                        loading={runsLoading}
-                    >
-                        Refresh
-                    </LemonButton>
+                    <div className="flex gap-2">
+                        <LemonButton type="secondary" icon={<IconGear />} to="/visual_review/settings">
+                            Settings
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                loadRuns()
+                                loadCounts()
+                            }}
+                            loading={runsLoading}
+                        >
+                            Refresh
+                        </LemonButton>
+                    </div>
                 }
             />
 

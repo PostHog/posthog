@@ -14,9 +14,9 @@
  * `desktop_audio` - Desktop audio
  * `slack` - Slack huddle
  */
-export type Platform9aaEnumApi = (typeof Platform9aaEnumApi)[keyof typeof Platform9aaEnumApi]
+export type Platform0afEnumApi = (typeof Platform0afEnumApi)[keyof typeof Platform0afEnumApi]
 
-export const Platform9aaEnumApi = {
+export const Platform0afEnumApi = {
     Zoom: 'zoom',
     Teams: 'teams',
     Meet: 'meet',
@@ -31,9 +31,9 @@ export const Platform9aaEnumApi = {
  * `ready` - Ready
  * `error` - Error
  */
-export type Status292EnumApi = (typeof Status292EnumApi)[keyof typeof Status292EnumApi]
+export type StatusD05EnumApi = (typeof StatusD05EnumApi)[keyof typeof StatusD05EnumApi]
 
-export const Status292EnumApi = {
+export const StatusD05EnumApi = {
     Recording: 'recording',
     Uploading: 'uploading',
     Processing: 'processing',
@@ -83,7 +83,7 @@ export interface DesktopRecordingApi {
     readonly sdk_upload_id: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform: Platform9aaEnumApi
+    platform: Platform0afEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -100,7 +100,7 @@ export interface DesktopRecordingApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292EnumApi
+    status?: StatusD05EnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -188,7 +188,7 @@ export interface CreateRecordingResponseApi {
     readonly sdk_upload_id: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform: Platform9aaEnumApi
+    platform: Platform0afEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -205,7 +205,7 @@ export interface CreateRecordingResponseApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292EnumApi
+    status?: StatusD05EnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -251,7 +251,7 @@ export interface PatchedDesktopRecordingApi {
     readonly sdk_upload_id?: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform?: Platform9aaEnumApi
+    platform?: Platform0afEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -268,7 +268,7 @@ export interface PatchedDesktopRecordingApi {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292EnumApi
+    status?: StatusD05EnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */

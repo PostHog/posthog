@@ -46,15 +46,23 @@ def _state_with_empty_report() -> dict:
 class TestChTs(SimpleTestCase):
     @parameterized.expand(
         [
-            ("iso_with_tz", "2026-03-12T10:05:48.034000+00:00", "2026-03-12 10:05:48.034000"),
-            ("iso_no_tz", "2026-03-12T10:05:48.034000", "2026-03-12 10:05:48.034000"),
-            ("iso_z_suffix", "2026-03-12T10:05:48.034000Z", "2026-03-12 10:05:48.034000"),
-            ("no_microseconds", "2026-03-12T10:05:48+00:00", "2026-03-12 10:05:48.000000"),
-            ("different_timezone", "2026-03-12T12:05:48+02:00", "2026-03-12 10:05:48.000000"),
+            (
+                "iso_with_tz",
+                "2026-03-12T10:05:48.034000+00:00",
+                dt.datetime(2026, 3, 12, 10, 5, 48, 34000, tzinfo=dt.UTC),
+            ),
+            ("iso_no_tz", "2026-03-12T10:05:48.034000", dt.datetime(2026, 3, 12, 10, 5, 48, 34000, tzinfo=dt.UTC)),
+            ("iso_z_suffix", "2026-03-12T10:05:48.034000Z", dt.datetime(2026, 3, 12, 10, 5, 48, 34000, tzinfo=dt.UTC)),
+            ("no_microseconds", "2026-03-12T10:05:48+00:00", dt.datetime(2026, 3, 12, 10, 5, 48, tzinfo=dt.UTC)),
+            ("different_timezone", "2026-03-12T12:05:48+02:00", dt.datetime(2026, 3, 12, 10, 5, 48, tzinfo=dt.UTC)),
         ]
     )
-    def test_converts_iso_to_clickhouse_format(self, _name, iso_input, expected):
-        self.assertEqual(_ch_ts(iso_input), expected)
+    def test_converts_iso_to_utc_datetime(self, _name, iso_input, expected):
+        result = _ch_ts(iso_input)
+        self.assertEqual(result, expected)
+        # Returning a datetime (not string) so HogQL serializes with correct TZ alignment.
+        self.assertIsInstance(result, dt.datetime)
+        self.assertEqual(result.tzinfo, dt.UTC)
 
 
 class TestWidenedTsWindow(SimpleTestCase):
@@ -64,20 +72,20 @@ class TestWidenedTsWindow(SimpleTestCase):
             "period_end": "2026-04-08T15:00:00+00:00",
         }
         ts_start, ts_end = _widened_ts_window(state)
-        self.assertEqual(ts_start, "2026-04-01 14:00:00.000000")
-        self.assertEqual(ts_end, "2026-04-09 15:00:00.000000")
+        self.assertEqual(ts_start, dt.datetime(2026, 4, 1, 14, 0, tzinfo=dt.UTC))
+        self.assertEqual(ts_end, dt.datetime(2026, 4, 9, 15, 0, tzinfo=dt.UTC))
 
     def test_falls_back_to_sentinels_on_missing_keys(self):
         ts_start, ts_end = _widened_ts_window({})
         # Wide sentinel bounds so a bad state doesn't prevent partition pruning
-        self.assertTrue(ts_start.startswith("2020-01-01"))
-        self.assertTrue(ts_end.startswith("2099-01-01"))
+        self.assertEqual(ts_start.year, 2020)
+        self.assertEqual(ts_end.year, 2099)
 
     def test_falls_back_on_malformed_timestamps(self):
         state = {"period_start": "not-a-timestamp", "period_end": "also-bad"}
         ts_start, ts_end = _widened_ts_window(state)
-        self.assertTrue(ts_start.startswith("2020-01-01"))
-        self.assertTrue(ts_end.startswith("2099-01-01"))
+        self.assertEqual(ts_start.year, 2020)
+        self.assertEqual(ts_end.year, 2099)
 
 
 class TestUuidRegex(SimpleTestCase):

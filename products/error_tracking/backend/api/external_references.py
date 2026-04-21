@@ -1,109 +1,16 @@
-from typing import Any
+"""Compatibility shim for external reference API classes.
 
-import structlog
-import posthoganalytics
-from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
+The canonical location is now `products.error_tracking.backend.presentation`.
+"""
 
-from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.event_usage import groups
-from posthog.models.integration import (
-    GitHubIntegration,
-    GitLabIntegration,
-    Integration,
-    JiraIntegration,
-    LinearIntegration,
+from products.error_tracking.backend.presentation.external_references import (
+    ErrorTrackingExternalReferenceIntegrationSerializer,
+    ErrorTrackingExternalReferenceSerializer,
+    ErrorTrackingExternalReferenceViewSet,
 )
 
-from products.error_tracking.backend import logic
-from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
-
-logger = structlog.get_logger(__name__)
-
-
-class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Integration
-        fields = ["id", "kind", "display_name"]
-        read_only_fields = ["id", "kind", "display_name"]
-
-
-class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
-    config = serializers.JSONField(write_only=True)
-    issue = TeamScopedPrimaryKeyRelatedField(write_only=True, queryset=ErrorTrackingIssue.objects.all())
-    integration = ErrorTrackingExternalReferenceIntegrationSerializer(read_only=True)
-    integration_id = TeamScopedPrimaryKeyRelatedField(
-        write_only=True, queryset=Integration.objects.all(), source="integration"
-    )
-    external_url = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ErrorTrackingExternalReference
-        fields = ["id", "integration", "integration_id", "config", "issue", "external_url"]
-        read_only_fields = ["external_url"]
-
-    def get_external_url(self, reference: ErrorTrackingExternalReference) -> str:
-        external_url = logic.build_external_issue_url(reference)
-        if external_url:
-            return external_url
-
-        if logic.is_supported_external_issue_provider(reference.integration.kind):
-            raise ValidationError("Missing required external context fields")
-
-        raise ValidationError("Provider not supported")
-
-    def validate(self, data):
-        issue = data["issue"]
-        integration = data["integration"]
-        team = self.context["get_team"]()
-
-        if issue.team_id != team.id:
-            raise serializers.ValidationError("Issue does not belong to this team.")
-
-        if integration.team_id != team.id:
-            raise serializers.ValidationError("Integration does not belong to this team.")
-
-        return data
-
-    def create(self, validated_data) -> ErrorTrackingExternalReference:
-        team = self.context["get_team"]()
-        issue: ErrorTrackingIssue = validated_data.get("issue")
-        integration: Integration = validated_data.get("integration")
-
-        config: dict[str, Any] = validated_data.pop("config")
-
-        if integration.kind == "github":
-            external_context = GitHubIntegration(integration).create_issue(config)
-        elif integration.kind == "gitlab":
-            external_context = GitLabIntegration(integration).create_issue(config)
-        elif integration.kind == "linear":
-            external_context = LinearIntegration(integration).create_issue(team.pk, issue.id, config)
-        elif integration.kind == "jira":
-            external_context = JiraIntegration(integration).create_issue(config)
-        else:
-            raise ValidationError("Provider not supported")
-
-        instance = ErrorTrackingExternalReference.objects.create(
-            issue=issue,
-            integration=integration,
-            external_context=external_context,
-        )
-
-        posthoganalytics.capture(
-            "error_tracking_external_issue_created",
-            groups=groups(team.organization, team),
-            properties={
-                "issue_id": issue.id,
-                "integration_kind": integration.kind,
-            },
-        )
-
-        return instance
-
-
-class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
-    queryset = ErrorTrackingExternalReference.objects.all()
-    serializer_class = ErrorTrackingExternalReferenceSerializer
+__all__ = [
+    "ErrorTrackingExternalReferenceIntegrationSerializer",
+    "ErrorTrackingExternalReferenceSerializer",
+    "ErrorTrackingExternalReferenceViewSet",
+]

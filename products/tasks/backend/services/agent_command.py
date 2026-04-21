@@ -15,6 +15,11 @@ logger = structlog.get_logger(__name__)
 
 COMMAND_TIMEOUT_SECONDS = 15
 CANCEL_TIMEOUT_SECONDS = 10
+# Refresh triggers a query.interrupt() + resume with a 30s SDK timeout on the
+# agent-server, so we need more headroom than a plain command.
+REFRESH_TIMEOUT_SECONDS = 45
+
+REFRESH_SESSION_METHOD = "_posthog/refresh_session"
 
 ALLOWED_SANDBOX_SCHEMES = {"https"}
 BLOCKED_IP_RANGES = [
@@ -243,4 +248,26 @@ def send_cancel(task_run: Any, auth_token: str | None = None) -> CommandResult:
         method="cancel",
         timeout=CANCEL_TIMEOUT_SECONDS,
         auth_token=auth_token,
+    )
+
+
+def send_refresh_session(
+    task_run: Any,
+    mcp_servers: list[dict[str, Any]],
+    auth_token: str | None = None,
+    timeout: int = REFRESH_TIMEOUT_SECONDS,
+) -> CommandResult:
+    """Push updated MCP server configs into a live sandbox agent-server.
+
+    The agent-server handles this by interrupting its current ACP query and
+    resuming with the new ``mcpServers`` list (preserving conversation
+    history). Must be dispatched between turns — the agent-server will reply
+    with JSON-RPC error -32002 if a prompt is currently in flight.
+    """
+    return send_agent_command(
+        task_run,
+        method=REFRESH_SESSION_METHOD,
+        params={"mcpServers": mcp_servers},
+        auth_token=auth_token,
+        timeout=timeout,
     )

@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlparse
 
+from django.db import connections
+
 import dagster
 import pydantic
 
@@ -253,10 +255,12 @@ def sync_colleagues_products_for_team_op(
 
             colleague_product_counts = get_user_product_list_count(team)
 
-            for user in team.all_users_with_access().iterator():
-                if user.allow_sidebar_suggestions is False:
-                    continue
-
+            users_qs = (
+                team.all_users_with_access()
+                .exclude(allow_sidebar_suggestions=False)
+                .only("id", "allow_sidebar_suggestions")
+            )
+            for user in users_qs.iterator(chunk_size=500):
                 created_items = UserProductList.sync_from_team_colleagues(
                     user=user,
                     team=team,
@@ -298,6 +302,10 @@ def sync_colleagues_products_for_team_op(
                     status="error",
                 )
             )
+        finally:
+            # Release per-connection buffers between teams to keep RSS flat
+            # across a 1000-team batch inside one subprocess.
+            connections.close_all()
 
     success_results = [r for r in results if r.status == "success"]
     failed_results = [r for r in results if r.status in ("failed", "error")]
@@ -352,7 +360,7 @@ def aggregate_colleagues_sync_results_op(
 
 @dagster.job(
     description="Syncs products used by colleagues to each user's product list for all teams",
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 10}),
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 5}),
     tags={"owner": JobOwners.TEAM_GROWTH.value},
 )
 def sync_colleagues_products_monthly_job():
@@ -395,10 +403,12 @@ def sync_cross_sell_products_for_team_op(
             users_processed = 0
             products_created = 0
 
-            for user in team.all_users_with_access().iterator():
-                if user.allow_sidebar_suggestions is False:
-                    continue
-
+            users_qs = (
+                team.all_users_with_access()
+                .exclude(allow_sidebar_suggestions=False)
+                .only("id", "allow_sidebar_suggestions")
+            )
+            for user in users_qs.iterator(chunk_size=500):
                 created_items = UserProductList.sync_cross_sell_products(user=user, team=team)
                 users_processed += 1
                 products_created += len(created_items)
@@ -436,6 +446,10 @@ def sync_cross_sell_products_for_team_op(
                     status="error",
                 )
             )
+        finally:
+            # Release per-connection buffers between teams to keep RSS flat
+            # across a 1000-team batch inside one subprocess.
+            connections.close_all()
 
     success_results = [r for r in results if r.status == "success"]
     failed_results = [r for r in results if r.status in ("failed", "error")]
@@ -490,7 +504,7 @@ def aggregate_cross_sell_sync_results_op(
 
 @dagster.job(
     description="Syncs cross-sell products from the same category to users' product lists for all teams",
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 10}),
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 5}),
     tags={"owner": JobOwners.TEAM_GROWTH.value},
 )
 def sync_cross_sell_products_monthly_job():
