@@ -11,9 +11,11 @@ from posthog.schema import AlertState
 
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.alerts.activities import (
+    cleanup_alert_checks,
     evaluate_alert,
     notify_alert,
     prepare_alert,
+    report_alerts_backlog,
     retrieve_due_alerts,
     run_investigation_safety_net,
 )
@@ -228,5 +230,48 @@ class RunInvestigationSafetyNetWorkflow(PostHogWorkflow):
                 initial_interval=dt.timedelta(seconds=5),
                 maximum_interval=dt.timedelta(seconds=30),
                 maximum_attempts=2,
+            ),
+        )
+
+
+@temporalio.workflow.defn(name="cleanup-alert-checks")
+class CleanupAlertChecksWorkflow(PostHogWorkflow):
+    """Purge old AlertCheck rows on a daily schedule."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> None:
+        return None
+
+    @temporalio.workflow.run
+    async def run(self) -> None:
+        await temporalio.workflow.execute_activity(
+            cleanup_alert_checks,
+            start_to_close_timeout=dt.timedelta(minutes=30),
+            heartbeat_timeout=dt.timedelta(minutes=2),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(minutes=1),
+                maximum_attempts=3,
+            ),
+        )
+
+
+@temporalio.workflow.defn(name="report-alerts-backlog")
+class AlertsBacklogWorkflow(PostHogWorkflow):
+    """Emit SLA-backlog telemetry events every 12 minutes."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> None:
+        return None
+
+    @temporalio.workflow.run
+    async def run(self) -> None:
+        await temporalio.workflow.execute_activity(
+            report_alerts_backlog,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(minutes=1),
+                maximum_attempts=3,
             ),
         )

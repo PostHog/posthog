@@ -6,6 +6,7 @@ from django.db.models import Case, F, IntegerField, Q, Value, When
 
 import structlog
 import temporalio.activity
+from dateutil.relativedelta import relativedelta
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertCalculationInterval, AlertState
@@ -15,12 +16,15 @@ from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
+from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
-from posthog.tasks.alerts.checks import AlertCheckException, add_alert_check, check_alert_for_insight
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
+    AlertCheckException,
+    add_alert_check,
+    check_alert_for_insight,
     disable_invalid_alert,
     dispatch_alert_notification,
     next_check_time,
@@ -51,6 +55,10 @@ from products.notifications.backend.facade.api import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+# Distinct ID for the internal "alert check backlog" telemetry events.
+ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
 
 
 @temporalio.activity.defn
@@ -363,3 +371,66 @@ async def run_investigation_safety_net() -> int:
 
     async with Heartbeater():
         return await _sweep()
+async def cleanup_alert_checks() -> None:
+    """Purge old ``AlertCheck`` rows per the model's retention rules."""
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _cleanup() -> None:
+        AlertCheck.clean_up_old_checks()
+
+    async with Heartbeater():
+        await _cleanup()
+
+
+@temporalio.activity.defn
+async def report_alerts_backlog() -> None:
+    """Emit telemetry events for alerts past their check SLA.
+
+    - Hourly alerts: last checked more than 1h+5min ago.
+    - Daily alerts: last checked more than 1d+15min ago.
+    """
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _counts() -> tuple[int, int]:
+        now = datetime.now(UTC)
+
+        hourly_backlog = AlertConfiguration.objects.filter(
+            Q(
+                enabled=True,
+                calculation_interval=AlertCalculationInterval.HOURLY,
+                last_checked_at__lte=now - relativedelta(hours=1, minutes=5),
+            ),
+            insight__deleted=False,
+        ).count()
+
+        daily_backlog = AlertConfiguration.objects.filter(
+            Q(
+                enabled=True,
+                calculation_interval=AlertCalculationInterval.DAILY,
+                last_checked_at__lte=now - relativedelta(days=1, minutes=15),
+            ),
+            insight__deleted=False,
+        ).count()
+
+        return hourly_backlog, daily_backlog
+
+    async with Heartbeater():
+        hourly_backlog, daily_backlog = await _counts()
+
+        with ph_scoped_capture() as capture_ph_event:
+            capture_ph_event(
+                distinct_id=ANIRUDH_DISTINCT_ID,
+                event="alert check backlog",
+                properties={
+                    "calculation_interval": AlertCalculationInterval.DAILY,
+                    "backlog": daily_backlog,
+                },
+            )
+            capture_ph_event(
+                distinct_id=ANIRUDH_DISTINCT_ID,
+                event="alert check backlog",
+                properties={
+                    "calculation_interval": AlertCalculationInterval.HOURLY,
+                    "backlog": hourly_backlog,
+                },
+            )

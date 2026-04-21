@@ -25,6 +25,8 @@ from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.alerts.schedule import (
     create_run_investigation_safety_net_schedule,
+    create_alerts_backlog_schedule,
+    create_cleanup_alert_checks_schedule,
     create_schedule_due_alert_checks_schedule,
 )
 from posthog.temporal.common.client import async_connect
@@ -605,6 +607,8 @@ schedules = [
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
+    create_cleanup_alert_checks_schedule,
+    create_alerts_backlog_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:

@@ -1,6 +1,6 @@
 import uuid
 import contextlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
@@ -25,7 +25,13 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import AlertConfiguration, Insight, User
 from posthog.models.alert import AlertCheck
 from posthog.tasks.alerts.utils import AlertEvaluationResult
-from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
+from posthog.temporal.alerts.activities import (
+    cleanup_alert_checks,
+    evaluate_alert,
+    notify_alert,
+    prepare_alert,
+    report_alerts_backlog,
+)
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
@@ -568,3 +574,82 @@ class TestNotifyAlert:
         mock_breaches.assert_called_once()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+class TestCleanupAlertChecks:
+    async def test_delegates_to_model_classmethod(self) -> None:
+        with patch.object(AlertCheck, "clean_up_old_checks") as mock_cleanup:
+            env = ActivityEnvironment()
+            await env.run(cleanup_alert_checks)
+
+        mock_cleanup.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+class TestReportAlertsBacklog:
+    @freeze_time("2024-06-03T12:00:00Z")
+    async def test_counts_and_emits_both_intervals(self, ateam) -> None:
+        # Fresh hourly alert — in SLA.
+        await _create_alert(ateam, calculation_interval=AlertCalculationInterval.HOURLY.value)
+        # Two stale hourly alerts — breach the 1h+5min SLA.
+        stale_hourly_1 = await _create_alert(ateam, calculation_interval=AlertCalculationInterval.HOURLY.value)
+        stale_hourly_2 = await _create_alert(ateam, calculation_interval=AlertCalculationInterval.HOURLY.value)
+        # One stale daily alert — breaches the 1d+15min SLA.
+        stale_daily = await _create_alert(ateam, calculation_interval=AlertCalculationInterval.DAILY.value)
+        # One disabled daily alert well past SLA — should not be counted.
+        disabled_daily = await _create_alert(
+            ateam, enabled=False, calculation_interval=AlertCalculationInterval.DAILY.value
+        )
+
+        @sync_to_async
+        def _set_last_checked():
+            now = datetime(2024, 6, 3, 12, 0, tzinfo=UTC)
+            AlertConfiguration.objects.filter(pk=stale_hourly_1.pk).update(last_checked_at=now - timedelta(hours=2))
+            AlertConfiguration.objects.filter(pk=stale_hourly_2.pk).update(last_checked_at=now - timedelta(hours=2))
+            AlertConfiguration.objects.filter(pk=stale_daily.pk).update(last_checked_at=now - timedelta(days=2))
+            AlertConfiguration.objects.filter(pk=disabled_daily.pk).update(last_checked_at=now - timedelta(days=7))
+
+        await _set_last_checked()
+
+        captured: list[dict] = []
+
+        @contextlib.contextmanager
+        def fake_scoped_capture():
+            def capture(**kwargs):
+                captured.append(kwargs)
+
+            yield capture
+
+        with patch("posthog.temporal.alerts.activities.ph_scoped_capture", fake_scoped_capture):
+            env = ActivityEnvironment()
+            await env.run(report_alerts_backlog)
+
+        by_interval = {c["properties"]["calculation_interval"]: c["properties"]["backlog"] for c in captured}
+        assert by_interval == {
+            AlertCalculationInterval.HOURLY: 2,
+            AlertCalculationInterval.DAILY: 1,
+        }
+        assert all(c["event"] == "alert check backlog" for c in captured)
+
+    @freeze_time("2024-06-03T12:00:00Z")
+    async def test_reports_zero_when_no_backlog(self, ateam) -> None:
+        captured: list[dict] = []
+
+        @contextlib.contextmanager
+        def fake_scoped_capture():
+            def capture(**kwargs):
+                captured.append(kwargs)
+
+            yield capture
+
+        with patch("posthog.temporal.alerts.activities.ph_scoped_capture", fake_scoped_capture):
+            env = ActivityEnvironment()
+            await env.run(report_alerts_backlog)
+
+        by_interval = {c["properties"]["calculation_interval"]: c["properties"]["backlog"] for c in captured}
+        assert by_interval == {
+            AlertCalculationInterval.HOURLY: 0,
+            AlertCalculationInterval.DAILY: 0,
+        }
