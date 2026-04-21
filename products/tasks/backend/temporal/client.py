@@ -251,7 +251,6 @@ def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool =
     """
     from datetime import datetime
 
-    from posthog.temporal.ai.video_segment_clustering import constants
     from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
 
     try:
@@ -259,7 +258,6 @@ def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool =
 
         workflow_input = ClusteringWorkflowInputs(
             team_id=team_id,
-            min_segments=constants.MIN_SEGMENTS_FOR_CLUSTERING,
             skip_priming=skip_priming,
         )
 
@@ -299,7 +297,7 @@ def execute_posthog_code_agent_relay_workflow(
     relay_id: str | None = None,
     user_message_ts: str | None = None,
     delete_progress: bool = True,
-    reaction_emoji: str = "white_check_mark",
+    reaction_emoji: str = "hedgehog",
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"

@@ -25,7 +25,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query': eventsQuery,
+                '/api/environments/:team_id/query/:kind': eventsQuery,
             },
         }),
     ],
@@ -62,7 +62,7 @@ export const EventExplorerWithModal: Story = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': eventsQuery,
+                '/api/environments/:team_id/query/:kind': eventsQuery,
             },
         })
 
@@ -92,7 +92,7 @@ export const EventExplorerWithModalNotFound: Story = {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': () => [404, { detail: 'Not found.' }],
             },
             post: {
-                '/api/environments/:team_id/query': eventsQuery,
+                '/api/environments/:team_id/query/:kind': eventsQuery,
             },
         })
 

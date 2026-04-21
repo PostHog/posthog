@@ -1,8 +1,8 @@
 """
-Coordinator workflow for video segment clustering.
+Coordinator for session replay video analysis priming.
 
-This workflow processes video segments for teams with proactive tasks enabled
-and spawns child workflows to cluster segments for each team.
+For each team with session analysis enabled, starts the per-team workflow that
+primes session summarization (which emits session_problem signals inline).
 """
 
 import json
@@ -10,24 +10,20 @@ import dataclasses
 from datetime import timedelta
 from typing import Any
 
-import structlog
 import temporalio
 import posthoganalytics
 import temporalio.exceptions
-from temporalio import activity, workflow
+from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.ai.video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
 from posthog.temporal.ai.video_segment_clustering.constants import DEFAULT_LOOKBACK_WINDOW, clustering_workflow_id
-from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs, EmitSignalsResult
+from posthog.temporal.ai.video_segment_clustering.coordinator_activities import (
+    list_teams_with_session_analysis_signals_activity,
+)
+from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.logger import get_logger
-
-from products.signals.backend.models import SignalSourceConfig
-
-logger = structlog.get_logger(__name__)
-activity_logger = get_logger(__name__)
 
 # Coordinator constants
 DEFAULT_MAX_CONCURRENT_TEAMS = 50
@@ -40,9 +36,7 @@ class VideoSegmentClusteringCoordinatorInputs:
 
 @temporalio.workflow.defn(name="video-segment-clustering-coordinator")
 class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
-    """
-    This runs on schedule and kicks off task inference (creating proactive tasks) for teams with proactive_tasks_enabled.
-    """
+    """Runs on schedule and kicks off per-team session summarization priming."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> VideoSegmentClusteringCoordinatorInputs:
@@ -52,7 +46,7 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: VideoSegmentClusteringCoordinatorInputs) -> dict[str, Any]:
         enabled_configs: list[tuple[int, str]] = await workflow.execute_activity(
-            get_proactive_tasks_enabled_team_ids_activity,
+            list_teams_with_session_analysis_signals_activity,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=RetryPolicy(
                 maximum_attempts=3,
@@ -62,18 +56,16 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
         )
 
         if not enabled_configs:
-            workflow.logger.debug("No teams with proactive tasks enabled")
+            workflow.logger.debug("No teams with session analysis enabled")
             return {
                 "teams_processed": 0,
                 "teams_succeeded": 0,
                 "teams_failed": 0,
-                "total_signals_emitted": 0,
+                "total_signals_emitted": None,
             }
 
-        workflow.logger.debug(f"Processing {len(enabled_configs)} configs with proactive tasks enabled")
+        workflow.logger.debug(f"Processing {len(enabled_configs)} configs with session analysis enabled")
 
-        # Track results
-        total_signals_emitted = 0
         failed_teams: set[int] = set()
         successful_teams: set[int] = set()
 
@@ -82,9 +74,7 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             batch = enabled_configs[batch_start : batch_start + DEFAULT_MAX_CONCURRENT_TEAMS]
 
             # Start all workflows in batch concurrently
-            workflow_handles: dict[
-                int, ChildWorkflowHandle[VideoSegmentClusteringWorkflow, EmitSignalsResult | None]
-            ] = {}
+            workflow_handles: dict[int, ChildWorkflowHandle[VideoSegmentClusteringWorkflow, None]] = {}
             for team_id, config_id in batch:
                 try:
                     handle = await workflow.start_child_workflow(
@@ -95,7 +85,7 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
                         ),
                         id=clustering_workflow_id(team_id, config_id),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                        # Clustering is fast, but priming session summaries takes a while due to video export.
+                        # Priming session summaries takes a while due to video export.
                         # However, 3h should comfortably allow exporting even long sessions, thanks to optimization like
                         # ignoring inactivity or playback speedup. If this is not enough, then we need to optimize export further.
                         execution_timeout=timedelta(hours=3),
@@ -118,9 +108,7 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             # Wait for all workflows in batch to complete
             for team_id, handle in workflow_handles.items():
                 try:
-                    emit_result = await handle
-                    if emit_result is not None:
-                        total_signals_emitted += emit_result.signals_emitted
+                    await handle
                     successful_teams.add(team_id)
                 except Exception:
                     workflow.logger.exception(f"Video segment clustering errored for team {team_id}")
@@ -132,17 +120,6 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             "teams_succeeded": len(successful_teams),
             "teams_failed": len(failed_teams),
             "failed_team_ids": list(failed_teams),
-            "total_signals_emitted": total_signals_emitted,
+            # Session problem signals are now emitted inside each child summarize-session workflow, not here
+            "total_signals_emitted": None,
         }
-
-
-@activity.defn
-async def get_proactive_tasks_enabled_team_ids_activity() -> list[tuple[int, str]]:
-    enabled_configs: list[tuple[int, str]] = []
-    async for config in SignalSourceConfig.objects.filter(
-        source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-        enabled=True,
-    ).only("team_id", "id"):
-        enabled_configs.append((config.team_id, str(config.id)))
-    return enabled_configs

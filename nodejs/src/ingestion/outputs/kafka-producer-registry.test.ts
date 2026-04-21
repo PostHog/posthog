@@ -1,115 +1,61 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { AllowedConfigKey } from './kafka-producer-config'
 import { KafkaProducerRegistry } from './kafka-producer-registry'
-
-jest.mock('../../kafka/producer')
 
 type TestProducer = 'ALPHA' | 'BETA'
 
-const TEST_CONFIG_MAP: Record<TestProducer, Partial<Record<AllowedConfigKey, string>>> = {
-    ALPHA: {
-        'metadata.broker.list': 'TEST_ALPHA_BROKER',
-    },
-    BETA: {
-        'metadata.broker.list': 'TEST_BETA_BROKER',
-    },
+function createMockProducer(): KafkaProducerWrapper {
+    return {
+        disconnect: jest.fn().mockResolvedValue(undefined),
+        produce: jest.fn().mockResolvedValue(undefined),
+        queueMessages: jest.fn().mockResolvedValue(undefined),
+    } as unknown as KafkaProducerWrapper
+}
+
+function createRegistry(): KafkaProducerRegistry<TestProducer> {
+    const producers: Record<TestProducer, KafkaProducerWrapper> = {
+        ALPHA: createMockProducer(),
+        BETA: createMockProducer(),
+    }
+    return new KafkaProducerRegistry(producers)
 }
 
 describe('KafkaProducerRegistry', () => {
-    const OLD_ENV = process.env
-
-    beforeEach(() => {
-        jest.resetModules()
-        process.env = { ...OLD_ENV }
-        jest.mocked(KafkaProducerWrapper.createWithConfig).mockReset()
-    })
-
-    afterAll(() => {
-        process.env = OLD_ENV
-    })
-
-    function mockCreateWithConfig(): void {
-        const mockProducer = { disconnect: jest.fn().mockResolvedValue(undefined) } as unknown as KafkaProducerWrapper
-        jest.mocked(KafkaProducerWrapper.createWithConfig).mockResolvedValue(mockProducer)
-    }
-
-    function createRegistry(): KafkaProducerRegistry<TestProducer> {
-        return new KafkaProducerRegistry('rack1', TEST_CONFIG_MAP)
-    }
-
     describe('getProducer', () => {
-        it('creates a producer with config from env vars', async () => {
-            process.env.TEST_ALPHA_BROKER = 'alpha:9092'
-            mockCreateWithConfig()
-
+        it('returns the registered producer by name', () => {
             const registry = createRegistry()
-            await registry.getProducer('ALPHA')
-
-            expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(1)
-            expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledWith(
-                'rack1',
-                expect.objectContaining({ 'metadata.broker.list': 'alpha:9092' })
-            )
+            const producer = registry.getProducer('ALPHA')
+            expect(producer).toBeDefined()
         })
 
-        it('returns the same producer on concurrent calls (singleton, no race condition)', async () => {
-            mockCreateWithConfig()
-
+        it('returns different producers for different names', () => {
             const registry = createRegistry()
-            const [first, second] = await Promise.all([registry.getProducer('ALPHA'), registry.getProducer('ALPHA')])
-
-            expect(first).toBe(second)
-            expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(1)
-        })
-
-        it('creates separate producers for different names', async () => {
-            mockCreateWithConfig()
-
-            const registry = createRegistry()
-            await registry.getProducer('ALPHA')
-            await registry.getProducer('BETA')
-
-            expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(2)
+            const alpha = registry.getProducer('ALPHA')
+            const beta = registry.getProducer('BETA')
+            expect(alpha).not.toBe(beta)
         })
     })
 
     describe('disconnectAll', () => {
         it('disconnects all producers', async () => {
-            const disconnect = jest.fn().mockResolvedValue(undefined)
-            jest.mocked(KafkaProducerWrapper.createWithConfig).mockResolvedValue({
-                disconnect,
-            } as unknown as KafkaProducerWrapper)
-
             const registry = createRegistry()
-            await registry.getProducer('ALPHA')
-            await registry.getProducer('BETA')
+            const alpha = registry.getProducer('ALPHA')
+            const beta = registry.getProducer('BETA')
 
             await registry.disconnectAll()
 
-            expect(disconnect).toHaveBeenCalledTimes(2)
+            expect(alpha.disconnect).toHaveBeenCalledTimes(1)
+            expect(beta.disconnect).toHaveBeenCalledTimes(1)
         })
 
         it('continues disconnecting remaining producers when one fails', async () => {
-            let callCount = 0
-            const disconnect = jest.fn().mockImplementation(async () => {
-                callCount++
-                if (callCount === 1) {
-                    throw new Error('flush timeout')
-                }
-                return Promise.resolve()
-            })
-
-            jest.mocked(KafkaProducerWrapper.createWithConfig).mockResolvedValue({
-                disconnect,
-            } as unknown as KafkaProducerWrapper)
-
             const registry = createRegistry()
-            await registry.getProducer('ALPHA')
-            await registry.getProducer('BETA')
+            const alpha = registry.getProducer('ALPHA')
+            const beta = registry.getProducer('BETA')
+
+            jest.mocked(alpha.disconnect).mockRejectedValue(new Error('flush timeout'))
 
             await expect(registry.disconnectAll()).rejects.toThrow('Failed to disconnect producers')
-
-            expect(disconnect).toHaveBeenCalledTimes(2)
+            expect(beta.disconnect).toHaveBeenCalledTimes(1)
         })
     })
 })

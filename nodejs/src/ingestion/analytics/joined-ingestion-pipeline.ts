@@ -9,7 +9,13 @@ import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import { EventFilterManager } from '../common/event-filters'
+import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import {
+    EventFiltersBatchContext,
+    createEventFiltersBatchAppMetricsBeforeBatchStep,
+    createFlushEventFiltersBatchAppMetricsStep,
+} from '../common/steps/event-filters-steps'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
@@ -19,7 +25,6 @@ import { newBatchingPipeline } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
-import { ok } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import {
     AiEventOutput,
@@ -58,6 +63,7 @@ export interface JoinedIngestionPipelineConfig {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | AppMetricsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
@@ -67,6 +73,7 @@ export interface JoinedIngestionPipelineDeps {
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     hogTransformer: HogTransformerService
+    eventFilterManager: EventFilterManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     promiseScheduler: PromiseScheduler
@@ -124,6 +131,7 @@ export function createJoinedIngestionPipeline<
         personsStore,
         groupStore,
         hogTransformer,
+        eventFilterManager,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
         promiseScheduler,
@@ -143,6 +151,7 @@ export function createJoinedIngestionPipeline<
     }
 
     const postTeamConfig: PostTeamPreprocessingSubpipelineConfig = {
+        eventFilterManager,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
@@ -169,8 +178,15 @@ export function createJoinedIngestionPipeline<
         topHog: topHogWrapper,
     }
 
-    return newBatchingPipeline<TInput, void, TContext, NonNullable<unknown>, TContext, OverflowOutput | AsyncOutput>(
-        (beforeBatch) => beforeBatch.pipe(({ elements }) => Promise.resolve(ok({ elements, batchContext: {} }))),
+    return newBatchingPipeline<
+        TInput,
+        void,
+        TContext,
+        EventFiltersBatchContext,
+        TContext,
+        OverflowOutput | AsyncOutput
+    >(
+        (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
         (batch) =>
             batch
                 .messageAware((b) =>
@@ -201,7 +217,10 @@ export function createJoinedIngestionPipeline<
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(promiseScheduler, { await: false }),
-        (afterBatch) => afterBatch.pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs })),
+        (afterBatch) =>
+            afterBatch
+                .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
+                .pipe(createFlushEventFiltersBatchAppMetricsStep()),
         // Batch stores (personsStore, groupStore) are singletons that don't support
         // concurrent batches yet — they accumulate state across events and flush once.
         { concurrentBatches: 1 }

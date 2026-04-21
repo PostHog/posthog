@@ -139,7 +139,7 @@ export class HogTransformerService {
                 event: event.event,
                 distinct_id: event.distinct_id,
                 properties: event.properties || {},
-                elements_chain: event.properties?.elements_chain || '',
+                elements_chain: event.properties?.$elements_chain || '',
                 timestamp: event.timestamp || '',
                 url: event.properties?.$current_url || '',
             },

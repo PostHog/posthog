@@ -19,7 +19,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { GitHubReposResponseApi, OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
@@ -75,6 +75,7 @@ import {
     CohortType,
     CommentCreationParams,
     CommentType,
+    Conversation,
     ConversationDetail,
     ConversationQueueResponse,
     CoreMemory,
@@ -87,6 +88,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingDAG,
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
@@ -97,7 +99,9 @@ import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
+    DataWarehouseProvisioningStatus,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -170,8 +174,8 @@ import {
     ProductTourStep,
     ProjectType,
     PropertyDefinition,
-    PropertyGroupFilter,
     PropertyDefinitionType,
+    PropertyGroupFilter,
     QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
@@ -207,13 +211,15 @@ import {
 } from '~/types'
 
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
-import {
+import type {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
-import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
-import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
-import {
+import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
+import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
+import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -221,11 +227,12 @@ import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
-import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
-import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
-import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
-import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import {
+import type { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
+import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
+import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
+import type {
     HogFlow,
     HogFlowAction,
     HogFlowBatchJob,
@@ -741,6 +748,10 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('sparkline')
     }
 
+    public logsServices(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('services')
+    }
+
     public logsHasLogs(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('has_logs')
     }
@@ -1152,7 +1163,7 @@ export class ApiRequest {
 
     // # Signal Reports
     public signalReports(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('signal_reports')
+        return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('reports')
     }
 
     public signalReport(id: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1161,7 +1172,7 @@ export class ApiRequest {
 
     // # Signal Source Configs
     public signalSourceConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('signal_source_configs')
+        return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('source_configs')
     }
 
     public signalSourceConfig(id: string, teamId?: TeamType['id']): ApiRequest {
@@ -1221,6 +1232,10 @@ export class ApiRequest {
 
     public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('issues')
+    }
+
+    public errorTrackingIssuesExists(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent('exists')
     }
 
     public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1305,6 +1320,14 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_events')
     }
 
+    public errorTrackingRecommendations(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('recommendations')
+    }
+
+    public errorTrackingRecommendation(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingRecommendations(teamId).addPathComponent(id)
+    }
+
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('quick_filters')
     }
@@ -1336,8 +1359,16 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
 
+    public dataWarehouseSavedQueryFolders(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_folders')
+    }
+
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
+    public dataWarehouseSavedQueryFolder(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQueryFolders(teamId).addPathComponent(id)
     }
 
     public dataWarehouseSavedQueryDrafts(teamId?: TeamType['id']): ApiRequest {
@@ -1359,9 +1390,11 @@ export class ApiRequest {
         offset = 0,
         teamId?: TeamType['id']
     ): ApiRequest {
-        return this.environmentsDetail(teamId)
-            .addPathComponent('data_modeling_jobs')
-            .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').withQueryString({
+            saved_query_id: savedQueryId,
+            limit: pageSize,
+            offset,
+        })
     }
 
     public dataModelingJobsRunning(teamId?: TeamType['id']): ApiRequest {
@@ -1370,6 +1403,11 @@ export class ApiRequest {
 
     public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
+    }
+
+    // # Data Modeling DAGs
+    public dataModelingDags(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
     }
 
     // # Data Modeling Nodes
@@ -1544,6 +1582,10 @@ export class ApiRequest {
         return this.organizations().current().addPathComponent('integrations')
     }
 
+    public organizationIntegrationsDetail(id: IntegrationType['id']): ApiRequest {
+        return this.organizationIntegrations().addPathComponent(id)
+    }
+
     // # Organization OAuth Applications
     public organizationOAuthApplications(): ApiRequest {
         return this.organizations().current().addPathComponent('oauth_applications')
@@ -1580,8 +1622,12 @@ export class ApiRequest {
     }
 
     // Queries
-    public query(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query')
+    public query(teamId?: TeamType['id'], queryKind?: string): ApiRequest {
+        const apiRequest = this.environmentsDetail(teamId).addPathComponent('query')
+        if (queryKind) {
+            return apiRequest.addPathComponent(queryKind)
+        }
+        return apiRequest
     }
 
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
@@ -1818,6 +1864,30 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('import_from_customerio')
     }
 
+    public messagingCategoriesOptOutSyncConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('optout_sync_config')
+    }
+
+    public messagingCategoriesRemoveCustomerIOAppConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_customerio_app_config')
+    }
+
+    public messagingCategoriesSaveWebhookConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('save_webhook_config')
+    }
+
+    public messagingCategoriesRemoveWebhookConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_webhook_config')
+    }
+
+    public messagingCategoriesSaveTrackConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('save_track_config')
+    }
+
+    public messagingCategoriesRemoveTrackConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_track_config')
+    }
+
     public messagingPreferences(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences')
     }
@@ -1921,6 +1991,11 @@ export class ApiRequest {
     public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
         return this.heatmapScreenshotsSaved(teamId).addPathComponent(id)
     }
+
+    // Revenue analytics
+    public revenueAnalyticsJoins(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('revenue_analytics').addPathComponent('joins')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -1958,7 +2033,10 @@ const ensureProjectIdNotInvalid = (url: string): void => {
     if (projectIdMatch) {
         const projectId = projectIdMatch[2].trim()
         if (projectId === 'null' || projectId === 'undefined') {
-            throw { status: 0, detail: `Cannot make request - ${projectIdMatch[1]} ID is unknown.` }
+            throw {
+                status: 0,
+                detail: `Cannot make request - ${projectIdMatch[1]} ID is unknown.`,
+            }
         }
     }
 }
@@ -1980,6 +2058,76 @@ function getDistinctId(): string | undefined {
     return posthog.get_distinct_id()
 }
 
+// TEMPORARY DEBUG — remove once livestream 401 root cause is identified.
+// Decodes the (unverified) JWT payload from an Authorization header and captures
+// a PostHog event so we can aggregate which claim shape is causing 401s. Sensitive
+// fields are masked.
+function captureLivestream401Debug(url: string, authHeader: string | undefined, serverErrorData: any): void {
+    try {
+        const props: Record<string, any> = {
+            url,
+            server_message: serverErrorData?.message || serverErrorData?.error,
+        }
+        if (!authHeader) {
+            posthog.capture('livestream_401_debug', {
+                ...props,
+                decode_status: 'no_auth_header',
+            })
+            return
+        }
+        const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/)
+        if (!bearerMatch) {
+            posthog.capture('livestream_401_debug', {
+                ...props,
+                decode_status: 'not_bearer',
+            })
+            return
+        }
+        const parts = bearerMatch[1].split('.')
+        if (parts.length !== 3) {
+            posthog.capture('livestream_401_debug', {
+                ...props,
+                decode_status: 'malformed_jwt',
+                jwt_parts: parts.length,
+            })
+            return
+        }
+        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+        const padded = b64 + '==='.slice((b64.length + 3) % 4)
+        const payload = JSON.parse(atob(padded))
+        const now = Math.floor(Date.now() / 1000)
+        const apiTokenMasked =
+            typeof payload.api_token === 'string'
+                ? payload.api_token.slice(0, 4) + `***(len=${payload.api_token.length})`
+                : `<${typeof payload.api_token}>`
+        posthog.capture('livestream_401_debug', {
+            ...props,
+            decode_status: 'ok',
+            team_id: payload.team_id,
+            team_id_type: typeof payload.team_id,
+            user_id: payload.user_id,
+            user_id_type: typeof payload.user_id,
+            organization_id: payload.organization_id,
+            organization_id_type: typeof payload.organization_id,
+            api_token_masked: apiTokenMasked,
+            api_token_type: typeof payload.api_token,
+            aud: payload.aud,
+            aud_type: Array.isArray(payload.aud) ? 'array' : typeof payload.aud,
+            exp: payload.exp,
+            now_epoch: now,
+            exp_seconds_remaining: typeof payload.exp === 'number' ? payload.exp - now : null,
+            token_is_expired: typeof payload.exp === 'number' ? payload.exp < now : null,
+            claim_keys: Object.keys(payload).sort(),
+        })
+    } catch (e) {
+        posthog.capture('livestream_401_debug', {
+            url,
+            decode_status: 'exception',
+            decode_error: String(e),
+        })
+    }
+}
+
 const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
@@ -1987,10 +2135,11 @@ const api = {
         },
     },
     llmAnalytics: {
-        translate(params: {
-            text: string
-            targetLanguage?: string
-        }): Promise<{ translation: string; detected_language?: string; provider: string }> {
+        translate(params: { text: string; targetLanguage?: string }): Promise<{
+            translation: string
+            detected_language?: string
+            provider: string
+        }> {
             // Convert to snake_case for backend
             const data = {
                 text: params.text,
@@ -2123,7 +2272,11 @@ const api = {
             can_materialize: boolean
             reason: string | null
             transformed_query: string | null
-            range_pairs: { column: string; variables: string[]; bucket_fn: string }[]
+            range_pairs: {
+                column: string
+                variables: string[]
+                bucket_fn: string
+            }[]
             aggregates: { expression: string; reaggregate_fn: string | null }[]
         }> {
             const data: Record<string, any> = {}
@@ -2135,7 +2288,7 @@ const api = {
             }
             return await new ApiRequest().endpointDetail(name).withAction('materialization_preview').create({ data })
         },
-        async listVersions(name: string): Promise<EndpointVersionType[]> {
+        async listVersions(name: string): Promise<CountedPaginatedResponse<EndpointVersionType>> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
     },
@@ -2386,7 +2539,11 @@ const api = {
 
     activity: {
         list(
-            filters: Partial<Pick<ActivityLogItem, 'item_id' | 'scope'> & { user?: UserBasicType['id'] }>,
+            filters: Partial<
+                Pick<ActivityLogItem, 'item_id' | 'scope'> & {
+                    user?: UserBasicType['id']
+                }
+            >,
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): Promise<PaginatedResponse<ActivityLogItem>> {
             return api.activity.listRequest(filters, projectId).get()
@@ -2443,7 +2600,9 @@ const api = {
             }
 
             // TODO: Can we replace all these endpoint specific implementations with the generic REST endpoint above?
-            const requestForScope: { [key in ActivityScope]?: () => ApiRequest | null } = {
+            const requestForScope: {
+                [key in ActivityScope]?: () => ApiRequest | null
+            } = {
                 [ActivityScope.FEATURE_FLAG]: () => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, projectId)
                 },
@@ -2488,13 +2647,20 @@ const api = {
                 },
             }
 
-            let parameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE } as Record<string, any>
+            let parameters = {
+                page: page || 1,
+                limit: ACTIVITY_PAGE_SIZE,
+            } as Record<string, any>
             const request = requestForScope[scopes[0]]?.()
             // :KLUDGE: Groups don't expose a unique ID so we need to pass the index and the key
             if (scopes[0] === ActivityScope.GROUP && props.id) {
                 const groupTypeIndex = (props.id as string)[0]
                 const groupKey = (props.id as string).substring(2)
-                parameters = { ...parameters, group_type_index: groupTypeIndex, group_key: groupKey }
+                parameters = {
+                    ...parameters,
+                    group_type_index: groupTypeIndex,
+                    group_key: groupKey,
+                }
             }
             return request
                 ? request.withQueryString(toParams(parameters)).get()
@@ -2528,7 +2694,11 @@ const api = {
             return new ApiRequest().comments().withQueryString(params).get()
         },
 
-        async getCount(params: Partial<CommentType> & { exclude_emoji_reactions?: boolean }): Promise<number> {
+        async getCount(
+            params: Partial<CommentType> & {
+                exclude_emoji_reactions?: boolean
+            }
+        ): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
         },
 
@@ -2538,17 +2708,27 @@ const api = {
     },
 
     logs: {
-        async query({
-            query,
-            signal,
-        }: {
-            query: Omit<LogsQuery, 'kind'>
-            signal?: AbortSignal
-        }): Promise<{ results: LogMessage[]; hasMore: boolean; nextCursor?: string; maxExportableLogs: number }> {
+        async query({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<{
+            results: LogMessage[]
+            hasMore: boolean
+            nextCursor?: string
+            maxExportableLogs: number
+        }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
             return new ApiRequest().logsSparkline().create({ signal, data: { query } })
+        },
+        async services({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<{
+            services: {
+                service_name: string
+                log_count: number
+                error_count: number
+                error_rate: number
+            }[]
+            sparkline: { time: string; service_name: string; count: number }[]
+        }> {
+            return new ApiRequest().logsServices().create({ signal, data: { query } })
         },
         async hasLogs(): Promise<boolean> {
             return new ApiRequest()
@@ -2559,13 +2739,12 @@ const api = {
         async explain(uuid: string, timestamp: string): Promise<LogExplanation> {
             return new ApiRequest().logsExplainWithAI().create({ data: { uuid, timestamp } })
         },
-        async exportQuery({
-            query,
-            columns,
-        }: {
-            query: Omit<LogsQuery, 'kind'>
-            columns?: string[]
-        }): Promise<{ id: number; export_format: string; has_content: boolean; filename: string }> {
+        async exportQuery({ query, columns }: { query: Omit<LogsQuery, 'kind'>; columns?: string[] }): Promise<{
+            id: number
+            export_format: string
+            has_content: boolean
+            filename: string
+        }> {
             return new ApiRequest().logsExport().create({ data: { query, columns } })
         },
     },
@@ -2580,7 +2759,11 @@ const api = {
             limit?: number
             after?: string
             prefetchSpans?: number
-        }): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextCursor?: string }> {
+        }): Promise<{
+            results: Record<string, any>[]
+            hasMore: boolean
+            nextCursor?: string
+        }> {
             return new ApiRequest().tracingSpans().withAction('query').create({ data: { query } })
         },
         async getTrace(
@@ -2590,14 +2773,18 @@ const api = {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
-                .create({ data: { dateRange: dateRange ?? { date_from: '-24h' } } })
+                .create({
+                    data: { dateRange: dateRange ?? { date_from: '-24h' } },
+                })
         },
         async sparkline(query: {
             dateRange?: { date_from?: string | null; date_to?: string | null }
             serviceNames?: string[]
             statusCodes?: number[]
             filterGroup?: PropertyGroupFilter
-        }): Promise<{ results: { time: string; service: string; count: number }[] }> {
+        }): Promise<{
+            results: { time: string; service: string; count: number }[]
+        }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ data: { query } })
         },
         async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
@@ -2660,7 +2847,11 @@ const api = {
             limit: number = 100,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType>> {
-            const params: EventsListQueryParams = { ...filters, limit, orderBy: filters.orderBy ?? ['-timestamp'] }
+            const params: EventsListQueryParams = {
+                ...filters,
+                limit,
+                orderBy: filters.orderBy ?? ['-timestamp'],
+            }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
         determineListEndpoint(
@@ -2888,7 +3079,12 @@ const api = {
         }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
             return new ApiRequest()
                 .sessionPropertyDefinitions(teamId)
-                .withQueryString(toParams({ search, ...(properties ? { properties: properties.join(',') } : {}) }))
+                .withQueryString(
+                    toParams({
+                        search,
+                        ...(properties ? { properties: properties.join(',') } : {}),
+                    })
+                )
                 .get()
         },
     },
@@ -3009,7 +3205,9 @@ const api = {
             return await new ApiRequest().customerJourneys().get()
         },
         async create(
-            data: Pick<CustomerJourneyApi, 'insight' | 'name'> & { description?: string }
+            data: Pick<CustomerJourneyApi, 'insight' | 'name'> & {
+                description?: string
+            }
         ): Promise<CustomerJourneyApi> {
             return await new ApiRequest().customerJourneys().create({ data })
         },
@@ -3031,10 +3229,6 @@ const api = {
 
         async get(id: number): Promise<DashboardType> {
             return new ApiRequest().dashboardsDetail(id).get()
-        },
-
-        async generateMetadata(id: number): Promise<{ name: string; description: string }> {
-            return await new ApiRequest().dashboardsDetail(id).withAction('generate_metadata').create({ data: {} })
         },
 
         async createUnlistedDashboard(tag: string): Promise<DashboardType> {
@@ -3610,7 +3804,6 @@ const api = {
             auth_type: string
             api_key?: string
             description?: string
-            oauth_provider_kind?: string
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
         },
@@ -3668,9 +3861,9 @@ const api = {
             ids: ErrorTrackingIssue['id'][],
             status: ErrorTrackingIssue['status']
         ): Promise<{ content: string }> {
-            return await new ApiRequest()
-                .errorTrackingIssueBulk()
-                .create({ data: { action: 'set_status', ids, status: status } })
+            return await new ApiRequest().errorTrackingIssueBulk().create({
+                data: { action: 'set_status', ids, status: status },
+            })
         },
 
         async bulkAssign(
@@ -3691,7 +3884,11 @@ const api = {
 
         async split(
             issueId: ErrorTrackingIssue['id'],
-            fingerprints: { fingerprint: string; name?: string; description?: string }[]
+            fingerprints: {
+                fingerprint: string
+                name?: string
+                description?: string
+            }[]
         ): Promise<{ success: boolean; new_issue_ids: string[] }> {
             return await new ApiRequest().errorTrackingIssueSplit(issueId).create({ data: { fingerprints } })
         },
@@ -3718,7 +3915,12 @@ const api = {
                 limit: number
                 orderBy?: SymbolSetOrder
             }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
-                const queryString = { order_by: orderBy, status, offset, limit }
+                const queryString = {
+                    order_by: orderBy,
+                    status,
+                    offset,
+                    limit,
+                }
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
 
@@ -3763,6 +3965,22 @@ const api = {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
         },
 
+        async listRecommendations(): Promise<{ results: ErrorTrackingRecommendation[] }> {
+            return await new ApiRequest().errorTrackingRecommendations().get()
+        },
+
+        async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
+            return await new ApiRequest().errorTrackingRecommendation(id).withAction('dismiss').create()
+        },
+
+        async restoreRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
+            return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
+        },
+
+        async refreshRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
+            return await new ApiRequest().errorTrackingRecommendation(id).withAction('refresh').create()
+        },
+
         async createRule(
             ruleType: ErrorTrackingRuleType,
             { id: _, ...data }: ErrorTrackingRule
@@ -3787,9 +4005,13 @@ const api = {
             integrationId: number,
             config: Record<string, string>
         ): Promise<ErrorTrackingExternalReference> {
-            return await new ApiRequest()
-                .errorTrackingExternalReference()
-                .create({ data: { integration_id: integrationId, issue: issueId, config } })
+            return await new ApiRequest().errorTrackingExternalReference().create({
+                data: {
+                    integration_id: integrationId,
+                    issue: issueId,
+                    config,
+                },
+            })
         },
 
         async getSimilarIssues(
@@ -3886,7 +4108,12 @@ const api = {
             return await new ApiRequest()
                 .gitProviderFileLinks()
                 .withAction('resolve_github')
-                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
+                .withQueryString({
+                    owner,
+                    repository,
+                    code_sample: codeSample,
+                    file_name: fileName,
+                })
                 .get()
         },
         async resolveGitlab(
@@ -3898,7 +4125,12 @@ const api = {
             return await new ApiRequest()
                 .gitProviderFileLinks()
                 .withAction('resolve_gitlab')
-                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
+                .withQueryString({
+                    owner,
+                    repository,
+                    code_sample: codeSample,
+                    file_name: fileName,
+                })
                 .get()
         },
     },
@@ -3955,9 +4187,13 @@ const api = {
             integrationId: number,
             config: Record<string, any>
         ): Promise<SessionRecordingExternalReference> {
-            return await new ApiRequest()
-                .sessionRecordingsExternalReferences()
-                .create({ data: { session_recording_id: sessionRecordingId, integration_id: integrationId, config } })
+            return await new ApiRequest().sessionRecordingsExternalReferences().create({
+                data: {
+                    session_recording_id: sessionRecordingId,
+                    integration_id: integrationId,
+                    config,
+                },
+            })
         },
 
         async listSnapshotSources(
@@ -4052,7 +4288,11 @@ const api = {
         async bulkAddRecordingsToPlaylist(
             playlistId: SessionRecordingPlaylistType['short_id'],
             session_recording_ids: SessionRecordingType['id'][]
-        ): Promise<{ success: boolean; added_count: number; total_requested: number }> {
+        ): Promise<{
+            success: boolean
+            added_count: number
+            total_requested: number
+        }> {
             return await new ApiRequest()
                 .recordingPlaylist(playlistId)
                 .withAction('recordings')
@@ -4063,7 +4303,11 @@ const api = {
         async bulkDeleteRecordingsFromPlaylist(
             playlistId: SessionRecordingPlaylistType['short_id'],
             session_recording_ids: SessionRecordingType['id'][]
-        ): Promise<{ success: boolean; added_count: number; total_requested: number }> {
+        ): Promise<{
+            success: boolean
+            added_count: number
+            total_requested: number
+        }> {
             return await new ApiRequest()
                 .recordingPlaylist(playlistId)
                 .withAction('recordings')
@@ -4098,7 +4342,12 @@ const api = {
             return await new ApiRequest()
                 .recordings()
                 .withAction('bulk_delete')
-                .create({ data: { session_recording_ids, ...(date_from ? { date_from } : {}) } })
+                .create({
+                    data: {
+                        session_recording_ids,
+                        ...(date_from ? { date_from } : {}),
+                    },
+                })
         },
 
         async bulkViewedRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
@@ -4154,7 +4403,9 @@ const api = {
             const apiRequest = new ApiRequest().notebooks()
             const { contains, ...queryParams } = objectClean(params)
 
-            const newQueryParams: Omit<typeof params, 'contains'> & { contains?: string } = queryParams
+            const newQueryParams: Omit<typeof params, 'contains'> & {
+                contains?: string
+            } = queryParams
             if (contains?.length) {
                 const containsString =
                     contains
@@ -4189,7 +4440,11 @@ const api = {
         },
         async kernelExecute(
             notebookId: NotebookType['short_id'],
-            data: { code: string; return_variables?: boolean; timeout?: number }
+            data: {
+                code: string
+                return_variables?: boolean
+                timeout?: number
+            }
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
         },
@@ -4201,7 +4456,11 @@ const api = {
         },
         async kernelExecuteStream(
             notebookId: NotebookType['short_id'],
-            data: { code: string; return_variables?: boolean; timeout?: number },
+            data: {
+                code: string
+                return_variables?: boolean
+                timeout?: number
+            },
             {
                 onMessage,
                 onError,
@@ -4223,8 +4482,17 @@ const api = {
         },
         async kernelDataframe(
             notebookId: NotebookType['short_id'],
-            params: { variable_name: string; offset?: number; limit?: number; timeout?: number }
-        ): Promise<{ columns: string[]; rows: Record<string, any>[]; rowCount: number }> {
+            params: {
+                variable_name: string
+                offset?: number
+                limit?: number
+                timeout?: number
+            }
+        ): Promise<{
+            columns: string[]
+            rows: Record<string, any>[]
+            rowCount: number
+        }> {
             const response = await new ApiRequest()
                 .notebook(notebookId)
                 .withAction('kernel/dataframe')
@@ -4248,7 +4516,11 @@ const api = {
         },
         async kernelConfig(
             notebookId: NotebookType['short_id'],
-            data: { cpu_cores?: number; memory_gb?: number; idle_timeout_seconds?: number }
+            data: {
+                cpu_cores?: number
+                memory_gb?: number
+                idle_timeout_seconds?: number
+            }
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/config').create({ data })
         },
@@ -4566,7 +4838,11 @@ const api = {
         async getSummaryHeadline(
             surveyId: Survey['id'],
             forceRefresh: boolean = false
-        ): Promise<{ headline: string; responses_sampled: number; has_more: boolean }> {
+        ): Promise<{
+            headline: string
+            responses_sampled: number
+            has_more: boolean
+        }> {
             return await new ApiRequest()
                 .survey(surveyId)
                 .withAction('summary_headline')
@@ -4619,7 +4895,11 @@ const api = {
             surveyId: Survey['id'],
             targetTeamIds: TeamType['id'][]
         ): Promise<{
-            created_surveys: Array<{ team_id: number; survey_id: string; name: string }>
+            created_surveys: Array<{
+                team_id: number
+                survey_id: string
+                name: string
+            }>
             count: number
         }> {
             return await new ApiRequest()
@@ -4722,7 +5002,10 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; edited_history_id?: string }
+            data: Partial<DataWarehouseSavedQuery> & {
+                types?: string[][]
+                edited_history_id?: string
+            }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
@@ -4775,9 +5058,40 @@ const api = {
         },
     },
 
+    dataWarehouseSavedQueryFolders: {
+        async list(): Promise<DataWarehouseSavedQueryFolder[]> {
+            return await new ApiRequest().dataWarehouseSavedQueryFolders().get()
+        },
+        async create(data: Pick<DataWarehouseSavedQueryFolder, 'name'>): Promise<DataWarehouseSavedQueryFolder> {
+            return await new ApiRequest().dataWarehouseSavedQueryFolders().create({ data })
+        },
+        async update(
+            folderId: DataWarehouseSavedQueryFolder['id'],
+            data: Pick<DataWarehouseSavedQueryFolder, 'name'>
+        ): Promise<DataWarehouseSavedQueryFolder> {
+            return await new ApiRequest().dataWarehouseSavedQueryFolder(folderId).update({ data })
+        },
+        async delete(folderId: DataWarehouseSavedQueryFolder['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseSavedQueryFolder(folderId).delete()
+        },
+    },
+
+    dataModelingDags: {
+        async list(): Promise<PaginatedResponse<DataModelingDAG>> {
+            return await new ApiRequest().dataModelingDags().get()
+        },
+        async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
+            return await new ApiRequest().dataModelingDags().create({ data })
+        },
+    },
+
     dataModelingNodes: {
-        async list(): Promise<PaginatedResponse<DataModelingNode>> {
-            return await new ApiRequest().dataModelingNodes().get()
+        async list(dagId?: string): Promise<PaginatedResponse<DataModelingNode>> {
+            const req = new ApiRequest().dataModelingNodes()
+            if (dagId) {
+                return await req.withQueryString({ dag: dagId }).get()
+            }
+            return await req.get()
         },
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
@@ -4797,7 +5111,9 @@ const api = {
         async materialize(nodeId: DataModelingNode['id']): Promise<void> {
             await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
         },
-        async dagIds(): Promise<{ dag_ids: string[] }> {
+        async dagIds(): Promise<{
+            dag_ids: Array<{ id: string; name: string }>
+        }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
         async lineage(
@@ -4808,8 +5124,12 @@ const api = {
     },
 
     dataModelingEdges: {
-        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
-            return await new ApiRequest().dataModelingEdges().get()
+        async list(dagId?: string): Promise<PaginatedResponse<DataModelingEdge>> {
+            const req = new ApiRequest().dataModelingEdges()
+            if (dagId) {
+                return await req.withQueryString({ dag: dagId }).get()
+            }
+            return await req.get()
         },
     },
 
@@ -4879,13 +5199,33 @@ const api = {
                 .withAction('update_webhook_inputs')
                 .create({ data: { inputs } })
         },
-        async deleteWebhook(
-            sourceId: ExternalDataSource['id']
-        ): Promise<{ success: boolean; external_deleted: boolean; error?: string | null }> {
+        async deleteWebhook(sourceId: ExternalDataSource['id']): Promise<{
+            success: boolean
+            external_deleted: boolean
+            error?: string | null
+        }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('delete_webhook').create()
         },
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
+        },
+        async bulkUpdateSchemas(
+            sourceId: ExternalDataSource['id'],
+            schemas: Pick<
+                ExternalDataSourceSchema,
+                | 'id'
+                | 'should_sync'
+                | 'sync_type'
+                | 'incremental_field'
+                | 'incremental_field_type'
+                | 'sync_frequency'
+                | 'sync_time_of_day'
+                | 'cdc_table_mode'
+            >[]
+        ): Promise<ExternalDataSourceSchema[]> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
+                data: { schemas },
+            })
         },
         async update(
             sourceId: ExternalDataSource['id'],
@@ -4914,6 +5254,22 @@ const api = {
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
         },
+        async check_cdc_prerequisites(
+            payload: {
+                source_type: ExternalDataSourceType
+                cdc_management_mode: 'posthog' | 'self_managed'
+                tables?: string[]
+                cdc_slot_name?: string | null
+                cdc_publication_name?: string | null
+                [key: string]: any
+            },
+            teamId?: TeamType['id']
+        ): Promise<{ valid: boolean; errors: string[] }> {
+            return await new ApiRequest()
+                .externalDataSources(teamId)
+                .withAction('check_cdc_prerequisites')
+                .create({ data: payload })
+        },
         async jobs(
             sourceId: ExternalDataSource['id'],
             before: string | null,
@@ -4940,22 +5296,38 @@ const api = {
         },
 
         async runningActivity(
-            options?: ApiMethodOptions & { limit?: number; offset?: number; cutoff_days?: number }
+            options?: ApiMethodOptions & {
+                limit?: number
+                offset?: number
+                cutoff_days?: number
+            }
         ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
             return await new ApiRequest()
                 .dataWarehouse()
                 .withAction('running_activity')
-                .withQueryString({ limit: options?.limit, offset: options?.offset, cutoff_days: options?.cutoff_days })
+                .withQueryString({
+                    limit: options?.limit,
+                    offset: options?.offset,
+                    cutoff_days: options?.cutoff_days,
+                })
                 .get(options)
         },
 
         async completedActivity(
-            options?: ApiMethodOptions & { limit?: number; offset?: number; cutoff_days?: number }
+            options?: ApiMethodOptions & {
+                limit?: number
+                offset?: number
+                cutoff_days?: number
+            }
         ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
             return await new ApiRequest()
                 .dataWarehouse()
                 .withAction('completed_activity')
-                .withQueryString({ limit: options?.limit, offset: options?.offset, cutoff_days: options?.cutoff_days })
+                .withQueryString({
+                    limit: options?.limit,
+                    offset: options?.offset,
+                    cutoff_days: options?.cutoff_days,
+                })
                 .get(options)
         },
 
@@ -4972,6 +5344,50 @@ const api = {
         async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
             return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
         },
+
+        async provisionWarehouse(
+            databaseName: string,
+            options?: ApiMethodOptions
+        ): Promise<{
+            status: string
+            org: string
+            username: string
+            password: string
+        }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('provision')
+                .create({
+                    data: { database_name: databaseName },
+                    ...options,
+                } as any)
+        },
+
+        async deprovisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; org: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('deprovision')
+                .create(options as any)
+        },
+
+        async warehouseStatus(options?: ApiMethodOptions): Promise<DataWarehouseProvisioningStatus> {
+            return await new ApiRequest().dataWarehouse().withAction('warehouse_status').get(options)
+        },
+
+        async checkDatabaseName(name: string): Promise<{ name: string; available: boolean }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('check-database-name')
+                .withQueryString({ name })
+                .get()
+        },
+
+        async resetPassword(): Promise<{ username: string; password: string }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('reset_password')
+                .create({} as any)
+        },
     },
 
     externalDataSchemas: {
@@ -4986,6 +5402,9 @@ const api = {
         },
         async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
             await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
+        },
+        async cancel(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('cancel').create()
         },
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
@@ -5100,6 +5519,9 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().subscriptions().assembleEndpointUrl()
         },
+        async testDelivery(subscriptionId: SubscriptionType['id']): Promise<void> {
+            await new ApiRequest().subscription(subscriptionId).withAction('test-delivery').create()
+        },
     },
 
     integrations: {
@@ -5133,21 +5555,32 @@ const api = {
         async twilioPhoneNumbers(
             id: IntegrationType['id'],
             forceRefresh: boolean
-        ): Promise<{ phone_numbers: TwilioPhoneNumberType[]; lastRefreshedAt: string }> {
+        ): Promise<{
+            phone_numbers: TwilioPhoneNumberType[]
+            lastRefreshedAt: string
+        }> {
             return await new ApiRequest().integrationTwilioPhoneNumbers(id, forceRefresh).get()
         },
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
-        async githubRepositories(id: IntegrationType['id']): Promise<GitHubReposResponseApi> {
-            return await new ApiRequest().integrationGitHubRepositories(id).get()
+        async githubRepositories(
+            id: IntegrationType['id'],
+            params?: { limit?: number; offset?: number }
+        ): Promise<GitHubReposResponseApi> {
+            return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
         },
         async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {
             return await new ApiRequest().integrationJiraProjects(id).get()
         },
-        async googleAdsAccounts(
-            id: IntegrationType['id']
-        ): Promise<{ accessibleAccounts: { id: string; name: string; level: string; parent_id: string }[] }> {
+        async googleAdsAccounts(id: IntegrationType['id']): Promise<{
+            accessibleAccounts: {
+                id: string
+                name: string
+                level: string
+                parent_id: string
+            }[]
+        }> {
             return await new ApiRequest().integrationGoogleAdsAccounts(id).get()
         },
         async googleAdsConversionActions(
@@ -5197,7 +5630,10 @@ const api = {
         async domainConnectCheck(domain: string): Promise<{
             supported: boolean
             provider_name: DomainConnectProviderName | null
-            available_providers: { endpoint: string; name: DomainConnectProviderName }[]
+            available_providers: {
+                endpoint: string
+                name: DomainConnectProviderName
+            }[]
         }> {
             return await new ApiRequest()
                 .integrationsDomainConnectCheck()
@@ -5218,6 +5654,9 @@ const api = {
     organizationIntegrations: {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().organizationIntegrations().get()
+        },
+        async delete(id: IntegrationType['id']): Promise<void> {
+            await new ApiRequest().organizationIntegrationsDetail(id).delete()
         },
     },
 
@@ -5293,8 +5732,25 @@ const api = {
     },
 
     alerts: {
-        async get(alertId: AlertType['id']): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId).get()
+        /**
+         * Retrieve includes check history; pass `checksLimit` / `checksOffset` for pagination (newest first).
+         *
+         * Only forwarded when explicitly provided — omitting both lets the backend skip the `COUNT(*)` it runs
+         * for "X of Y" totals (see `AlertViewSet.retrieve`), so callers that only need a chart window or the
+         * default slice shouldn't pay for pagination bookkeeping.
+         */
+        async get(
+            alertId: AlertType['id'],
+            options?: { checksLimit?: number; checksOffset?: number }
+        ): Promise<AlertType> {
+            const params: Record<string, number> = {}
+            if (options?.checksLimit !== undefined) {
+                params.checks_limit = options.checksLimit
+            }
+            if (options?.checksOffset !== undefined) {
+                params.checks_offset = options.checksOffset
+            }
+            return await new ApiRequest().alert(alertId).withQueryString(params).get()
         },
         async create(data: Partial<AlertTypeWrite>): Promise<AlertType> {
             return await new ApiRequest().alerts().create({ data })
@@ -5337,7 +5793,10 @@ const api = {
     },
     teamSettings: {
         async asOf(at: string, scope?: string | string[]): Promise<Record<string, any>> {
-            const params: Record<string, any> = { at, ...(scope !== undefined ? { scope } : {}) }
+            const params: Record<string, any> = {
+                at,
+                ...(scope !== undefined ? { scope } : {}),
+            }
             return await new ApiRequest()
                 .environments()
                 .current()
@@ -5453,10 +5912,7 @@ const api = {
         },
         async getBatchTriggerBlastRadius(
             filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
-        ): Promise<{
-            users_affected: number
-            total_users: number
-        }> {
+        ): Promise<BlastRadiusApi> {
             return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },
         async createHogFlowBatchJob(
@@ -5464,7 +5920,6 @@ const api = {
             data: {
                 variables: Record<string, HogQLVariable>
                 filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
-                scheduled_at?: string | null
             }
         ): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
@@ -5484,7 +5939,11 @@ const api = {
         async updateHogFlowSchedule(
             hogFlowId: HogFlow['id'],
             scheduleId: string,
-            data: Partial<{ rrule: string; starts_at: string; timezone?: string }>
+            data: Partial<{
+                rrule: string
+                starts_at: string
+                timezone?: string
+            }>
         ): Promise<HogFlowSchedule> {
             return await new ApiRequest()
                 .hogFlow(hogFlowId)
@@ -5540,8 +5999,8 @@ const api = {
         },
     },
 
-    queryURL: (): string => {
-        return new ApiRequest().query().assembleFullUrl(true)
+    queryURL: (queryKind?: string): string => {
+        return new ApiRequest().query(undefined, queryKind).assembleFullUrl(true)
     },
 
     async query<T extends Record<string, any> = QuerySchema>(
@@ -5553,6 +6012,7 @@ const api = {
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
             limitContext?: 'posthog_ai'
+            queryKind?: string
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -5561,7 +6021,14 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({
+        const bodyKind = (query as { kind?: string }).kind
+        const pathKind = queryOptions?.queryKind
+
+        if (pathKind && pathKind !== bodyKind) {
+            throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
+        }
+
+        return await new ApiRequest().query(undefined, bodyKind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query,
@@ -5584,6 +6051,7 @@ const api = {
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
             queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
+            queryKind?: string
         }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
@@ -5592,7 +6060,13 @@ const api = {
             query,
             tags,
         })
-        return await new ApiRequest().query().create({
+        if (queryOptions?.queryKind && queryOptions.queryKind !== hogQLQuery.kind) {
+            throw new Error(
+                `Query kind mismatch: path kind "${queryOptions.queryKind}" does not match body kind "${hogQLQuery.kind}".`
+            )
+        }
+
+        return await new ApiRequest().query(undefined, hogQLQuery.kind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query: hogQLQuery,
@@ -5621,7 +6095,11 @@ const api = {
                 conversation?: string | null
                 trace_id: string
                 agent_mode?: AgentMode | null
-                resume_payload?: { action: 'approve' | 'reject'; proposal_id: string; feedback?: string } | null
+                resume_payload?: {
+                    action: 'approve' | 'reject'
+                    proposal_id: string
+                    feedback?: string
+                } | null
             },
             options?: ApiMethodOptions
         ): Promise<Response> {
@@ -5632,7 +6110,7 @@ const api = {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
 
-        list(): Promise<PaginatedResponse<ConversationDetail>> {
+        list(): Promise<PaginatedResponse<Conversation>> {
             return new ApiRequest().conversations().get()
         },
 
@@ -5822,7 +6300,13 @@ const api = {
 
         resolveByName(
             promptName: string,
-            params?: { version?: number; version_id?: string; offset?: number; before_version?: number; limit?: number }
+            params?: {
+                version?: number
+                version_id?: string
+                offset?: number
+                before_version?: number
+                limit?: number
+            }
         ): Promise<LLMPromptResolveResponse> {
             return new ApiRequest().llmPromptResolveByName(promptName).withQueryString(params).get()
         },
@@ -5997,6 +6481,11 @@ const api = {
             body: data !== undefined ? JSON.stringify(data) : undefined,
             signal: abortController.signal,
             onopen: async (response) => {
+                // TEMPORARY: livestream SSE lifecycle tracking. Scoped to the two
+                // livestream endpoints so the generic stream helper stays quiet.
+                // Remove together with captureLivestream401Debug once root cause is known.
+                const isLivestreamUrl = /\/(notifications|events)(?:$|\?)/.test(url)
+
                 if (response.status === 429) {
                     const retryAfter = response.headers.get('Retry-After')
                     if (retryAfter) {
@@ -6010,6 +6499,18 @@ const api = {
                     } catch {
                         // If JSON parsing fails, leave errorData empty
                     }
+                    // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
+                    // identify which failure mode is producing the livestream auth baseline.
+                    // Remove once root cause is known.
+                    if (response.status === 401) {
+                        captureLivestream401Debug(url, headers?.Authorization, errorData)
+                    } else if (isLivestreamUrl) {
+                        posthog.capture('livestream_sse_non_ok_non_401', {
+                            url,
+                            status: response.status,
+                            server_message: errorData?.message || errorData?.error,
+                        })
+                    }
                     onError(
                         new ApiError(
                             errorData.error || `Request failed with status ${response.status}`,
@@ -6019,6 +6520,11 @@ const api = {
                         )
                     )
                     abortController.abort()
+                } else if (isLivestreamUrl) {
+                    posthog.capture('livestream_sse_opened', {
+                        url,
+                        status: response.status,
+                    })
                 }
             },
             onmessage: onMessage,
@@ -6127,10 +6633,17 @@ const api = {
         async toggle(kind: DataWarehouseManagedViewsetKind, enabled: boolean): Promise<void> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).put({ data: { enabled } })
         },
-        async getViews(
-            kind: DataWarehouseManagedViewsetKind
-        ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
+        async getViews(kind: DataWarehouseManagedViewsetKind): Promise<{
+            views: DataWarehouseManagedViewsetSavedQuery[]
+            count: number
+        }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    revenueAnalyticsJoins: {
+        async sync(enabled: boolean): Promise<void> {
+            return await new ApiRequest().revenueAnalyticsJoins().create({ data: { enabled } })
         },
     },
 
@@ -6170,7 +6683,12 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {
-            posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
+            posthog.capture('client_request_failure', {
+                pathname,
+                method,
+                duration,
+                status: response.status,
+            })
         }
 
         const data = await getJSONOrNull(response)

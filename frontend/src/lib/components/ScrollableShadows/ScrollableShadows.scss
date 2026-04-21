@@ -1,23 +1,18 @@
 .ScrollableShadows {
     --scrollable-shadows-offset-top: 0px;
 
+    // Reset shadow custom properties so nested ScrollableShadows don't inherit
+    // the parent's shadow values via CSS custom property inheritance.
+    --shadow-x-start: 0 0 0 0 transparent;
+    --shadow-x-end: 0 0 0 0 transparent;
+    --shadow-y-start: 0 0 0 0 transparent;
+    --shadow-y-end: 0 0 0 0 transparent;
+
     position: relative;
     display: flex;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
-
-    &::before,
-    &::after {
-        position: absolute;
-        top: var(--scrollable-shadows-offset-top);
-        left: 0;
-        z-index: 5; // Bumped from 1 because in new scene layout we use scrollable shadows in around the main content, and some content has their own z-index > 1
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-        content: '';
-        opacity: 0;
-        transition: opacity 200ms ease;
-    }
 
     // Base UI ScrollArea injects `.base-ui-disable-scrollbar` on the Viewport
     // which hides native scrollbars. Restore them unless explicitly hidden.
@@ -35,67 +30,67 @@
         flex: 1;
     }
 
-    &.ScrollableShadows--horizontal {
-        height: 100%;
-
-        &::before {
-            box-shadow: 16px 0 16px -16px rgb(0 0 0 / 25%) inset;
-        }
-
-        &::after {
-            box-shadow: -16px 0 16px -16px rgb(0 0 0 / 25%) inset;
-        }
-
-        [theme='dark'] & {
-            &::before {
-                box-shadow: 16px 0 16px -16px rgb(0 0 0 / 100%) inset;
-            }
-
-            &::after {
-                box-shadow: -16px 0 16px -16px rgb(0 0 0 / 100%) inset;
-            }
-        }
-    }
-
-    &.ScrollableShadows--vertical {
+    // Shadow pseudo-elements driven by Base UI's data-overflow-* attributes.
+    // ::before handles start shadows (left + top), ::after handles end shadows (right + bottom).
+    // Each shadow is independently toggled via CSS custom properties.
+    &::before,
+    &::after {
+        position: absolute;
+        top: var(--scrollable-shadows-offset-top);
+        left: 0;
+        z-index: 8; // 8 because we want it over lemon table headers/rows & other stuff
         width: 100%;
+        height: 100%;
+        pointer-events: none;
+        content: '';
+        transition: box-shadow 200ms ease;
+    }
 
+    &:not(.ScrollableShadows--hide-shadows) {
         &::before {
-            box-shadow: 0 16px 16px -16px rgb(0 0 0 / 25%) inset;
+            box-shadow:
+                var(--shadow-x-start, 0 0 0 0 transparent) inset,
+                var(--shadow-y-start, 0 0 0 0 transparent) inset;
         }
 
         &::after {
-            box-shadow: 0 -16px 16px -16px rgb(0 0 0 / 25%) inset;
+            box-shadow:
+                var(--shadow-x-end, 0 0 0 0 transparent) inset,
+                var(--shadow-y-end, 0 0 0 0 transparent) inset;
+        }
+
+        &[data-overflow-x-start] {
+            --shadow-x-start: 16px 0 16px -16px rgb(0 0 0 / 25%);
+        }
+
+        &[data-overflow-x-end] {
+            --shadow-x-end: -16px 0 16px -16px rgb(0 0 0 / 25%);
+        }
+
+        &[data-overflow-y-start] {
+            --shadow-y-start: 0 16px 16px -16px rgb(0 0 0 / 25%);
+        }
+
+        &[data-overflow-y-end] {
+            --shadow-y-end: 0 -16px 16px -16px rgb(0 0 0 / 25%);
         }
 
         [theme='dark'] & {
-            &::before {
-                box-shadow: 0 16px 16px -16px rgb(0 0 0 / 100%) inset;
+            &[data-overflow-x-start] {
+                --shadow-x-start: 16px 0 16px -16px rgb(0 0 0 / 100%);
             }
 
-            &::after {
-                box-shadow: 0 -16px 16px -16px rgb(0 0 0 / 100%) inset;
+            &[data-overflow-x-end] {
+                --shadow-x-end: -16px 0 16px -16px rgb(0 0 0 / 100%);
             }
-        }
-    }
 
-    &.ScrollableShadows--horizontal:not(.ScrollableShadows--hide-shadows) {
-        &[data-overflow-x-start]::before {
-            opacity: 1;
-        }
+            &[data-overflow-y-start] {
+                --shadow-y-start: 0 16px 16px -16px rgb(0 0 0 / 100%);
+            }
 
-        &[data-overflow-x-end]::after {
-            opacity: 1;
-        }
-    }
-
-    &.ScrollableShadows--vertical:not(.ScrollableShadows--hide-shadows) {
-        &[data-overflow-y-start]::before {
-            opacity: 1;
-        }
-
-        &[data-overflow-y-end]::after {
-            opacity: 1;
+            &[data-overflow-y-end] {
+                --shadow-y-end: 0 -16px 16px -16px rgb(0 0 0 / 100%);
+            }
         }
     }
 

@@ -91,7 +91,7 @@ const Value = ({
     index: number
     filter: UniversalFilterValue
     onChange: (property: UniversalFilterValue) => void
-    onRemove: () => void
+    onRemove?: () => void
     initiallyOpen?: boolean
     metadataSource?: AnyDataNode
     className?: string
@@ -162,7 +162,7 @@ const Value = ({
                         index={0}
                         filters={[filter]}
                         onComplete={() => {
-                            if (isValidPropertyFilter(filter) && !filter.key) {
+                            if (onRemove && isValidPropertyFilter(filter) && !filter.key) {
                                 onRemove()
                             }
                         }}

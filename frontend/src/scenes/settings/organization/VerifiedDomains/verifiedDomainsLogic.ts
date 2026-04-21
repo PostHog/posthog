@@ -131,7 +131,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                             domain,
                         }
                     )
-                    return [response, ...values.verifiedDomains]
+                    return [...values.verifiedDomains, response]
                 },
                 deleteVerifiedDomain: async (id: string) => {
                     await api.delete(`api/organizations/${values.currentOrganizationId}/domains/${id}`)

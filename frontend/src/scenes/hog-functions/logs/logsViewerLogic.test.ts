@@ -8,6 +8,7 @@ import { groupLogs, LogEntry, toAbsoluteClickhouseTimestamp } from './logsViewer
 const makeEntry = (instanceId: string, timestamp: string, level: LogEntryLevel = 'INFO'): LogEntry => ({
     instanceId,
     timestamp: dayjs.tz(timestamp, 'UTC'),
+    rawTimestamp: timestamp,
     level,
     message: `msg-${instanceId}-${timestamp}`,
 })
@@ -106,10 +107,10 @@ describe('logsViewerLogic', () => {
         })
 
         it.each([
-            { levels: ['INFO', 'ERROR', 'WARN'] as LogEntryLevel[], expected: 'ERROR' },
-            { levels: ['DEBUG', 'WARN', 'LOG'] as LogEntryLevel[], expected: 'WARN' },
+            { levels: ['INFO', 'ERROR', 'WARN'] as LogEntryLevel[], expected: 'WARN' },
+            { levels: ['DEBUG', 'WARN', 'LOG'] as LogEntryLevel[], expected: 'LOG' },
             { levels: ['INFO', 'INFO', 'INFO'] as LogEntryLevel[], expected: 'INFO' },
-        ])('escalates log level to $expected', ({ levels, expected }) => {
+        ])('uses log level from most recent entry: $expected', ({ levels, expected }) => {
             const entries = levels.map((level, i) => makeEntry('a', `2024-01-15 10:0${i}:00`, level))
             const groups = groupLogs(entries)
             expect(groups[0].logLevel).toBe(expected)
@@ -142,7 +143,7 @@ describe('logsViewerLogic', () => {
             expect(merged.find((g) => g.instanceId === 'c')?.entries).toHaveLength(1)
         })
 
-        it('preserves group order based on first appearance', () => {
+        it('returns groups in newest-first order', () => {
             const entries = [
                 makeEntry('a', '2024-01-15 10:00:00'),
                 makeEntry('b', '2024-01-15 10:01:00'),
@@ -151,7 +152,7 @@ describe('logsViewerLogic', () => {
 
             const groups = groupLogs(entries)
 
-            expect(groups.map((g) => g.instanceId)).toEqual(['a', 'b', 'c'])
+            expect(groups.map((g) => g.instanceId)).toEqual(['c', 'b', 'a'])
         })
     })
 })

@@ -85,7 +85,7 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
 
             const items = getDisplaySectionItems()
-            expect(items).toEqual(['Show legend'])
+            expect(items).toEqual(['Show legend', 'Exclude outliers'])
         })
 
         it('shows unit picker and Y-axis scale but not statistical analysis', async () => {

@@ -5,6 +5,7 @@ providing a single source of truth for data fetching operations.
 All queries are team-scoped through HogQL's automatic team filtering.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 
 import structlog
@@ -264,3 +265,114 @@ def fetch_item_summaries(
     )
 
     return summaries
+
+
+@dataclass(frozen=True)
+class ItemMetrics:
+    """Per-item operational metrics from AI events."""
+
+    cost: float | None
+    latency: float | None
+    input_tokens: int | None
+    output_tokens: int | None
+    error_count: int
+
+
+def fetch_item_metrics(
+    team: Team,
+    item_ids: list[str],
+    window_start: datetime,
+    window_end: datetime,
+    analysis_level: AnalysisLevel = "trace",
+) -> dict[str, ItemMetrics]:
+    """Fetch cost, latency, tokens, and error counts for clustered items.
+
+    For trace-level: aggregates across all AI events in each trace.
+    For generation-level: fetches metrics from individual $ai_generation events.
+    """
+    if not item_ids:
+        return {}
+
+    is_generation = analysis_level == "generation"
+
+    if is_generation:
+        # Cast constant IDs to UUID to filter on native uuid column (avoids per-row toString)
+        item_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in item_ids])
+        query = parse_select(
+            """
+            SELECT
+                toString(uuid) as item_id,
+                toFloat(properties.$ai_total_cost_usd) as cost,
+                toFloat(properties.$ai_latency) as latency,
+                toInt(properties.$ai_input_tokens) as input_tokens,
+                toInt(properties.$ai_output_tokens) as output_tokens,
+                if(properties.$ai_is_error = 'true', 1, 0) as error_count
+            FROM events
+            WHERE event = '$ai_generation'
+                AND timestamp >= {start_dt}
+                AND timestamp < {end_dt}
+                AND toString(uuid) IN {item_ids}
+            LIMIT {max_rows}
+            """
+        )
+    else:
+        # Use ast.Field placeholder so HogQL resolves materialized columns for $ai_trace_id
+        # (JSONExtractString would bypass materialized column optimization)
+        item_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in item_ids])
+        query = parse_select(
+            """
+            SELECT
+                {trace_id_prop} as item_id,
+                sumIf(toFloat(properties.$ai_total_cost_usd), event IN ('$ai_generation', '$ai_embedding')) as cost,
+                sumIf(toFloat(properties.$ai_latency), event = '$ai_generation') as latency,
+                sumIf(toInt(properties.$ai_input_tokens), event IN ('$ai_generation', '$ai_embedding')) as input_tokens,
+                sumIf(toInt(properties.$ai_output_tokens), event IN ('$ai_generation', '$ai_embedding')) as output_tokens,
+                countIf(properties.$ai_is_error = 'true') as error_count
+            FROM events
+            WHERE event IN ('$ai_generation', '$ai_embedding', '$ai_span')
+                AND timestamp >= {start_dt}
+                AND timestamp < {end_dt}
+                AND {trace_id_prop} IN {item_ids}
+            GROUP BY item_id
+            LIMIT {max_rows}
+            """
+        )
+
+    placeholders: dict[str, ast.Expr] = {
+        "start_dt": ast.Constant(value=window_start),
+        "end_dt": ast.Constant(value=window_end),
+        "item_ids": item_ids_tuple,
+        "max_rows": ast.Constant(value=len(item_ids)),
+    }
+    if not is_generation:
+        placeholders["trace_id_prop"] = ast.Field(chain=["properties", "$ai_trace_id"])
+
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = execute_hogql_query(
+            query_type="ClusterItemMetrics",
+            query=query,
+            placeholders=placeholders,
+            team=team,
+            settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
+        )
+
+    metrics: dict[str, ItemMetrics] = {}
+    for row in result.results or []:
+        item_id = row[0]
+        if item_id:
+            metrics[item_id] = ItemMetrics(
+                cost=row[1],
+                latency=row[2],
+                input_tokens=row[3],
+                output_tokens=row[4],
+                error_count=int(row[5] or 0),
+            )
+
+    logger.info(
+        "fetch_item_metrics_result",
+        item_count=len(metrics),
+        requested=len(item_ids),
+        analysis_level=analysis_level,
+    )
+
+    return metrics

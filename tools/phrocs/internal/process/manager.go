@@ -10,15 +10,19 @@ import (
 
 // Orchestrates all processes for the dev environment
 type Manager struct {
-	mu     sync.Mutex
-	procs  []*Process
-	byName map[string]*Process
-	send   func(tea.Msg)
-
+	mu          sync.Mutex
+	procs       []*Process
+	byName      map[string]*Process
+	send        func(tea.Msg)
+	scrollback  int
+	globalShell string
 }
 
 func NewManager(cfg *config.Config) *Manager {
-	mgr := &Manager{}
+	mgr := &Manager{
+		scrollback:  cfg.Scrollback,
+		globalShell: cfg.Shell,
+	}
 
 	names := cfg.OrderedNames()
 	mgr.procs = make([]*Process, 0, len(names))
@@ -30,7 +34,7 @@ func NewManager(cfg *config.Config) *Manager {
 		if docker.IsDockerComposeShell(pcfg.Shell) {
 			pcfg.Shell = docker.StripComposeLogsTail(pcfg.Shell)
 		}
-		proc := NewProcess(name, pcfg, cfg.Scrollback)
+		proc := NewProcess(name, pcfg, cfg.Scrollback, cfg.Shell)
 		mgr.procs = append(mgr.procs, proc)
 		mgr.byName[name] = proc
 	}
@@ -38,7 +42,16 @@ func NewManager(cfg *config.Config) *Manager {
 	return mgr
 }
 
-// Must be called before StartAll
+// UpdateDefaults updates the manager's default scrollback and global shell
+// to match a new config, so that subsequent AddShell calls use the new values.
+func (m *Manager) UpdateDefaults(cfg *config.Config) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.scrollback = cfg.Scrollback
+	m.globalShell = cfg.Shell
+}
+
+// SetSend must be called before StartAll
 func (m *Manager) SetSend(send func(tea.Msg)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -101,3 +114,47 @@ func (m *Manager) Send() func(tea.Msg) {
 	return m.send
 }
 
+// Add creates a new process from config and appends it to the manager.
+// If a process with the same name already exists, it is a no-op.
+func (m *Manager) Add(name string, pcfg config.ProcConfig, scrollback int, globalShell string) *Process {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.byName[name]; ok {
+		return m.byName[name]
+	}
+	if docker.IsDockerComposeShell(pcfg.Shell) {
+		pcfg.Shell = docker.StripComposeLogsTail(pcfg.Shell)
+	}
+	proc := NewProcess(name, pcfg, scrollback, globalShell)
+	m.procs = append(m.procs, proc)
+	m.byName[name] = proc
+	return proc
+}
+
+// AddShell creates a new process from a shell command using the manager's
+// default scrollback and global shell. If a process with the same name already
+// exists, it is a no-op and the existing process is returned.
+func (m *Manager) AddShell(name, shell string) *Process {
+	return m.Add(name, config.ProcConfig{Shell: shell}, m.scrollback, m.globalShell)
+}
+
+// Remove stops a process and removes it from the manager.
+// Returns true if the process was found and removed.
+func (m *Manager) Remove(name string) bool {
+	m.mu.Lock()
+	p, ok := m.byName[name]
+	if !ok {
+		m.mu.Unlock()
+		return false
+	}
+	delete(m.byName, name)
+	for i, proc := range m.procs {
+		if proc.Name == name {
+			m.procs = append(m.procs[:i], m.procs[i+1:]...)
+			break
+		}
+	}
+	m.mu.Unlock()
+	p.Stop()
+	return true
+}

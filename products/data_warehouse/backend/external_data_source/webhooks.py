@@ -179,7 +179,7 @@ def delete_webhook_and_hog_function(
 
     webhook_url = get_webhook_url(hog_function.id)
 
-    external_result: WebhookDeletionResult = source.delete_webhook(config, webhook_url)
+    external_result: WebhookDeletionResult = source.delete_webhook(config, webhook_url, team.pk)
 
     hog_function.deleted = True
     hog_function.enabled = False

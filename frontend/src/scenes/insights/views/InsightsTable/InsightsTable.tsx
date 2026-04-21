@@ -226,7 +226,7 @@ export function InsightsTable({
         },
     })
 
-    if (breakdownFilter?.breakdown) {
+    if (isValidBreakdown(breakdownFilter) && breakdownFilter.breakdown) {
         if (!isSingleSeriesWithBreakdown) {
             columns.push({
                 title: (
@@ -512,9 +512,9 @@ export function InsightsTable({
             firstColumnSticky
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
-            // Allow vertical scrolling within the card so long tables
-            // inside dashboards remain scrollable without resizing tiles.
-            allowContentScroll={isInDashboardContext}
+            // Allow vertical scrolling so long tables inside constrained
+            // containers (dashboards, embedded views) remain scrollable.
+            allowContentScroll={isInDashboardContext || embedded}
         />
     )
 }

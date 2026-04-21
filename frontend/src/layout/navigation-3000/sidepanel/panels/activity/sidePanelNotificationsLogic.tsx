@@ -21,12 +21,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { InAppNotification } from '~/types'
 
+import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
-import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
 
-const POLL_TIMEOUT = 5 * 60 * 1000
-const UNREAD_POLL_TIMEOUT = 30 * 1000
+const LEGACY_POLL_TIMEOUT = 5 * 60 * 1000
+const MAX_SSE_ERRORS = 3
 
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
@@ -56,7 +56,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         clearErrorCount: true,
         markAllAsRead: true,
         loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
-        // Real-time notification actions
         setInAppNotifications: (notifications: InAppNotification[], hasMore: boolean) => ({
             notifications,
             hasMore,
@@ -73,7 +72,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         initialLoadDone: true,
         startSSE: true,
         stopSSE: true,
-        fallbackToPoll: true,
     }),
     reducers({
         isInitialLoadComplete: [
@@ -85,7 +83,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         errorCounter: [
             0,
             {
-                incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
+                incrementErrorCount: (state) => (state >= MAX_SSE_ERRORS ? MAX_SSE_ERRORS : state + 1),
                 clearErrorCount: () => 0,
             },
         ],
@@ -161,8 +159,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         return null
                     } finally {
                         const pollTimeoutMilliseconds = values.errorCounter
-                            ? POLL_TIMEOUT * values.errorCounter
-                            : POLL_TIMEOUT
+                            ? LEGACY_POLL_TIMEOUT * values.errorCounter
+                            : LEGACY_POLL_TIMEOUT
 
                         cache.disposables.add(() => {
                             const timerId = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
@@ -217,15 +215,29 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             }
         },
         startSSE: () => {
+            // TEMPORARY: lifecycle tracking for /notifications SSE connection.
+            // Remove together with livestream_401_debug once root cause is known.
+            posthog.capture('livestream_sse_startsse_called', {
+                flag_enabled: values.realTimeNotificationsEnabled,
+                has_token: !!values.currentTeam?.live_events_token,
+                has_host: !!liveEventsHostOrigin(),
+                had_prior_connection: !!cache.sseConnection,
+            })
+
+            if (!values.realTimeNotificationsEnabled) {
+                posthog.capture('livestream_sse_startsse_skipped', { reason: 'flag_disabled' })
+                return
+            }
+
             const token = values.currentTeam?.live_events_token
             if (!token) {
-                actions.fallbackToPoll()
+                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_token' })
                 return
             }
 
             const host = liveEventsHostOrigin()
             if (!host) {
-                actions.fallbackToPoll()
+                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_host' })
                 return
             }
 
@@ -234,6 +246,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             cache.sseConnection?.abort()
             const abortController = new AbortController()
             cache.sseConnection = abortController
+            cache.firstMessageLogged = false
+
+            posthog.capture('livestream_sse_connecting', { url })
 
             void api
                 .stream(url, {
@@ -242,6 +257,11 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     },
                     signal: abortController.signal,
                     onMessage: (event) => {
+                        actions.clearErrorCount()
+                        if (!cache.firstMessageLogged) {
+                            cache.firstMessageLogged = true
+                            posthog.capture('livestream_sse_first_message', { url })
+                        }
                         if (!values.isInitialLoadComplete) {
                             return
                         }
@@ -284,56 +304,37 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                 )
                             }
                         } catch {
-                            // Ignore heartbeat or malformed messages
+                            // Ignore malformed messages
                         }
                     },
-                    onError: () => {
-                        actions.fallbackToPoll()
-                        throw new Error('SSE connection failed, falling back to polling')
+                    onError: (error) => {
+                        // TEMPORARY: livestream SSE lifecycle tracking.
+                        posthog.capture('livestream_sse_error', {
+                            url,
+                            error_name: (error as Error | undefined)?.name,
+                            error_message: (error as Error | undefined)?.message,
+                            error_count: values.errorCounter + 1,
+                        })
+                        actions.incrementErrorCount()
+                        if (values.errorCounter >= MAX_SSE_ERRORS) {
+                            posthog.capture('livestream_sse_max_errors', {
+                                url,
+                                max_errors: MAX_SSE_ERRORS,
+                            })
+                            abortController.abort()
+                            throw new Error(`SSE failed ${MAX_SSE_ERRORS} times, giving up`)
+                        }
                     },
                 })
-                .catch(() => console.warn('[Notifications] SSE connection failed, using polling fallback'))
+                .catch(() => {})
         },
         stopSSE: () => {
+            // TEMPORARY: livestream SSE lifecycle tracking.
+            posthog.capture('livestream_sse_stopped', {
+                had_connection: !!cache.sseConnection,
+            })
             cache.sseConnection?.abort()
             cache.sseConnection = null
-            if (cache.pollTimer) {
-                clearInterval(cache.pollTimer)
-                cache.pollTimer = null
-            }
-        },
-        fallbackToPoll: () => {
-            cache.sseConnection?.abort()
-            cache.sseConnection = null
-
-            if (cache.pollTimer) {
-                clearInterval(cache.pollTimer)
-            }
-
-            const poll = async (): Promise<void> => {
-                try {
-                    const resp = await api.get<{ count: number }>(
-                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
-                    )
-                    actions.setInAppUnreadCount(resp.count)
-                } catch {
-                    // Swallow
-                }
-            }
-
-            void poll()
-            cache.pollTimer = setInterval(() => void poll(), UNREAD_POLL_TIMEOUT)
-        },
-        notificationReceived: async () => {
-            // Refresh unread count from server on each new notification
-            try {
-                const resp = await api.get<{ count: number }>(
-                    `api/environments/${values.currentProjectId}/notifications/unread_count/`
-                )
-                actions.setInAppUnreadCount(resp.count)
-            } catch {
-                // Swallow
-            }
         },
         markAsRead: async ({ id }) => {
             try {
@@ -350,14 +351,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             const endpoint = notification.read ? 'mark_read' : 'mark_unread'
             try {
                 await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/${endpoint}/`, {})
-            } catch {
-                // Swallow
-            }
-            try {
-                const resp = await api.get<{ count: number }>(
-                    `api/environments/${values.currentProjectId}/notifications/unread_count/`
-                )
-                actions.setInAppUnreadCount(resp.count)
             } catch {
                 // Swallow
             }
@@ -467,7 +460,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
     }),
     afterMount(({ cache, actions, values }) => {
         if (values.realTimeNotificationsEnabled) {
-            // Load initial notifications from the REST API
             void (async () => {
                 try {
                     const resp = await api.get<{
@@ -489,8 +481,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 actions.initialLoadDone()
             })()
 
-            // SSE requires currentTeam.live_events_token — start now if available,
-            // otherwise wait for teamLogic to load it
             if (values.currentTeam?.live_events_token) {
                 actions.startSSE()
             }

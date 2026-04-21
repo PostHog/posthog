@@ -70,19 +70,20 @@ task = Task.create_and_run(
 
 ### Parameters
 
-| Parameter              | Required | Description                                                                |
-| ---------------------- | -------- | -------------------------------------------------------------------------- |
-| `team`                 | Yes      | The team this task belongs to                                              |
-| `title`                | Yes      | Human-readable task title                                                  |
-| `description`          | Yes      | Detailed description of what the agent should do                           |
-| `origin_product`       | Yes      | Which product created this task (see `Task.OriginProduct` choices)         |
-| `user_id`              | Yes      | User ID — used for feature flag validation and creating the scoped API key |
-| `repository`           | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)              |
-| `posthog_mcp_scopes`   | No       | Scope preset or explicit scope list (default: `"full"`)                    |
-| `create_pr`            | No       | Whether the agent should create a PR (default: `True`)                     |
-| `mode`                 | No       | Execution mode (default: `"background"`)                                   |
-| `slack_thread_context` | No       | Slack thread context for agents triggered from Slack                       |
-| `start_workflow`       | No       | Whether to start the Temporal workflow immediately (default: `True`)       |
+| Parameter                | Required | Description                                                                |
+| ------------------------ | -------- | -------------------------------------------------------------------------- |
+| `team`                   | Yes      | The team this task belongs to                                              |
+| `title`                  | Yes      | Human-readable task title                                                  |
+| `description`            | Yes      | Detailed description of what the agent should do                           |
+| `origin_product`         | Yes      | Which product created this task (see `Task.OriginProduct` choices)         |
+| `user_id`                | Yes      | User ID — used for feature flag validation and creating the scoped API key |
+| `repository`             | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)              |
+| `posthog_mcp_scopes`     | No       | Scope preset or explicit scope list (default: `"full"`)                    |
+| `create_pr`              | No       | Whether the agent should create a PR (default: `True`)                     |
+| `mode`                   | No       | Execution mode (default: `"background"`)                                   |
+| `slack_thread_context`   | No       | Slack thread context for agents triggered from Slack                       |
+| `start_workflow`         | No       | Whether to start the Temporal workflow immediately (default: `True`)       |
+| `sandbox_environment_id` | No       | ID of a `SandboxEnvironment` to apply network restrictions (see below)     |
 
 ### Adding a new origin product
 
@@ -188,17 +189,58 @@ Network access is configured per-team via `SandboxEnvironment`:
 - **Full** — unrestricted network access
 - **Custom** — explicit allowlist of domains, optionally including the trusted defaults
 
+To apply network restrictions from your product code,
+create a `SandboxEnvironment` and pass its ID to `Task.create_and_run`:
+
+```python
+from products.tasks.backend.models import SandboxEnvironment, Task
+
+# 1. Create an environment (once, or look up an existing one)
+env = SandboxEnvironment.objects.create(
+    team=team,
+    created_by=user,
+    name="Restricted agent env",
+    network_access_level="custom",  # "full" | "trusted" | "custom"
+    allowed_domains=["github.com", "api.example.com"],
+    include_default_domains=True,  # merge GitHub, npm, PyPI defaults
+)
+
+# 2. Pass its ID when creating the task
+task = Task.create_and_run(
+    team=team,
+    title="My restricted task",
+    description="...",
+    origin_product=Task.OriginProduct.YOUR_PRODUCT,
+    user_id=user.id,
+    repository="org/repo",
+    sandbox_environment_id=str(env.id),
+)
+```
+
+The temporal workflow resolves the allowed domains at execution time from the environment,
+so updates to the environment take effect on the next run.
+Domain restrictions are enforced at the syscall level by `agentsh` via ptrace —
+the agent cannot bypass them through proxy settings or DNS tricks.
+
+Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
+or the PostHog Code settings UI.
+
 ## Local development
 
-See the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/temporal/process_task/SETUP_GUIDE.md)
-for step-by-step instructions on running sandboxed agents locally with Docker.
+To set up sandboxed agents for local development:
 
-Key requirements:
+1. Create a personal dev GitHub App (see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md#github-app) for details)
+2. Run `python manage.py setup_background_agents`
+3. Run `hogli start`
 
-- `DEBUG=1` and `SANDBOX_PROVIDER=docker` in your `.env`
-- A GitHub App with Contents and Pull Requests permissions
-- The `tasks` feature flag enabled at 100%
-- Temporal running (starts automatically via phrocs with `./bin/start`)
+The setup command is idempotent and handles:
+
+- Writing required env vars (`OIDC_RSA_PRIVATE_KEY`, `SANDBOX_JWT_PRIVATE_KEY`, `DEBUG`, `SANDBOX_PROVIDER`) to your `.env`
+- Creating the Array OAuth application
+- Enabling the `tasks` feature flag for all teams
+- Building the agent skills bundle
+
+For advanced setup options (Modal sandboxes, local agent packages), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
 
 ## Questions?
 

@@ -175,7 +175,8 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return []
                     }
-                    return await api.endpoint.listVersions(name)
+                    const response = await api.endpoint.listVersions(name)
+                    return response.results
                 },
             },
         ],

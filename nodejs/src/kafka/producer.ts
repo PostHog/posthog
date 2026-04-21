@@ -10,11 +10,13 @@ import {
     MessageKey as RdKafkaMessageKey,
 } from 'node-rdkafka'
 import { hostname } from 'os'
-import { Counter, Summary } from 'prom-client'
+import { Counter, Histogram, Summary } from 'prom-client'
 
+import { instrumentFn } from '../common/tracing/tracing-utils'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
 import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
+import { ProducerStatsTracker } from './kafka-producer-metrics'
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
  *
@@ -58,6 +60,9 @@ export class KafkaProducerWrapper {
         'max.in.flight.requests.per.connection': 5, // Required for idempotence ordering
     }
 
+    /** Emit librdkafka stats every 30s so ProducerStatsTracker can export them as Prom metrics. */
+    private static readonly STATS_INTERVAL_MS = 30000
+
     static async create(kafkaClientRack: string | undefined, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
         // This makes it much easier to react to issues without needing code changes
@@ -67,11 +72,15 @@ export class KafkaProducerWrapper {
     /** Create a producer with a pre-built rdkafka config (merged over defaults). */
     static async createWithConfig(
         kafkaClientRack: string | undefined,
-        config: ProducerGlobalConfig
+        config: ProducerGlobalConfig,
+        name?: string
     ): Promise<KafkaProducerWrapper> {
         const producerConfig: ProducerGlobalConfig = {
             ...KafkaProducerWrapper.PRODUCER_DEFAULTS,
             'client.rack': kafkaClientRack,
+            // Only emit librdkafka stats when there's a named wrapper to consume them — avoids
+            // the per-interval serialization cost on unnamed producers that have no listener.
+            ...(name ? { 'statistics.interval.ms': KafkaProducerWrapper.STATS_INTERVAL_MS } : {}),
             ...config,
             dr_cb: true,
         }
@@ -100,11 +109,20 @@ export class KafkaProducerWrapper {
             })
         )
 
-        return new KafkaProducerWrapper(producer)
+        return new KafkaProducerWrapper(producer, name)
     }
 
-    constructor(producer: HighLevelProducer) {
+    /** Optional human-readable name (e.g. 'DEFAULT', 'WARPSTREAM') used in metrics labels. */
+    public readonly name?: string
+
+    constructor(producer: HighLevelProducer, name?: string) {
         this.producer = producer
+        this.name = name
+
+        if (name) {
+            const statsTracker = new ProducerStatsTracker(name)
+            producer.on('event.stats', (event) => statsTracker.track(event.message))
+        }
     }
 
     async produce({
@@ -118,9 +136,16 @@ export class KafkaProducerWrapper {
         topic: string
         headers?: Record<string, string>
     }): Promise<void> {
+        const labels: Record<string, string> = { topic_name: topic }
+        if (this.name) {
+            labels.producer_name = this.name
+        }
         try {
-            const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
-            kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
+            const produceTimer = ingestEventKafkaProduceLatency.labels(labels).startTimer()
+            kafkaProducerMessagesQueuedCounter.labels(labels).inc()
+            if (value) {
+                kafkaProducerMessageSizeBytes.labels(labels).observe(value.length)
+            }
             logger.debug('📤', 'Producing message', { topic: topic })
 
             // NOTE: The MessageHeader type is super weird. Essentially you are passing in a record and it expects a string key and a string or buffer value.
@@ -129,28 +154,43 @@ export class KafkaProducerWrapper {
                     [key]: value,
                 })) ?? []
 
-            const result = await new Promise((resolve, reject) => {
-                this.producer.produce(
-                    topic,
-                    null,
-                    value,
-                    key,
-                    Date.now(),
-                    kafkaHeaders,
-                    (error: any, offset: NumberNullUndefined) => {
-                        return error ? reject(error) : resolve(offset)
-                    }
-                )
-            })
+            const result = await instrumentFn(
+                {
+                    key: 'kafka_produce_callback',
+                    timeoutMs: 10_000,
+                    sendException: false,
+                    timeoutMessage: `Kafka produce callback timeout for topic "${topic}"`,
+                },
+                () =>
+                    new Promise((resolve, reject) => {
+                        this.producer.produce(
+                            topic,
+                            null,
+                            value,
+                            key,
+                            Date.now(),
+                            kafkaHeaders,
+                            (error: any, offset: NumberNullUndefined) => {
+                                return error ? reject(error) : resolve(offset)
+                            }
+                        )
+                    })
+            )
 
-            kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
+            kafkaProducerMessagesWrittenCounter.labels(labels).inc()
             logger.debug('📤', 'Produced message', { topic: topic, offset: result })
             produceTimer()
         } catch (error) {
-            kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
+            const errorCode = (error as LibrdKafkaError)?.code
+            const failureLabels = {
+                ...labels,
+                error_code: typeof errorCode === 'number' ? String(errorCode) : 'unknown',
+            }
+            kafkaProducerMessagesFailedCounter.labels(failureLabels).inc()
             logger.error('⚠️', 'kafka_produce_error', {
                 error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
                 topic: topic,
+                error_code: errorCode,
             })
 
             if ((error as LibrdKafkaError).isRetriable) {
@@ -207,6 +247,8 @@ export class KafkaProducerWrapper {
         logger.info('🔌', 'Disconnecting producer. Flushing...')
         await this.flush()
 
+        this.producer.removeAllListeners('event.stats')
+
         logger.info('🔌', 'Disconnecting producer. Disconnecting...')
         await new Promise<ClientMetrics>((resolve, reject) =>
             this.producer.disconnect((error: any, data: ClientMetrics) => {
@@ -258,24 +300,32 @@ export class KafkaProducerWrapper {
 export const kafkaProducerMessagesQueuedCounter = new Counter({
     name: 'kafka_producer_messages_queued_total',
     help: 'Count of messages queued to the Kafka producer, by destination topic.',
-    labelNames: ['topic_name'],
+    labelNames: ['topic_name', 'producer_name'],
 })
 
 export const kafkaProducerMessagesWrittenCounter = new Counter({
     name: 'kafka_producer_messages_written_total',
     help: 'Count of messages written to Kafka, by destination topic.',
-    labelNames: ['topic_name'],
+    labelNames: ['topic_name', 'producer_name'],
 })
 
 export const kafkaProducerMessagesFailedCounter = new Counter({
     name: 'kafka_producer_messages_failed_total',
-    help: 'Count of write failures by the Kafka producer, by destination topic.',
-    labelNames: ['topic_name'],
+    help: 'Count of write failures by the Kafka producer, by destination topic and librdkafka error code.',
+    labelNames: ['topic_name', 'producer_name', 'error_code'],
 })
 
 export const ingestEventKafkaProduceLatency = new Summary({
     name: 'ingest_event_kafka_produce_latency',
     help: 'Wait time for individual Kafka produces',
-    labelNames: ['topic'],
+    labelNames: ['topic_name', 'producer_name'],
     percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+export const kafkaProducerMessageSizeBytes = new Histogram({
+    name: 'kafka_producer_message_size_bytes',
+    help: 'Size distribution of messages produced to Kafka, measured at queue time.',
+    labelNames: ['topic_name', 'producer_name'],
+    // Targeting typical event sizes (~1 KB) up to max request size (~1 MB).
+    buckets: [64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304],
 })

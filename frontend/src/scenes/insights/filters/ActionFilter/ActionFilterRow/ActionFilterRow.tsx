@@ -45,9 +45,12 @@ import {
 
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+import { BoxPlotPropertySelector } from './BoxPlotPropertySelector'
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
-import { BoxPlotPropertySelector, PropertyValueMathSelector } from './PropertyMathSelector'
+import { getDefaultMathHogQLExpression } from './mathUtils'
+import { PropertyValueMathSelector } from './PropertyValueMathSelector'
+import { SaveAsActionBanner } from './SaveAsActionBanner'
 import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
@@ -134,6 +137,7 @@ export function ActionFilterRow({
 
     const isFunnelContext = mathAvailability === MathAvailability.FunnelsOnly
     const isTrendsContext = trendsDisplayCategory != null
+    const suggestedFiltersLabel = isFunnelContext ? 'Suggested step' : isTrendsContext ? 'Suggested series' : undefined
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
     // dashboardItemId should be the insight's id, but the typeKey might contain a /on-dashboard- suffix
@@ -145,9 +149,6 @@ export function ActionFilterRow({
 
     // Only use the funnel results when in funnel context
     const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
-
-    // DWH events are not supported in inline events yet
-    const canCombine = showCombine && !singleFilter && filter.type !== EntityTypes.DATA_WAREHOUSE
 
     const {
         setNodeRef,
@@ -168,6 +169,7 @@ export function ActionFilterRow({
         math_hogql: mathHogQL,
         math_group_type_index: mathGroupTypeIndex,
     } = filter
+    const defaultMathHogQLExpression = getDefaultMathHogQLExpression(insightType)
 
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
@@ -187,7 +189,7 @@ export function ActionFilterRow({
                     : undefined
             const math_hogql =
                 mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
-                    ? (mathHogQL ?? 'count()')
+                    ? (mathHogQL ?? defaultMathHogQLExpression)
                     : undefined
             mathProperties = {
                 ...mathTypeToApiValues(selectedMath),
@@ -247,14 +249,24 @@ export function ActionFilterRow({
         ) : (
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
+
+    const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
+    const initialGroupType = isDataWarehouseFilter
+        ? TaxonomicFilterGroupType.DataWarehouse
+        : TaxonomicFilterGroupType.SuggestedFilters
+
+    // DWH events are not supported in inline events yet
+    const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter
+
     const filterElement = (
         <TaxonomicPopover
             data-attr={'trend-element-subject-' + index}
             fullWidth
             truncate
-            groupType={TaxonomicFilterGroupType.SuggestedFilters}
+            groupType={initialGroupType}
             value={getValue(value, filter)}
             filter={filter}
+            suggestedFiltersLabel={suggestedFiltersLabel}
             onChange={(changedValue, taxonomicGroupType, item) => {
                 if (isQuickFilterItem(item)) {
                     if (item.eventName) {
@@ -353,11 +365,7 @@ export function ActionFilterRow({
                     })
                 }
             }}
-            renderValue={() => (
-                <span className="text-overflow max-w-full">
-                    <EntityFilterInfo filter={filter} showIcon />
-                </span>
-            )}
+            renderValue={() => <EntityFilterInfo filter={filter} showIcon />}
             groupTypes={effectiveActionsTaxonomicGroupTypes}
             placeholder="All events"
             placeholderClass=""
@@ -434,9 +442,8 @@ export function ActionFilterRow({
         <LemonButton
             key="combine-inline"
             icon={<IconGroupIntersect />}
-            title="Count multiple events as a single event"
             data-attr={`show-prop-combine-${index}`}
-            noPadding
+            noPadding={!enablePopup}
             onClick={() => {
                 convertFilterToGroup(index)
                 posthog.capture('combine_events', {
@@ -444,14 +451,18 @@ export function ActionFilterRow({
                     team_id: currentTeamId,
                 })
             }}
-            tooltip="Combine events"
+            tooltip="Count multiple events as a single event"
             tooltipDocLink={inlineEventsDocLink}
-        />
+            fullWidth={enablePopup}
+        >
+            {enablePopup ? 'Combine' : undefined}
+        </LemonButton>
     )
 
     const deleteButton = (
         <LemonButton
             key="delete"
+            status={enablePopup ? 'danger' : 'default'}
             icon={<IconTrash />}
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
@@ -470,9 +481,13 @@ export function ActionFilterRow({
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
-    // Check if popup would have any menu items (excluding filter and combine buttons which are always outside the menu)
+    // Check if popup would have any menu items (excluding filter button which is always outside the menu)
     const hasMenuItems =
-        isFunnelContext || !hideRename || (!hideDuplicate && !singleFilter) || (!hideDeleteBtn && !singleFilter)
+        isFunnelContext ||
+        !hideRename ||
+        (!hideDuplicate && !singleFilter) ||
+        (!hideDeleteBtn && !singleFilter) ||
+        canCombine
     const showPopupMenu = !readOnly && enablePopup && hasMenuItems
 
     // When not using popup, show elements inline
@@ -525,26 +540,28 @@ export function ActionFilterRow({
                                     '@max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1 @max-[400px]/editor-panel:min-w-0 @max-[400px]/editor-panel:[&>*]:basis-full'
                             )}
                         >
-                            <div className="flex-1 min-w-36 @max-[400px]/editor-panel:min-w-0 overflow-hidden">
-                                {filterElement}
-                            </div>
+                            <div className="flex-1 min-w-36 overflow-hidden">{filterElement}</div>
                             {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None &&
                                 mathAvailability !== MathAvailability.FunnelsOnly && (
                                     <>
                                         {mathAvailability !== MathAvailability.BoxPlotOnly && (
-                                            <MathSelector
-                                                math={math}
-                                                mathGroupTypeIndex={mathGroupTypeIndex}
-                                                index={index}
-                                                onMathSelect={onMathSelect}
-                                                disabled={readOnly}
-                                                style={{ maxWidth: '100%', width: 'initial' }}
-                                                mathAvailability={mathAvailability}
-                                                trendsDisplayCategory={trendsDisplayCategory}
-                                                allowedMathTypes={allowedMathTypes}
-                                                query={query || {}}
-                                            />
+                                            <div className="@min-[0px]/editor-panel:shrink @min-[0px]/editor-panel:min-w-28 @min-[0px]/editor-panel:overflow-hidden">
+                                                <MathSelector
+                                                    math={math}
+                                                    mathGroupTypeIndex={mathGroupTypeIndex}
+                                                    index={index}
+                                                    onMathSelect={onMathSelect}
+                                                    disabled={readOnly}
+                                                    style={{ maxWidth: '100%', width: 'initial' }}
+                                                    mathAvailability={mathAvailability}
+                                                    trendsDisplayCategory={trendsDisplayCategory}
+                                                    allowedMathTypes={allowedMathTypes}
+                                                    query={query || {}}
+                                                    fullWidth
+                                                    truncateText={{ maxWidthClass: 'max-w-full' }}
+                                                />
+                                            </div>
                                         )}
                                         {mathAvailability === MathAvailability.BoxPlotOnly && (
                                             <BoxPlotPropertySelector
@@ -559,15 +576,29 @@ export function ActionFilterRow({
                                             mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                                 MathCategory.PropertyValue && (
                                                 <PropertyValueMathSelector
-                                                    mathPropertyType={mathPropertyType}
+                                                    mathPropertyType={
+                                                        mathPropertyType ||
+                                                        (isDataWarehouseFilter
+                                                            ? TaxonomicFilterGroupType.DataWarehouseProperties
+                                                            : TaxonomicFilterGroupType.NumericalEventProperties)
+                                                    }
+                                                    mathPropertyTypes={
+                                                        isDataWarehouseFilter
+                                                            ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                                            : [
+                                                                  TaxonomicFilterGroupType.NumericalEventProperties,
+                                                                  TaxonomicFilterGroupType.SessionProperties,
+                                                                  TaxonomicFilterGroupType.PersonProperties,
+                                                                  TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                                              ]
+                                                    }
                                                     mathProperty={mathProperty}
                                                     mathName={name}
                                                     index={index}
                                                     onMathPropertySelect={onMathPropertySelect}
                                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                                     schemaColumns={
-                                                        filter.type == TaxonomicFilterGroupType.DataWarehouse &&
-                                                        filter.name
+                                                        isDataWarehouseFilter && filter.name
                                                             ? Object.values(
                                                                   dataWarehouseTablesMap[filter.name]?.fields ?? []
                                                               )
@@ -593,7 +624,6 @@ export function ActionFilterRow({
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
-                                        {canCombine && combineInlineButton}
                                         <ActionFilterRowMenu
                                             index={index}
                                             isTrendsContext={isTrendsContext}
@@ -621,6 +651,7 @@ export function ActionFilterRow({
                                             renameRowButton={renameRowButton}
                                             duplicateRowButton={duplicateRowButton}
                                             deleteButton={deleteButton}
+                                            combineButton={canCombine ? combineInlineButton : null}
                                         />
                                     </>
                                 ) : (
@@ -641,7 +672,7 @@ export function ActionFilterRow({
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         metadataSource={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                            isDataWarehouseFilter
                                 ? {
                                       kind: NodeKind.HogQLQuery,
                                       query: `select ${filter.aggregation_target_field} from ${filter.table_name}`,
@@ -649,7 +680,7 @@ export function ActionFilterRow({
                                 : undefined
                         }
                         taxonomicGroupTypes={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                            isDataWarehouseFilter
                                 ? [
                                       TaxonomicFilterGroupType.DataWarehouseProperties,
                                       TaxonomicFilterGroupType.HogQLExpression,
@@ -664,20 +695,17 @@ export function ActionFilterRow({
                                   : []
                         }
                         schemaColumns={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                            isDataWarehouseFilter && filter.name
                                 ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
-                        dataWarehouseTableName={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? (filter.name ?? undefined)
-                                : undefined
-                        }
+                        dataWarehouseTableName={isDataWarehouseFilter ? (filter.name ?? undefined) : undefined}
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
                     />
+                    <SaveAsActionBanner filter={filter} />
                 </div>
             )}
         </li>

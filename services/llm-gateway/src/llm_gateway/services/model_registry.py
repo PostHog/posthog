@@ -23,12 +23,14 @@ class ModelInfo:
 _PROVIDER_TO_API_KEY: Final[dict[str, tuple[str, str]]] = {
     "openai": ("openai_api_key", "OPENAI_API_KEY"),
     "anthropic": ("anthropic_api_key", "ANTHROPIC_API_KEY"),
-    "vertex_ai": ("gemini_api_key", "GEMINI_API_KEY"),
-    "vertex_ai-language-models": ("gemini_api_key", "GEMINI_API_KEY"),
-    "gemini": ("gemini_api_key", "GEMINI_API_KEY"),
     "openrouter": ("openrouter_api_key", "OPENROUTER_API_KEY"),
     "fireworks_ai": ("fireworks_api_key", "FIREWORKS_API_KEY"),
 }
+
+
+def _model_matches_allowlist(model_id: str, allowed_models: frozenset[str]) -> bool:
+    """Check if model matches allowlist using exact matching for /models endpoint listing."""
+    return model_id.lower() in allowed_models
 
 
 def _get_configured_providers() -> frozenset[str]:
@@ -45,11 +47,6 @@ def _is_text_generation_model(cost_data: ModelCost) -> bool:
     """Check if a model supports text generation (chat/completions/responses)."""
     mode = cost_data.get("mode", "")
     return mode in ("chat", "completion", "responses", "")
-
-
-def _model_matches_allowlist(model_id: str, allowed_models: frozenset[str]) -> bool:
-    """Check if model matches allowlist using exact matching for /models endpoint listing."""
-    return model_id.lower() in allowed_models
 
 
 class ModelRegistryService:
@@ -87,7 +84,6 @@ class ModelRegistryService:
         configured_providers = _get_configured_providers()
         allowed_models = config.allowed_models if config else None
 
-        # Fetch all text generation models from LiteLLM, filtered by configured providers
         all_litellm_models = ModelCostService.get_instance().get_all_models()
         models = []
         for model_id, cost_data in all_litellm_models.items():

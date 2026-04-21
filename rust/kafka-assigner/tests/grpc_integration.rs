@@ -642,7 +642,7 @@ async fn grpc_deregister_transitions_to_draining_and_drains() {
         .await
         .expect("deregister RPC failed");
     let action = response.into_inner().action();
-    assert_eq!(action, proto::DeregisterAction::WaitForDrain);
+    assert_eq!(action, proto::DeregisterAction::ShutdownNow);
 
     // Verify c-0 is now Draining in the store.
     let consumers = store.list_consumers().await.unwrap();

@@ -491,10 +491,10 @@ class TestAuthRefresh(TestCallMCPServerTool):
             self.assertIn("re-authenticate", str(ctx.exception))
 
 
-class TestRefreshTokenProviderKind(TestCallMCPServerTool):
+class TestRefreshTokenFromMetadata(TestCallMCPServerTool):
     SERVER_URL = "https://mcp.linear.app/mcp"
 
-    async def test_known_provider_uses_oauth_integration_config(self):
+    async def test_refresh_uses_server_metadata(self):
         sensitive_config = {
             "access_token": "old-token",
             "refresh_token": "rt",
@@ -505,7 +505,8 @@ class TestRefreshTokenProviderKind(TestCallMCPServerTool):
             name="Linear",
             url=self.SERVER_URL,
             auth_type="oauth",
-            oauth_provider_kind="linear",
+            oauth_metadata={"token_endpoint": "https://linear.app/oauth/token"},
+            oauth_client_id="linear-client",
             sensitive_configuration=sensitive_config,
         )
         inst = _make_oauth_installation(
@@ -513,62 +514,15 @@ class TestRefreshTokenProviderKind(TestCallMCPServerTool):
             installation_id=str(installation.id),
             token_retrieved_at=time.time() - 2000,
             expires_in=3600,
+            oauth_metadata={"token_endpoint": "https://linear.app/oauth/token"},
+            oauth_client_id="linear-client",
         )
-        inst["server__oauth_provider_kind"] = "linear"
         tool = self._create_tool(installations=[inst])
 
         with (
             patch("products.mcp_store.backend.oauth.refresh_oauth_token") as mock_refresh,
-            patch("products.mcp_store.backend.oauth.OauthIntegration") as mock_oauth_cls,
             patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient,
         ):
-            oauth_config = AsyncMock()
-            oauth_config.token_url = "https://linear.app/oauth/token"
-            oauth_config.client_id = "linear-client"
-            oauth_config.client_secret = "linear-secret"
-            mock_oauth_cls.oauth_config_for_kind.return_value = oauth_config
-            mock_refresh.return_value = {"access_token": "new-token", "expires_in": 3600}
-            MockClient.return_value = self._make_mock_client()
-
-            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
-
-        self.assertIn("no tools available", result.lower())
-        await sync_to_async(installation.refresh_from_db)()
-        self.assertEqual(installation.sensitive_configuration["access_token"], "new-token")
-
-    async def test_unknown_provider_falls_back_to_metadata(self):
-        sensitive_config = {
-            "access_token": "old-token",
-            "refresh_token": "rt",
-            "token_retrieved_at": int(time.time() - 2000),
-            "expires_in": 3600,
-        }
-        installation = await sync_to_async(self._install_server)(
-            name="Custom",
-            url=self.SERVER_URL,
-            auth_type="oauth",
-            oauth_provider_kind="unknown-provider",
-            oauth_metadata={"token_endpoint": "https://custom.com/oauth/token"},
-            oauth_client_id="custom-client",
-            sensitive_configuration=sensitive_config,
-        )
-        inst = _make_oauth_installation(
-            server_url=self.SERVER_URL,
-            installation_id=str(installation.id),
-            token_retrieved_at=time.time() - 2000,
-            expires_in=3600,
-            oauth_metadata={"token_endpoint": "https://custom.com/oauth/token"},
-            oauth_client_id="custom-client",
-        )
-        inst["server__oauth_provider_kind"] = "unknown-provider"
-        tool = self._create_tool(installations=[inst])
-
-        with (
-            patch("products.mcp_store.backend.oauth.refresh_oauth_token") as mock_refresh,
-            patch("products.mcp_store.backend.oauth.OauthIntegration") as mock_oauth_cls,
-            patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient,
-        ):
-            mock_oauth_cls.oauth_config_for_kind.side_effect = NotImplementedError
             mock_refresh.return_value = {"access_token": "new-token", "expires_in": 3600}
             MockClient.return_value = self._make_mock_client()
 

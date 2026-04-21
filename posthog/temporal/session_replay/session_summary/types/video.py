@@ -6,6 +6,23 @@ from posthog.schema import ReplayInactivityPeriod
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
+AI_TAGS_FIXED_TAXONOMY: dict[str, str] = {
+    "onboarding": "First-time setup, account creation, getting-started flows",
+    "error": "Visible errors, failed requests, broken UI — something went wrong",
+    "frustration": "Rage clicks, repeated failures, visible confusion or backtracking",
+    "idle": "Long pauses with no meaningful interaction",
+    "navigation_only": "Browsing between pages without taking action",
+    "search": "Searching or filtering to find specific content",
+    "checkout": "Purchase or payment flows",
+    "form_interaction": "Filling out forms, multi-step wizards, sign-ups",
+    "account_management": "Profile, settings, preferences, subscriptions",
+    "content_consumption": "Reading, watching, scrolling through content",
+    "feature_exploration": "Trying out functionality, clicking around to learn what it does",
+    "support": "Viewing help docs, contacting support, FAQ",
+    "collaboration": "Sharing, commenting, inviting, reviewing others' work",
+    "bot": "Behavior suggests an automated script or bot, not a real user",
+}
+
 
 class VideoSummarySingleSessionInputs(BaseModel):
     """Workflow input for video-based session analysis"""
@@ -135,6 +152,43 @@ class VideoFixSuggestion(BaseModel):
     suggestion: str = Field(description="Actionable fix or improvement")
 
 
+class SentimentSignal(BaseModel):
+    """A specific observation that contributed to the session frustration score."""
+
+    model_config = ConfigDict(frozen=True)
+
+    signal_type: Literal[
+        "rage_click",
+        "repeated_error",
+        "backtracking",
+        "long_pause",
+        "abandonment",
+        "dead_click",
+        "confusion_loop",
+        "error_cascade",
+        "other",
+    ] = Field(description="Category of the observed frustration signal")
+    segment_index: int = Field(description="Index of the segment where the signal was observed")
+    description: str = Field(description="Brief description of the observed signal")
+    intensity: float = Field(ge=0.0, le=1.0, description="How severe this signal is (0=mild, 1=extreme)")
+
+
+class SessionSentiment(BaseModel):
+    """Session-level sentiment scoring derived from video analysis."""
+
+    model_config = ConfigDict(frozen=True)
+
+    frustration_score: float = Field(
+        ge=0.0, le=1.0, description="Overall frustration score (0.0=smooth session, 1.0=extremely frustrated)"
+    )
+    outcome: Literal["successful", "friction", "frustrated", "blocked"] = Field(
+        description="How the session went: successful (no friction), friction (issues but recovered), frustrated (repeated issues, visible confusion), blocked (couldn't proceed)"
+    )
+    sentiment_signals: list[SentimentSignal] = Field(
+        default_factory=list, description="Evidence signals backing the frustration score"
+    )
+
+
 class ConsolidatedVideoAnalysis(BaseModel):
     """Complete output from video segment consolidation including segments, outcomes, and session-level analysis."""
 
@@ -147,3 +201,23 @@ class ConsolidatedVideoAnalysis(BaseModel):
         default_factory=list,
         description="Actionable fix suggestions grounded in observed issues — only include if there is clear evidence",
     )
+    sentiment: SessionSentiment | None = Field(
+        default=None, description="Session-level sentiment scoring with evidence signals"
+    )
+
+
+class SessionTaggingOutput(BaseModel):
+    """Output from the session tagging LLM call."""
+
+    model_config = ConfigDict(frozen=True)
+
+    tags_fixed: list[str] = Field(description="1-5 tags from the fixed taxonomy")
+    tags_freeform: list[str] = Field(description="1-5 specific free-form tags")
+    highlighted: bool = Field(default=False, description="Whether the session is worth watching")
+
+
+class ConsolidateVideoSegmentsOutput(TypedDict):
+    """Return type for consolidate_video_segments_activity including analysis and tagging."""
+
+    consolidated_analysis: ConsolidatedVideoAnalysis
+    tagging: SessionTaggingOutput

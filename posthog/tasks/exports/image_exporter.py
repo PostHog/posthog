@@ -4,7 +4,7 @@ import time
 import uuid
 import tempfile
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Any, Literal, Optional, cast
 from urllib.parse import quote
 
 from django.conf import settings
@@ -116,7 +116,7 @@ def get_driver() -> webdriver.Chrome:
     # which routes through HTTP_PROXY. The egress proxy blocks this localhost request,
     # but it doesn't matter — Service.stop() always calls _terminate_process() (SIGTERM)
     # right after, so the HTTP shutdown is redundant.
-    driver.service.send_remote_shutdown_command = lambda: None
+    cast(Any, driver.service).send_remote_shutdown_command = lambda: None
 
     return driver
 
@@ -158,6 +158,7 @@ def _export_to_png(
         screenshot_width: ScreenWidth
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
+        page_load_timeout: int = 40
         if exported_asset.insight is not None:
             show_legend = exported_asset.insight.show_legend
             legend_param = "&legend=true" if show_legend else ""
@@ -204,13 +205,20 @@ def _export_to_png(
             if not ok:
                 raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
 
-            # Handle replay export using /exporter route (same as insights/dashboards)
+            # URL-encode the page and data URLs so their inner `?` and `&` (e.g.
+            # `?width=1024&format=jpeg` on screenshot content URLs) don't corrupt
+            # the `/exporter` query string.
+            encoded_page_url = quote(heatmap_url, safe="")
+            encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
             url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}&dataURL={exported_asset.export_context.get('heatmap_data_url')}"
+                f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
             screenshot_width = exported_asset.export_context.get("width", 1400)
             screenshot_height = exported_asset.export_context.get("height", 600)
+            # Heatmaps wait for the data fetch to complete (`.heatmaps-ready` is added
+            # by HeatmapCanvas after heatmapDataLogic loads the data), which can take a while.
+            page_load_timeout = 100
 
             logger.info(
                 "exporting_heatmap",
@@ -227,7 +235,13 @@ def _export_to_png(
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
         _screenshot_asset(
-            image_path, url_to_render, screenshot_width, wait_for_css_selector, screenshot_height, max_height_pixels
+            image_path,
+            url_to_render,
+            screenshot_width,
+            wait_for_css_selector,
+            screenshot_height,
+            max_height_pixels,
+            page_load_timeout,
         )
 
         with open(image_path, "rb") as image_file:
@@ -254,6 +268,7 @@ def _screenshot_asset(
     wait_for_css_selector: CSSSelector,
     screenshot_height: int = 600,
     max_height_pixels: Optional[int] = None,
+    page_load_timeout: int = 40,
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:
@@ -262,14 +277,10 @@ def _screenshot_asset(
         driver.get(url_to_render)
         posthoganalytics.tag("url_to_render", url_to_render)
 
-        timeout = 40
-
-        # For heatmaps, we need to wait until the heatmap is ready
-        if wait_for_css_selector == ".heatmap-exporter":
-            timeout = 100
-
         try:
-            WebDriverWait(driver, timeout).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
+            WebDriverWait(driver, page_load_timeout).until(
+                lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector)
+            )
         except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
@@ -311,7 +322,13 @@ def _screenshot_asset(
         # Funnels are handled separately with fit-content measurement below
         width = driver.execute_script(
             f"""
-            // Check for replay player first
+            // Check for heatmap exporter first — its width is set explicitly
+            const heatmapElement = document.querySelector('.heatmap-exporter');
+            if (heatmapElement) {{
+                return heatmapElement.offsetWidth;
+            }}
+
+            // Check for replay player
             const replayElement = document.querySelector('.replayer-wrapper');
             if (replayElement) {{
                 return replayElement.offsetWidth;
@@ -418,7 +435,12 @@ def export_image(
                     dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
                 )
 
-                # When exporting a single insight from a dashboard, apply the tile's filter overrides and dashboard variables
+                # When export_context contains a source query, use it as the query for cache warming.
+                # This captures the user's full current state (variables, filters, date ranges, etc.).
+                # Falls back to the saved insight query for subscriptions and other server-initiated exports.
+                export_context = exported_asset.export_context or {}
+                query_override = export_context.get("source")
+
                 dashboard_variables = None
                 tile_filters_override = None
                 if exported_asset.dashboard:
@@ -432,26 +454,47 @@ def export_image(
                     if tile:
                         tile_filters_override = tile.filters_overrides
 
-                with upgrade_query(exported_asset.insight):
+                if query_override:
+                    # query_override is upgraded inside calculate_for_query_based_insight,
+                    # so we skip upgrade_query (which only upgrades insight.query we won't use).
+                    # variables_override is None because query_override already encodes the
+                    # user's full current state — applying saved dashboard variables on top
+                    # would clobber unsaved variable selections.
                     result = calculate_for_query_based_insight(
                         exported_asset.insight,
                         team=exported_asset.team,
                         dashboard=exported_asset.dashboard,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                         user=None,
-                        variables_override=dashboard_variables,
+                        variables_override=None,
                         tile_filters_override=tile_filters_override,
+                        query_override=query_override,
                         analytics_props=export_analytics_props,
                     )
-                    if result.cache_key:
-                        insight_cache_keys[exported_asset.insight.id] = result.cache_key
+                else:
+                    with upgrade_query(exported_asset.insight):
+                        result = calculate_for_query_based_insight(
+                            exported_asset.insight,
+                            team=exported_asset.team,
+                            dashboard=exported_asset.dashboard,
+                            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                            user=None,
+                            variables_override=dashboard_variables,
+                            tile_filters_override=tile_filters_override,
+                            analytics_props=export_analytics_props,
+                        )
+                if result.cache_key:
+                    insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
                 logger.info(
                     "export_image.calculate_dashboard_insights",
                     dashboard_id=exported_asset.dashboard.id,
                 )
-                dashboard_variables = None
-                if exported_asset.dashboard.variables:
+                # Use variable overrides from export_context (user's current unsaved selection),
+                # falling back to saved dashboard variables
+                export_context = exported_asset.export_context or {}
+                dashboard_variables = export_context.get("variables_override")
+                if not dashboard_variables and exported_asset.dashboard.variables:
                     variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
                     dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
 

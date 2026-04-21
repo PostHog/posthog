@@ -19,6 +19,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'
@@ -28,8 +29,6 @@ import { ScimLogsModal } from './ScimLogsModal'
 import { SSOSelect } from './SSOSelect'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { VerifyDomainModal } from './VerifyDomainModal'
-
-const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomainsLoading, updatingDomainLoading } = useValues(verifiedDomainsLogic)
@@ -85,7 +84,10 @@ function VerifiedDomainsTable(): JSX.Element {
         scope: RestrictionScope.Organization,
     })
 
-    const columns: LemonTableColumns<OrganizationDomainType> = [
+    const verifiedDomainsList = verifiedDomains.filter((d) => d.is_verified)
+    const unverifiedDomainsList = verifiedDomains.filter((d) => !d.is_verified)
+
+    const verifiedColumns: LemonTableColumns<OrganizationDomainType> = [
         {
             key: 'domain',
             title: 'Domain name',
@@ -94,40 +96,10 @@ function VerifiedDomainsTable(): JSX.Element {
                 return <LemonTag>{domain}</LemonTag>
             },
         },
-        ...(preflight?.cloud
-            ? ([
-                  {
-                      key: 'is_verified',
-                      title: (
-                          <div className="flex items-center deprecated-space-x-1">
-                              <span>Verification</span>
-                              <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
-                                  <IconInfo />
-                              </Tooltip>
-                          </div>
-                      ),
-                      render: function Verified(_, { is_verified, verified_at }) {
-                          return is_verified ? (
-                              <div className="flex items-center text-success">
-                                  <IconCheckCircle style={iconStyle} /> Verified
-                              </div>
-                          ) : verified_at ? (
-                              <div className="flex items-center text-danger">
-                                  <IconExclamation style={iconStyle} /> Verification expired
-                              </div>
-                          ) : (
-                              <div className="flex items-center text-warning">
-                                  <IconWarning style={iconStyle} /> Pending verification
-                              </div>
-                          )
-                      },
-                  },
-              ] as LemonTableColumns<OrganizationDomainType>)
-            : []),
         {
             key: 'jit_provisioning_enabled',
             title: (
-                <div className="flex items-center deprecated-space-x-1">
+                <div className="flex items-center gap-1">
                     <span>Automatic provisioning</span>
                     <Tooltip
                         title={`Enables just-in-time provisioning. If a user logs in with SSO with an email address on this domain an account will be created in ${
@@ -138,43 +110,43 @@ function VerifiedDomainsTable(): JSX.Element {
                     </Tooltip>
                 </div>
             ),
-            render: function AutomaticProvisioning(_, { jit_provisioning_enabled, id, is_verified }) {
-                return is_verified ? (
+            render: function AutomaticProvisioning(_, { jit_provisioning_enabled, id }) {
+                return (
                     <div className="flex items-center">
                         <LemonSwitch
                             checked={jit_provisioning_enabled}
-                            disabled={updatingDomainLoading || !is_verified}
+                            disabled={updatingDomainLoading}
                             disabledReason={restrictionReason}
                             onChange={(checked) => updateDomain({ id, jit_provisioning_enabled: checked })}
                             label="Automatic provisioning"
                         />
                     </div>
-                ) : (
-                    <i className="text-secondary">Verify domain to enable automatic provisioning</i>
                 )
             },
         },
         {
             key: 'sso_enforcement',
+            className: 'py-2',
             title: (
-                <div className="flex items-center deprecated-space-x-1">
+                <div className="flex items-center gap-1">
                     <span>Enforce SSO</span>
                     <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
                         <IconInfo />
                     </Tooltip>
                 </div>
             ),
-            render: function SSOEnforcement(_, { sso_enforcement, is_verified, id, has_saml }, index) {
+            render: function SSOEnforcement(_, { sso_enforcement, id, has_saml }) {
                 if (!isSSOEnforcementAvailable) {
-                    return index === 0 ? (
-                        <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock className="text-warning ml-1" /> Upgrade to enable SSO enforcement
+                    return (
+                        <Link
+                            to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
+                            className="flex items-center gap-1"
+                        >
+                            <IconLock className="text-warning text-lg" /> Upgrade to enable
                         </Link>
-                    ) : (
-                        <></>
                     )
                 }
-                return is_verified ? (
+                return (
                     <SSOSelect
                         value={sso_enforcement}
                         loading={updatingDomainLoading}
@@ -182,84 +154,60 @@ function VerifiedDomainsTable(): JSX.Element {
                         samlAvailable={has_saml}
                         disabledReason={restrictionReason}
                     />
-                ) : (
-                    <i className="text-secondary">Verify domain to enable</i>
                 )
             },
         },
         {
             key: 'saml',
             title: 'SAML',
-            render: function SAML(_, { is_verified, saml_acs_url, saml_entity_id, saml_x509_cert, has_saml }, index) {
+            render: function SAML(_, { saml_acs_url, saml_entity_id, saml_x509_cert, has_saml }) {
                 if (!isSAMLAvailable) {
-                    return index === 0 ? (
-                        <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock className="text-warning ml-1" /> Upgrade to enable SAML
+                    return (
+                        <Link
+                            to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
+                            className="flex items-center gap-1"
+                        >
+                            <IconLock className="text-warning text-lg" /> Upgrade to enable
                         </Link>
-                    ) : (
-                        <></>
                     )
                 }
-                return is_verified ? (
-                    <>
-                        {has_saml ? (
-                            <div className="flex items-center text-success">
-                                <IconCheckCircle style={iconStyle} /> SAML enabled
-                            </div>
-                        ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
-                            <div className="flex items-center text-warning">
-                                <IconWarning style={iconStyle} /> SAML partially configured
-                            </div>
-                        ) : (
-                            <div className="flex items-center">
-                                <IconOffline style={iconStyle} /> SAML not set up
-                            </div>
-                        )}
-                    </>
+                return has_saml ? (
+                    <div className="flex items-center gap-1 text-success">
+                        <IconCheckCircle className="text-lg pt-0.5" /> SAML enabled
+                    </div>
+                ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
+                    <div className="flex items-center gap-1 text-warning">
+                        <IconWarning className="text-lg pt-0.5" /> SAML partially configured
+                    </div>
                 ) : (
-                    <i className="text-secondary">Verify domain to enable</i>
+                    <div className="flex items-center gap-1">
+                        <IconOffline className="text-lg" /> SAML not set up
+                    </div>
                 )
             },
         },
         {
             key: 'scim',
             title: 'SCIM',
-            render: function SCIM(_, { is_verified, scim_enabled }, index) {
+            render: function SCIM(_, { scim_enabled }) {
                 if (!isSCIMAvailable) {
-                    return index === 0 ? (
-                        <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock className="text-warning ml-1" /> Upgrade to enable SCIM
+                    return (
+                        <Link
+                            to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
+                            className="flex items-center gap-1"
+                        >
+                            <IconLock className="text-warning text-lg" /> Upgrade to enable
                         </Link>
-                    ) : (
-                        <></>
                     )
                 }
-                return is_verified ? (
-                    scim_enabled ? (
-                        <div className="flex items-center text-success">
-                            <IconCheckCircle style={iconStyle} /> SCIM enabled
-                        </div>
-                    ) : (
-                        <div className="flex items-center">
-                            <IconOffline style={iconStyle} /> SCIM not set up
-                        </div>
-                    )
+                return scim_enabled ? (
+                    <div className="flex items-center gap-1 text-success">
+                        <IconCheckCircle className="text-lg pt-0.5" /> SCIM enabled
+                    </div>
                 ) : (
-                    <i className="text-secondary">Verify domain to enable</i>
-                )
-            },
-        },
-        {
-            key: 'verify',
-            width: 32,
-            align: 'center',
-            render: function RenderActions(_, { is_verified, id }) {
-                return is_verified ? (
-                    <></>
-                ) : (
-                    <LemonButton type="primary" onClick={() => setVerifyModal(id)} disabledReason={restrictionReason}>
-                        Verify
-                    </LemonButton>
+                    <div className="flex items-center gap-1">
+                        <IconOffline className="text-lg" /> SCIM not set up
+                    </div>
                 )
             },
         },
@@ -267,43 +215,37 @@ function VerifiedDomainsTable(): JSX.Element {
             key: 'actions',
             width: 32,
             align: 'center',
-            render: function RenderActions(_, { is_verified, id, domain }) {
+            render: function RenderActions(_, { id, domain }) {
                 return (
                     <More
                         overlay={
                             <>
-                                {is_verified && (
-                                    <>
-                                        <LemonButton
-                                            onClick={() => setConfigureSAMLModalId(id)}
-                                            fullWidth
-                                            disabledReason={
-                                                restrictionReason ||
-                                                (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)
-                                            }
-                                        >
-                                            Configure SAML
-                                        </LemonButton>
-                                        <LemonButton
-                                            onClick={() => setConfigureSCIMModalId(id)}
-                                            fullWidth
-                                            disabledReason={
-                                                restrictionReason ||
-                                                (!isSCIMAvailable ? 'Upgrade to enable SCIM' : undefined)
-                                            }
-                                        >
-                                            Configure SCIM
-                                        </LemonButton>
-                                        {isSCIMAvailable && (
-                                            <LemonButton
-                                                onClick={() => setScimLogsModalId(id)}
-                                                fullWidth
-                                                disabledReason={restrictionReason}
-                                            >
-                                                View SCIM logs
-                                            </LemonButton>
-                                        )}
-                                    </>
+                                <LemonButton
+                                    onClick={() => setConfigureSAMLModalId(id)}
+                                    fullWidth
+                                    disabledReason={
+                                        restrictionReason || (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)
+                                    }
+                                >
+                                    Configure SAML
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() => setConfigureSCIMModalId(id)}
+                                    fullWidth
+                                    disabledReason={
+                                        restrictionReason || (!isSCIMAvailable ? 'Upgrade to enable SCIM' : undefined)
+                                    }
+                                >
+                                    Configure SCIM
+                                </LemonButton>
+                                {isSCIMAvailable && (
+                                    <LemonButton
+                                        onClick={() => setScimLogsModalId(id)}
+                                        fullWidth
+                                        disabledReason={restrictionReason}
+                                    >
+                                        View SCIM logs
+                                    </LemonButton>
                                 )}
                                 <LemonButton
                                     status="danger"
@@ -311,7 +253,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                         LemonDialog.open({
                                             title: `Remove ${domain}?`,
                                             description:
-                                                'This cannot be undone. If you have SAML configured or SSO enforced,it will be immediately disabled.',
+                                                'This cannot be undone. If you have SAML configured or SSO enforced, it will be immediately disabled.',
                                             primaryButton: {
                                                 status: 'danger',
                                                 children: 'Remove domain',
@@ -335,15 +277,105 @@ function VerifiedDomainsTable(): JSX.Element {
             },
         },
     ]
+
+    const unverifiedColumns: LemonTableColumns<OrganizationDomainType> = [
+        {
+            key: 'domain',
+            title: 'Domain name',
+            dataIndex: 'domain',
+            render: function RenderDomainName(_, { domain }) {
+                return <LemonTag>{domain}</LemonTag>
+            },
+        },
+        ...(preflight?.cloud
+            ? ([
+                  {
+                      key: 'is_verified',
+                      title: 'Status',
+                      render: function Verified(_, { verified_at }) {
+                          return verified_at ? (
+                              <div className="flex items-center gap-1 text-danger">
+                                  <IconExclamation className="text-lg" /> Verification expired
+                              </div>
+                          ) : (
+                              <div className="flex items-center gap-1 text-warning">
+                                  <IconWarning className="text-lg" /> Pending verification
+                              </div>
+                          )
+                      },
+                  },
+              ] as LemonTableColumns<OrganizationDomainType>)
+            : []),
+        {
+            key: 'verify',
+            className: 'py-2',
+            width: 32,
+            align: 'center',
+            render: function RenderVerify(_, { id }) {
+                return (
+                    <LemonButton type="primary" onClick={() => setVerifyModal(id)} disabledReason={restrictionReason}>
+                        Verify
+                    </LemonButton>
+                )
+            },
+        },
+        {
+            key: 'actions',
+            width: 32,
+            align: 'center',
+            render: function RenderActions(_, { id, domain }) {
+                return (
+                    <More
+                        overlay={
+                            <LemonButton
+                                status="danger"
+                                onClick={() =>
+                                    LemonDialog.open({
+                                        title: `Remove ${domain}?`,
+                                        description: 'This cannot be undone.',
+                                        primaryButton: {
+                                            status: 'danger',
+                                            children: 'Remove domain',
+                                            onClick: () => deleteVerifiedDomain(id),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                }
+                                fullWidth
+                                icon={<IconTrash />}
+                                disabledReason={restrictionReason}
+                            >
+                                Remove domain
+                            </LemonButton>
+                        }
+                    />
+                )
+            },
+        },
+    ]
+
     return (
-        <div>
+        <div className="space-y-4">
             <LemonTable
-                dataSource={verifiedDomains}
-                columns={columns}
+                dataSource={verifiedDomainsList}
+                columns={verifiedColumns}
                 loading={verifiedDomainsLoading}
                 rowKey="id"
                 emptyState="You haven't registered any authentication domains yet."
             />
+            {unverifiedDomainsList.length > 0 && (
+                <>
+                    <h4>Pending domains</h4>
+                    <LemonTable
+                        dataSource={unverifiedDomainsList}
+                        columns={unverifiedColumns}
+                        loading={verifiedDomainsLoading}
+                        rowKey="id"
+                    />
+                </>
+            )}
             <AddDomainModal />
             <ConfigureSAMLModal />
             <ConfigureSCIMModal />

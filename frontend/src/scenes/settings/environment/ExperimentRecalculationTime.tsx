@@ -7,6 +7,8 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { teamLogic } from '~/scenes/teamLogic'
 
+import { experimentsConfigLogic } from './experimentsConfigLogic'
+
 const DEFAULT_RECALCULATION_UTC_HOUR = 2 // 02:00 UTC default
 
 const formatHourString = (hour: number): string => {
@@ -35,8 +37,9 @@ const localHourToUtcString = (localHour: number, projectTimezone: string): strin
 }
 
 export function ExperimentRecalculationTime(): JSX.Element {
-    const { currentTeam, currentTeamLoading, timezone: projectTimezone } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { timezone: projectTimezone } = useValues(teamLogic)
+    const { experimentsConfig, experimentsConfigLoading } = useValues(experimentsConfigLogic)
+    const { updateExperimentsConfig } = useActions(experimentsConfigLogic)
 
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -46,17 +49,17 @@ export function ExperimentRecalculationTime(): JSX.Element {
     const handleChange = (value: string): void => {
         const localHour = parseInt(value, 10)
         const utcTimeString = localHourToUtcString(localHour, projectTimezone)
-        updateCurrentTeam({ experiment_recalculation_time: utcTimeString })
+        updateExperimentsConfig({ experiment_recalculation_time: utcTimeString })
     }
 
-    const currentLocalHour = utcToLocalHour(currentTeam?.experiment_recalculation_time, projectTimezone)
+    const currentLocalHour = utcToLocalHour(experimentsConfig?.experiment_recalculation_time, projectTimezone)
 
     return (
         <LemonSelect
             value={currentLocalHour.toString()}
             onChange={handleChange}
             options={hourOptions}
-            disabledReason={restrictedReason || (currentTeamLoading ? 'Loading...' : undefined)}
+            disabledReason={restrictedReason || (experimentsConfigLoading ? 'Loading...' : undefined)}
             data-attr="team-experiment-recalculation-time"
             placeholder="Select recalculation time"
         />

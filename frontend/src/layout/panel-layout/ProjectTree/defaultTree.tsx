@@ -411,6 +411,23 @@ export function iconForType(type?: FileSystemIconType, colorOverride?: FileSyste
         )
     }
 
+    // Handle group type indices (group_0, group_1, etc.)
+    if (type.startsWith('group_')) {
+        const index = parseInt(type.split('_')[1], 10)
+        if (!isNaN(index)) {
+            return (
+                <ProductIconWrapper type="group" colorOverride={colorOverride}>
+                    <span className="relative flex items-center">
+                        <IconPeople />
+                        <div className="absolute -bottom-0.5 -right-1 z-10 flex h-[1.5em] w-[1.5em] items-center justify-center rounded-full bg-surface-tertiary text-[0.45em] font-[700] leading-none">
+                            {index}
+                        </div>
+                    </span>
+                </ProductIconWrapper>
+            )
+        }
+    }
+
     // Handle hog_function types
     if (type.startsWith('hog_function/')) {
         return (

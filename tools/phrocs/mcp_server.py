@@ -116,5 +116,37 @@ def get_process_logs(process: str, lines: int = 100, grep: str = "") -> dict[str
     return resp
 
 
+@mcp.tool()
+def send_keys(process: str, keys: str) -> dict[str, Any]:
+    """Send input to a dev environment process's stdin.
+    Use this to answer interactive prompts, confirm dialogs, or send
+    signals like Ctrl+C (as '\u0003') to a running process.
+    Args:
+        process: Process name (e.g. 'backend', 'frontend', 'celery-worker').
+        keys: The text to send (e.g. 'yes\\n', 'Y\\n'). Include '\\n' for Enter.
+    """
+    result = _query_phrocs({"cmd": "send-keys", "process": process, "keys": keys})
+    if result is None:
+        return {"process": process, **_NOT_RUNNING}
+    if not result.get("ok"):
+        return {"process": process, "error": result.get("error", "unknown error")}
+    return {"process": process, "ok": True}
+
+
+@mcp.tool()
+def toggle_process(process: str) -> dict[str, Any]:
+    """Toggle a process: stop it if running, start it if stopped.
+    Call this twice on a running process to restart it.
+    Args:
+        process: Process name to toggle.
+    """
+    result = _query_phrocs({"cmd": "toggle-proc", "process": process})
+    if result is None:
+        return {"process": process, **_NOT_RUNNING}
+    if not result.get("ok"):
+        return {"process": process, "error": result.get("error", "unknown error")}
+    return {"process": process, "ok": True}
+
+
 if __name__ == "__main__":
     mcp.run()

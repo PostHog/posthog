@@ -20,9 +20,11 @@ class TestNotificationsAPI(BaseTest):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
-        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")
-        mock_flag = self.feature_flag_patcher.start()
-        mock_flag.side_effect = lambda flag, *a, **kw: flag == "real-time-notifications"
+        self.feature_flag_patcher = patch(
+            "products.notifications.backend.presentation.views.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self.feature_flag_patcher.start()
 
         self.event = NotificationEvent.objects.create(
             organization=self.organization,
@@ -131,3 +133,44 @@ class TestNotificationsAPI(BaseTest):
         )
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
         assert len(resp.json()["results"]) == 1
+
+
+class TestNotificationsAPIFeatureFlagDisabled(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(self.organization, "apitest@test.com", "password")
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+        self.feature_flag_patcher = patch(
+            "products.notifications.backend.presentation.views.posthoganalytics.feature_enabled",
+            return_value=False,
+        )
+        self.feature_flag_patcher.start()
+
+        NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="comment_mention",
+            title="Test notification",
+            body="Test body",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+
+    def tearDown(self):
+        self.feature_flag_patcher.stop()
+        super().tearDown()
+
+    def test_list_returns_empty_when_ff_disabled(self):
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
+        assert resp.status_code == 200
+        assert resp.json()["results"] == []
+
+    def test_unread_count_returns_zero_when_ff_disabled(self):
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 0

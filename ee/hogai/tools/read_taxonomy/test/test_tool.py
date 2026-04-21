@@ -1,8 +1,11 @@
+import pytest
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.read_taxonomy.core import (
     DYNAMIC_EVENT_PROPERTIES_HINT,
     DYNAMIC_PERSON_PROPERTIES_HINT,
@@ -65,6 +68,37 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         self.assertIn("project", entity_properties_schema["enum"])
         self.assertIn("person", entity_properties_schema["enum"])
         self.assertIn("session", entity_properties_schema["enum"])
+
+    @parameterized.expand(
+        [
+            ("wrong_field_name", {"kind": "event_properties", "event": "$pageview"}, "event_name"),
+            ("wrong_discriminator_value", {"kind": "ReadEvents"}, "ReadEvents"),
+            (
+                "missing_required_field",
+                {"kind": "event_property_values", "event_name": "$pageview"},
+                "property_name",
+            ),
+        ]
+    )
+    @patch("ee.hogai.tools.read_taxonomy.tool.AssistantContextManager")
+    async def test_run_impl_wraps_validation_error_in_retryable_error(
+        self, _name, query, expected_match, mock_context_manager_class
+    ):
+        mock_context_manager = MagicMock()
+        mock_context_manager.get_group_names = AsyncMock(return_value=[])
+        mock_context_manager_class.return_value = mock_context_manager
+
+        config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
+        tool = await ReadTaxonomyTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+            config=config,
+            node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
+        )
+
+        with pytest.raises(MaxToolRetryableError, match=expected_match):
+            tool._run_impl(query=query)
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     @patch("ee.hogai.tools.read_taxonomy.core.format_events_yaml")

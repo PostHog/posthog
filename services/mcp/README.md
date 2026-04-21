@@ -227,7 +227,7 @@ Created experiment 'Pricing page test':
 
 **What happens:**
 
-1. The `list-errors` tool fetches error groups sorted by occurrence count
+1. The `query-error-tracking-issues` tool fetches error groups sorted by occurrence count
 2. Returns error details including affected user counts
 
 **Expected output:**
@@ -301,6 +301,22 @@ Available features:
 > **Note:** Hyphens and underscores are treated as equivalent in feature names (e.g., `error-tracking` and `error_tracking` both work).
 
 To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions-all.json`.
+
+### Tool filtering
+
+For finer-grained control you can allowlist specific tools by name using the `tools` query parameter. Only the exact tool names listed will be exposed, regardless of their feature category.
+
+```text
+https://mcp.posthog.com/mcp?tools=dashboard-get,feature-flag-get-all,execute-sql
+```
+
+When `features` and `tools` are both provided they are combined as a **union** — a tool is included if it matches a feature category **or** is in the tools list. This lets you select a feature group and add a handful of individual tools on top:
+
+```text
+https://mcp.posthog.com/mcp?features=flags&tools=dashboard-get
+```
+
+The example above exposes all flag tools plus `dashboard-get`.
 
 ### Data processing
 

@@ -102,4 +102,6 @@ export interface MathSelectorProps {
     /** Only allow these math types in the selector */
     allowedMathTypes?: readonly string[]
     query?: Record<string, any>
+    fullWidth?: boolean
+    truncateText?: { maxWidthClass: string }
 }

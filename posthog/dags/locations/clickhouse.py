@@ -8,6 +8,7 @@ from posthog.dags import (
     create_materialized_column,
     data_deletion_requests,
     deletes,
+    drop_materialized_column,
     export_query_logs_to_s3,
     fix_missing_person_overrides,
     fix_person_id_overrides,
@@ -32,6 +33,7 @@ defs = dagster.Definitions(
     jobs=[
         add_index_to_materialized_column.add_index_to_materialized_column,
         create_materialized_column.create_materialized_column,
+        drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,
         export_query_logs_to_s3.export_query_logs_to_s3,
         backfill_materialized_column.backfill_materialized_column,
@@ -44,6 +46,7 @@ defs = dagster.Definitions(
         backups.sharded_backup,
         backups.non_sharded_backup,
         data_deletion_requests.data_deletion_request_event_removal,
+        data_deletion_requests.data_deletion_request_property_removal,
         part_breaker.break_oversized_parts,
     ],
     schedules=[
@@ -59,6 +62,8 @@ defs = dagster.Definitions(
     ],
     sensors=[
         deletes.run_deletes_after_squash,
+        data_deletion_requests.data_deletion_request_pickup_sensor,
+        data_deletion_requests.verify_queued_deletion_requests,
     ],
     resources=resources,
 )

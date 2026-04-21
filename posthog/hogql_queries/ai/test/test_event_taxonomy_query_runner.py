@@ -256,6 +256,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
         self.assertEqual(len(response.results), 500)
+        self.assertTrue(response.hasMore)
 
     def test_property_taxonomy_returns_unique_values_for_specified_property(self):
         _create_person(
@@ -380,12 +381,12 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team, query=EventTaxonomyQuery(event="event1", properties=["$host", "prop"])
         ).calculate()
         self.assertEqual(len(response.results), 2)
-        self.assertEqual(response.results[0].property, "prop")
-        self.assertEqual(response.results[0].sample_values, ["10"])
-        self.assertEqual(response.results[0].sample_count, 1)
-        self.assertEqual(response.results[1].property, "$host")
-        self.assertEqual(response.results[1].sample_values, ["posthog.com", "us.posthog.com"])
-        self.assertEqual(response.results[1].sample_count, 2)
+        self.assertEqual(response.results[0].property, "$host")
+        self.assertEqual(response.results[0].sample_values, ["posthog.com", "us.posthog.com"])
+        self.assertEqual(response.results[0].sample_count, 2)
+        self.assertEqual(response.results[1].property, "prop")
+        self.assertEqual(response.results[1].sample_values, ["10"])
+        self.assertEqual(response.results[1].sample_count, 1)
 
     def test_property_taxonomy_includes_events_with_partial_property_matches(self):
         _create_person(
@@ -410,11 +411,11 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team, query=EventTaxonomyQuery(event="event1", properties=["$host", "prop"])
         ).calculate()
         self.assertEqual(len(response.results), 2)
-        self.assertEqual(response.results[0].property, "prop")
-        self.assertEqual(response.results[0].sample_values, ["10"])
+        self.assertEqual(response.results[0].property, "$host")
+        self.assertEqual(response.results[0].sample_values, ["us.posthog.com"])
         self.assertEqual(response.results[0].sample_count, 1)
-        self.assertEqual(response.results[1].property, "$host")
-        self.assertEqual(response.results[1].sample_values, ["us.posthog.com"])
+        self.assertEqual(response.results[1].property, "prop")
+        self.assertEqual(response.results[1].sample_values, ["10"])
         self.assertEqual(response.results[1].sample_count, 1)
 
     def test_query_count(self):
@@ -630,3 +631,38 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).calculate()
 
         self.assertEqual(len(response.results), 0)
+
+    def test_pagination_with_limit_and_offset(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"prop_a": "1", "prop_b": "2", "prop_c": "3"},
+            team=self.team,
+        )
+
+        # First page
+        response = EventTaxonomyQueryRunner(
+            team=self.team,
+            query=EventTaxonomyQuery(event="event1", properties=["prop_a", "prop_b", "prop_c"], limit=2, offset=0),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 2)
+        self.assertTrue(response.hasMore)
+        self.assertEqual(response.limit, 2)
+        self.assertEqual(response.offset, 0)
+
+        # Second page
+        response = EventTaxonomyQueryRunner(
+            team=self.team,
+            query=EventTaxonomyQuery(event="event1", properties=["prop_a", "prop_b", "prop_c"], limit=2, offset=2),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertFalse(response.hasMore)
+        self.assertEqual(response.limit, 2)
+        self.assertEqual(response.offset, 2)

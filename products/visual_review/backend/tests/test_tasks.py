@@ -4,10 +4,11 @@ import pytest
 from unittest.mock import patch
 
 from products.visual_review.backend import logic
+from products.visual_review.backend.diffing import process_diffs
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
-from products.visual_review.backend.tasks.tasks import _process_diffs, process_run_diffs
+from products.visual_review.backend.tasks.tasks import process_run_diffs
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -50,7 +51,7 @@ class TestProcessRunDiffs:
             team_id=repo.team_id,
         )
 
-        with patch("products.visual_review.backend.tasks.tasks._process_diffs") as mock:
+        with patch("products.visual_review.backend.diffing.process_diffs") as mock:
             mock.side_effect = Exception("Something went wrong")
 
             with pytest.raises(Exception):
@@ -61,7 +62,7 @@ class TestProcessRunDiffs:
         assert run.status == RunStatus.FAILED
         assert "Something went wrong" in (run.error_message or "")
 
-    def test_process_diffs_skips_unchanged(self, repo):
+    def testprocess_diffs_skips_unchanged(self, repo):
         # Create artifact that exists for both baseline and current
         logic.get_or_create_artifact(
             repo_id=repo.id,
@@ -89,14 +90,14 @@ class TestProcessRunDiffs:
             logic.complete_run(create_result.run_id)
 
         # Process - should skip unchanged snapshot
-        _process_diffs(create_result.run_id)
+        process_diffs(create_result.run_id)
 
         # Snapshot should remain unchanged
         snapshots = api.get_run_snapshots(create_result.run_id)
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.UNCHANGED
 
-    def test_process_diffs_skips_new(self, repo):
+    def testprocess_diffs_skips_new(self, repo):
         create_result = api.create_run(
             CreateRunInput(
                 repo_id=repo.id,
@@ -110,13 +111,13 @@ class TestProcessRunDiffs:
         )
 
         # Process - should skip new snapshot (no baseline to diff against)
-        _process_diffs(create_result.run_id)
+        process_diffs(create_result.run_id)
 
         snapshots = api.get_run_snapshots(create_result.run_id)
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.NEW
 
-    def test_process_diffs_attempts_diff_for_changed(self, repo):
+    def testprocess_diffs_attempts_diff_for_changed(self, repo):
         # Create baseline artifact
         logic.get_or_create_artifact(
             repo_id=repo.id,
@@ -153,8 +154,8 @@ class TestProcessRunDiffs:
             logic.complete_run(create_result.run_id)
 
         # Process - should attempt to diff but fail because artifacts aren't in storage
-        with patch("products.visual_review.backend.tasks.tasks.logger") as mock_logger:
-            _process_diffs(create_result.run_id)
+        with patch("products.visual_review.backend.diffing.logger") as mock_logger:
+            process_diffs(create_result.run_id)
 
             # Check that warning was logged about missing artifacts
             mock_logger.warning.assert_called()

@@ -235,7 +235,7 @@ class SlackThreadHandler:
         if pr_url:
             header = "*Pull Request Created* :rocket:"
         else:
-            header = "*Task Completed* :white_check_mark:"
+            header = "*Task Completed* :hedgehog:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -282,7 +282,7 @@ class SlackThreadHandler:
 
     def post_cancelled(self, task_url: str) -> None:
         """Post cancelled message with link to PostHog for details."""
-        header = "*Sandbox stopped* :white_check_mark:"
+        header = "*Sandbox stopped* :hedgehog:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},

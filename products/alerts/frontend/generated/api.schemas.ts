@@ -552,6 +552,18 @@ export const CalculationIntervalEnumApi = {
     Monthly: 'monthly',
 } as const
 
+export interface AlertScheduleRestrictionWindowApi {
+    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+    start: string
+    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+    end: string
+}
+
+export interface AlertScheduleRestrictionApi {
+    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+    blocked_windows: AlertScheduleRestrictionWindowApi[]
+}
+
 export interface AlertApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -576,8 +588,13 @@ export interface AlertApi {
     readonly last_checked_at: string | null
     /** @nullable */
     readonly next_check_at: string | null
-    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
+    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
     readonly checks: readonly AlertCheckApi[]
+    /**
+     * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+     * @nullable
+     */
+    readonly checks_total: number | null
     /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
     detector_config?: DetectorConfigApi | null
@@ -594,10 +611,12 @@ export interface AlertApi {
      */
     snoozed_until?: string | null
     /**
-     * Skip alert evaluation on weekends (Saturday and Sunday).
+     * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
      * @nullable
      */
     skip_weekend?: boolean | null
+    /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
      * The last calculated value from the most recent alert check.
      * @nullable
@@ -638,8 +657,13 @@ export interface PatchedAlertApi {
     readonly last_checked_at?: string | null
     /** @nullable */
     readonly next_check_at?: string | null
-    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
+    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
     readonly checks?: readonly AlertCheckApi[]
+    /**
+     * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+     * @nullable
+     */
+    readonly checks_total?: number | null
     /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
     detector_config?: DetectorConfigApi | null
@@ -656,10 +680,12 @@ export interface PatchedAlertApi {
      */
     snoozed_until?: string | null
     /**
-     * Skip alert evaluation on weekends (Saturday and Sunday).
+     * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
      * @nullable
      */
     skip_weekend?: boolean | null
+    /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
      * The last calculated value from the most recent alert check.
      * @nullable
@@ -756,4 +782,8 @@ export type AlertsRetrieveParams = {
      * Maximum number of check results to return (default 5, max 500). Applied after date filtering.
      */
     checks_limit?: number
+    /**
+     * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
+     */
+    checks_offset?: number
 }

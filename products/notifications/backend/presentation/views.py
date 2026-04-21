@@ -2,6 +2,7 @@ from typing import cast
 
 from django.db.models import Exists, OuterRef, Subquery
 
+import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
@@ -11,7 +12,6 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
-from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
@@ -29,18 +29,30 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     queryset = NotificationEvent.objects.all()
     serializer_class = NotificationEventSerializer
     scope_object = "INTERNAL"
-    posthog_feature_flag = "real-time-notifications"
-    permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = NotificationPagination
 
     def _get_user(self) -> User:
         return cast(User, self.request.user)
 
+    def _is_feature_enabled(self) -> bool:
+        user = self._get_user()
+        if not user.distinct_id:
+            return False
+        org_id = str(self.team.organization_id)
+        return bool(
+            posthoganalytics.feature_enabled(
+                "real-time-notifications",
+                user.distinct_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+
     def _get_base_queryset(self):
         user = self._get_user()
         team = self.team
-        # Notifications are org-scoped, not team-scoped — a user sees all notifications
-        # across projects within their organization.
         return (
             NotificationEvent.objects.filter(
                 organization_id=team.organization_id,
@@ -90,6 +102,9 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return queryset
 
     def list(self, request: Request, *args, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"results": [], "next": None, "previous": None, "count": 0})
+
         queryset = self._get_base_queryset()
         queryset = self._filter_by_access_control(queryset)
         page = self.paginate_queryset(queryset)
@@ -101,6 +116,9 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     @action(methods=["GET"], detail=False)
     def unread_count(self, request: Request, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"count": 0})
+
         user = self._get_user()
         org_id = self.team.organization_id
         count = get_unread_count(user.id, org_id)
@@ -114,6 +132,9 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @extend_schema(request=None)
     @action(methods=["POST"], detail=False)
     def mark_all_read(self, request: Request, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"status": "ok"})
+
         user = self._get_user()
         queryset = self._get_base_queryset().filter(read=False)
         event_ids = list(queryset.values_list("id", flat=True))
@@ -126,6 +147,9 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @extend_schema(request=None)
     @action(methods=["POST"], detail=True, url_path="mark_read")
     def mark_read(self, request: Request, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"status": "ok"})
+
         user = self._get_user()
         event = self.get_object()
         # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
@@ -136,6 +160,9 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @extend_schema(request=None)
     @action(methods=["POST"], detail=True, url_path="mark_unread")
     def mark_unread(self, request: Request, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"status": "ok"})
+
         user = self._get_user()
         event = self.get_object()
         # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()

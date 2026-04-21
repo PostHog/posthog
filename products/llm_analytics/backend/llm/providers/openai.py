@@ -60,6 +60,18 @@ class OpenAIConfig:
         "o3-mini",
     ]
 
+    # Models available to trial users (PostHog pays). Excludes expensive
+    # "pro" tiers and includes one flagship model for quality evaluation.
+    TRIAL_MODELS: list[str] = [
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "o3-mini",
+        "o4-mini",
+    ]
+
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
         "gpt-5.4",
         "gpt-5.2-pro",
@@ -281,7 +293,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             if supports_reasoning:
                 selected_effort: ReasoningEffort | None = None
                 if request.reasoning_level in ("minimal", "low", "medium", "high"):
-                    selected_effort = request.reasoning_level  # type: ignore[assignment]
+                    selected_effort = request.reasoning_level  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
                 elif reasoning_on:
                     selected_effort = OpenAIConfig.REASONING_EFFORT
                 stream = client.chat.completions.create(
