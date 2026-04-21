@@ -2545,7 +2545,7 @@ class FeatureFlagViewSet(
         )
 
         # Result from Rust service is always a dictionary. Parse it to get the flags data.
-        flags_data = result.get("flags", {})
+        flags_data = result.get("feature_flags", {})
         matches = {
             flag_key: (
                 flag_data.get("variant") if flag_data.get("variant") is not None else flag_data.get("enabled", False)
@@ -3188,10 +3188,10 @@ class FeatureFlagViewSet(
             return None
 
         # Increment request count for analytics (exclude survey and product tour targeting flags)
-        if cached_response.get("flags") and not all(
+        if cached_response.get("feature_flags") and not all(
             flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX)
             or flag.get("key", "").startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
-            for flag in cached_response["flags"]
+            for flag in cached_response["feature_flags"]
         ):
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
@@ -3288,8 +3288,8 @@ class FeatureFlagViewSet(
             groups=groups,
         )
 
-        # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.
-        flags_data = result.get("flags", {})
+        # Result from Rust service is always a dictionary with a "feature_flags" key. Parse it to get the flags data.
+        flags_data = result.get("feature_flags", {})
         flags_with_evaluation_reasons = {}
 
         for flag_key, flag_data in flags_data.items():
@@ -3584,7 +3584,7 @@ class FeatureFlagViewSet(
             )
 
             # Extract the flag result from the Rust response
-            flags = rust_response.get("flags", {})
+            flags = rust_response.get("feature_flags", {})
             flag_result = flags.get(feature_flag.key)
 
             # Initialize defaults
