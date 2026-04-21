@@ -640,6 +640,14 @@ snapshots:
         hash: v1.k794b7964.d7bfff95fbd893d2e15503003b904c5ca48985ec758c4526cb2172241fdc327d.x0Umc9eEH2rF4lUO4irmDcXCMk0SdKk4JrimrT3WbZY
     components-playerinspector--default--light:
         hash: v1.k794b7964.d60e6f4d889711702ac3eb71ba983c60a193431f8a198e7bbd87c8f7a8d2fcea.y1Nf0G2vsa6hL04EcSVGwfbcH7POpDqQik_VJi7KF0g
+    components-playerinspector--with-logs-filter--dark:
+        hash: v1.k794b7964.3851518dc979320cefe65f110005d44a492eec635285f8b2f9162c1e5dbed62b.MZINYfaQXNWzFZMzsPLtnLXpNYVcBMEC5PJnxMR-DlY
+    components-playerinspector--with-logs-filter--light:
+        hash: v1.k794b7964.3f965eb579aca558761b47116e774eac610e48d3bb873449cc4983f605a8ca45.DLCkhgQmk3UBvQyFRVkTzptmeMWseH8Xne8252V6oJI
+    components-playerinspector--with-logs-filter-upsell--dark:
+        hash: v1.k794b7964.b60437cd8f4162932c1ab8b8b1651ddc2286ccdb27a07d09ee36d2c21524d046.jDIFGff9HT5T2P3bCEx9EO9M8uuInMfJd5Nrvbh1Vrg
+    components-playerinspector--with-logs-filter-upsell--light:
+        hash: v1.k794b7964.403c5e2e028907216d406566cdcc3633a7400ce4b9ba53821f9648af8fa7e086.EwUI1BLkaVENli5YwNRDqdGcoSYGjQgqS-jwplNVKWE
     components-playerinspector-itemcomment--annotation-comment--dark:
         hash: v1.k794b7964.d2eaad42c4d74ab148ba3075a6260d7aeda90562fbfdb49738afcc37fddacd73.DqxeQtB6IVGsvji5psBPT4qyAC-3MAkB4svhAvYak7w
     components-playerinspector-itemcomment--annotation-comment--light:
@@ -740,6 +748,54 @@ snapshots:
         hash: v1.k794b7964.caac6b781c12ff776f8ed1e0f38c35d9e04181db0a942e04d1f05f3f7af18b84.apgXJlsHzSnbiv5Zo_DD8clNnAGW0jUc2MGn9gwgRpo
     components-playerinspector-itemevent--web-vitals-event--light:
         hash: v1.k794b7964.0e1f5310290f79c2db3a11d95228760f843b93487fd7f11c090291d04c107cd1.gF3hnnnyVYbYLNa99ORF3gThwf_i9YyuEX4ko8Nfgcs
+    components-playerinspector-itemlog--all-severity-levels--dark:
+        hash: v1.k794b7964.13927bfaa2e792eab4aab3e069badffb56aea4abc402719c550e3e0247078ad0.3Kyt6sD-qvbGcq4P8Qu8iiUloT1AvN3rQISBF3FT2tI
+    components-playerinspector-itemlog--all-severity-levels--light:
+        hash: v1.k794b7964.a947d16d12f3e73d23cf042df2a7bede33d7b7b2f95ade6e6d61e24032ce066e.BNPBsfyc_g-5M0xBEpfbnt8bSDGB4eoS9w8EE_KyKas
+    components-playerinspector-itemlog--debug-log--dark:
+        hash: v1.k794b7964.f7075d4124a635d0c86cee506c51ac521b7223670be02751685b33375a421ed3.YJ1gN65_1dnmK41Ii62A0xsp6csSxdHCoJVuyk50lCE
+    components-playerinspector-itemlog--debug-log--light:
+        hash: v1.k794b7964.66719eaf90f2738607f8d9195729ba7eb4d246c626a4cf8e55a46061fa3d4c3b.B0kxiTq9Zy9lG2H0miaMeI5mFzuIVgw89-fEkKR4kvE
+    components-playerinspector-itemlog--error-log--dark:
+        hash: v1.k794b7964.0b0244109229e2d48c6e5af2bb7b47e75349c08091d1325b0aaeefc5227e7353.d-_QUKadgdAW4lCEK753q2xsJKuoh7sU9y1T6PtBKGY
+    components-playerinspector-itemlog--error-log--light:
+        hash: v1.k794b7964.2516807434b49ca35d6aba6a72d6a656660cf7ec785c8d475eb6b79b7733d415.GlnqePSCO-wyMrj1o8mxFij1SfqaUICy_XLhXj5SH2E
+    components-playerinspector-itemlog--error-log-with-badge--dark:
+        hash: v1.k794b7964.b0ffbee834f5f39c98598bec0e5cd76d18b85da8396e97e6e1467c2af5aa2f6d.LFM8pdqwJe0y-awwljUFT3VRBBb9tKR3CrVTqRk26lA
+    components-playerinspector-itemlog--error-log-with-badge--light:
+        hash: v1.k794b7964.8c10ac0434a7ab0f8488691e2f8440f60d41bae917dc43f41da36acb8de1ef42.P-u0r9Fk8ixRYfI7M6TWCzhuBpxsUvzz5CjWfhxJwTI
+    components-playerinspector-itemlog--fatal-log--dark:
+        hash: v1.k794b7964.759ce188242125acaa06145e5c9bd2a1ba6f892e2f1d284e21c48b5a28c2d853.SF1fHlj09vD3-0Cjdbrrzgys-y5ypS4bBVYFfq4TQm8
+    components-playerinspector-itemlog--fatal-log--light:
+        hash: v1.k794b7964.49844221db242acfc494aa1a922452c5eb1e55d9b4f31b1dc0352d0110f91cb5.ecbMSIjDvQ1blZ5pmzeZMSnA9bHKvrAwXJ6Cc80bD3U
+    components-playerinspector-itemlog--info-log--dark:
+        hash: v1.k794b7964.54c26e4c2ac0d505bdab2259f62592060fd000a8da87fb7392ddfc22da46f2a8.LwNlccJcpVYIlfQ_8-sDlDmPNvb5_XPL7dGE6obCusU
+    components-playerinspector-itemlog--info-log--light:
+        hash: v1.k794b7964.ece10a165c1501b2a8957df85ce63fb441d7b1047d369b114e1baac7332ba589.AwwwkUBnJvXGqB0vS9zcEIapY1Ap2mYzkrziWGCraoE
+    components-playerinspector-itemlog--log-with-grouped-items--dark:
+        hash: v1.k794b7964.efaf99349975a527fab8a041fd080b24fa06ae00ca718d5950e63c52e1dcb7ed.X-xQYwsuYma9yYaPBKY7-fhkPXep9IvAWSVpePKWokY
+    components-playerinspector-itemlog--log-with-grouped-items--light:
+        hash: v1.k794b7964.efe815d5e388a09a15272cff9b3859260cd762e31e36c522a0490a50a953bbed.9ITrEG8q1EZ4rhCzEtJNmVXIhS7nF4FpHkalOaz4JE8
+    components-playerinspector-itemlog--log-with-long-body--dark:
+        hash: v1.k794b7964.84ee27423ef7a80998960b884e2ef3499f1047a291e88430219f367f2a90de44.MakBITw7NSXP_d5CLrj37leB4m8XEjkOgNUGPerTnSE
+    components-playerinspector-itemlog--log-with-long-body--light:
+        hash: v1.k794b7964.68faeacc00553aab748a0468dd8483f602eb42e61b059c566705682794ebefdb.4u_AlyeU-ZMb5nvZEojtRswMPOMeHL8Ma6flVup7Lns
+    components-playerinspector-itemlog--log-with-no-attributes--dark:
+        hash: v1.k794b7964.48b33f242196a95b0c30ef250131f971f45af42fe561b9d7914cbe0b7b271627.h6yU2SV__QciOIquLWppgp3zL3T1v05cPSTgBX7JHkI
+    components-playerinspector-itemlog--log-with-no-attributes--light:
+        hash: v1.k794b7964.db167f8c90541d59e1373dfe5c21a1ce26f29ef874c54ea4b9be8edbac6ba178.BofWgjnpzNjzINn2jpCmujCQb_5wBNGidK_t8p_NI8s
+    components-playerinspector-itemlog--log-with-session-id--dark:
+        hash: v1.k794b7964.b1f089de3a63a30a4975a0d88b6df7f6093a15e76fc2046f2b79a28e23afd1dc.tSvFMdHA7Pk1JRw_kbHGAW15VQJeloOpzX-QsHt2NHE
+    components-playerinspector-itemlog--log-with-session-id--light:
+        hash: v1.k794b7964.8a7131cd0bd16bc03a21ec6b6cc63d167f0ae0986e9429cf19e30d326657e6c1.u96-XoWsu3cpUH-TaYp8dzJLaKK00KSgI8OX4vlTfU4
+    components-playerinspector-itemlog--trace-log--dark:
+        hash: v1.k794b7964.d3da5f571c06f74e3e0fd0566fde54da11088689431ec9880e84541f5cb690fb.WNxmytj7z-AsgXXK_2DFNcY_W6WRBG6N82mD0TM4KhU
+    components-playerinspector-itemlog--trace-log--light:
+        hash: v1.k794b7964.9c38e7a174ea5e7785df687ce4bff371ac8a9ff508a3c05e32c5c5ffab25702d.n5op2uBXn4MrWxqEcsc0swyoKlbHIAQejfNcLK956uk
+    components-playerinspector-itemlog--warn-log--dark:
+        hash: v1.k794b7964.8295eb428a6f5a76dd3f14b8ba070c725e209e733e04c0e7bb6ee9eba1484b30.laicvioIU6-8rZNBpkA1g6RQw7E1ymrwO09d0souBYY
+    components-playerinspector-itemlog--warn-log--light:
+        hash: v1.k794b7964.49e3dfc065c81ffd8365f62c2a6d754de0ea9f08fab1defd3ed89d13df7aa11f.csgF5s93MzDUyUUUs-ivWLUtq4ZrePHHYZeBxvVDJbQ
     components-playerinspector-itemsessionchange--session-next--dark:
         hash: v1.k794b7964.4215fde6687282090db3cda4f957bee980f1d69b68fe1c70fc803cdc43579aed.hvzNF-73QKXVv5X_0-NhgogcE2KHqTGKiYGo8MD7xbI
     components-playerinspector-itemsessionchange--session-next--light:
