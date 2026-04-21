@@ -565,6 +565,12 @@ export interface AssistantFunnelNodeShared {
      */
     math?: AssistantFunnelsMath
     properties?: AssistantPropertyFilter[]
+    /**
+     * If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen.
+     * Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).
+     * @default false
+     */
+    optionalInFunnel?: boolean
 }
 
 export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'>, AssistantFunnelNodeShared {
@@ -728,9 +734,13 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
 export interface AssistantRetentionEventsNode {
     type: 'events'
     /**
-     * Event name from the plan.
+     * The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.
      */
-    name: string
+    id: string
+    /**
+     * Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.
+     */
+    name?: string
     /**
      * Custom name for the event if it is needed to be renamed.
      */
@@ -744,13 +754,13 @@ export interface AssistantRetentionEventsNode {
 export interface AssistantRetentionActionsNode {
     type: 'actions'
     /**
-     * Action ID from the plan.
+     * The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.
      */
     id: number
     /**
-     * Action name from the plan.
+     * Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching.
      */
-    name: string
+    name?: string
     /**
      * Property filters for the action.
      */
@@ -1144,6 +1154,36 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
      * Properties specific to the lifecycle insight
      */
     lifecycleFilter?: AssistantLifecycleFilter
+}
+
+/**
+ * Drills into an insight to list the persons behind a specific data point. Returned rows are
+ * trimmed to `distinct_id`, `name`, `email`, and an optional per-actor `count`.
+ *
+ * Currently supports trends as the source; other insight kinds will be added incrementally.
+ * Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific
+ * cell in the source insight. Omit them to get all actors for the query.
+ */
+export interface AssistantInsightActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source insight query whose data point we are drilling into. */
+    source: AssistantTrendsQuery
+
+    /** Bucket date for the data point. Accepts ISO date or integer offset. */
+    day?: string | integer
+
+    /** Series index (0-based) when the source has multiple series. */
+    series?: integer
+
+    /**
+     * Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order.
+     * Array length must equal the number of breakdown dimensions.
+     */
+    breakdown?: string[]
+
+    /** Whether to pull from the previous period when `compare` is enabled in the source. */
+    compare?: 'current' | 'previous'
 }
 
 /**

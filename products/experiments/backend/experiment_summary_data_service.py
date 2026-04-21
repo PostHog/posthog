@@ -196,7 +196,7 @@ class ExperimentSummaryDataService:
                         workload=Workload.ONLINE,
                     )
                     result = query_runner.run(
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
                         analytics_props={"source": EventSource.POSTHOG_AI},
                     )
                 refresh_time = getattr(result, "last_refresh", None)
@@ -247,7 +247,7 @@ class ExperimentSummaryDataService:
                             team=experiment.team,
                         )
                         exposure_result = exposure_runner.run(
-                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
                             analytics_props={"source": EventSource.POSTHOG_AI},
                         )
 
@@ -293,10 +293,10 @@ class ExperimentSummaryDataService:
         primary_count = len(primary_metric_tasks)
         secondary_count = len(secondary_metric_tasks)
 
-        primary_query_results: list[MetricQueryResult | BaseException] = all_results[:primary_count]  # type: ignore[assignment]
+        primary_query_results: list[MetricQueryResult | BaseException] = all_results[:primary_count]  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         secondary_query_results: list[MetricQueryResult | BaseException] = all_results[
             primary_count : primary_count + secondary_count
-        ]  # type: ignore[assignment]
+        ]  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         exposure_query_result = all_results[-1]
 
         # Aggregate results

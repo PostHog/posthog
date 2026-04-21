@@ -543,11 +543,6 @@ export interface ProjectBackwardCompatApi {
     readonly uuid: string
     readonly api_token: string
     app_urls?: (string | null)[]
-    /**
-     * @maxLength 500
-     * @nullable
-     */
-    slack_incoming_webhook?: string | null
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
     readonly ingested_event: boolean
@@ -690,11 +685,6 @@ export interface PatchedProjectBackwardCompatApi {
     readonly uuid?: string
     readonly api_token?: string
     app_urls?: (string | null)[]
-    /**
-     * @maxLength 500
-     * @nullable
-     */
-    slack_incoming_webhook?: string | null
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
     readonly ingested_event?: boolean
@@ -1071,9 +1061,9 @@ export interface PatchedProjectSecretAPIKeyApi {
  * `Boolean` - Boolean
  * `Duration` - Duration
  */
-export type PropertyType549EnumApi = (typeof PropertyType549EnumApi)[keyof typeof PropertyType549EnumApi]
+export type PropertyType02dEnumApi = (typeof PropertyType02dEnumApi)[keyof typeof PropertyType02dEnumApi]
 
-export const PropertyType549EnumApi = {
+export const PropertyType02dEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -1095,7 +1085,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyType02dEnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -1127,7 +1117,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyType02dEnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -1199,9 +1189,10 @@ export const TargetTypeEnumApi = {
  * `monthly` - Monthly
  * `yearly` - Yearly
  */
-export type FrequencyEnumApi = (typeof FrequencyEnumApi)[keyof typeof FrequencyEnumApi]
+export type SubscriptionFrequencyEnumApi =
+    (typeof SubscriptionFrequencyEnumApi)[keyof typeof SubscriptionFrequencyEnumApi]
 
-export const FrequencyEnumApi = {
+export const SubscriptionFrequencyEnumApi = {
     Daily: 'daily',
     Weekly: 'weekly',
     Monthly: 'monthly',
@@ -1264,7 +1255,7 @@ export interface SubscriptionApi {
 * `weekly` - Weekly
 * `monthly` - Monthly
 * `yearly` - Yearly */
-    frequency: FrequencyEnumApi
+    frequency: SubscriptionFrequencyEnumApi
     /**
      * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
      * @minimum -2147483648
@@ -1370,7 +1361,7 @@ export interface PatchedSubscriptionApi {
 * `weekly` - Weekly
 * `monthly` - Monthly
 * `yearly` - Yearly */
-    frequency?: FrequencyEnumApi
+    frequency?: SubscriptionFrequencyEnumApi
     /**
      * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
      * @minimum -2147483648

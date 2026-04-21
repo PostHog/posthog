@@ -36,9 +36,9 @@
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type Type3f6EnumApi = (typeof Type3f6EnumApi)[keyof typeof Type3f6EnumApi]
+export type TypeE27EnumApi = (typeof TypeE27EnumApi)[keyof typeof TypeE27EnumApi]
 
-export const Type3f6EnumApi = {
+export const TypeE27EnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -76,10 +76,9 @@ export const Type3f6EnumApi = {
  * `regex` - regex
  * `not_regex` - not_regex
  */
-export type StringPropertyFilterOperatorEnumApi =
-    (typeof StringPropertyFilterOperatorEnumApi)[keyof typeof StringPropertyFilterOperatorEnumApi]
+export type DeviceTypesMatchTypeEnumApi = (typeof DeviceTypesMatchTypeEnumApi)[keyof typeof DeviceTypesMatchTypeEnumApi]
 
-export const StringPropertyFilterOperatorEnumApi = {
+export const DeviceTypesMatchTypeEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
@@ -123,7 +122,7 @@ export interface StringPropertyFilterApi {
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type3f6EnumApi
+    type?: TypeE27EnumApi
     /** String value to match against. */
     value: string
     /** String comparison operator.
@@ -134,7 +133,7 @@ export interface StringPropertyFilterApi {
 * `not_icontains` - not_icontains
 * `regex` - regex
 * `not_regex` - not_regex */
-    operator?: StringPropertyFilterOperatorEnumApi
+    operator?: DeviceTypesMatchTypeEnumApi
 }
 
 /**
@@ -192,7 +191,7 @@ export interface NumericPropertyFilterApi {
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type3f6EnumApi
+    type?: TypeE27EnumApi
     /** Numeric value to compare against. */
     value: number
     /** Numeric comparison operator.
@@ -257,7 +256,7 @@ export interface ArrayPropertyFilterApi {
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type3f6EnumApi
+    type?: TypeE27EnumApi
     /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
     value: string[]
     /** Array comparison operator.
@@ -274,10 +273,9 @@ export interface ArrayPropertyFilterApi {
  * `is_date_before` - is_date_before
  * `is_date_after` - is_date_after
  */
-export type DatePropertyFilterOperatorEnumApi =
-    (typeof DatePropertyFilterOperatorEnumApi)[keyof typeof DatePropertyFilterOperatorEnumApi]
+export type Operator382EnumApi = (typeof Operator382EnumApi)[keyof typeof Operator382EnumApi]
 
-export const DatePropertyFilterOperatorEnumApi = {
+export const Operator382EnumApi = {
     IsDateExact: 'is_date_exact',
     IsDateBefore: 'is_date_before',
     IsDateAfter: 'is_date_after',
@@ -318,7 +316,7 @@ export interface DatePropertyFilterApi {
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type3f6EnumApi
+    type?: TypeE27EnumApi
     /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
     value: string
     /** Date comparison operator.
@@ -326,16 +324,16 @@ export interface DatePropertyFilterApi {
 * `is_date_exact` - is_date_exact
 * `is_date_before` - is_date_before
 * `is_date_after` - is_date_after */
-    operator?: DatePropertyFilterOperatorEnumApi
+    operator?: Operator382EnumApi
 }
 
 /**
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type Operator3e6EnumApi = (typeof Operator3e6EnumApi)[keyof typeof Operator3e6EnumApi]
+export type OperatorA04EnumApi = (typeof OperatorA04EnumApi)[keyof typeof OperatorA04EnumApi]
 
-export const Operator3e6EnumApi = {
+export const OperatorA04EnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -375,12 +373,12 @@ export interface ExistencePropertyFilterApi {
 * `revenue_analytics` - revenue_analytics
 * `flag` - flag
 * `workflow_variable` - workflow_variable */
-    type?: Type3f6EnumApi
+    type?: TypeE27EnumApi
     /** Existence check operator.
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: Operator3e6EnumApi
+    operator: OperatorA04EnumApi
 }
 
 export type ActionStepPropertyFilterApi =

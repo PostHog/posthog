@@ -83,6 +83,7 @@ class MprocsConfig(BaseModel):
     """Represents an mprocs.yaml configuration."""
 
     procs: dict[str, dict[str, Any]]
+    group_order: dict[str, list[str]] = {}  # display order per grouping dimension
     mouse_scroll_speed: int = 1
     scrollback: int = 10000
     posthog_config: DevenvConfig | None = None  # embedded source config
@@ -93,6 +94,8 @@ class MprocsConfig(BaseModel):
         if self.posthog_config:
             result["_posthog"] = self.posthog_config.model_dump(exclude_defaults=True)
         result["procs"] = self.procs
+        if self.group_order:
+            result["group_order"] = self.group_order
         result["mouse_scroll_speed"] = self.mouse_scroll_speed
         result["scrollback"] = self.scrollback
         return result
@@ -122,7 +125,8 @@ class MprocsGenerator(ConfigGenerator):
         procs: dict[str, dict[str, Any]] = {}
 
         # Info process is always first
-        procs["info"] = self._build_info_process(resolved)
+        info_config = self.registry.get_process_config("info") or {}
+        procs["info"] = self._build_info_process(info_config, resolved)
 
         # Iterate in original mprocs.yaml order to preserve ordering
         for name in self.registry.get_processes():
@@ -140,9 +144,18 @@ class MprocsGenerator(ConfigGenerator):
             # Copy config to avoid mutating registry's internal state
             proc_config = proc_config.copy()
 
-            # Remove metadata fields - not mprocs config
-            proc_config.pop("capability", None)
+            # Remove metadata fields - not mprocs config.
+            # (note that capability is kept, because it's used in groups)
             proc_config.pop("ask_skip", None)
+
+            # Give procs without an explicit capability a synthetic one so they
+            # don't all fall into "Ungrouped" when the user groups by capability,
+            # as many important ones are in that category (e.g. backend, frontend).
+            if not proc_config.get("capability"):
+                if name in resolved.always_required:
+                    proc_config["capability"] = "always_required"
+                elif is_manual_start:
+                    proc_config["capability"] = "tools"
 
             # Set autostart: false for skipped processes
             if name in resolved.skip_autostart:
@@ -159,7 +172,7 @@ class MprocsGenerator(ConfigGenerator):
 
             # Special handling for docker-compose
             if name == "docker-compose":
-                proc_config = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
+                proc_config = self._generate_docker_compose_config(proc_config, resolved.get_docker_profiles_list())
 
             # Special handling for nodejs - set capability groups based on resolved nodejs_* capabilities
             if name == "nodejs":
@@ -186,13 +199,14 @@ class MprocsGenerator(ConfigGenerator):
 
         return MprocsConfig(
             procs=procs,
+            group_order=global_settings.get("group_order", {}),
             mouse_scroll_speed=global_settings.get("mouse_scroll_speed", 1),
             scrollback=global_settings.get("scrollback", 10000),
             posthog_config=source_config,
         )
 
-    def _build_info_process(self, resolved: ResolvedEnvironment) -> dict[str, Any]:
-        """Build the info process shell command with environment summary and news.
+    def _build_info_process(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Update the info process config with a generated shell command.
 
         News is read at runtime from devenv/news.txt so developers always see the
         latest items without re-running hogli dev:generate.
@@ -235,7 +249,8 @@ echo ''
 printf '  {bold}Log in with:{reset} test@posthog.com - {blue}12345678{reset}\\n'
 printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
 """
-        return {"shell": shell}
+        proc_config["shell"] = shell
+        return proc_config
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
         """Add a startup message to a process config.
@@ -258,14 +273,15 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         proc_config["shell"] = message + original_shell
         return proc_config
 
-    def _generate_docker_compose_config(self, profiles: list[str]) -> dict[str, Any]:
-        """Generate docker-compose process config with profile flags.
+    def _generate_docker_compose_config(self, proc_config: dict[str, Any], profiles: list[str]) -> dict[str, Any]:
+        """Update docker-compose process config with profile flags.
 
         Args:
+            proc_config: The existing process configuration dict
             profiles: List of docker compose profiles to activate
 
         Returns:
-            Process configuration dict with modified shell command
+            Modified process configuration dict
         """
         profiles = sorted(profiles)
 
@@ -278,10 +294,9 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
         logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
 
-        return {
-            "shell": f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}",
-            "ready_pattern": "docker-compose ready",
-        }
+        proc_config["shell"] = f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}"
+        proc_config["ready_pattern"] = "docker-compose ready"
+        return proc_config
 
     def _add_nodejs_capability_groups(
         self, proc_config: dict[str, Any], resolved: ResolvedEnvironment

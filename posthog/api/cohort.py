@@ -465,7 +465,7 @@ class CohortSerializer(serializers.ModelSerializer):
     filters = CohortFiltersField(required=False, allow_null=True)
 
     # If this cohort is an exposure cohort for an experiment
-    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)  # ty: ignore[invalid-assignment]
     last_error_message = serializers.SerializerMethodField()
 
     class Meta:
@@ -962,7 +962,7 @@ class CohortSerializer(serializers.ModelSerializer):
             else:
                 cohort.filters = filters
 
-        deleted_state = validated_data.get("deleted", None)
+        deleted_state = cast(bool | None, validated_data.get("deleted"))
 
         incoming_has_criteria = cohort_filters_have_values(validated_data.get("filters"))
         if cohort.is_static and filters_changed and (existing_has_criteria or incoming_has_criteria):
@@ -1059,7 +1059,8 @@ class CohortSerializer(serializers.ModelSerializer):
                     )
 
             relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
-            cohort.deleted = deleted_state
+            if deleted_state is not None:
+                cohort.deleted = deleted_state
             if deleted_state:
                 # De-attach from experiments
                 cohort.experiment_set.set([])
@@ -1553,7 +1554,9 @@ def will_create_loops(cohort: Cohort) -> bool:
                     return True
                 elif property.value not in seen_cohorts:
                     try:
-                        nested_cohort = Cohort.objects.get(pk=property.value, team__project_id=project_id)
+                        nested_cohort = Cohort.objects.get(
+                            pk=cast(str | int, property.value), team__project_id=project_id
+                        )
                     except Cohort.DoesNotExist:
                         raise ValidationError("Invalid Cohort ID in filter")
 
