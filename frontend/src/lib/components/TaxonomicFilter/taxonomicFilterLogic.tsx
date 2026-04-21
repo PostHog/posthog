@@ -38,7 +38,6 @@ import {
     getPropertyDefinitionIcon,
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
@@ -80,6 +79,7 @@ import {
     TeamType,
 } from '~/types'
 
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
@@ -260,7 +260,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['groupTypes', 'aggregationLabel'],
             dataWarehouseSettingsSceneLogic, // This logic needs to be connected to stop the popover from erroring out
             ['dataWarehouseTables'],
-            dataWarehouseJoinsLogic,
+            joinsLogic,
             ['columnsJoinedToPersons'],
             propertyDefinitionsModel,
             ['eventMetadataPropertyDefinitions'],
@@ -540,7 +540,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Extended person properties',
                         searchPlaceholder: 'extended person properties',
                         type: TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                        logic: dataWarehouseJoinsLogic,
+                        logic: joinsLogic,
                         value: 'columnsJoinedToPersons',
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.id,

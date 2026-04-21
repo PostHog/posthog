@@ -3,7 +3,9 @@ from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 
-from products.llm_analytics.backend.models.evaluations import Evaluation
+from parameterized import parameterized
+
+from products.llm_analytics.backend.models.evaluations import Evaluation, EvaluationStatus, EvaluationStatusReason
 
 
 class TestEvaluationModel(BaseTest):
@@ -139,17 +141,18 @@ class TestEvaluationModel(BaseTest):
         """
         Django signal should trigger reload on workers when evaluation is saved
         """
-        evaluation = Evaluation.objects.create(
-            team=self.team,
-            name="Test Evaluation",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Test prompt"},
-            output_type="boolean",
-            output_config={},
-            enabled=True,
-            created_by=self.user,
-            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            evaluation = Evaluation.objects.create(
+                team=self.team,
+                name="Test Evaluation",
+                evaluation_type="llm_judge",
+                evaluation_config={"prompt": "Test prompt"},
+                output_type="boolean",
+                output_config={},
+                enabled=True,
+                created_by=self.user,
+                conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+            )
 
         mock_reload.assert_called_once_with(team_id=self.team.id, evaluation_ids=[str(evaluation.id)])
 
@@ -158,22 +161,24 @@ class TestEvaluationModel(BaseTest):
         """
         Django signal should trigger reload on workers when evaluation is updated
         """
-        evaluation = Evaluation.objects.create(
-            team=self.team,
-            name="Original Name",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Test prompt"},
-            output_type="boolean",
-            output_config={},
-            enabled=True,
-            created_by=self.user,
-            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            evaluation = Evaluation.objects.create(
+                team=self.team,
+                name="Original Name",
+                evaluation_type="llm_judge",
+                evaluation_config={"prompt": "Test prompt"},
+                output_type="boolean",
+                output_config={},
+                enabled=True,
+                created_by=self.user,
+                conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+            )
 
         mock_reload.reset_mock()
 
-        evaluation.name = "Updated Name"
-        evaluation.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            evaluation.name = "Updated Name"
+            evaluation.save()
 
         mock_reload.assert_called_once_with(team_id=self.team.id, evaluation_ids=[str(evaluation.id)])
 
@@ -273,3 +278,101 @@ class TestEvaluationModel(BaseTest):
 
         self.assertEqual(evaluation.conditions[0]["id"], "my-custom-id")
         self.assertEqual(evaluation.conditions[0]["rollout_percentage"], 75)
+
+
+class TestEvaluationStatusCoercion(BaseTest):
+    def _create(self, **overrides) -> Evaluation:
+        defaults: dict = {
+            "team": self.team,
+            "name": "Test",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "p"},
+            "output_type": "boolean",
+            "output_config": {},
+            "created_by": self.user,
+            "conditions": [],
+        }
+        defaults.update(overrides)
+        return Evaluation.objects.create(**defaults)
+
+    @parameterized.expand(
+        [
+            (True, EvaluationStatus.ACTIVE),
+            (False, EvaluationStatus.PAUSED),
+        ]
+    )
+    def test_new_row_status_derived_from_enabled(self, enabled, expected_status):
+        evaluation = self._create(enabled=enabled)
+        self.assertEqual(evaluation.status, expected_status)
+        self.assertIsNone(evaluation.status_reason)
+
+    def test_flipping_enabled_false_on_active_row_transitions_to_paused(self):
+        evaluation = self._create(enabled=True)
+        evaluation.enabled = False
+        evaluation.save()
+        self.assertEqual(evaluation.status, EvaluationStatus.PAUSED)
+        self.assertFalse(evaluation.enabled)
+
+    def test_flipping_enabled_true_on_errored_row_transitions_to_active_and_clears_reason(self):
+        evaluation = self._create(enabled=False)
+        evaluation.status = EvaluationStatus.ERROR
+        evaluation.status_reason = EvaluationStatusReason.TRIAL_LIMIT_REACHED
+        evaluation.save()
+        self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
+
+        evaluation.enabled = True
+        evaluation.save()
+        self.assertEqual(evaluation.status, EvaluationStatus.ACTIVE)
+        self.assertTrue(evaluation.enabled)
+        self.assertIsNone(evaluation.status_reason)
+
+    def test_setting_status_error_requires_reason(self):
+        evaluation = self._create(enabled=True)
+        evaluation.status = EvaluationStatus.ERROR
+        with self.assertRaises(ValidationError):
+            evaluation.save()
+
+    def test_setting_status_error_with_reason_forces_enabled_false(self):
+        evaluation = self._create(enabled=True)
+        evaluation.status = EvaluationStatus.ERROR
+        evaluation.status_reason = EvaluationStatusReason.MODEL_NOT_ALLOWED
+        evaluation.save()
+        self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
+        self.assertFalse(evaluation.enabled)
+        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.MODEL_NOT_ALLOWED)
+
+    def test_paused_status_clears_any_stale_status_reason(self):
+        evaluation = self._create(enabled=True)
+        evaluation.status = EvaluationStatus.ERROR
+        evaluation.status_reason = EvaluationStatusReason.TRIAL_LIMIT_REACHED
+        evaluation.save()
+
+        evaluation.status = EvaluationStatus.PAUSED
+        evaluation.save()
+        self.assertIsNone(evaluation.status_reason)
+
+    def test_set_status_helper_transitions_all_three_fields(self):
+        evaluation = self._create(enabled=True)
+        evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.PROVIDER_KEY_DELETED)
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
+        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.PROVIDER_KEY_DELETED)
+        self.assertFalse(evaluation.enabled)
+
+    def test_refresh_from_db_resets_change_tracking_baseline(self):
+        """After refresh_from_db, a subsequent edit must be compared against DB state — not the
+        pre-refresh in-memory snapshot. Without this, a user toggling enabled=True after refresh on
+        an errored instance would be silently coerced back to enabled=False."""
+        evaluation = self._create(enabled=True)
+        # Simulate a system transition happening elsewhere (another worker, another request, etc.).
+        Evaluation.objects.filter(id=evaluation.id).update(
+            enabled=False, status=EvaluationStatus.ERROR, status_reason=EvaluationStatusReason.TRIAL_LIMIT_REACHED
+        )
+
+        evaluation.refresh_from_db()
+        # User re-enables from the now-refreshed state.
+        evaluation.enabled = True
+        evaluation.save()
+        self.assertEqual(evaluation.status, EvaluationStatus.ACTIVE)
+        self.assertTrue(evaluation.enabled)
+        self.assertIsNone(evaluation.status_reason)

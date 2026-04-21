@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
+from unittest import mock
 from unittest.mock import patch
 
 from django.db import connection as django_connection
@@ -10,6 +11,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 
+from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE, MAX_NUMERIC_SCALE
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
@@ -29,6 +31,9 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_read_replica,
     _normalize_function_names,
     filter_postgres_incremental_fields,
+    get_foreign_keys,
+    get_postgres_row_count,
+    get_schemas,
 )
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -96,6 +101,181 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
+        config = source.parse_config(
+            {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "",
+            }
+        )
+
+        valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="warehouse")
+
+        assert valid is False
+        assert error == "Schema is required for warehouse imports."
+
+    def test_validate_credentials_for_access_method_allows_blank_schema_for_direct_queries(self, source):
+        config = source.parse_config(
+            {
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "",
+            }
+        )
+
+        with mock.patch.object(source, "validate_credentials", return_value=(True, None)) as validate_credentials:
+            valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="direct")
+
+        assert valid is True
+        assert error is None
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
+
+
+class TestPostgresSchemaDiscovery:
+    def _mock_connection(self, *fetchall_results: list[tuple[object, ...]]):
+        cursor = mock.MagicMock()
+        cursor.fetchall.side_effect = list(fetchall_results)
+        cursor.fetchone.return_value = ("PostgreSQL 15.0",)
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor_context
+        return connection
+
+    def test_get_schemas_qualifies_table_names_when_schema_is_blank(self):
+        connection = self._mock_connection(
+            [("public", "users"), ("analytics", "events")],
+            [
+                ("analytics", "events", "id", "integer", "NO", 1),
+                ("public", "users", "id", "integer", "NO", 1),
+            ],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="",
+            )
+
+        cursor = connection.cursor.return_value.__enter__.return_value
+        executed_queries = [
+            call.args[0] for call in cursor.execute.call_args_list if "SELECT version()" not in str(call.args[0])
+        ]
+        first_query = executed_queries[0]
+        second_query = executed_queries[1]
+
+        assert "NOT IN" in first_query
+        assert "ALL(" not in first_query
+        assert " IN (" in second_query
+        assert "ANY(" not in second_query
+        assert set(schemas.keys()) == {"public.users", "analytics.events"}
+        assert schemas["public.users"].source_schema == "public"
+        assert schemas["public.users"].source_table_name == "users"
+        assert schemas["analytics.events"].source_schema == "analytics"
+        assert schemas["analytics.events"].source_table_name == "events"
+
+    def test_get_foreign_keys_qualifies_target_table_names_when_schema_is_blank(self):
+        connection = self._mock_connection(
+            [("public", "users"), ("analytics", "events")],
+            [("analytics", "events", "user_id", "public", "users", "id")],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            foreign_keys = get_foreign_keys(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="",
+            )
+
+        cursor = connection.cursor.return_value.__enter__.return_value
+        executed_queries = [
+            call.args[0] for call in cursor.execute.call_args_list if "SELECT version()" not in str(call.args[0])
+        ]
+        first_query = executed_queries[0]
+        second_query = executed_queries[1]
+
+        assert "NOT IN" in first_query
+        assert "ALL(" not in first_query
+        assert " IN (" in second_query
+        assert "ANY(" not in second_query
+        assert foreign_keys == {"analytics.events": [("user_id", "public.users", "id")]}
+
+    def test_get_schemas_for_duckdb_uses_current_catalog_only(self):
+        connection = self._mock_connection(
+            [("ducklake", "system", "query_log")],
+            [
+                ("system", "query_log", "query_id", "varchar", "NO", 1),
+            ],
+        )
+        connection.cursor.return_value.__enter__.return_value.fetchone.side_effect = [
+            ("DuckDB 1.4 (Duckgres)",),
+            ("ducklake",),
+        ]
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="",
+            )
+
+        cursor = connection.cursor.return_value.__enter__.return_value
+        information_schema_call = next(
+            call for call in cursor.execute.call_args_list if "FROM information_schema.tables" in str(call.args[0])
+        )
+        information_schema_query = str(information_schema_call.args[0])
+        information_schema_params = information_schema_call.args[1]
+
+        assert "table_catalog = %(current_database)s" in information_schema_query
+        assert information_schema_params["current_database"] == "ducklake"
+        assert schemas["system.query_log"].source_catalog == "ducklake"
+        assert "public.ducklake_view" not in schemas
+
+    def test_get_postgres_row_count_skips_blank_schema_browse(self):
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres"
+        ) as patch_connect_to_postgres:
+            row_counts = get_postgres_row_count(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema="   ",
+            )
+
+        assert row_counts == {}
+        patch_connect_to_postgres.assert_not_called()
 
 
 class TestGetSslmode:
@@ -710,7 +890,7 @@ class TestGetPrimaryKeys:
                     name TEXT
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_pk_table", logger)
             assert result is not None
             assert "id" in result
 
@@ -725,7 +905,7 @@ class TestGetPrimaryKeys:
                     name TEXT
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_no_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_no_pk_table", logger)
             assert result is None
 
     @pytest.mark.django_db
@@ -741,7 +921,7 @@ class TestGetPrimaryKeys:
                     PRIMARY KEY (org_id, user_id)
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_composite_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_composite_pk_table", logger)
             assert result is not None
             assert len(result) == 2
             assert "org_id" in result
@@ -847,8 +1027,8 @@ class TestHasDuplicatePrimaryKeys:
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
-            assert _has_duplicate_primary_keys(dj_cursor, "public", "any_table", None, logger) is False
-            assert _has_duplicate_primary_keys(dj_cursor, "public", "any_table", [], logger) is False
+            assert _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "any_table", None, logger) is False
+            assert _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "any_table", [], logger) is False
 
     @pytest.mark.django_db
     def test_returns_false_when_no_duplicates(self):
@@ -862,7 +1042,7 @@ class TestHasDuplicatePrimaryKeys:
                 )
             """)
             dj_cursor.execute("INSERT INTO test_no_dup_table VALUES (1, 'a'), (2, 'b'), (3, 'c')")
-            result = _has_duplicate_primary_keys(dj_cursor, "public", "test_no_dup_table", ["id"], logger)
+            result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_no_dup_table", ["id"], logger)
             assert result is False
 
     @pytest.mark.django_db
@@ -877,7 +1057,7 @@ class TestHasDuplicatePrimaryKeys:
                 )
             """)
             dj_cursor.execute("INSERT INTO test_dup_table VALUES (1, 'a'), (1, 'b'), (2, 'c')")
-            result = _has_duplicate_primary_keys(dj_cursor, "public", "test_dup_table", ["id"], logger)
+            result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_dup_table", ["id"], logger)
             assert result is True
 
 
@@ -885,7 +1065,7 @@ class TestIsReadReplica:
     @pytest.mark.django_db
     def test_primary_is_not_read_replica(self):
         with django_connection.cursor() as dj_cursor:
-            result = _is_read_replica(dj_cursor)
+            result = _is_read_replica(cast(Any, dj_cursor))
             assert result is False
 
 
@@ -902,7 +1082,7 @@ class TestGetTable:
                     score DOUBLE PRECISION
                 )
             """)
-            table = _get_table(dj_cursor, "public", "test_get_table_regular", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_regular", logger)
             assert table.type == "table"
             col_names = [c.name for c in table.columns]
             assert "id" in col_names
@@ -916,7 +1096,7 @@ class TestGetTable:
         with django_connection.cursor() as dj_cursor:
             dj_cursor.execute("CREATE TABLE test_get_table_view_base (id INTEGER, name TEXT)")
             dj_cursor.execute("CREATE VIEW test_get_table_view AS SELECT * FROM test_get_table_view_base")
-            table = _get_table(dj_cursor, "public", "test_get_table_view", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_view", logger)
             assert table.type == "view"
 
     @pytest.mark.django_db
@@ -928,5 +1108,231 @@ class TestGetTable:
             dj_cursor.execute(
                 "CREATE MATERIALIZED VIEW test_get_table_matview AS SELECT * FROM test_get_table_matview_base"
             )
-            table = _get_table(dj_cursor, "public", "test_get_table_matview", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_matview", logger)
             assert table.type == "materialized_view"
+
+    @pytest.mark.django_db
+    def test_unconstrained_numeric_probe_gated_off_uses_default_scale(self):
+        """When the caller doesn't request probing (the default), an unconstrained `numeric`
+        column falls back to `DEFAULT_NUMERIC_SCALE` regardless of the actual data. This is the
+        path used by incremental syncs where the delta column type is already set and probing
+        would be a wasted full-table aggregation."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_get_table_probe_gated_off (id INTEGER PRIMARY KEY, val NUMERIC)")
+            dj_cursor.execute("INSERT INTO test_get_table_probe_gated_off VALUES (1, 0.84497449830783164117::numeric)")
+            # Explicitly omit `probe_unconstrained_numeric_scale` to exercise the default.
+            table = _get_table(dj_cursor, "public", "test_get_table_probe_gated_off", logger)  # type: ignore[arg-type]
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "inserts,expected_precision,expected_scale,expected_arrow_type",
+        [
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 0.84497449830783164117::numeric)",
+                    "INSERT INTO test_probe_scale VALUES (2, 0::numeric)",
+                ],
+                38,
+                20,
+                pa.decimal128(38, 20),
+                id="fractional_fits_in_decimal128",
+            ),
+            pytest.param(
+                [],
+                38,
+                DEFAULT_NUMERIC_SCALE,
+                pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
+                id="empty_table_falls_back_to_default",
+            ),
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 0.1234567890123456789012345678901234567890::numeric)",
+                ],
+                38,
+                MAX_NUMERIC_SCALE,
+                pa.decimal128(38, MAX_NUMERIC_SCALE),
+                id="scale_past_max_clamped_with_small_int_still_fits",
+            ),
+            # Pins the intentional conservative behavior: all-integer data means MAX(scale(val))
+            # returns 0, but we fall back to DEFAULT_NUMERIC_SCALE rather than freezing the delta
+            # column at scale=0 — because the source column is unconstrained and a future sync
+            # could legitimately carry fractional digits the delta column wouldn't be able to
+            # hold. See the matching comment in postgres.py:_get_table.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 42::numeric)",
+                    "INSERT INTO test_probe_scale VALUES (2, 1000::numeric)",
+                ],
+                38,
+                DEFAULT_NUMERIC_SCALE,
+                pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
+                id="integer_only_data_falls_back_to_default",
+            ),
+            # 8 integer digits + 30 fractional digits = 38 total, which is the `decimal128`
+            # precision budget. Must fit without escalating.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 12345678.012345678901234567890123456789::numeric)",
+                ],
+                38,
+                30,
+                pa.decimal128(38, 30),
+                id="total_exactly_at_decimal128_budget_fits",
+            ),
+            # 9 integer digits + 30 fractional digits = 39 total, one digit past the `decimal128`
+            # budget. The column must escalate precision past 38 so `build_pyarrow_decimal_type`
+            # promotes to `decimal256`; staying at (38, 30) would silently lose the leading integer
+            # digit when the data is later cast to arrow.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 123456789.012345678901234567890123456789::numeric)",
+                ],
+                39,
+                30,
+                pa.decimal256(39, 30),
+                id="integer_overflow_escalates_precision_past_38",
+            ),
+            # 10 integer digits + 32 fractional digits = 42 total. Scale is at MAX_NUMERIC_SCALE,
+            # integer side is over budget. Must escalate precision to cover both dimensions.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 1234567890.12345678901234567890123456789012::numeric)",
+                ],
+                42,
+                MAX_NUMERIC_SCALE,
+                pa.decimal256(42, MAX_NUMERIC_SCALE),
+                id="both_dimensions_exceed_budget_escalates_precision",
+            ),
+        ],
+    )
+    def test_unconstrained_numeric_probe_dimensions(
+        self,
+        inserts: list[str],
+        expected_precision: int,
+        expected_scale: int,
+        expected_arrow_type: pa.DataType,
+    ):
+        """Unconstrained `numeric` columns probe both fractional scale and integer digits so the
+        resulting decimal type has enough precision to hold the observed data. When total digits
+        exceed `decimal128`'s 38-digit budget, precision must escalate past 38 so
+        `build_pyarrow_decimal_type` promotes the column to `decimal256` (which delta-rs will then
+        collapse to `string` at write). Freezing at `decimal128(38, scale)` silently truncates
+        either fractional digits (original bug pre-PR) or integer digits (regression introduced by
+        the single-dimension probe)."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_probe_scale (id INTEGER PRIMARY KEY, val NUMERIC)")
+            for insert_sql in inserts:
+                dj_cursor.execute(insert_sql)
+
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
+                "public",
+                "test_probe_scale",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_precision == expected_precision
+            assert val_col.numeric_scale == expected_scale
+            # Guard the full schema conversion too — catches regressions where precision/scale
+            # look right on the PostgreSQLColumn but the arrow type flips (e.g. decimal128 vs
+            # decimal256). The expected type is explicit per case rather than derived from
+            # `build_pyarrow_decimal_type(precision, scale)` so each case locks in its intended
+            # arrow width at the parameter level.
+            assert val_col.to_arrow_field().type == expected_arrow_type
+
+    @pytest.mark.django_db
+    def test_constrained_numeric_skips_probe(self):
+        """Columns declared with explicit precision/scale use those values directly, no data probe."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(
+                "CREATE TABLE test_get_table_constrained_numeric (id INTEGER PRIMARY KEY, val NUMERIC(10, 2))"
+            )
+            # Even though there's no data, the declared scale is used — no probe attempted.
+            table = _get_table(dj_cursor, "public", "test_get_table_constrained_numeric", logger)  # type: ignore[arg-type]
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_precision == 10
+            assert val_col.numeric_scale == 2
+
+    @pytest.mark.django_db
+    def test_constrained_numeric_zero_scale_survives_schema_conversion(self):
+        """Declared `NUMERIC(X, 0)` columns must be convertible to an arrow schema without tripping
+        the legacy truthy-check guard in `PostgreSQLColumn.to_arrow_field`."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_get_table_zero_scale (id INTEGER PRIMARY KEY, val NUMERIC(10, 0))")
+            table = _get_table(dj_cursor, "public", "test_get_table_zero_scale", logger)  # type: ignore[arg-type]
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_precision == 10
+            assert val_col.numeric_scale == 0
+            # Must not raise — the full schema conversion is the actual regression surface.
+            arrow_schema = table.to_arrow_schema()
+            assert pa.types.is_decimal(arrow_schema.field("val").type)
+
+    @pytest.mark.django_db
+    def test_unconstrained_numeric_on_view_skips_probe(self):
+        """`MAX(scale(col))` on a regular view forces the view definition to execute, which
+        can be arbitrarily expensive for join/aggregate views. The probe is skipped for views
+        regardless of the caller's probe flag, and falls back to DEFAULT_NUMERIC_SCALE.
+        The downstream `_process_batch` fallback chain handles scale inference at row time."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(
+                "CREATE TABLE test_get_table_view_unconstrained_base (id INTEGER PRIMARY KEY, val NUMERIC)"
+            )
+            dj_cursor.execute(
+                "INSERT INTO test_get_table_view_unconstrained_base VALUES (1, 0.84497449830783164117::numeric)"
+            )
+            dj_cursor.execute(
+                "CREATE VIEW test_get_table_view_unconstrained AS SELECT * FROM test_get_table_view_unconstrained_base"
+            )
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
+                "public",
+                "test_get_table_view_unconstrained",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
+            assert table.type == "view"
+            val_col = next(c for c in table.columns if c.name == "val")
+            # Probe was skipped for the view → default scale, even though the base table has
+            # scale-20 data that a probe would have found.
+            assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+
+    @pytest.mark.django_db
+    def test_unconstrained_numeric_multiple_columns_probed_together(self):
+        """Multiple unconstrained numeric columns are probed in a single aggregation query."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(
+                "CREATE TABLE test_get_table_multi_numeric "
+                "(id INTEGER PRIMARY KEY, a NUMERIC, b NUMERIC, c NUMERIC(5, 2))"
+            )
+            dj_cursor.execute(
+                "INSERT INTO test_get_table_multi_numeric VALUES "
+                "(1, 0.12345::numeric, 0.1234567890::numeric, 1.23::numeric(5,2))"
+            )
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
+                "public",
+                "test_get_table_multi_numeric",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
+            cols_by_name = {c.name: c for c in table.columns}
+            assert cols_by_name["a"].numeric_scale == 5
+            assert cols_by_name["b"].numeric_scale == 10
+            # Constrained column is untouched.
+            assert cols_by_name["c"].numeric_precision == 5
+            assert cols_by_name["c"].numeric_scale == 2

@@ -164,6 +164,20 @@ describe('handleToken', () => {
         expect(data.error).toBe('invalid_request')
     })
 
+    it('returns 400 for malformed JSON body', async () => {
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{invalid json',
+        })
+
+        const response = await handleToken(request, mockKV)
+        expect(response.status).toBe(400)
+        const data = (await response.json()) as Record<string, unknown>
+        expect(data.error).toBe('invalid_request')
+        expect(data.error_description).toBe('Malformed JSON body')
+    })
+
     it('falls back to try-both for refresh_token grants', async () => {
         mockKVGetValue(mockKV, null)
 
