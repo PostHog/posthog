@@ -7,6 +7,7 @@ from django.db.models import Q, QuerySet
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -83,6 +84,23 @@ class EvaluationSerializer(serializers.ModelSerializer):
         # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
         # system transitions). Clients toggle `enabled`; the model's save() keeps the trio consistent.
         read_only_fields = ["id", "status", "status_reason", "created_at", "updated_at", "created_by"]
+        extra_kwargs = {
+            "name": {"help_text": "Name of the evaluation."},
+            "description": {"help_text": "Optional description of what this evaluation checks."},
+            "enabled": {"help_text": "Whether the evaluation runs automatically on new $ai_generation events."},
+            "evaluation_type": {
+                "help_text": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code."
+            },
+            "evaluation_config": {
+                "help_text": "Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}."
+            },
+            "output_type": {"help_text": "Output format. Currently only 'boolean' is supported."},
+            "output_config": {"help_text": "Optional output config, e.g. {'allows_na': true} to allow N/A results."},
+            "conditions": {
+                "help_text": "Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each."
+            },
+            "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
+        }
 
     def validate(self, data):
         if "evaluation_config" in data and "output_config" in data:
@@ -244,6 +262,48 @@ class EvaluationFilter(django_filters.FilterSet):
         return queryset
 
 
+class TestHogRequestSerializer(serializers.Serializer):
+    source = serializers.CharField(
+        required=True,
+        min_length=1,
+        help_text="Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
+    )  # type: ignore[assignment]
+    sample_count = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=10,
+        help_text="Number of recent $ai_generation events to test against (1–10, default 5).",
+    )
+    allows_na = serializers.BooleanField(
+        required=False, default=False, help_text="Whether the evaluation can return N/A for non-applicable generations."
+    )
+    conditions = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+        help_text="Optional trigger conditions to filter which events are sampled.",
+    )
+
+
+class TestHogResultItemSerializer(serializers.Serializer):
+    event_uuid = serializers.CharField(help_text="UUID of the $ai_generation event.")
+    trace_id = serializers.CharField(allow_null=True, required=False, help_text="Trace ID if available.")
+    input_preview = serializers.CharField(help_text="First 200 chars of the generation input.")
+    output_preview = serializers.CharField(help_text="First 200 chars of the generation output.")
+    result = serializers.BooleanField(allow_null=True, help_text="True = pass, False = fail, null = N/A or error.")
+    reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
+    error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
+
+
+class TestHogResponseSerializer(serializers.Serializer):
+    results = TestHogResultItemSerializer(many=True)
+    message = serializers.CharField(
+        required=False, help_text="Optional message, e.g. when no recent events were found."
+    )
+
+
+@extend_schema(tags=["llm_analytics"])
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
@@ -424,6 +484,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
+    @extend_schema(request=TestHogRequestSerializer, responses=TestHogResponseSerializer)
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog evaluation code against sample events without saving."""
@@ -575,10 +636,3 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         )
 
         return Response({"results": results})
-
-
-class TestHogRequestSerializer(serializers.Serializer):
-    source = serializers.CharField(required=True, min_length=1)  # type: ignore[assignment]
-    sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)
-    allows_na = serializers.BooleanField(required=False, default=False)
-    conditions = serializers.ListField(child=serializers.DictField(), required=False, default=list)
