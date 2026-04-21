@@ -37,7 +37,7 @@ export const VisualReviewReposRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List runs for the team, optionally filtered by review state.
+ * List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch.
  */
 export const VisualReviewRunsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -48,8 +48,11 @@ export const VisualReviewRunsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisualReviewRunsListQueryParams = /* @__PURE__ */ zod.object({
+    branch: zod.string().optional().describe('Filter by branch name'),
+    commit_sha: zod.string().optional().describe('Filter by full commit SHA'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    pr_number: zod.number().optional().describe('Filter by GitHub PR number'),
     review_state: zod.string().optional().describe('Filter by review state'),
 })
 

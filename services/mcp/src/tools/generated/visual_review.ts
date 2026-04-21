@@ -68,8 +68,11 @@ const visualReviewRunsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/`,
             query: {
+                branch: params.branch,
+                commit_sha: params.commit_sha,
                 limit: params.limit,
                 offset: params.offset,
+                pr_number: params.pr_number,
                 review_state: params.review_state,
             },
         })

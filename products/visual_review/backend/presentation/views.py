@@ -357,8 +357,43 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
-    scope_object_read_actions = ["retrieve", "snapshots"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
     serializer_class = RunSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+            OpenApiParameter("pr_number", int, required=False, description="Filter by GitHub PR number"),
+            OpenApiParameter("commit_sha", str, required=False, description="Filter by full commit SHA"),
+            OpenApiParameter("branch", str, required=False, description="Filter by branch name"),
+        ],
+        responses={200: RunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        """List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch."""
+        pr_number_raw = request.query_params.get("pr_number")
+        try:
+            pr_number = int(pr_number_raw) if pr_number_raw is not None else None
+        except ValueError:
+            return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+        runs = api.list_runs(
+            self.team_id,
+            review_state=request.query_params.get("review_state"),
+            pr_number=pr_number,
+            commit_sha=request.query_params.get("commit_sha"),
+            branch=request.query_params.get("branch"),
+        )
+        page = self.paginate_queryset(runs)
+        if page is not None:
+            serializer = RunSerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
+        return Response(RunSerializer(instance=runs, many=True).data)
+
+    @extend_schema(responses={200: ReviewStateCountsSerializer})
+    @action(detail=False, methods=["get"])
+    def counts(self, request: Request, **kwargs) -> Response:
+        """Review state counts for the runs list."""
+        return Response(api.get_review_state_counts(self.team_id))
 
     @validated_request(
         request_serializer=CreateRunInputSerializer,
