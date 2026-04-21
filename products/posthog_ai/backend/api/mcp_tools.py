@@ -4,6 +4,8 @@ from django.views.generic import View
 
 import pydantic
 from asgiref.sync import async_to_sync
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from posthoganalytics import capture_exception
 from rest_framework import status
 from rest_framework.decorators import action
@@ -34,6 +36,10 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return scopes or None
         return None
 
+    @extend_schema(
+        parameters=[OpenApiParameter("tool_name", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: OpenApiTypes.OBJECT},
+    )
     @action(
         detail=False,
         methods=["POST"],

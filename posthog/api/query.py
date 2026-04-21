@@ -6,7 +6,8 @@ from django.http import JsonResponse, StreamingHttpResponse
 
 import orjson
 import structlog
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -258,6 +259,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
     @extend_schema(
         description="(Experimental)",
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
         responses={200: QueryStatusResponse},
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="GET")
@@ -280,6 +282,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
         return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["POST"], detail=False)
     def check_auth_for_async(self, request: Request, *args, **kwargs):
         return JsonResponse({"user": "ok"}, status=status.HTTP_200_OK)
@@ -297,6 +300,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
         return Response(status=200, data={"message": message})
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["GET"], detail=False)
     def draft_sql(self, request: Request, *args, **kwargs) -> Response:
         if not isinstance(request.user, User):
@@ -329,7 +333,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
     @extend_schema(
         description="Get query log details from query_log_archive table for a specific query_id, the query must have been issued in last 24 hours.",
-        responses={200: "Query log details"},
+        responses={200: OpenApiTypes.OBJECT},
     )
     @action(methods=["GET"], detail=True, url_path="log")
     def get_query_log(self, request: Request, pk: str, *args, **kwargs) -> Response:

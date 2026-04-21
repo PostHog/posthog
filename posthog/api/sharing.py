@@ -10,7 +10,8 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -480,6 +481,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(parameters=[OpenApiParameter("password_id", OpenApiTypes.STR, OpenApiParameter.PATH)])
     @action(detail=False, methods=["delete"], url_path="passwords/(?P<password_id>[^/.]+)")
     def delete_password(self, request: Request, password_id: str, *args: Any, **kwargs: Any) -> response.Response:
         """Delete a password from the sharing configuration."""

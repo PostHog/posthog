@@ -5,6 +5,7 @@ from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from PIL import Image, ImageOps
 from rest_framework import status, viewsets
@@ -90,7 +91,8 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
 
     Uploaded media must have a content type beginning with 'image/' and be less than 4MB.
-    """
+    """,
+        responses={201: OpenApiTypes.OBJECT},
     )
     def create(self, request, *args, **kwargs) -> Response:
         try:

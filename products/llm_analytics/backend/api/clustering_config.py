@@ -1,3 +1,5 @@
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -32,6 +34,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_analytics"
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @llma_track_latency("llma_clustering_config_list")
     @monitor(feature=None, endpoint="llma_clustering_config_list", method="GET")
     def list(self, request: Request, **kwargs) -> Response:
@@ -39,6 +42,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer = ClusteringConfigSerializer(config)
         return Response(serializer.data)
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["post"], required_scopes=["llm_analytics:write"])
     @llma_track_latency("llma_clustering_config_set_event_filters")
     @monitor(feature=None, endpoint="llma_clustering_config_set_event_filters", method="POST")

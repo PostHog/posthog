@@ -5,6 +5,7 @@ import datetime as dt
 
 from django.utils import timezone
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from pydantic import ValidationError
@@ -395,6 +396,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         return Response(response.results, status=status.HTTP_200_OK)
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def services(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", {})
@@ -560,6 +562,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 status=status.HTTP_200_OK,
             )
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:
         has_logs = team_has_logs(self.team)
@@ -574,6 +577,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         return Response({"hasLogs": has_logs}, status=status.HTTP_200_OK)
 
+    @extend_schema(responses={201: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def export(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", None)

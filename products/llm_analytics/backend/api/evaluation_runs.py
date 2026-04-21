@@ -5,6 +5,8 @@ from datetime import timedelta
 from django.conf import settings
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -40,6 +42,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @extend_schema(request=EvaluationRunRequestSerializer, responses={200: OpenApiTypes.OBJECT})
     @llma_track_latency("llma_evaluation_runs_create")
     @monitor(feature=None, endpoint="llma_evaluation_runs_create", method="POST")
     def create(self, request: Request, **kwargs) -> Response:

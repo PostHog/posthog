@@ -5,7 +5,8 @@ from typing import Any
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDay
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, request, response, viewsets
 
 from posthog.schema import ProductKey
@@ -25,6 +26,7 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
     scope_object = "plugin"
     queryset = PluginConfig.objects.all()
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
             tag_queries(product=ProductKey.PIPELINE_BATCH_EXPORTS, feature=Feature.QUERY)
@@ -144,6 +146,10 @@ class HistoricalExportsAppMetricsViewSet(
             }
         )
 
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.INT, OpenApiParameter.PATH)],
+        responses={200: OpenApiTypes.OBJECT},
+    )
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
         job_id = kwargs["pk"]

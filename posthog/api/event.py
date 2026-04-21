@@ -417,6 +417,10 @@ class EventViewSet(
                 distinct_to_person[distinct_id] = person
         return distinct_to_person
 
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: OpenApiTypes.OBJECT},
+    )
     def retrieve(
         self,
         request: request.Request,

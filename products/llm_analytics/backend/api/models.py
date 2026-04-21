@@ -1,3 +1,5 @@
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -19,6 +21,7 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @llma_track_latency("llma_models_list")
     @monitor(feature=None, endpoint="llma_models_list", method="GET")
     def list(self, request: Request, **_kwargs) -> Response:
