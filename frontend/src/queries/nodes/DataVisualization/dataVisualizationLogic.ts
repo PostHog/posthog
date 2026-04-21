@@ -1228,7 +1228,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }))
 
             if (
-                [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
+                [
+                    ChartDisplayType.ActionsLineGraph,
+                    ChartDisplayType.ActionsAreaGraph,
+                    ChartDisplayType.ActionsMixedGraph,
+                ].includes(visualizationType) &&
                 shouldUseFirstNumericColumnAsContinuousChartXAxis(
                     values.columns,
                     values.numericalColumns,

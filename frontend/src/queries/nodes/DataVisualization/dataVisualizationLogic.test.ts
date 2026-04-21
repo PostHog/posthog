@@ -234,6 +234,10 @@ describe('dataVisualizationLogic', () => {
             displayType: ChartDisplayType.ActionsAreaGraph,
             name: 'area chart',
         },
+        {
+            displayType: ChartDisplayType.ActionsMixedGraph,
+            name: 'mixed chart',
+        },
     ])('uses the first numeric column as x-axis when enabling a $name on all-numeric data', async ({ displayType }) => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['screen_width', 'screen_height'],

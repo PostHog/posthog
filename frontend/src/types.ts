@@ -2715,6 +2715,7 @@ export enum ChartDisplayType {
     ActionsUnstackedBar = 'ActionsUnstackedBar',
     ActionsStackedBar = 'ActionsStackedBar',
     ActionsAreaGraph = 'ActionsAreaGraph',
+    ActionsMixedGraph = 'ActionsMixedGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
     ActionsPie = 'ActionsPie',

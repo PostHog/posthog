@@ -933,6 +933,7 @@ class ChartDisplayType(StrEnum):
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
+    ACTIONS_MIXED_GRAPH = "ActionsMixedGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
     BOLD_NUMBER = "BoldNumber"
     ACTIONS_PIE = "ActionsPie"
@@ -948,6 +949,7 @@ class DisplayType(StrEnum):
     AUTO = "auto"
     LINE = "line"
     BAR = "bar"
+    AREA = "area"
 
 
 class YAxisPosition(StrEnum):

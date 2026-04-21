@@ -548,6 +548,10 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                                         label: 'Bar',
                                         value: 'bar',
                                     },
+                                    {
+                                        label: 'Area',
+                                        value: 'area',
+                                    },
                                 ]}
                                 onChange={(newValue) => {
                                     onChange(newValue)
@@ -556,7 +560,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                                         ySeriesLogicProps.series.column.name,
                                         {
                                             display: {
-                                                displayType: newValue as 'auto' | 'line' | 'bar',
+                                                displayType: newValue as 'auto' | 'line' | 'bar' | 'area',
                                             },
                                         }
                                     )

@@ -24,6 +24,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         [ChartDisplayType.ActionsUnstackedBar]: 'Unstacked bar chart',
         [ChartDisplayType.ActionsStackedBar]: 'Stacked bar chart',
         [ChartDisplayType.ActionsAreaGraph]: 'Area chart',
+        [ChartDisplayType.ActionsMixedGraph]: 'Mixed chart',
         [ChartDisplayType.ActionsLineGraphCumulative]: 'Cumulative line chart',
         [ChartDisplayType.BoldNumber]: 'Big number',
         [ChartDisplayType.ActionsPie]: 'Pie chart',
@@ -97,6 +98,14 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.ActionsAreaGraph,
                     icon: <IconAreaChart />,
                     label: 'Area chart',
+                    disabledReason: !canDisplayContinuousChart
+                        ? 'Requires at least two columns, including one numeric column'
+                        : undefined,
+                },
+                {
+                    value: ChartDisplayType.ActionsMixedGraph,
+                    icon: <IconTrends />,
+                    label: 'Mixed chart',
                     disabledReason: !canDisplayContinuousChart
                         ? 'Requires at least two columns, including one numeric column'
                         : undefined,

@@ -64,6 +64,26 @@ const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings 
     return GraphType.Line
 }
 
+const getSeriesIsArea = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): boolean => {
+    if (settings?.display?.displayType && settings.display.displayType !== 'auto') {
+        return settings.display.displayType === 'area'
+    }
+
+    return chartType === ChartDisplayType.ActionsAreaGraph
+}
+
+const getDatasetOrder = (chartType: ChartDisplayType, graphType: GraphType, seriesIsArea: boolean): number => {
+    if (chartType !== ChartDisplayType.ActionsMixedGraph) {
+        return 1
+    }
+
+    if (seriesIsArea) {
+        return 3
+    }
+
+    return graphType === GraphType.Bar ? 2 : 1
+}
+
 const getYAxisSettings = (
     chartSettings: ChartSettings,
     settings: YAxisSettings | undefined,
@@ -151,7 +171,7 @@ export const LineGraph = ({
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
-    const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
+    const stacksSeries = visualizationType === ChartDisplayType.ActionsAreaGraph || isStackedBarChart
     const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
 
     const MAX_SERIES = 200
@@ -177,14 +197,14 @@ export const LineGraph = ({
 
         return ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
             const seriesColor = settings?.display?.color ?? getSeriesColor(index)
-            let backgroundColor = isAreaChart ? hexToRGBA(seriesColor, 0.5) : seriesColor
+            const graphType = getGraphType(visualizationType, settings)
+            const seriesIsArea = getSeriesIsArea(visualizationType, settings)
+            let backgroundColor = seriesIsArea ? hexToRGBA(seriesColor, 0.5) : seriesColor
 
             // Dim non-hovered bars in stacked bar charts when shift is pressed
             if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
                 backgroundColor = hexToRGBA(seriesColor, 0.2)
             }
-
-            const graphType = getGraphType(visualizationType, settings)
 
             let yAxisID = 'yLeft'
             if (chartSettings.stackBars100) {
@@ -209,11 +229,11 @@ export const LineGraph = ({
                 borderWidth: graphType === GraphType.Bar ? 0 : 2,
                 pointRadius: 0,
                 hitRadius: 0,
-                order: 1,
+                order: getDatasetOrder(visualizationType, graphType, seriesIsArea),
                 hoverBorderWidth: graphType === GraphType.Bar ? 0 : 2,
                 hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
                 type: graphType,
-                fill: isAreaChart ? 'origin' : false,
+                fill: seriesIsArea ? 'origin' : false,
                 yAxisID,
                 ...(settings?.display?.trendLine && xData && yData && xData.data.length > 0 && seriesData.length > 0
                     ? {
@@ -231,7 +251,6 @@ export const LineGraph = ({
         ySeriesData,
         xData,
         yData,
-        isAreaChart,
         isHighlightBarMode,
         hoveredDatasetIndex,
         visualizationType,
@@ -645,7 +664,7 @@ export const LineGraph = ({
                               yLeft: getYAxisSettings(
                                   chartSettings,
                                   chartSettings.leftYAxisSettings,
-                                  isAreaChart || isStackedBarChart,
+                                  stacksSeries,
                                   'left',
                                   tickOptions,
                                   gridOptions
@@ -657,7 +676,7 @@ export const LineGraph = ({
                               yRight: getYAxisSettings(
                                   chartSettings,
                                   chartSettings.rightYAxisSettings,
-                                  isAreaChart || isStackedBarChart,
+                                  stacksSeries,
                                   'right',
                                   tickOptions,
                                   gridOptions
