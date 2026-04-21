@@ -12,9 +12,9 @@ export function createSlaRegistry() {
     return new IngestionSlaBuilder().group(INGESTION_LATENCY_GROUP, (latency) =>
         latency.indicator(INGESTION_LAG_INDICATOR, (ingestionLag) =>
             ingestionLag
-                .objective('under_10s', { thresholdMs: 10000, targetRatio: 0.99 })
-                .objective('under_60s', { thresholdMs: 60000, targetRatio: 0.99 })
-                .agreement('under_120s', { thresholdMs: 120000, targetRatio: 0.99 })
+                .objective('under_10s', { thresholdMs: 10000, targetRatio: 0.9 })
+                .objective('under_30s', { thresholdMs: 30000, targetRatio: 0.995 })
+                .agreement('under_60s', { thresholdMs: 60000, targetRatio: 0.9999 })
         )
     )
 }

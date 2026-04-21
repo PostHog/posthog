@@ -1,54 +1,54 @@
 {
-  "id": 30,
-  "type": "stat",
-  "title": "SLO (5m)",
-  "description": "Measured compliance ratio per declared SLI/SLO/SLA for the selected pipeline and lane. One series per (sli, name, kind). Series auto-discovered from ingestion_slo_target_ratio — supply $pipeline and $lane only.",
-  "gridPos": { "x": 6, "y": 0, "h": 3, "w": 12 },
-  "fieldConfig": {
-    "defaults": {
-      "mappings": [],
-      "thresholds": {
-        "mode": "absolute",
-        "steps": [
-          { "color": "red", "value": null },
-          { "color": "#EAB839", "value": 0.9995 },
-          { "color": "green", "value": 0.9999 }
-        ]
-      },
-      "color": { "mode": "thresholds" },
-      "decimals": 3,
-      "max": 1,
-      "min": 0,
-      "unit": "percentunit"
+    "id": 30,
+    "type": "stat",
+    "title": "SLO (5m)",
+    "description": "Measured compliance ratio per declared SLI/SLO/SLA for the selected pipeline and lane. One series per (sli, name, kind). Series auto-discovered from ingestion_slo_target_ratio — supply $pipeline and $lane only.",
+    "gridPos": { "x": 6, "y": 0, "h": 3, "w": 12 },
+    "fieldConfig": {
+        "defaults": {
+            "mappings": [],
+            "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "#EAB839", "value": 0.9995 },
+                    { "color": "green", "value": 0.9999 }
+                ]
+            },
+            "color": { "mode": "thresholds" },
+            "decimals": 3,
+            "max": 1,
+            "min": 0,
+            "unit": "percentunit"
+        },
+        "overrides": []
     },
-    "overrides": []
-  },
-  "pluginVersion": "12.4.1",
-  "targets": [
-    {
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "editorMode": "code",
-      "expr": "sum by (pipeline, lane, sli, le) (increase({__name__=~\"ingestion_sli_.*_ms_histogram_bucket\", pipeline=\"$pipeline\", lane=\"$lane\"}[5m])) / ignoring(le) group_left sum by (pipeline, lane, sli) (increase({__name__=~\"ingestion_sli_.*_ms_histogram_bucket\", pipeline=\"$pipeline\", lane=\"$lane\", le=\"+Inf\"}[5m])) * on (pipeline, lane, sli, le) group_left (name, kind) ingestion_slo_target_ratio{pipeline=\"$pipeline\", lane=\"$lane\"}",
-      "instant": false,
-      "legendFormat": "{{sli}} / {{name}} ({{kind}})",
-      "range": true,
-      "refId": "A"
+    "pluginVersion": "12.4.1",
+    "targets": [
+        {
+            "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+            "editorMode": "code",
+            "expr": "sum by (pipeline, lane, sli, le) (increase({__name__=~\"ingestion_sli_.*_ms_histogram_bucket\", pipeline=\"$pipeline\", lane=\"$lane\"}[5m])) / ignoring(le) group_left sum by (pipeline, lane, sli) (increase({__name__=~\"ingestion_sli_.*_ms_histogram_bucket\", pipeline=\"$pipeline\", lane=\"$lane\", le=\"+Inf\"}[5m])) * on (pipeline, lane, sli, le) group_left (name, kind) ingestion_slo_target_ratio{pipeline=\"$pipeline\", lane=\"$lane\"}",
+            "instant": false,
+            "legendFormat": "{{sli}} / {{name}} ({{kind}})",
+            "range": true,
+            "refId": "A"
+        }
+    ],
+    "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+    "options": {
+        "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"],
+            "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard"
     }
-  ],
-  "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-  "options": {
-    "reduceOptions": {
-      "values": false,
-      "calcs": ["lastNotNull"],
-      "fields": ""
-    },
-    "orientation": "auto",
-    "textMode": "auto",
-    "wideLayout": true,
-    "colorMode": "value",
-    "graphMode": "area",
-    "justifyMode": "auto",
-    "showPercentChange": false,
-    "percentChangeColorMode": "standard"
-  }
 }
