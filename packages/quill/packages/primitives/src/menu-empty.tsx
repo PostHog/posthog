@@ -1,6 +1,6 @@
 import * as React from 'react'
 
-import { Button, buttonVariants } from './button'
+import { buttonVariants } from './button'
 import { cn } from './lib/utils'
 
 function MenuEmpty({ className, children, ...props }: React.ComponentProps<'div'>): React.ReactElement {
@@ -8,7 +8,8 @@ function MenuEmpty({ className, children, ...props }: React.ComponentProps<'div'
         <div
             {...props}
             data-slot="menu-empty"
-            role="alert"
+            role="status"
+            aria-live="polite"
             className={cn(
                 buttonVariants({ size: 'sm', left: true, inert: true }),
                 'font-normal w-full h-7', 
