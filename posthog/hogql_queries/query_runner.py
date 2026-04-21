@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    BreakdownType,
     CacheMissResponse,
     CalendarHeatmapQuery,
     ChartDisplayType,
@@ -100,7 +101,7 @@ from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
-from posthog.hogql_queries.validation.rules import get_data_warehouse_breakdown_error
+from posthog.hogql_queries.validation.rules import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,
     QueryValidationRule,
@@ -1830,16 +1831,21 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
             return
 
-        # The default logic below applies to all insights and a lot of other queries
-        # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
-        should_ignore_dashboard_properties = (
-            dashboard_filter.properties
-            and hasattr(self.query, "series")
+        has_data_warehouse_series = (
+            hasattr(self.query, "series")
             and isinstance(self.query.series, list)
             and has_data_warehouse_node(self.query.series)
         )
 
-        if dashboard_filter.properties and not should_ignore_dashboard_properties:
+        should_ignore_dashboard_breakdown = has_data_warehouse_series and (
+            has_multi_breakdown(dashboard_filter.breakdown_filter)
+            or (
+                has_single_breakdown(dashboard_filter.breakdown_filter)
+                and dashboard_filter.breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE
+            )
+        )
+
+        if dashboard_filter.properties and not has_data_warehouse_series:
             if self.query.properties and has_any_property_filters(self.query.properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")
@@ -1876,21 +1882,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if dashboard_filter.explicitDate is not None:
                 date_range.explicitDate = dashboard_filter.explicitDate
 
-        if dashboard_filter.breakdown_filter:
+        if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
             if hasattr(self.query, "breakdownFilter"):
-                should_ignore_dashboard_breakdown = (
-                    hasattr(self.query, "series")
-                    and isinstance(self.query.series, list)
-                    and get_data_warehouse_breakdown_error(
-                        team=self.team,
-                        series=self.query.series,
-                        breakdown_filter=dashboard_filter.breakdown_filter,
-                    )
-                    is not None
-                )
-
-                if not should_ignore_dashboard_breakdown:
-                    self.query.breakdownFilter = dashboard_filter.breakdown_filter
+                self.query.breakdownFilter = dashboard_filter.breakdown_filter
             else:
                 capture_exception(
                     NotImplementedError(
