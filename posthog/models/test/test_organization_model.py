@@ -119,7 +119,7 @@ class TestOrganization(BaseTest):
         [
             ("no_features", None, "free"),
             ("empty_features", [], "free"),
-            ("only_unknown_feature", [{"key": "made_up_feature"}], "free"),
+            ("unknown_feature_treated_as_paid", [{"key": "made_up_feature"}], "paid"),
             ("scale_feature_present", [{"key": "recordings_file_export"}], "paid"),
             ("multiple_scale_features", [{"key": "zapier"}, {"key": "group_analytics"}], "paid"),
             (

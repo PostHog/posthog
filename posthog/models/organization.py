@@ -325,28 +325,28 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         """Best-effort plan tier derived from `available_product_features`.
 
         "enterprise" if any Enterprise-only feature is present (per `License.ENTERPRISE_FEATURES`
-        minus `SCALE_FEATURES`), "paid" if any Scale feature is present, otherwise "free".
-        Source of truth for features is the billing service; this just classifies what's synced.
+        minus `SCALE_FEATURES`), "paid" if any feature is present, otherwise "free".
+        Paid uses "any feature present" rather than an allow-list because the billing service
+        grants features (alerts, access_control, surveys_styling, ...) that postdate
+        `License.SCALE_FEATURES`, and an allow-list silently downgrades those orgs to free.
         """
-        try:
-            from ee.models.license import License
-        except ImportError:
-            return "free"
-
         available_keys = {
             feature.get("key") for feature in (self.available_product_features or []) if feature and feature.get("key")
         }
         if not available_keys:
             return "free"
 
-        scale_features = {str(f) for f in License.SCALE_FEATURES}
-        enterprise_only = {str(f) for f in License.ENTERPRISE_FEATURES} - scale_features
+        try:
+            from ee.models.license import License
+
+            scale_features = {str(f) for f in License.SCALE_FEATURES}
+            enterprise_only = {str(f) for f in License.ENTERPRISE_FEATURES} - scale_features
+        except ImportError:
+            enterprise_only = set()
 
         if available_keys & enterprise_only:
             return "enterprise"
-        if available_keys & scale_features:
-            return "paid"
-        return "free"
+        return "paid"
 
     def limit_product_until_end_of_billing_cycle(self, resource: "QuotaResource") -> None:
         """
