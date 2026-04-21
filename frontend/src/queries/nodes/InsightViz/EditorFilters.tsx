@@ -383,7 +383,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         key={editorFilterGroup.title}
                         editorFilterGroup={editorFilterGroup}
                         insightProps={insightProps}
-                        query={query}
                         queryKind={querySource?.kind}
                     />
                 ))}
