@@ -1,60 +1,65 @@
 import { generateEmailTrackingCode, parseEmailTrackingCode } from './tracking-code'
 
+// Hand-encode a raw payload the same way generateEmailTrackingCode does, so we can test
+// pre-fix legacy shapes (4-segment) without pulling in the generator.
+const encodeRaw = (payload: string): string =>
+    Buffer.from(payload, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
 describe('email tracking code', () => {
-    it('roundtrips all invocation fields including parentRunId', () => {
-        const encoded = generateEmailTrackingCode({
-            functionId: 'fn-1',
-            id: 'inv-2',
-            teamId: 3,
-            parentRunId: 'batch-4',
-            state: { actionId: 'act-5' },
+    describe('parseEmailTrackingCode', () => {
+        it.each([
+            {
+                name: 'roundtrips all invocation fields including parentRunId',
+                encoded: generateEmailTrackingCode({
+                    functionId: 'fn-1',
+                    id: 'inv-2',
+                    teamId: 3,
+                    parentRunId: 'batch-4',
+                    state: { actionId: 'act-5' },
+                }),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                },
+            },
+            {
+                name: 'omits parentRunId when not supplied',
+                encoded: generateEmailTrackingCode({
+                    functionId: 'fn-1',
+                    id: 'inv-2',
+                    teamId: 3,
+                    state: { actionId: 'act-5' },
+                }),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: undefined,
+                },
+            },
+            {
+                // Webhooks for emails already in flight when the fix deploys must still parse.
+                name: 'parses legacy 4-segment codes emitted before parentRunId existed',
+                encoded: encodeRaw('fn-1:inv-2:3:act-5'),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: undefined,
+                },
+            },
+            {
+                name: 'returns null when the encoded string is empty',
+                encoded: '',
+                expected: null,
+            },
+        ])('$name', ({ encoded, expected }) => {
+            expect(parseEmailTrackingCode(encoded)).toEqual(expected)
         })
-
-        expect(parseEmailTrackingCode(encoded)).toEqual({
-            functionId: 'fn-1',
-            invocationId: 'inv-2',
-            teamId: '3',
-            actionId: 'act-5',
-            parentRunId: 'batch-4',
-        })
-    })
-
-    it('omits parentRunId when not supplied', () => {
-        const encoded = generateEmailTrackingCode({
-            functionId: 'fn-1',
-            id: 'inv-2',
-            teamId: 3,
-            state: { actionId: 'act-5' },
-        })
-
-        expect(parseEmailTrackingCode(encoded)).toEqual({
-            functionId: 'fn-1',
-            invocationId: 'inv-2',
-            teamId: '3',
-            actionId: 'act-5',
-            parentRunId: undefined,
-        })
-    })
-
-    it('parses legacy 4-segment codes emitted before parentRunId existed', () => {
-        // Hand-encoded "fn-1:inv-2:3:act-5" — the pre-fix format. Webhooks for emails
-        // already in flight when the fix deploys must still parse cleanly.
-        const legacy = Buffer.from('fn-1:inv-2:3:act-5', 'utf8')
-            .toString('base64')
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/, '')
-
-        expect(parseEmailTrackingCode(legacy)).toEqual({
-            functionId: 'fn-1',
-            invocationId: 'inv-2',
-            teamId: '3',
-            actionId: 'act-5',
-            parentRunId: undefined,
-        })
-    })
-
-    it('returns null when functionId or invocationId are missing', () => {
-        expect(parseEmailTrackingCode('')).toBeNull()
     })
 })
