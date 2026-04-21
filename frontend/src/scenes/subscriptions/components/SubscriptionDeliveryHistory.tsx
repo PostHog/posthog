@@ -78,11 +78,17 @@ function ExpandedSummaryRow({ summary }: { summary: string }): JSX.Element {
     )
 }
 
+function deliverySummaryText(row: SubscriptionDeliveryApi): string | null {
+    return row.change_summary?.summary ?? null
+}
+
 // Module-scope const keeps the reference stable across parent re-renders.
 const DELIVERY_TABLE_EXPANDABLE = {
-    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(row.change_summary),
-    // rowExpandable above guarantees change_summary is truthy when this fires.
-    expandedRowRender: (row: SubscriptionDeliveryApi) => <ExpandedSummaryRow summary={row.change_summary as string} />,
+    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(deliverySummaryText(row)),
+    // rowExpandable above guarantees deliverySummaryText returns a non-null string when this fires.
+    expandedRowRender: (row: SubscriptionDeliveryApi) => (
+        <ExpandedSummaryRow summary={deliverySummaryText(row) as string} />
+    ),
 }
 
 // When a test or story wants a row visible in its expanded state on first render.

@@ -210,6 +210,10 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         )
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
+    # Email/Slack helpers render the summary text inline; unpack it from the JSON object
+    # we persist so the downstream signatures stay on plain strings.
+    summary_text: str | None = inputs.change_summary.get("summary") if inputs.change_summary else None
+
     assets_by_id = await database_sync_to_async(
         lambda: {
             a.id: a
@@ -249,7 +253,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                     invite_message=inputs.invite_message or "" if inputs.is_new_subscription_target else None,
                     total_asset_count=inputs.total_insight_count,
                     send_async=False,
-                    change_summary=inputs.change_summary,
+                    change_summary=summary_text,
                 )
                 success_count += 1
                 recipient_results.append(RecipientResult(recipient=email, status="success"))
@@ -343,7 +347,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 assets,
                 total_asset_count=inputs.total_insight_count,
                 is_new_subscription=inputs.is_new_subscription_target,
-                change_summary=inputs.change_summary,
+                change_summary=summary_text,
             )
 
             if delivery_result.is_complete_success:

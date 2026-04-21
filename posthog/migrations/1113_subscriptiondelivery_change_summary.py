@@ -8,6 +8,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="subscriptiondelivery",
             name="change_summary",
-            field=models.TextField(blank=True, default=None, null=True),
+            field=models.JSONField(blank=True, default=None, null=True),
         ),
     ]

@@ -283,8 +283,9 @@ class SubscriptionDelivery(UUIDModel):
     content_snapshot = models.JSONField(default=dict)
 
     # AI-generated summary sent in the delivery, when summary_enabled is on for the subscription.
-    # Persisted here so the summary can be surfaced in delivery history and correlated with feedback.
-    change_summary = models.TextField(null=True, blank=True, default=None)
+    # Object shape ({"summary": "..."}) so future extensions (backing data, stats, feedback, etc.)
+    # can land without another migration. None when no summary is attached.
+    change_summary = models.JSONField(null=True, blank=True, default=None)
 
     # Per-recipient delivery results
     recipient_results = models.JSONField(default=list)

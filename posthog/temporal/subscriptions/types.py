@@ -78,7 +78,7 @@ class DeliverSubscriptionInputs:
     is_new_subscription_target: bool = False
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
-    change_summary: typing.Optional[str] = None
+    change_summary: typing.Optional[dict[str, typing.Any]] = None
 
 
 @dataclasses.dataclass
@@ -152,7 +152,7 @@ class UpdateDeliveryRecordInputs:
     content_snapshot: typing.Optional[dict[str, typing.Any]] = None
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
     error: typing.Optional[dict[str, typing.Any]] = None
-    change_summary: typing.Optional[str] = None
+    change_summary: typing.Optional[dict[str, typing.Any]] = None
     finished: bool = False
 
 

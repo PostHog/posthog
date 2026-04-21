@@ -1,5 +1,6 @@
 import json
 import uuid
+import typing
 import asyncio
 import datetime as dt
 
@@ -176,8 +177,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         delivery_recipient_results: list[dict] = []
         # Bound before the outer try so the finally block can always pass it to
         # update_delivery_record, even on early returns (no-assets SKIPPED) or
-        # exceptions before the summary activity runs.
-        change_summary: str | None = None
+        # exceptions before the summary activity runs. Object shape so future
+        # extensions (backing data, stats) land without another migration.
+        change_summary: dict[str, typing.Any] | None = None
 
         try:
             # Create delivery history record — uuid4() is deterministic across
@@ -304,7 +306,8 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         heartbeat_timeout=dt.timedelta(seconds=60),
                         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                     )
-                    change_summary = snapshot_result.summary_text
+                    if snapshot_result.summary_text is not None:
+                        change_summary = {"summary": snapshot_result.summary_text}
                 except Exception:
                     temporalio.workflow.logger.warning(
                         "process_subscription.snapshot_failed",

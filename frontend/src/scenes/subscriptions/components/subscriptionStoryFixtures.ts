@@ -109,8 +109,10 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Completed,
         error: null,
-        change_summary:
-            'Weekly rollup held steady — north star metric is up 3% week-over-week, within the normal band. Enable "Compare to previous period" to make the weekly delta easier to eyeball.',
+        change_summary: {
+            summary:
+                'Weekly rollup held steady — north star metric is up 3% week-over-week, within the normal band. Enable "Compare to previous period" to make the weekly delta easier to eyeball.',
+        },
         created_at: '2026-04-06T17:00:05Z',
         last_updated_at: '2026-04-06T17:00:10Z',
         finished_at: '2026-04-06T17:00:12Z',
@@ -167,8 +169,10 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Completed,
         error: null,
-        change_summary:
-            'Dashboard digest: signups rose 12% on the back of a referral push on Monday; error rate stable inside its usual range.',
+        change_summary: {
+            summary:
+                'Dashboard digest: signups rose 12% on the back of a referral push on Monday; error rate stable inside its usual range.',
+        },
         created_at: '2026-04-04T14:00:03Z',
         last_updated_at: '2026-04-04T14:00:08Z',
         finished_at: '2026-04-04T14:00:10Z',
@@ -206,7 +210,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Completed,
         error: null,
-        change_summary: 'Manual test delivery — same shape as yesterday, no regressions to call out.',
+        change_summary: { summary: 'Manual test delivery — same shape as yesterday, no regressions to call out.' },
         created_at: '2026-04-01T16:45:00Z',
         last_updated_at: '2026-04-01T16:45:20Z',
         finished_at: '2026-04-01T16:45:22Z',
