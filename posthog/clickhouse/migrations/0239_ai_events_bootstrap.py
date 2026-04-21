@@ -26,7 +26,7 @@ operations = [
     ),
     run_sql_with_exceptions(
         DISTRIBUTED_AI_EVENTS_TABLE_SQL(),
-        node_roles=[NodeRole.AI_EVENTS],
+        node_roles=[NodeRole.AI_EVENTS, NodeRole.DATA],
     ),
     run_sql_with_exceptions(
         KAFKA_AI_EVENTS_TABLE_SQL(),
