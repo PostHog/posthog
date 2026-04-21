@@ -87,46 +87,20 @@ describe('ApiClient', () => {
             })
         }
 
-        it('rejects queries whose kind is not InsightActorsQuery', async () => {
+        it.each([
+            ['wrong outer kind', { kind: 'ActorsQuery', source: { kind: 'TrendsQuery' } }, /InsightActorsQuery/],
+            [
+                'non-trends inner source',
+                { kind: 'InsightActorsQuery', source: { kind: 'FunnelsQuery' } },
+                /TrendsQuery/,
+            ],
+            ['missing source', { kind: 'InsightActorsQuery' }, /TrendsQuery/],
+        ] as const)('rejects %s before any network call', async (_label, query, expectedError) => {
             const mockFetch = vi.fn()
             vi.stubGlobal('fetch', mockFetch)
 
             const client = createClient()
-            await expect(
-                client.query({ projectId: '1' }).trendsActors({
-                    query: { kind: 'ActorsQuery', source: { kind: 'TrendsQuery' } },
-                })
-            ).rejects.toThrow(/InsightActorsQuery/)
-            expect(mockFetch).not.toHaveBeenCalled()
-
-            vi.unstubAllGlobals()
-        })
-
-        it('rejects InsightActorsQuery whose source is not a TrendsQuery', async () => {
-            const mockFetch = vi.fn()
-            vi.stubGlobal('fetch', mockFetch)
-
-            const client = createClient()
-            await expect(
-                client.query({ projectId: '1' }).trendsActors({
-                    query: { kind: 'InsightActorsQuery', source: { kind: 'FunnelsQuery' } },
-                })
-            ).rejects.toThrow(/TrendsQuery/)
-            expect(mockFetch).not.toHaveBeenCalled()
-
-            vi.unstubAllGlobals()
-        })
-
-        it('rejects InsightActorsQuery with a missing source', async () => {
-            const mockFetch = vi.fn()
-            vi.stubGlobal('fetch', mockFetch)
-
-            const client = createClient()
-            await expect(
-                client.query({ projectId: '1' }).trendsActors({
-                    query: { kind: 'InsightActorsQuery' },
-                })
-            ).rejects.toThrow(/TrendsQuery/)
+            await expect(client.query({ projectId: '1' }).trendsActors({ query })).rejects.toThrow(expectedError)
             expect(mockFetch).not.toHaveBeenCalled()
 
             vi.unstubAllGlobals()
