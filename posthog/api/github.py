@@ -54,15 +54,23 @@ def get_github_login(user: User) -> str | None:
     When ``_prefetched_github_integrations`` is set on the user, that prefetch is
     used. Otherwise, queries are issued.
     """
-    # 1. Check GitHub integrations created by this user
-    integration_login = (
-        Integration.objects.filter(kind="github", created_by=user)
-        .exclude(config__connecting_user_github_login=None)
-        .values_list("config__connecting_user_github_login", flat=True)
-        .first()
-    )
-    if integration_login:
-        return str(integration_login)
+    # 1. Check GitHub integrations created by this user.
+    # Use prefetch data when available to avoid N+1 queries.
+    prefetched_integrations = getattr(user, "_prefetched_github_integrations", None)
+    if prefetched_integrations is not None:
+        for integration in prefetched_integrations:
+            integration_login = (integration.config or {}).get("connecting_user_github_login")
+            if integration_login:
+                return str(integration_login)
+    else:
+        integration_login = (
+            Integration.objects.filter(kind="github", created_by=user)
+            .exclude(config__connecting_user_github_login=None)
+            .values_list("config__connecting_user_github_login", flat=True)
+            .first()
+        )
+        if integration_login:
+            return str(integration_login)
     # 2. Check social auth
     social_auth_login = (
         user.social_auth.filter(provider="github")
