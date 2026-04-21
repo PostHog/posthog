@@ -8222,7 +8222,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Mock successful flag evaluation response
         mock_get_flags.return_value = {
-            "feature_flags": {
+            "flags": {
                 "test-flag": {
                     "enabled": True,
                     "variant": None,
@@ -8259,7 +8259,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Mock successful flag evaluation response
         mock_get_flags.return_value = {
-            "feature_flags": {
+            "flags": {
                 "test-flag": {
                     "enabled": False,
                     "variant": None,
@@ -8376,7 +8376,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         mock_get_flags.return_value = {
-            "feature_flags": {
+            "flags": {
                 "test-flag": {
                     "enabled": True,
                     "variant": None,
@@ -8405,7 +8405,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
 
         # Mock unexpected response format (not a dict)
-        mock_get_flags.return_value = {"feature_flags": {"test-flag": "unexpected_string"}}
+        mock_get_flags.return_value = {"flags": {"test-flag": "unexpected_string"}}
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
