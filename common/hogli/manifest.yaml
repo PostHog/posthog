@@ -112,6 +112,7 @@ devbox:
     devbox:users: null
     devbox:share: null
     devbox:cleanup:disk: null
+    devbox:task: null
 devenv:
     dev:setup: null
     dev:generate: null

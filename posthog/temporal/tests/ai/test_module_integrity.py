@@ -103,7 +103,6 @@ class TestSessionSummaryTemporalModuleIntegrity:
     def test_session_summary_workflows(self):
         """Ensure all expected session summary workflows are present."""
         expected_workflows = [
-            "SummarizeSingleSessionStreamWorkflow",
             "SummarizeSingleSessionWorkflow",
             "SummarizeSessionGroupWorkflow",
         ]
@@ -120,7 +119,6 @@ class TestSessionSummaryTemporalModuleIntegrity:
     def test_session_summary_activities(self):
         """Ensure all expected session summary activities are present."""
         expected_activities = [
-            "stream_llm_single_session_summary_activity",
             "get_llm_single_session_summary_activity",
             "fetch_session_batch_events_activity",
             "extract_session_group_patterns_activity",
@@ -128,7 +126,6 @@ class TestSessionSummaryTemporalModuleIntegrity:
             "fetch_session_data_activity",
             "combine_patterns_from_chunks_activity",
             "split_session_summaries_into_chunks_for_patterns_extraction_activity",
-            "validate_llm_single_session_summary_with_videos_activity",
             "prep_session_video_asset_activity",
             "upload_video_to_gemini_activity",
             "analyze_video_segment_activity",

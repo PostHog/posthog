@@ -77,7 +77,7 @@ Test the SummarizeSingleSessionWorkflow with full video validation:
 python manage.py summarize_single_session <session_id> [--team-id N] [--user-id N]
 ```
 
-Uses first team/user if omitted. Runs `execute_summarize_session` with `video_validation_enabled='full'`.
+Uses first team/user if omitted. Runs `execute_summarize_session` with video-based summarization.
 
 ## Repository selection (agentic)
 

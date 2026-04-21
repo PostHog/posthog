@@ -49,7 +49,7 @@ def get_tiktok_resource(
 
     # Set write disposition based on incremental field usage
     if should_use_incremental_field and config.incremental_fields:
-        resource["write_disposition"] = {  # type: ignore[typeddict-item]
+        resource["write_disposition"] = {
             "disposition": "merge",
             "strategy": "upsert",
         }
@@ -92,7 +92,6 @@ def tiktok_ads_source(
             "auth": TikTokAdsAuth(access_token),
         },
         "resource_defaults": {
-            "primary_key": "id" if endpoint_type == EndpointType.ENTITY else None,
             "write_disposition": "replace",
         },
         "resources": cast(list, resources),

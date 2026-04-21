@@ -1926,9 +1926,14 @@ class ExperimentVariant(BaseModel):
     )
     key: str = Field(..., description="Variant key, e.g. 'control', 'test', 'variant_a'.")
     name: str | None = Field(default=None, description="Human-readable variant name.")
-    rollout_percentage: float = Field(
-        ...,
-        description=("Percentage of users assigned to this variant (0–100). All variants must sum to 100."),
+    rollout_percentage: float | None = None
+    split_percent: float | None = Field(
+        default=None,
+        description=(
+            "Percentage of users assigned to this variant (0–100). All variants must"
+            " sum to 100. One of split_percent (recommended) or rollout_percentage must"
+            " be provided."
+        ),
     )
 
 
