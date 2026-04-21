@@ -322,14 +322,14 @@ def _import_custom_commands() -> None:
     if not commands_dir:
         return
 
-    # Skip if another import chain is already loading the commands package (directly or via a
-    # parent package like `hogli_commands`). Importing again would create a second module
-    # object and duplicate `@cli.command` registrations against different module identities,
-    # which breaks test patches that target one path or the other.
+    # Skip if the commands package or any of its submodules is already in sys.modules.
+    # Submodules are what carry `@cli.command` decorators, so re-importing would create
+    # a second module object and duplicate registrations against different module
+    # identities, which breaks test patches that target one path or the other.
     # NOTE: commands_dir should NOT be named "hogli" to avoid clobbering the hogli package
     package_name = commands_dir.name
     for mod_name in sys.modules:
-        if mod_name == package_name or mod_name.endswith("." + package_name):
+        if mod_name == package_name or mod_name.startswith(package_name + "."):
             return
 
     # Add commands dir to path so imports work

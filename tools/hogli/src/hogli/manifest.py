@@ -227,8 +227,7 @@ class Manifest:
         for category_key, category in self._data.items():
             if category_key in {"metadata", "config"} or not isinstance(category, dict):
                 continue
-            if isinstance(category, dict):
-                commands.extend(category.keys())
+            commands.extend(category.keys())
         return commands
 
     def get_command_config(self, command_name: str) -> dict | None:

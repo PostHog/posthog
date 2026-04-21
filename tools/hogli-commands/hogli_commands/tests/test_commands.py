@@ -12,23 +12,23 @@ from hogli_commands.commands import _infer_process_manager, _is_posthog_dev
 
 
 class TestProcessManagerInference:
-    def test_start_defaults_to_phrocs(self, monkeypatch) -> None:
-        monkeypatch.delenv("HOGLI_PROCESS_MANAGER", raising=False)
-        monkeypatch.setattr("sys.argv", ["hogli", "start"])
+    @pytest.mark.parametrize(
+        ("env_value", "argv", "expected"),
+        [
+            (None, ["hogli", "start"], "phrocs"),
+            (None, ["hogli", "start", "--mprocs"], "mprocs"),
+            ("/usr/local/bin/phrocs", ["hogli", "start", "--mprocs"], "phrocs"),
+        ],
+        ids=["default", "mprocs_flag", "env_override"],
+    )
+    def test_infer_process_manager(self, monkeypatch, env_value, argv, expected) -> None:
+        if env_value is None:
+            monkeypatch.delenv("HOGLI_PROCESS_MANAGER", raising=False)
+        else:
+            monkeypatch.setenv("HOGLI_PROCESS_MANAGER", env_value)
+        monkeypatch.setattr("sys.argv", argv)
 
-        assert _infer_process_manager("start") == "phrocs"
-
-    def test_start_uses_mprocs_flag(self, monkeypatch) -> None:
-        monkeypatch.delenv("HOGLI_PROCESS_MANAGER", raising=False)
-        monkeypatch.setattr("sys.argv", ["hogli", "start", "--mprocs"])
-
-        assert _infer_process_manager("start") == "mprocs"
-
-    def test_env_override_wins(self, monkeypatch) -> None:
-        monkeypatch.setenv("HOGLI_PROCESS_MANAGER", "/usr/local/bin/phrocs")
-        monkeypatch.setattr("sys.argv", ["hogli", "start", "--mprocs"])
-
-        assert _infer_process_manager("start") == "phrocs"
+        assert _infer_process_manager("start") == expected
 
 
 class TestIsPosthogDev:
