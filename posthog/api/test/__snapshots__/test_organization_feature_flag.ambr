@@ -1112,7 +1112,16 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."experiment_id",
+         "posthog_taggeditem"."cohort_id",
+         "posthog_taggeditem"."notebook_id",
+         "posthog_taggeditem"."survey_id",
+         "posthog_taggeditem"."session_recording_playlist_id",
+         "posthog_taggeditem"."data_warehouse_saved_query_id",
+         "posthog_taggeditem"."hog_function_id",
+         "posthog_taggeditem"."batch_export_id",
+         "posthog_taggeditem"."error_tracking_issue_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
@@ -1138,7 +1147,16 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."experiment_id",
+         "posthog_taggeditem"."cohort_id",
+         "posthog_taggeditem"."notebook_id",
+         "posthog_taggeditem"."survey_id",
+         "posthog_taggeditem"."session_recording_playlist_id",
+         "posthog_taggeditem"."data_warehouse_saved_query_id",
+         "posthog_taggeditem"."hog_function_id",
+         "posthog_taggeditem"."batch_export_id",
+         "posthog_taggeditem"."error_tracking_issue_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
@@ -2669,7 +2687,16 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."experiment_id",
+         "posthog_taggeditem"."cohort_id",
+         "posthog_taggeditem"."notebook_id",
+         "posthog_taggeditem"."survey_id",
+         "posthog_taggeditem"."session_recording_playlist_id",
+         "posthog_taggeditem"."data_warehouse_saved_query_id",
+         "posthog_taggeditem"."hog_function_id",
+         "posthog_taggeditem"."batch_export_id",
+         "posthog_taggeditem"."error_tracking_issue_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -2685,7 +2712,16 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."experiment_id",
+         "posthog_taggeditem"."cohort_id",
+         "posthog_taggeditem"."notebook_id",
+         "posthog_taggeditem"."survey_id",
+         "posthog_taggeditem"."session_recording_playlist_id",
+         "posthog_taggeditem"."data_warehouse_saved_query_id",
+         "posthog_taggeditem"."hog_function_id",
+         "posthog_taggeditem"."batch_export_id",
+         "posthog_taggeditem"."error_tracking_issue_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''

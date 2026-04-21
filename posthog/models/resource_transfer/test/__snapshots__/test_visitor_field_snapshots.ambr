@@ -492,6 +492,7 @@
     'people',
     'properties',
     'remove_user_by_uuid',
+    'tagged_items',
     'team_id',
     'to_dict',
     'version',
@@ -641,6 +642,7 @@
     'save',
     'start_date',
     'status',
+    'tagged_items',
     'team_id',
     'updated_at',
   ])
@@ -862,6 +864,7 @@
     'linked_insight_id',
     'question_summaries',
     'response_archives',
+    'tagged_items',
     'targeting_flag',
     'targeting_flag_id',
     'team_id',
