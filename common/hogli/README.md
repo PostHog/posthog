@@ -41,10 +41,13 @@ New to PostHog development? Run `hogli quickstart` to see the essential commands
 To launch the full development stack (backend, nodejs services, workers, frontend):
 
 ```bash
-hogli start
+hogli start          # interactive TUI — stays attached to your terminal
+hogli start -d       # headless daemon — returns immediately, logs to .posthog/.generated/logs
 ```
 
-`hogli start` delegates to [`bin/start`](../bin/start), which orchestrates all services through `phrocs`. When you need a one-shot way to verify your code before pushing:
+`hogli start` delegates to [`bin/start`](../bin/start), which orchestrates all services through `phrocs`. In headless mode, use `hogli start:wait` to block until every service is ready and `hogli start:stop` for a graceful shutdown — both delegate to the same `phrocs` binary over its IPC socket.
+
+When you need a one-shot way to verify your code before pushing:
 
 ```bash
 hogli lint

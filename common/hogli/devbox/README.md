@@ -8,9 +8,13 @@ should do.
 ## Starting the dev stack headlessly in a Coder workspace
 
 Phrocs (the dev process runner invoked by `bin/start`) supports a native
-daemon mode. Combine `bin/start --headless` with `hogli start:wait` so the
+daemon mode. Combine `hogli start -d` with `hogli start:wait` so the
 workspace's `coder_agent.main.startup_script` brings the stack up without
 occupying a terminal, and fails loudly if a process crashes during boot.
+
+`-d` is shorthand for `--headless`; the flag is forwarded through
+`hogli start` to `bin/start`, which spawns `phrocs --daemon` and returns as
+soon as the IPC socket is reachable.
 
 Paste into the Coder template's agent block:
 
@@ -23,7 +27,7 @@ resource "coder_agent" "main" {
     cd /home/coder/posthog
 
     # Spawn the daemon; returns as soon as phrocs binds its IPC socket.
-    ./bin/start --headless
+    hogli start -d
 
     # Block until every process reports ready, or exit non-zero if a
     # process crashed. Exit 2 means timeout, exit 1 means a crash.

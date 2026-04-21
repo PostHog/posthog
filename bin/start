@@ -114,13 +114,14 @@ export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 
 PROCESS_MANAGER="phrocs"
 
-# Detect --headless early; it's incompatible with --mprocs since mprocs has no
-# daemon mode. Only phrocs supports headless.
+# Detect headless mode early (`-d` is the shorthand, `--headless` the long
+# form). Incompatible with --mprocs since mprocs has no daemon mode; only
+# phrocs supports headless.
 HEADLESS=0
-if [[ " $* " == *" --headless "* ]]; then
+if [[ " $* " == *" --headless "* ]] || [[ " $* " == *" -d "* ]]; then
     HEADLESS=1
     if [[ " $* " == *" --mprocs "* ]]; then
-        echo "Error: --headless requires phrocs (not compatible with --mprocs)"
+        echo "Error: -d / --headless requires phrocs (not compatible with --mprocs)"
         exit 1
     fi
 fi
