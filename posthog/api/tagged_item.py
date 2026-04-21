@@ -1,7 +1,6 @@
 import dataclasses
 from typing import Any, Literal, Optional, cast
 
-from django.db import models
 from django.db.models import Prefetch, Q, QuerySet
 
 from drf_spectacular.utils import extend_schema
@@ -70,8 +69,10 @@ class TaggedItemSerializerMixin(serializers.Serializer):
         ret = super().to_representation(obj)
         if hasattr(obj, "prefetched_tags"):
             ret["tags"] = [p.tag.name for p in obj.prefetched_tags]
-        else:
+        elif obj.pk:
             ret["tags"] = list(obj.tagged_items.values_list("tag__name", flat=True)) if obj.tagged_items else []
+        else:
+            ret["tags"] = []
         return ret
 
     def create(self, validated_data):
@@ -128,8 +129,6 @@ class BulkUpdateTagsResponseSerializer(serializers.Serializer):
 
 class TaggedItemViewSetMixin(viewsets.GenericViewSet):
     def prefetch_tagged_items_if_available(self, queryset: QuerySet) -> QuerySet:
-        if isinstance(queryset, models.query.RawQuerySet):
-            return queryset
         return queryset.prefetch_related(
             Prefetch(
                 "tagged_items",

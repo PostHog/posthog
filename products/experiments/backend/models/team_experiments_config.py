@@ -40,5 +40,10 @@ class TeamExperimentsConfig(models.Model):
         help_text="Whether to precompute experiment exposure data for faster query execution.",
     )
 
+    default_only_count_matured_users = models.BooleanField(
+        default=False,
+        help_text="Default value for 'only count matured users' on new experiments in this environment.",
+    )
+
 
 register_team_extension_signal(TeamExperimentsConfig, logger=logger)

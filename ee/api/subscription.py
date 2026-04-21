@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
+import posthoganalytics
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -25,6 +26,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 from posthog.models.integration import Integration
@@ -473,6 +475,20 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 {"detail": "Failed to schedule delivery"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_test_delivery_scheduled",
+            properties={
+                "subscription_id": subscription.id,
+                "team_id": subscription.team_id,
+                "target_type": subscription.target_type,
+                "insight_id": subscription.insight_id,
+                "dashboard_id": subscription.dashboard_id,
+                "temporal_workflow_id": workflow_id,
+            },
+            groups=groups(None, subscription.team),
+        )
 
         return Response(status=status.HTTP_202_ACCEPTED)
 

@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "1105_alter_oauthapplication_authorization_grant_type"),
+        ("posthog", "1111_organizationmembership_invited_by"),
     ]
 
     operations = [

@@ -125,10 +125,10 @@ If the report already has a title that is PR-specific and still accurate after y
     summary: str = Field(
         description="""
 An Axios-style summary in four brief paragraphs:
-- A one-sentence "why it matters" tl;dr of the report.
-- '**What's happening:** …' - a brief description of the concrete facts. Reference specific signals, error types, metrics, or patterns from your research.
-- '**Root cause:** …' - explain the root cause as if explaining to engineer owning this part of the product (or hypotheses, if not fully confident in the root cause).
-- '**How to resolve:** …' - a plan for the actionable code-level fix. If you can see two or more viable paths, propose up to two as subpoints "Option A" and "Option B".
+- A one-sentence "why it matters" tl;dr of the report. Ideally start with "Users …", explaining how users are being impacted, how many, or how important they are. If users aren't impacted, but the team building the product is, describe that. Otherwise, just describe what's going on.
+- '**What's happening:** …' - a brief description of the concrete facts, expanding on the tl;dr sentence. Reference specific signals, errors, metrics, or patterns. Use available tools to do research here like a product manager would.
+- '**Root cause:** …' - dig as deep as you can into the root cause of the issue, and explain it in plain terms. Use concrete references to problematic APIs or UI elements, so that the engineer familiar with the code understands this.
+- '**How to resolve:** …' - a single, concrete action plan for the code-level fix that addresses the root cause directly. Skip if the report is not actionable.
 
 Principles:
 - Be direct and specific. Every sentence must carry information.

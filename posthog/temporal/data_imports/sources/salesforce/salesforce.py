@@ -3,11 +3,10 @@ from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import dlt
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
 
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.salesforce.auth import SalesforceAuth
 
@@ -18,7 +17,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "User": {
             "name": "User",
             "table_name": "user",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -44,7 +42,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "UserRole": {
             "name": "UserRole",
             "table_name": "user_role",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -70,7 +67,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Lead": {
             "name": "Lead",
             "table_name": "lead",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -96,7 +92,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Contact": {
             "name": "Contact",
             "table_name": "contact",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -122,7 +117,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Campaign": {
             "name": "Campaign",
             "table_name": "campaign",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -148,7 +142,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Product2": {
             "name": "Product2",
             "table_name": "product2",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -174,7 +167,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Pricebook2": {
             "name": "Pricebook2",
             "table_name": "pricebook2",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -200,7 +192,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "PricebookEntry": {
             "name": "PricebookEntry",
             "table_name": "pricebook_entry",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -226,7 +217,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Order": {
             "name": "Order",
             "table_name": "order",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -252,7 +242,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Opportunity": {
             "name": "Opportunity",
             "table_name": "opportunity",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -278,7 +267,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "OpportunityHistory": {
             "name": "OpportunityHistory",
             "table_name": "opportunity_history",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -304,7 +292,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Account": {
             "name": "Account",
             "table_name": "account",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -331,7 +318,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Event": {
             "name": "Event",
             "table_name": "event",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -358,7 +344,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Task": {
             "name": "Task",
             "table_name": "task",
-            "primary_key": "Id" if should_use_incremental_field else None,
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -435,7 +420,6 @@ class SalesforceEndpointPaginator(BasePaginator):
         request.url = f"{self.instance_url}{_next_page}"
 
 
-@dlt.source(max_table_nesting=0)
 def salesforce_source(
     instance_url: str,
     access_token: str,
@@ -454,10 +438,8 @@ def salesforce_source(
                 instance_url=instance_url, should_use_incremental_field=should_use_incremental_field
             ),
         },
-        "resource_defaults": {
-            "primary_key": "id" if should_use_incremental_field else None,
-        },
+        "resource_defaults": {},
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    return rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)

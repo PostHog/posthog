@@ -229,8 +229,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         data = self._get_actionability_artefact_data(obj)
         if data is None:
             return None
-        # Support both agentic ("actionability") and legacy ("choice") field names
-        value = data.get("actionability") or data.get("choice")
+        value = data.get("actionability")
         return value if isinstance(value, str) else None
 
     def get_already_addressed(self, obj: SignalReport) -> bool | None:

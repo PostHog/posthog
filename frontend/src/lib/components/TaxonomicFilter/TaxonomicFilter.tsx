@@ -48,6 +48,7 @@ export function TaxonomicFilter({
     maxContextOptions,
     allowNonCapturedEvents = false,
     hogQLGlobals,
+    hogQLExpressionShowBreakdownLabelHint,
     definitionPopoverRenderer,
     minSearchQueryLength,
     suggestedFiltersLabel,
@@ -85,6 +86,7 @@ export function TaxonomicFilter({
         allowNonCapturedEvents,
         maxContextOptions,
         hogQLGlobals,
+        hogQLExpressionShowBreakdownLabelHint,
         minSearchQueryLength,
         suggestedFiltersLabel,
     }

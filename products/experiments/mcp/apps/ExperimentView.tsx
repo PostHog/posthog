@@ -16,10 +16,13 @@ export function ExperimentView({ experiment }: ExperimentViewProps): ReactElemen
         { key: 'key', header: 'Key', sortable: true },
         { key: 'name', header: 'Name' },
         {
-            key: 'rollout_percentage',
-            header: 'Rollout %',
+            key: 'split_percent',
+            header: 'Split %',
             align: 'right',
-            render: (row) => (row.rollout_percentage != null ? `${row.rollout_percentage}%` : '\u2014'),
+            render: (row) => {
+                const pct = row.split_percent ?? row.rollout_percentage
+                return pct != null ? `${pct}%` : '\u2014'
+            },
         },
     ]
 

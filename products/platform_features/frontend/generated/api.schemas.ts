@@ -475,6 +475,72 @@ export interface PaginatedRoleMembershipListApi {
     results: RoleMembershipApi[]
 }
 
+export interface _WelcomeInviterApi {
+    name: string
+    email: string
+}
+
+/**
+ * * `today` - today
+ * `this_week` - this_week
+ * `inactive` - inactive
+ * `never` - never
+ */
+export type LastActiveEnumApi = (typeof LastActiveEnumApi)[keyof typeof LastActiveEnumApi]
+
+export const LastActiveEnumApi = {
+    Today: 'today',
+    ThisWeek: 'this_week',
+    Inactive: 'inactive',
+    Never: 'never',
+} as const
+
+export interface _WelcomeTeamMemberApi {
+    name: string
+    email: string
+    /** @nullable */
+    avatar: string | null
+    role: string
+    last_active: LastActiveEnumApi
+}
+
+export interface _WelcomeRecentActivityApi {
+    /** Scope.activity pair, e.g. 'Insight.created'. */
+    type: string
+    actor_name: string
+    entity_name: string
+    /** @nullable */
+    entity_url: string | null
+    timestamp: string
+}
+
+export interface _WelcomePopularDashboardApi {
+    id: number
+    name: string
+    description: string
+    team_id: number
+    url: string
+}
+
+export interface _WelcomeSuggestedStepApi {
+    label: string
+    href: string
+    reason: string
+    docs_href?: string
+    product_key?: string
+}
+
+export interface WelcomeResponseApi {
+    organization_name: string
+    inviter: _WelcomeInviterApi | null
+    team_members: _WelcomeTeamMemberApi[]
+    recent_activity: _WelcomeRecentActivityApi[]
+    popular_dashboards: _WelcomePopularDashboardApi[]
+    products_in_use: string[]
+    suggested_next_steps: _WelcomeSuggestedStepApi[]
+    is_organization_first_user: boolean
+}
+
 export interface ActivityLogApi {
     readonly id: string
     user: UserBasicApi
