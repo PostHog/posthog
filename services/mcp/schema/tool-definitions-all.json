@@ -1287,7 +1287,7 @@
         }
     },
     "external-data-sources-reload": {
-        "description": "Trigger an incremental sync for all enabled table schemas in the source. Picks up where the last sync left off. If the source uses direct query mode, this refreshes the schema metadata instead.",
+        "description": "Trigger a sync for all enabled table schemas in the source using each table's configured sync method. If the source uses direct query mode, this refreshes the schema metadata instead.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Trigger sync for a source",
@@ -1512,7 +1512,7 @@
         }
     },
     "external-data-schemas-reload": {
-        "description": "Trigger an incremental sync for a single table schema. Picks up where the last sync left off. Use this to manually sync a specific table without triggering all tables in the source.",
+        "description": "Trigger a sync for a single table schema using its configured sync method (incremental, full refresh, append, or CDC). Use this to manually sync a specific table without triggering all tables in the source.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Trigger sync for a table schema",
