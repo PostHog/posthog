@@ -2331,3 +2331,12 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
             # Second login - signed cookie is present, new-device notification must be skipped
             self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
             assert sum(1 for m in mail.outbox if m.subject == new_device_subject) == initial_count
+
+    @patch("posthog.middleware.is_impersonated_session", return_value=True)
+    def test_middleware_does_not_set_cookie_during_impersonation(self, _mock_is_impersonated):
+        # Log in first so the client has an authenticated session
+        self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert KNOWN_DEVICE_COOKIE.format(user_id=self.user.id) not in response.cookies

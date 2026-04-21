@@ -656,7 +656,7 @@ class KnownLoginDeviceCookieMiddleware:
         response = self.get_response(request)
         # `request.user` is None on endpoints with no AuthenticationMiddleware (e.g. public widget API)
         user = getattr(request, "user", None)
-        if isinstance(user, User):
+        if isinstance(user, User) and not is_impersonated_session(request):
             set_known_device_cookie(response, user)
         return response
 
