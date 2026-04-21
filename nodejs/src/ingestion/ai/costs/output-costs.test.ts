@@ -172,6 +172,43 @@ describe('calculateOutputCost()', () => {
         })
     })
 
+    describe('gemini 3 models - reasoning token handling', () => {
+        const gemini3FlashModel = createModel('gemini-3-flash-preview', 'google', 0.0000003, 0.0000025)
+        const gemini31ProModel = createModel('gemini-3.1-pro-preview', 'google', 0.00000125, 0.00001)
+
+        it.each([
+            {
+                modelName: 'gemini-3-flash-preview',
+                modelRow: gemini3FlashModel,
+                outputTokens: 2,
+                reasoningTokens: 77,
+                // (2 + 77) * 0.0000025 = 0.0001975
+                expectedCost: 0.0001975,
+                description: 'includes reasoning tokens for gemini-3-flash-preview (issue #3160)',
+            },
+            {
+                modelName: 'gemini-3.1-pro-preview',
+                modelRow: gemini31ProModel,
+                outputTokens: 100,
+                reasoningTokens: 200,
+                // (100 + 200) * 0.00001 = 0.003
+                expectedCost: 0.003,
+                description: 'includes reasoning tokens for gemini-3.1-pro-preview',
+            },
+        ])('$description', ({ modelName, modelRow, outputTokens, reasoningTokens, expectedCost }) => {
+            const event = createAIEvent({
+                $ai_provider: 'google',
+                $ai_model: modelName,
+                $ai_output_tokens: outputTokens,
+                $ai_reasoning_tokens: reasoningTokens,
+            })
+
+            const result = calculateOutputCost(event, modelRow)
+
+            expectCost(result, expectedCost, 7)
+        })
+    })
+
     describe('gemini 2.0 models - no reasoning token handling', () => {
         const gemini20FlashModel = createModel('gemini-2.0-flash', 'google', 1e-7, 4e-7)
 

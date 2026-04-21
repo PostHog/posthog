@@ -4,7 +4,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { ResolvedModelCost } from './providers/types'
 
-const REASONING_COST_MODELS = [/^gemini-2.5-/]
+const REASONING_COST_MODELS = [/^gemini-2\.5-/, /^gemini-3(\.\d+)?-/]
 
 const mustAddReasoningCost = (model: string): boolean => {
     return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
