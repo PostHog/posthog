@@ -19,7 +19,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
 
 from posthog.event_usage import groups
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
@@ -123,7 +122,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             logger.exception("Error getting marketing source adapters", error=str(e))
             return []
 
-    def _build_campaign_cost_select(self, union_query_string: str) -> ast.SelectQuery:
+    def _build_campaign_cost_select(self, union_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
         """Build the campaign_costs CTE SELECT query"""
         # Build GROUP BY using configuration - this will be overridden in aggregated queries
         group_by_exprs: list[ast.Expr] = self._get_group_by_expressions()
@@ -282,8 +281,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             ]
         )
 
-        # Parse the union query as a subquery and wrap it in a JoinExpr
-        union_subquery = parse_select(union_query_string)
         union_join_expr = ast.JoinExpr(table=union_subquery)
 
         # Build the CTE SELECT query
@@ -465,7 +462,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         )
 
     def _build_complete_query_ast(
-        self, union_query_string: str, processors: list, date_range: QueryDateRange
+        self,
+        union_subquery: ast.SelectQuery | ast.SelectSetQuery,
+        processors: list,
+        date_range: QueryDateRange,
     ) -> ast.SelectQuery:
         """Build the complete query with CTEs using AST expressions"""
 
@@ -479,7 +479,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         ctes: dict[str, ast.CTE] = {}
 
         # Add campaign_costs CTE
-        campaign_cost_select = self._build_campaign_cost_select(union_query_string)
+        campaign_cost_select = self._build_campaign_cost_select(union_subquery)
         campaign_cost_cte = ast.CTE(
             name=self.config.campaign_costs_cte_name, expr=campaign_cost_select, cte_type="subquery"
         )
@@ -538,8 +538,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Get marketing source adapters
             adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
 
-            # Build the union query using the factory
-            union_query_string = self._factory(date_range=self.query_date_range).build_union_query(adapters)
+            # Build the union query using the factory (AST form to skip parse_select).
+            union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
 
             # Get conversion goals and filter out invalid ones
             conversion_goals = self._get_team_conversion_goals()
@@ -553,7 +553,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
 
             # Build the complete query with CTEs using AST
-            return self._build_complete_query_ast(union_query_string, processors, self.query_date_range)
+            return self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
 
     def _generate_aggregated_conversion_goals_cte(self, conversion_aggregator, date_range) -> Optional[ast.CTE]:
         """Generate aggregated conversion goals CTE without GROUP BY for aggregated queries"""

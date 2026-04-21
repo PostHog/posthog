@@ -19,6 +19,7 @@ import type {
     DatasetsListParams,
     EvaluationApi,
     EvaluationReportApi,
+    EvaluationRunRequestApi,
     EvaluationSummaryRequestApi,
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
@@ -63,6 +64,7 @@ import type {
     PatchedClusteringJobApi,
     PatchedDatasetApi,
     PatchedDatasetItemApi,
+    PatchedEvaluationApi,
     PatchedEvaluationReportApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
@@ -82,6 +84,8 @@ import type {
     SentimentRequestApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
+    TestHogRequestApi,
+    TestHogResponseApi,
     TextReprRequestApi,
     TextReprResponseApi,
     TraceReviewApi,
@@ -115,10 +119,16 @@ export const getEvaluationRunsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/evaluation_runs/`
 }
 
-export const evaluationRunsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+export const evaluationRunsCreate = async (
+    projectId: string,
+    evaluationRunRequestApi: EvaluationRunRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getEvaluationRunsCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationRunRequestApi),
     })
 }
 
@@ -166,6 +176,71 @@ export const evaluationsCreate = async (
     })
 }
 
+export const getEvaluationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/evaluations/${id}/`
+}
+
+export const evaluationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvaluationApi> => {
+    return apiMutator<EvaluationApi>(getEvaluationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/evaluations/${id}/`
+}
+
+export const evaluationsUpdate = async (
+    projectId: string,
+    id: string,
+    evaluationApi: NonReadonly<EvaluationApi>,
+    options?: RequestInit
+): Promise<EvaluationApi> => {
+    return apiMutator<EvaluationApi>(getEvaluationsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationApi),
+    })
+}
+
+export const getEvaluationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/evaluations/${id}/`
+}
+
+export const evaluationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedEvaluationApi: NonReadonly<PatchedEvaluationApi>,
+    options?: RequestInit
+): Promise<EvaluationApi> => {
+    return apiMutator<EvaluationApi>(getEvaluationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEvaluationApi),
+    })
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const getEvaluationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/evaluations/${id}/`
+}
+
+export const evaluationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
+    return apiMutator<unknown>(getEvaluationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 /**
  * Test Hog evaluation code against sample events without saving.
  */
@@ -175,14 +250,14 @@ export const getEvaluationsTestHogCreateUrl = (projectId: string) => {
 
 export const evaluationsTestHogCreate = async (
     projectId: string,
-    evaluationApi: NonReadonly<EvaluationApi>,
+    testHogRequestApi: TestHogRequestApi,
     options?: RequestInit
-): Promise<EvaluationApi> => {
-    return apiMutator<EvaluationApi>(getEvaluationsTestHogCreateUrl(projectId), {
+): Promise<TestHogResponseApi> => {
+    return apiMutator<TestHogResponseApi>(getEvaluationsTestHogCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(evaluationApi),
+        body: JSON.stringify(testHogRequestApi),
     })
 }
 
