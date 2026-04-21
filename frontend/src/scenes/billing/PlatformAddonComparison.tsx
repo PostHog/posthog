@@ -114,13 +114,9 @@ const PlanCard = ({
             )}
         >
             <div>
-                <h4 className="font-bold mb-0 flex items-center gap-x-2">
-                    {addon.name}
-                    {addon.subscribed && (
-                        <LemonTag type="primary" icon={<IconCheckCircle />}>
-                            Subscribed
-                        </LemonTag>
-                    )}
+                <div className="flex items-center gap-x-2">
+                    <h4 className="mb-0 font-bold">{addon.name}</h4>
+                    {addon.subscribed && <LemonTag type="primary">Subscribed</LemonTag>}
                     {isOnTrial && (
                         <Tooltip
                             title={
@@ -134,12 +130,10 @@ const PlanCard = ({
                                 </p>
                             }
                         >
-                            <LemonTag type="completion" icon={<IconCheckCircle />}>
-                                You're on a trial
-                            </LemonTag>
+                            <LemonTag type="completion">You're on a trial</LemonTag>
                         </Tooltip>
                     )}
-                </h4>
+                </div>
                 {description && <div>{description}</div>}
             </div>
             {coreFeatures.length > 0 && (
@@ -184,13 +178,11 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
         <div className="flex flex-col gap-3 p-5 rounded bg-surface-secondary ring-1 ring-accent">
             <div className="flex items-start justify-between gap-4">
                 <div>
-                    <h4 className="font-bold mb-0 flex items-center gap-x-2">
-                        {addon.name}
-                        <LemonTag type="primary" icon={<IconCheckCircle />}>
-                            Subscribed
-                        </LemonTag>
+                    <div className="flex items-center gap-x-2">
+                        <h4 className="mb-0 font-bold">{addon.name}</h4>
+                        <LemonTag type="primary">Subscribed</LemonTag>
                         <LemonTag type="warning">Legacy</LemonTag>
-                    </h4>
+                    </div>
                     <div>
                         You're subscribed to our legacy {addon.name} plan. Compare plans to see if it makes sense to
                         switch.
