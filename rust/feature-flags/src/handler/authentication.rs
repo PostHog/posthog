@@ -87,10 +87,15 @@ mod tests {
         }
     }
 
-    fn create_test_context(internal_token: Option<String>, headers: HeaderMap) -> TestRequestContext {
+    fn create_test_context(
+        internal_token: Option<String>,
+        headers: HeaderMap,
+    ) -> TestRequestContext {
         TestRequestContext {
             state: axum::extract::State(TestState {
-                config: TestConfig { internal_request_token: internal_token },
+                config: TestConfig {
+                    internal_request_token: internal_token,
+                },
             }),
             headers,
         }
@@ -131,7 +136,10 @@ mod tests {
     #[test]
     fn test_whitespace_bearer_value() {
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", HeaderValue::from_str("Bearer    ").unwrap());
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str("Bearer    ").unwrap(),
+        );
         let context = create_test_context(Some("valid_token".to_string()), headers);
         assert!(!test_is_internal_request(&context));
     }
@@ -139,7 +147,10 @@ mod tests {
     #[test]
     fn test_non_matching_bearer_token() {
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", HeaderValue::from_str("Bearer wrong_token").unwrap());
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str("Bearer wrong_token").unwrap(),
+        );
         let context = create_test_context(Some("correct_token".to_string()), headers);
         assert!(!test_is_internal_request(&context));
     }
@@ -147,7 +158,10 @@ mod tests {
     #[test]
     fn test_matching_bearer_token() {
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", HeaderValue::from_str("Bearer secret_token").unwrap());
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str("Bearer secret_token").unwrap(),
+        );
         let context = create_test_context(Some("secret_token".to_string()), headers);
         assert!(test_is_internal_request(&context));
     }
@@ -155,7 +169,10 @@ mod tests {
     #[test]
     fn test_case_sensitive_token_match() {
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", HeaderValue::from_str("Bearer secret_token").unwrap());
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str("Bearer secret_token").unwrap(),
+        );
         let context = create_test_context(Some("Secret_Token".to_string()), headers);
         // Should be case sensitive - different case means no match
         assert!(!test_is_internal_request(&context));
@@ -164,7 +181,10 @@ mod tests {
     #[test]
     fn test_malformed_authorization_header() {
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", HeaderValue::from_str("NotBearer valid_token").unwrap());
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str("NotBearer valid_token").unwrap(),
+        );
         let context = create_test_context(Some("valid_token".to_string()), headers);
         assert!(!test_is_internal_request(&context));
     }

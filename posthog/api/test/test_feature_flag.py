@@ -12621,7 +12621,6 @@ class TestFeatureFlagVersions(APIBaseTest):
         """Test validation error when distinct_id is missing."""
         FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             name="Test Flag",
             key="test-flag",
             created_by=self.user,
@@ -12639,7 +12638,6 @@ class TestFeatureFlagVersions(APIBaseTest):
         """Test validation error with invalid timestamp format."""
         FeatureFlag.objects.create(
             team=self.team,
-            rollout_percentage=100,
             name="Test Flag",
             key="test-flag",
             created_by=self.user,
