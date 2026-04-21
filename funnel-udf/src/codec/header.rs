@@ -1,6 +1,6 @@
 // RowBinaryWithNamesAndTypes block header: varint n_cols, n_cols names, n_cols type strings.
 
-use clickhouse_types::{put_leb128, Column, DataTypeNode};
+use clickhouse_types::{Column, DataTypeNode};
 
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
@@ -9,11 +9,11 @@ pub fn read_block_header<R: RowBinaryRead + ?Sized>(r: &mut R) -> CodecResult<Ve
     let n = r.read_varint()? as usize;
     let mut names = Vec::with_capacity(n);
     for _ in 0..n {
-        names.push(String::from_utf8(r.read_bytes()?).map_err(|_| CodecError::InvalidUtf8)?);
+        names.push(String::from_utf8_lossy(&r.read_bytes()?).into_owned());
     }
     let mut types = Vec::with_capacity(n);
     for _ in 0..n {
-        let type_str = String::from_utf8(r.read_bytes()?).map_err(|_| CodecError::InvalidUtf8)?;
+        let type_str = String::from_utf8_lossy(&r.read_bytes()?).into_owned();
         // ClickHouse emits `Array(Nothing)` for a bare `[]` literal (no element
         // context), and `clickhouse-types` can't parse Nothing. The array length
         // is always 0, so the element type we substitute is never read.
@@ -33,9 +33,7 @@ pub fn write_block_header<W: RowBinaryWrite + ?Sized>(
     w: &mut W,
     columns: &[Column],
 ) -> CodecResult<()> {
-    let mut leb_buf = Vec::with_capacity(10);
-    put_leb128(&mut leb_buf, columns.len() as u64);
-    w.write_all(&leb_buf)?;
+    w.write_varint(columns.len() as u64)?;
     for c in columns {
         w.write_bytes(c.name.as_bytes())?;
     }

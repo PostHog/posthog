@@ -123,7 +123,7 @@ mod e2e {
         let outer_len = out.read_varint().unwrap();
         assert_eq!(outer_len, 1);
 
-        let step = out.read_i8().unwrap();
+        let step = out.read_u8().unwrap() as i8;
         assert_eq!(step, 2);
 
         let nullable_string = DataTypeNode::Nullable(Box::new(DataTypeNode::String));
@@ -140,8 +140,9 @@ mod e2e {
         .unwrap();
         assert_eq!(uuids_per_step.len(), 3);
 
-        let bitfield = out.read_u32_le().unwrap();
-        assert_eq!(bitfield, 0b111);
+        let mut bitfield_buf = [0u8; 4];
+        std::io::Read::read_exact(&mut out, &mut bitfield_buf).unwrap();
+        assert_eq!(u32::from_le_bytes(bitfield_buf), 0b111);
     }
 
     #[test]

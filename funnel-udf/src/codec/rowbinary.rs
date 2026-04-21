@@ -2,88 +2,45 @@ use std::io::{Read, Write};
 
 use uuid::Uuid;
 
-use crate::codec::{CodecError, CodecResult};
+use crate::codec::CodecResult;
 
 const VARINT_MAX_BYTES: usize = 10;
 
 pub trait RowBinaryRead: Read {
+    /// Reads `N` bytes — the caller decodes them with the right `from_le_bytes`.
+    fn read_le<const N: usize>(&mut self) -> CodecResult<[u8; N]> {
+        let mut b = [0u8; N];
+        self.read_exact(&mut b)?;
+        Ok(b)
+    }
+
     fn read_u8(&mut self) -> CodecResult<u8> {
-        let mut b = [0u8; 1];
-        self.read_exact(&mut b)?;
-        Ok(b[0])
-    }
-
-    fn read_i8(&mut self) -> CodecResult<i8> {
-        self.read_u8().map(|b| b as i8)
-    }
-
-    fn read_u16_le(&mut self) -> CodecResult<u16> {
-        let mut b = [0u8; 2];
-        self.read_exact(&mut b)?;
-        Ok(u16::from_le_bytes(b))
-    }
-
-    fn read_u32_le(&mut self) -> CodecResult<u32> {
-        let mut b = [0u8; 4];
-        self.read_exact(&mut b)?;
-        Ok(u32::from_le_bytes(b))
+        Ok(self.read_le::<1>()?[0])
     }
 
     fn read_u64_le(&mut self) -> CodecResult<u64> {
-        let mut b = [0u8; 8];
-        self.read_exact(&mut b)?;
-        Ok(u64::from_le_bytes(b))
-    }
-
-    fn read_i16_le(&mut self) -> CodecResult<i16> {
-        let mut b = [0u8; 2];
-        self.read_exact(&mut b)?;
-        Ok(i16::from_le_bytes(b))
-    }
-
-    fn read_i32_le(&mut self) -> CodecResult<i32> {
-        let mut b = [0u8; 4];
-        self.read_exact(&mut b)?;
-        Ok(i32::from_le_bytes(b))
-    }
-
-    fn read_i64_le(&mut self) -> CodecResult<i64> {
-        let mut b = [0u8; 8];
-        self.read_exact(&mut b)?;
-        Ok(i64::from_le_bytes(b))
+        Ok(u64::from_le_bytes(self.read_le()?))
     }
 
     fn read_f64_le(&mut self) -> CodecResult<f64> {
-        let mut b = [0u8; 8];
-        self.read_exact(&mut b)?;
-        Ok(f64::from_le_bytes(b))
+        Ok(f64::from_le_bytes(self.read_le()?))
     }
 
     fn read_varint(&mut self) -> CodecResult<u64> {
         let mut acc: u64 = 0;
         for i in 0..VARINT_MAX_BYTES {
             let byte = self.read_u8()?;
-            let shift = 7 * i as u32;
-            if i == VARINT_MAX_BYTES - 1 && byte > 1 {
-                return Err(CodecError::VarintOverflow);
-            }
-            acc |= ((byte & 0x7f) as u64) << shift;
+            acc |= ((byte & 0x7f) as u64) << (7 * i as u32);
             if byte & 0x80 == 0 {
                 return Ok(acc);
             }
         }
-        Err(CodecError::VarintOverflow)
-    }
-
-    // Strict UTF-8. Only for protocol-controlled fields (attribution_type,
-    // funnel_order_type) whose sender guarantees UTF-8.
-    fn read_string(&mut self) -> CodecResult<String> {
-        let buf = self.read_bytes()?;
-        String::from_utf8(buf).map_err(|_| CodecError::InvalidUtf8)
+        panic!("varint exceeded {VARINT_MAX_BYTES} bytes (u64 max); wire corrupt");
     }
 
     // ClickHouse `String` is byte-typed: user-data fields (breakdown keys, event
-    // properties) can hold arbitrary bytes. Must not enforce UTF-8 here.
+    // properties) can hold arbitrary bytes. Protocol fields go through from_utf8_lossy
+    // at the call site — never enforce UTF-8 here.
     fn read_bytes(&mut self) -> CodecResult<Vec<u8>> {
         let len = self.read_varint()? as usize;
         let mut buf = vec![0u8; len];
@@ -99,17 +56,7 @@ pub trait RowBinaryRead: Read {
         Ok(Uuid::from_u64_pair(hi, lo))
     }
 
-    fn read_nullable<T, F>(&mut self, inner: F) -> CodecResult<Option<T>>
-    where
-        F: FnOnce(&mut Self) -> CodecResult<T>,
-    {
-        match self.read_u8()? {
-            0 => Ok(Some(inner(self)?)),
-            1 => Ok(None),
-            b => Err(CodecError::InvalidNullMarker(b)),
-        }
-    }
-
+    #[cfg(test)]
     fn read_array<T, F>(&mut self, mut inner: F) -> CodecResult<Vec<T>>
     where
         F: FnMut(&mut Self) -> CodecResult<T>,
@@ -162,10 +109,6 @@ pub trait RowBinaryWrite: Write {
         }
     }
 
-    fn write_string(&mut self, s: &str) -> CodecResult<()> {
-        self.write_bytes(s.as_bytes())
-    }
-
     fn write_bytes(&mut self, b: &[u8]) -> CodecResult<()> {
         self.write_varint(b.len() as u64)?;
         self.write_all(b)?;
@@ -177,19 +120,6 @@ pub trait RowBinaryWrite: Write {
         self.write_u64_le(hi)?;
         self.write_u64_le(lo)?;
         Ok(())
-    }
-
-    fn write_nullable<T, F>(&mut self, value: Option<&T>, inner: F) -> CodecResult<()>
-    where
-        F: FnOnce(&mut Self, &T) -> CodecResult<()>,
-    {
-        match value {
-            Some(v) => {
-                self.write_u8(0)?;
-                inner(self, v)
-            }
-            None => self.write_u8(1),
-        }
     }
 
     fn write_array<T, F>(&mut self, items: &[T], mut inner: F) -> CodecResult<()>
@@ -233,22 +163,22 @@ mod tests {
     }
 
     #[test]
-    fn varint_overflow_on_11th_byte() {
+    #[should_panic(expected = "varint exceeded")]
+    fn varint_overflow_panics() {
         let buf = [0xff_u8; 11];
         let mut slice = buf.as_slice();
-        let err = slice.read_varint().unwrap_err();
-        matches!(err, CodecError::VarintOverflow);
+        let _ = slice.read_varint();
     }
 
     #[test]
-    fn string_roundtrip() {
+    fn bytes_roundtrip() {
         let long = "a".repeat(300);
-        let cases: [&str; 4] = ["", "hello", long.as_str(), "∆π⚡️"];
+        let cases: [&[u8]; 4] = [b"", b"hello", long.as_bytes(), "∆π⚡️".as_bytes()];
         for s in cases {
             let mut buf = Vec::new();
-            buf.write_string(s).unwrap();
+            buf.write_bytes(s).unwrap();
             let mut slice = buf.as_slice();
-            assert_eq!(slice.read_string().unwrap(), s);
+            assert_eq!(slice.read_bytes().unwrap(), s);
         }
     }
 
@@ -275,65 +205,13 @@ mod tests {
     }
 
     #[test]
-    fn nullable_roundtrip() {
-        let mut buf = Vec::new();
-        buf.write_nullable(Some(&42u64), |w, v| w.write_u64_le(*v))
-            .unwrap();
-        buf.write_nullable::<u64, _>(None, |w, v| w.write_u64_le(*v))
-            .unwrap();
-
-        let mut slice = buf.as_slice();
-        assert_eq!(slice.read_nullable(|r| r.read_u64_le()).unwrap(), Some(42));
-        assert_eq!(
-            slice.read_nullable(|r| r.read_u64_le()).unwrap(),
-            None::<u64>
-        );
-    }
-
-    #[test]
-    fn nullable_invalid_marker() {
-        let buf = [2u8];
-        let mut slice = buf.as_slice();
-        let err = slice.read_nullable(|r| r.read_u8()).unwrap_err();
-        assert!(matches!(err, CodecError::InvalidNullMarker(2)));
-    }
-
-    #[test]
     fn array_roundtrip() {
         let items = [1i8, -5, 127, -128, 0];
         let mut buf = Vec::new();
         buf.write_array(&items, |w, v| w.write_i8(*v)).unwrap();
         let mut slice = buf.as_slice();
-        let round: Vec<i8> = slice.read_array(|r| r.read_i8()).unwrap();
+        let round: Vec<i8> = slice.read_array(|r| r.read_u8().map(|b| b as i8)).unwrap();
         assert_eq!(round, items);
-    }
-
-    #[test]
-    fn nested_array_of_tuples_roundtrip() {
-        // Array(Tuple(UInt64, Nullable(String), Array(Int8)))
-        let tuples: Vec<(u64, Option<String>, Vec<i8>)> = vec![
-            (1, Some("a".into()), vec![1, 2]),
-            (2, None, vec![]),
-            (3, Some(String::new()), vec![-1]),
-        ];
-        let mut buf = Vec::new();
-        buf.write_array(&tuples, |w, (a, b, c)| {
-            w.write_u64_le(*a)?;
-            w.write_nullable(b.as_ref(), |w, s| w.write_string(s))?;
-            w.write_array(c, |w, v| w.write_i8(*v))
-        })
-        .unwrap();
-
-        let mut slice = buf.as_slice();
-        let round: Vec<(u64, Option<String>, Vec<i8>)> =
-            RowBinaryRead::read_array(&mut slice, |r| {
-                let a = r.read_u64_le()?;
-                let b = r.read_nullable(|r| r.read_string())?;
-                let c = RowBinaryRead::read_array(r, |r| r.read_i8())?;
-                Ok((a, b, c))
-            })
-            .unwrap();
-        assert_eq!(round, tuples);
     }
 
     #[test]

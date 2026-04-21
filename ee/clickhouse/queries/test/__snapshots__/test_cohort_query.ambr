@@ -186,7 +186,7 @@
        (SELECT aggregation_target AS actor_id,
                actor_id AS id
         FROM
-          (SELECT arraySlice(arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))), 1, 100000000) AS events_array,
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
                   arrayJoin(aggregate_funnel(2, 691200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -1122,7 +1122,7 @@
        (SELECT aggregation_target AS actor_id,
                actor_id AS id
         FROM
-          (SELECT arraySlice(arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))), 1, 100000000) AS events_array,
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
                   arrayJoin(aggregate_funnel(2, 259200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -1222,7 +1222,7 @@
        (SELECT aggregation_target AS actor_id,
                actor_id AS id
         FROM
-          (SELECT arraySlice(arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))), 1, 100000000) AS events_array,
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
                   arrayJoin(aggregate_funnel(2, 259200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
@@ -1345,7 +1345,7 @@
        (SELECT aggregation_target AS actor_id,
                actor_id AS id
         FROM
-          (SELECT arraySlice(arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))), 1, 100000000) AS events_array,
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
                   arrayJoin(aggregate_funnel(2, 259200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)

@@ -3,8 +3,8 @@ use clickhouse_types::{Column, DataTypeNode};
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
 use crate::io::column::{
-    array_elem, read_array_i8, read_nullable_f64, read_string, read_u64_col, read_u8_col,
-    read_uuid, tuple_fields,
+    array_elem, read_bytes_col, read_float_col, read_int_array_i8, read_int_col, read_uuid_col,
+    tuple_fields,
 };
 use crate::io::propval::{read_propval, read_propval_array, shape_output_type, write_propval};
 use crate::trends::{Args, Event, ResultStruct};
@@ -34,14 +34,14 @@ pub fn read_args<R: RowBinaryRead + ?Sized>(
         });
     }
 
-    let from_step = read_u8_col(r, &columns[0].data_type)? as usize;
-    let to_step = read_u8_col(r, &columns[1].data_type)? as usize;
-    let num_steps = read_u8_col(r, &columns[2].data_type)? as usize;
-    let conversion_window_limit = read_u64_col(r, &columns[3].data_type)?;
-    let breakdown_attribution_type = String::from_utf8(read_string(r, &columns[4].data_type)?)
-        .map_err(|_| CodecError::InvalidUtf8)?;
-    let funnel_order_type = String::from_utf8(read_string(r, &columns[5].data_type)?)
-        .map_err(|_| CodecError::InvalidUtf8)?;
+    let from_step = read_int_col(r, &columns[0].data_type)? as usize;
+    let to_step = read_int_col(r, &columns[1].data_type)? as usize;
+    let num_steps = read_int_col(r, &columns[2].data_type)? as usize;
+    let conversion_window_limit = read_int_col(r, &columns[3].data_type)? as u64;
+    let breakdown_attribution_type =
+        String::from_utf8_lossy(&read_bytes_col(r, &columns[4].data_type)?).into_owned();
+    let funnel_order_type =
+        String::from_utf8_lossy(&read_bytes_col(r, &columns[5].data_type)?).into_owned();
     let prop_vals = read_propval_array(r, shape, &columns[6].data_type)?;
 
     let value_elem = array_elem(&columns[7].data_type, "value")?;
@@ -70,11 +70,11 @@ fn read_event<R: RowBinaryRead + ?Sized>(
     shape: BreakdownShape,
     fields: &[DataTypeNode],
 ) -> CodecResult<Event> {
-    let timestamp = read_nullable_f64(r, &fields[0])?;
-    let interval_start = read_u64_col(r, &fields[1])?;
-    let uuid = read_uuid(r, &fields[2])?;
+    let timestamp = read_float_col(r, &fields[0])?;
+    let interval_start = read_int_col(r, &fields[1])? as u64;
+    let uuid = read_uuid_col(r, &fields[2])?;
     let breakdown = read_propval(r, shape, &fields[3])?;
-    let steps = read_array_i8(r, &fields[4])?;
+    let steps = read_int_array_i8(r, &fields[4])?;
     Ok(Event {
         timestamp,
         interval_start,

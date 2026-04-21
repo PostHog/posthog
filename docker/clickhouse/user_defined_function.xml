@@ -1,13 +1,4 @@
 <functions>
-    <!--
-      The six real funnel UDFs share one binary (aggregate_funnel <steps|trends>).
-      Wire format is RowBinaryWithNamesAndTypes; the binary reads the prop_vals
-      column type at runtime to pick the breakdown shape, so one binary serves
-      all three variants (nullable_string / array_string / u64). ClickHouse
-      prefixes each batch with a newline-terminated row count because of
-      send_chunk_header=true.
-    -->
-
     <function>
         <type>executable_pool</type>
         <name>aggregate_funnel</name>
@@ -499,7 +490,7 @@
         <lifetime>600</lifetime>
     </function>
 
-    <!-- Python-script debug UDFs, unchanged. -->
+    <!-- Python-script debug UDFs -->
 
     <function>
         <type>executable_pool</type>

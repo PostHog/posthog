@@ -15,7 +15,7 @@
             arrayMap(timing -> accurateCastOrNull(floor(divide(minus(timing, min_timing), bin_width_seconds)), 'Int64'), timings) AS indices,
             arrayMap(x -> countEqual(indices, minus(x, 1)), range(1, plus(bin_count, 2))) AS counts
      FROM
-       (SELECT arraySlice(arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))), 1, 100000000) AS events_array,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
                arrayJoin(aggregate_funnel(3, 604800, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)

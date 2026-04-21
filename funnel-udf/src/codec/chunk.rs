@@ -1,4 +1,6 @@
-use std::io::{BufRead, Write};
+use std::io::BufRead;
+#[cfg(test)]
+use std::io::Write;
 
 use crate::codec::{CodecError, CodecResult};
 
@@ -22,6 +24,7 @@ pub fn read_chunk_header<R: BufRead>(r: &mut R) -> CodecResult<Option<u64>> {
         .map_err(|_| CodecError::InvalidChunkHeader(trimmed.to_string()))
 }
 
+#[cfg(test)]
 pub fn write_chunk_header<W: Write>(w: &mut W, n: u64) -> CodecResult<()> {
     writeln!(w, "{n}")?;
     Ok(())

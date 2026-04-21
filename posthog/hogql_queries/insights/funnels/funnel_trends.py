@@ -11,7 +11,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
-from posthog.hogql_queries.insights.funnels.funnel import MAX_EVENTS_PER_ENTITY, FunnelUDF, FunnelUDFMixin
+from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF, FunnelUDFMixin
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql, get_start_of_interval_hogql_str
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -161,13 +161,13 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             parse_select(
                 f"""
             SELECT
-                arraySlice(arraySort(t -> t.1, groupArray(tuple(
+                arraySort(t -> t.1, groupArray(tuple(
                     toFloat(timestamp),
                     _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source="timestamp")})),
                     uuid,
                     {prop_selector},
                     arrayFilter((x) -> x != 0, [{steps}{exclusions}])
-                ))), 1, {MAX_EVENTS_PER_ENTITY}) as events_array,
+                ))) as events_array,
                 {prop_vals} as prop,
                 arrayJoin({fn}(
                     {from_step},

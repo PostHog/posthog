@@ -3,8 +3,8 @@ use clickhouse_types::{Column, DataTypeNode};
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
 use crate::io::column::{
-    array_elem, read_array_i8, read_nullable_f64, read_string, read_u64_col, read_u8_col,
-    read_uuid, tuple_fields,
+    array_elem, read_bytes_col, read_float_col, read_int_array_i8, read_int_col, read_uuid_col,
+    tuple_fields,
 };
 use crate::io::propval::{read_propval, read_propval_array, shape_output_type, write_propval};
 use crate::steps::{Args, Event, Result as StepsResult};
@@ -33,14 +33,14 @@ pub fn read_args<R: RowBinaryRead + ?Sized>(
         });
     }
 
-    let num_steps = read_u8_col(r, &columns[0].data_type)? as usize;
-    let conversion_window_limit = read_u64_col(r, &columns[1].data_type)?;
-    let breakdown_attribution_type = String::from_utf8(read_string(r, &columns[2].data_type)?)
-        .map_err(|_| CodecError::InvalidUtf8)?;
-    let funnel_order_type = String::from_utf8(read_string(r, &columns[3].data_type)?)
-        .map_err(|_| CodecError::InvalidUtf8)?;
+    let num_steps = read_int_col(r, &columns[0].data_type)? as usize;
+    let conversion_window_limit = read_int_col(r, &columns[1].data_type)? as u64;
+    let breakdown_attribution_type =
+        String::from_utf8_lossy(&read_bytes_col(r, &columns[2].data_type)?).into_owned();
+    let funnel_order_type =
+        String::from_utf8_lossy(&read_bytes_col(r, &columns[3].data_type)?).into_owned();
     let prop_vals = read_propval_array(r, shape, &columns[4].data_type)?;
-    let optional_steps = read_array_i8(r, &columns[5].data_type)?;
+    let optional_steps = read_int_array_i8(r, &columns[5].data_type)?;
 
     let value_elem = array_elem(&columns[6].data_type, "value")?;
     let event_fields = tuple_fields(value_elem, 4, "value tuple")?;
@@ -67,10 +67,10 @@ fn read_event<R: RowBinaryRead + ?Sized>(
     shape: BreakdownShape,
     fields: &[DataTypeNode],
 ) -> CodecResult<Event> {
-    let timestamp = read_nullable_f64(r, &fields[0])?;
-    let uuid = read_uuid(r, &fields[1])?;
+    let timestamp = read_float_col(r, &fields[0])?;
+    let uuid = read_uuid_col(r, &fields[1])?;
     let breakdown = read_propval(r, shape, &fields[2])?;
-    let steps = read_array_i8(r, &fields[3])?;
+    let steps = read_int_array_i8(r, &fields[3])?;
     Ok(Event {
         timestamp,
         uuid,
@@ -195,27 +195,22 @@ mod tests {
         assert_eq!(args.value[0].steps, vec![1]);
     }
 
+    // Int widths are accepted interchangeably in int slots, but a non-int
+    // source (like String) in an int slot has to fail cleanly.
     #[test]
     fn args_rejects_wrong_wire_type() {
-        // Integer widths are now accepted interchangeably (see read_int_any);
-        // String in an integer slot still has to blow up cleanly.
         let mut cols = nullable_string_columns();
         cols[1] = Column::new("conversion_window_limit".into(), DataTypeNode::String);
-        let buf = [0u8; 1];
-        let mut slice = buf.as_slice();
-        let err = read_args(&mut slice, BreakdownShape::NullableString, &cols).unwrap_err();
+        let err =
+            read_args(&mut [0u8].as_slice(), BreakdownShape::NullableString, &cols).unwrap_err();
         assert!(matches!(err, CodecError::TypeMismatch(_)));
     }
 
     #[test]
     fn schema_len_mismatch_errors_cleanly() {
         let cols = vec![Column::new("a".into(), DataTypeNode::UInt8)];
-        let buf = [0u8; 1];
-        let mut slice = buf.as_slice();
-        let err = match read_args(&mut slice, BreakdownShape::NullableString, &cols) {
-            Err(e) => e,
-            Ok(_) => panic!("expected SchemaLen error"),
-        };
+        let err =
+            read_args(&mut [0u8].as_slice(), BreakdownShape::NullableString, &cols).unwrap_err();
         assert!(matches!(err, CodecError::SchemaLen { got: 1, want: 7 }));
     }
 }

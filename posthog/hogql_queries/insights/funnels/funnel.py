@@ -13,14 +13,6 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.queries.breakdown_props import NOT_IN_COHORT_ID, get_breakdown_cohort_name
 from posthog.utils import DATERANGE_MAP
 
-# Hard cap on events sent per entity to the funnel UDF. Set high deliberately:
-# heavy power users can legitimately produce millions of events in a query window,
-# so this only clips truly pathological entities that would OOM the UDF subprocess
-# through the stdin pipe. ClickHouse's max_memory_usage handles aggregation-time
-# OOM separately — arraySlice(arraySort(groupArray(...))) still materializes the
-# full array before slicing.
-MAX_EVENTS_PER_ENTITY = 100_000_000
-
 
 @runtime_checkable
 class FunnelProtocol(Protocol):
@@ -180,12 +172,12 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         inner_select = parse_select(
             f"""
             SELECT
-                arraySlice(arraySort(t -> t.1, groupArray(tuple(
+                arraySort(t -> t.1, groupArray(tuple(
                     toFloat(timestamp),
                     uuid,
                     {prop_selector},
                     arrayFilter((x) -> x != 0, [{steps}{exclusions}])
-                ))), 1, {MAX_EVENTS_PER_ENTITY}) as events_array,
+                ))) as events_array,
                 {prop_vals} as prop,
                 arrayJoin({fn}(
                     {self.context.max_steps},
