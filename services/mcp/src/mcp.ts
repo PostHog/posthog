@@ -662,6 +662,11 @@ export class MCP extends McpAgent<Env> {
         const initialEnabledToolsets = Array.from(new Set([...sessionEnabled, ...(initialToolsets ?? [])]))
         const initialEnabledFeatures = resolveEnabledFeatures(initialEnabledToolsets, version)
 
+        // Persist ?toolsets= pre-enables so a subsequent toolsets(action='list') reflects reality.
+        if (initialEnabledToolsets.length !== sessionEnabled.length) {
+            await this.cache.set(ENABLED_TOOLSETS_KEY as any, initialEnabledToolsets as any)
+        }
+
         for (const tool of allTools) {
             const typedTool = tool as Tool<z.ZodObject>
             const registered = this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
