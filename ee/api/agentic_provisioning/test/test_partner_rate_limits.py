@@ -49,33 +49,6 @@ class TestPartnerRateLimits(StripeProvisioningTestBase):
         cache.clear()
         super().tearDown()
 
-    def _post_partner_account_request(self, email: str = "test@example.com"):
-        code_verifier = secrets.token_urlsafe(32)
-        code_challenge = (
-            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
-            .rstrip(b"=")
-            .decode("ascii")
-        )
-        payload = {
-            "id": f"acctreq_{secrets.token_hex(8)}",
-            "email": email,
-            "scopes": ["query:read"],
-            "confirmation_secret": "cs_test",
-            "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
-            "orchestrator": {"type": "test", "account": "acct_123"},
-        }
-        body = json.dumps(payload).encode()
-        return self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data=body,
-            content_type="application/json",
-            HTTP_API_VERSION="0.1d",
-            HTTP_AUTHORIZATION=f"Bearer {self.partner_app.client_secret}",
-            HTTP_X_PARTNER_CLIENT_ID=PARTNER_CLIENT_ID,
-        )
-
     def _get_partner_bearer_token(self) -> str:
         code_verifier = secrets.token_urlsafe(32)
         code_challenge = (

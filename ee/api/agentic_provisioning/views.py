@@ -936,7 +936,7 @@ def _exchange_authorization_code(request: Request) -> Response:
             if error := _enforce_partner_rate_limit(partner, "token_exchanges"):
                 return error
         except OAuthApplication.DoesNotExist:
-            pass
+            logger.warning("partner_rate_limit_app_missing", partner_id=partner_id)
 
     cache.delete(cache_key)
 
@@ -1818,6 +1818,7 @@ def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Res
         cache.add(cache_key, 0, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
         count = cache.incr(cache_key)
     except ValueError:
+        logger.warning("partner_rate_limit_cache_error", endpoint=endpoint, partner_id=str(partner.id))
         count = 1
 
     if count > limit:
