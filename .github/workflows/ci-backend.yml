@@ -924,7 +924,7 @@ jobs:
                       exit 1
                   fi
 
-                  echo "::notice::Committing updated OpenAPI types to PR branch"
+                  echo "::notice::Preparing OpenAPI patch for batched generated updates commit"
 
                   # Verify branch hasn't advanced since CI started
                   CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
@@ -946,16 +946,30 @@ jobs:
 
                   echo "needs-commit=true" >> $GITHUB_OUTPUT
 
-            - name: Commit OpenAPI types via GitHub API (signed)
+            - name: Generate OpenAPI patch
               if: steps.openapi-check.outputs.needs-commit == 'true'
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              shell: bash
+              run: |
+                  mkdir -p /tmp/patches
+
+                  mapfile -t changed_files < <(git diff --name-only | grep -E '^(frontend/src/generated/|products/.*/frontend/generated/|products/.*/mcp/.*\.yaml$|services/mcp/definitions/.*\.yaml$|services/mcp/src/api/generated\.ts$|services/mcp/src/generated/|services/mcp/schema/generated-tool-definitions\.json$|services/mcp/schema/tool-definitions-all\.json$|services/mcp/src/tools/generated/)' || true)
+
+                  if [ ${#changed_files[@]} -eq 0 ]; then
+                    echo "::error::OpenAPI check found diffs but no generated files matched expected paths"
+                    exit 1
+                  fi
+
+                  git diff --binary --full-index -- "${changed_files[@]}" > /tmp/patches/openapi-generated.patch
+                  echo "Generated OpenAPI patch with $(wc -l < /tmp/patches/openapi-generated.patch) lines"
+
+            - name: Upload OpenAPI patch
+              if: steps.openapi-check.outputs.needs-commit == 'true'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  commit_message: 'chore: update OpenAPI generated types'
-                  repo: ${{ github.repository }}
-                  branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'frontend/src/generated/** products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
-              env:
-                  GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+                  name: openapi-patch
+                  path: /tmp/patches/openapi-generated.patch
+                  if-no-files-found: error
+                  retention-days: 1
 
     build_django_matrix:
         name: Build Django matrix
@@ -1487,20 +1501,19 @@ jobs:
                     echo "compat_matrix=$compat_matrix" >> $GITHUB_OUTPUT
                     echo "Compat matrix: $compat_matrix"
                   fi
-    # Aggregate and commit snapshot changes from all matrix jobs
+    # Aggregate and commit generated updates from all matrix jobs
     handle-snapshots:
-        name: Commit snapshot changes
-        needs: [changes, detect-snapshot-mode, django, turbo-tests]
-        # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
-        # Run even if some matrix jobs failed (to commit snapshots from passing jobs)
-        if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+        name: Commit generated backend updates
+        needs: [changes, check-migrations, detect-snapshot-mode, django, turbo-tests]
+        # Run even if some matrix jobs failed (to commit updates from passing jobs)
+        if: ${{ always() && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
         runs-on: ubuntu-latest
         timeout-minutes: 5
         permissions:
             contents: write
             pull-requests: write
         steps:
-            # Use GitHub app token so Actions run after commiting updated snapshots
+            # Use GitHub app token so pushes of generated updates retrigger CI
             - name: Get app token
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -1516,41 +1529,63 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
                   fetch-depth: 1
 
-            - name: Download all snapshot patches
-              id: download-patches
+            - name: Download snapshot patches
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   pattern: snapshot-patch-*
-                  path: /tmp/snapshot-patches
+                  path: /tmp/patches
                   merge-multiple: true
 
-            - name: Check for patches
-              id: check-patches
+            - name: Download OpenAPI patch
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: openapi-patch
+                  path: /tmp/patches
+
+            - name: Collect patches and determine commit message
+              id: collect
               run: |
-                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/snapshot-patches ]; then
+                  has_snapshots=false
+                  has_openapi=false
+
+                  if [ -d /tmp/patches ]; then
+                    # Snapshot patches are any .patch file except the OpenAPI one
+                    if find /tmp/patches -name '*.patch' ! -name 'openapi-generated.patch' -type f -size +0c | grep -q .; then
+                      has_snapshots=true
+                    fi
+                    if [ -s /tmp/patches/openapi-generated.patch ]; then
+                      has_openapi=true
+                    fi
+                  fi
+
+                  echo "has-snapshots=$has_snapshots" >> $GITHUB_OUTPUT
+                  echo "has-openapi=$has_openapi" >> $GITHUB_OUTPUT
+
+                  if [ "$has_snapshots" == "true" ] && [ "$has_openapi" == "true" ]; then
+                    message="chore: update OpenAPI generated types and query snapshots"
+                  elif [ "$has_openapi" == "true" ]; then
+                    message="chore: update OpenAPI generated types"
+                  elif [ "$has_snapshots" == "true" ]; then
+                    message="test(backend): update query snapshots"
+                  else
+                    echo "No generated patches found"
                     echo "has-patches=false" >> $GITHUB_OUTPUT
-                    echo "No snapshot patches found"
                     exit 0
                   fi
 
-                  if [ -n "$(find /tmp/snapshot-patches -name '*.patch' -type f -size +0c 2>/dev/null)" ]; then
-                    echo "has-patches=true" >> $GITHUB_OUTPUT
-                    echo "Found patches:"
-                    ls -la /tmp/snapshot-patches/
-                  else
-                    echo "has-patches=false" >> $GITHUB_OUTPUT
-                    echo "Patch files empty or missing - no snapshot changes"
-                  fi
+                  echo "has-patches=true" >> $GITHUB_OUTPUT
+                  echo "message=$message" >> $GITHUB_OUTPUT
 
-            - name: Commit snapshots
-              if: steps.check-patches.outputs.has-patches == 'true'
+            - name: Commit generated updates
+              if: steps.collect.outputs.has-patches == 'true'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: backend
-                  patch-path: /tmp/snapshot-patches
+                  patch-path: /tmp/patches
                   snapshot-path: '.'
-                  commit-message: 'test(backend): update query snapshots'
+                  commit-message: ${{ steps.collect.outputs.message }}
                   pr-number: ${{ github.event.pull_request.number }}
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
@@ -1605,9 +1640,9 @@ jobs:
                     exit 1
                   fi
 
-                  # Check handle-snapshots result (OK if skipped, but fail if it failed)
+                  # Check generated-updates commit result (OK if skipped, but fail if it failed)
                   if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
-                    echo "Snapshot commit job failed."
+                    echo "Generated update commit job failed."
                     exit 1
                   fi
 
