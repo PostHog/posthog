@@ -147,6 +147,7 @@ class TestPartnerRateLimits(StripeProvisioningTestBase):
         response = _enforce_partner_rate_limit(self.partner_app, "account_requests")
         assert response is not None
         assert response.status_code == 429
+        assert "Retry-After" in response
 
     def test_zero_override_disables_limiting(self):
         from ee.api.agentic_provisioning.views import _enforce_partner_rate_limit

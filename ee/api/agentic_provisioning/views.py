@@ -1791,6 +1791,9 @@ def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Res
     Returns a 429 Response if the limit is exceeded, or None if the request is allowed.
     Setting the model field to 0 disables rate limiting for that endpoint.
     """
+    if endpoint not in PARTNER_RATE_LIMIT_DEFAULTS:
+        raise ValueError(f"Unknown rate limit endpoint: {endpoint}")
+
     field_name = f"provisioning_rate_limit_{endpoint}"
     override = getattr(partner, field_name, None)
 
@@ -1813,7 +1816,8 @@ def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Res
 
     if count > limit:
         _capture_provisioning_event(endpoint, "rate_limited", partner_id=str(partner.id), limit=limit, count=count)
-        return Response(
+        retry_after = PARTNER_RATE_LIMIT_WINDOW_SECONDS - (int(time.time()) % PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        response = Response(
             {
                 "type": "error",
                 "error": {
@@ -1823,6 +1827,8 @@ def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Res
             },
             status=429,
         )
+        response["Retry-After"] = str(retry_after)
+        return response
     return None
 
 
