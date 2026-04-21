@@ -14,6 +14,7 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { playerMetaLogic } from './player-meta/playerMetaLogic'
 import { sessionSummaryProgressLogic } from './player-meta/sessionSummaryProgressLogic'
 import { LoadingTimer, SessionSummary, SummarizationProgressView } from './PlayerSummaryViews'
+import { ProductContextButton } from './ProductContextButton'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
 const COLLAPSED_HEIGHT = 44
@@ -84,22 +85,25 @@ export function PlayerSummaryDock(): JSX.Element | null {
                         AI summary
                     </div>
                 ) : (
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        icon={<IconMagicWand />}
-                        loading={sessionSummaryLoading}
-                        disabledReason={summaryDisabledReason}
-                        onClick={() => {
-                            if (!sessionSummaryLoading) {
-                                summarizeSession()
-                            }
-                            setIsOpen(true)
-                        }}
-                        data-attr="load-session-summary"
-                    >
-                        Use AI to summarize this session
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            icon={<IconMagicWand />}
+                            loading={sessionSummaryLoading}
+                            disabledReason={summaryDisabledReason}
+                            onClick={() => {
+                                if (!sessionSummaryLoading) {
+                                    summarizeSession()
+                                }
+                                setIsOpen(true)
+                            }}
+                            data-attr="load-session-summary"
+                        >
+                            Use AI to summarize this session
+                        </LemonButton>
+                        <ProductContextButton />
+                    </div>
                 )}
                 {(hasContentToExpand || isOpen) && (
                     <LemonButton
