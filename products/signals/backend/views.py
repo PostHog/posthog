@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -43,6 +43,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team
+from posthog.models.exported_asset import ExportedAsset
 from posthog.permissions import APIScopePermission
 from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
 from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
@@ -89,6 +90,44 @@ from products.signals.backend.temporal.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _enrich_signals_with_moment_preview_urls(signals_list: list[dict], team_id: int) -> list[dict]:
+    """Resolve moment_preview_asset_id in signal extras to public content URLs."""
+    asset_ids: list[int] = []
+    for signal in signals_list:
+        extra = signal.get("extra", {})
+        parsed = _safe_int(extra.get("moment_preview_asset_id"))
+        if parsed is not None:
+            asset_ids.append(parsed)
+
+    if not asset_ids:
+        return signals_list
+
+    # Batch-fetch all relevant assets and generate public URLs, scoped to this team
+    assets = ExportedAsset.objects.filter(id__in=asset_ids, team_id=team_id).only(
+        "id", "content", "content_location", "export_format", "created_at", "export_context"
+    )
+    asset_url_map: dict[int, str] = {}
+    for asset in assets:
+        if asset.has_content:
+            asset_url_map[asset.id] = asset.get_public_content_url()
+
+    # Inject the URL into each signal's extra
+    for signal in signals_list:
+        extra = signal.get("extra", {})
+        parsed = _safe_int(extra.get("moment_preview_asset_id"))
+        if parsed is not None and parsed in asset_url_map:
+            extra["moment_preview_url"] = asset_url_map[parsed]
+
+    return signals_list
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -697,8 +736,9 @@ class SignalReportViewSet(
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
         report = self.get_object()
-        report_data = SignalReportSerializer(report).data
+        report_data = SignalReportSerializer(report, context=self.get_serializer_context()).data
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
+        signals_list = _enrich_signals_with_moment_preview_urls(signals_list, team_id=self.team.id)
         return Response({"report": report_data, "signals": signals_list})
 
     @extend_schema(exclude=True)

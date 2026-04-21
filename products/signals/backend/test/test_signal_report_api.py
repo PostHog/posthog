@@ -350,3 +350,97 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is expected_suggested
+
+
+class TestEnrichSignalsWithMomentPreviewUrls(APIBaseTest):
+    def test_enriches_signals_with_preview_url(self):
+        from posthog.models.exported_asset import ExportedAsset
+
+        from products.signals.backend.views import _enrich_signals_with_moment_preview_urls
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="image/gif",
+            content=b"GIF89a\x01\x00",  # Minimal GIF content
+            export_context={"session_recording_id": "sess-1"},
+        )
+
+        signals_list = [
+            {
+                "signal_id": "sig-1",
+                "content": "Problem occurred",
+                "source_product": "session_replay",
+                "source_type": "session_problem",
+                "source_id": "sess-1:00:30:01:00",
+                "weight": 1.0,
+                "timestamp": "2024-01-01T00:00:00",
+                "extra": {
+                    "session_id": "sess-1",
+                    "problem_type": "confusion",
+                    "moment_preview_asset_id": asset.id,
+                },
+            },
+            {
+                "signal_id": "sig-2",
+                "content": "GitHub issue",
+                "source_product": "github",
+                "source_type": "issue",
+                "source_id": "org/repo#1",
+                "weight": 0.5,
+                "timestamp": "2024-01-01T00:00:00",
+                "extra": {"html_url": "https://github.com/org/repo/issues/1"},
+            },
+        ]
+
+        result = _enrich_signals_with_moment_preview_urls(signals_list, team_id=self.team.id)
+
+        # First signal should have a preview URL
+        assert "moment_preview_url" in result[0]["extra"]
+        assert "/exporter/" in result[0]["extra"]["moment_preview_url"]
+        assert "token=" in result[0]["extra"]["moment_preview_url"]
+
+        # Second signal should be unchanged
+        assert "moment_preview_url" not in result[1]["extra"]
+
+    def test_no_enrichment_when_no_preview_assets(self):
+        from products.signals.backend.views import _enrich_signals_with_moment_preview_urls
+
+        signals_list = [
+            {
+                "signal_id": "sig-1",
+                "content": "GitHub issue",
+                "source_product": "github",
+                "source_type": "issue",
+                "source_id": "org/repo#1",
+                "weight": 0.5,
+                "timestamp": "2024-01-01T00:00:00",
+                "extra": {"html_url": "https://github.com/org/repo/issues/1"},
+            },
+        ]
+
+        result = _enrich_signals_with_moment_preview_urls(signals_list, team_id=self.team.id)
+        assert result == signals_list
+
+    def test_handles_missing_asset_gracefully(self):
+        from products.signals.backend.views import _enrich_signals_with_moment_preview_urls
+
+        signals_list = [
+            {
+                "signal_id": "sig-1",
+                "content": "Problem",
+                "source_product": "session_replay",
+                "source_type": "session_problem",
+                "source_id": "sess-1:00:30:01:00",
+                "weight": 1.0,
+                "timestamp": "2024-01-01T00:00:00",
+                "extra": {
+                    "session_id": "sess-1",
+                    "problem_type": "confusion",
+                    "moment_preview_asset_id": 99999,  # Non-existent
+                },
+            },
+        ]
+
+        result = _enrich_signals_with_moment_preview_urls(signals_list, team_id=self.team.id)
+        # Should not add a URL for non-existent asset
+        assert "moment_preview_url" not in result[0]["extra"]
