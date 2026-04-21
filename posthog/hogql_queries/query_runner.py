@@ -176,6 +176,13 @@ _ASYNC_TO_BLOCKING_EXECUTION_MODE: dict[ExecutionMode, ExecutionMode] = {
     ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
 }
 
+FORCE_BLOCKING_EXECUTION_QUERY_KINDS: set[str] = {
+    "ExperimentExposureQuery",
+    "ExperimentFunnelsQuery",
+    "ExperimentQuery",
+    "ExperimentTrendsQuery",
+}
+
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
@@ -258,11 +265,21 @@ def get_query_runner(
     timings: Optional[HogQLTimings] = None,
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
+    execution_mode: Optional[ExecutionMode] = None,
 ) -> "QueryRunner":
     try:
         kind = get_from_dict_or_attr(query, "kind")
     except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
+
+    if (
+        limit_context is None
+        and execution_mode in _ASYNC_TO_BLOCKING_EXECUTION_MODE
+        and kind in FORCE_BLOCKING_EXECUTION_QUERY_KINDS
+    ):
+        # These runners keep async requests in the web request. Preserve the timeout
+        # context the skipped Celery task would have used.
+        limit_context = LimitContext.QUERY_ASYNC
 
     if kind == "TrendsQuery":
         # Check if this should use calendar heatmap runner instead

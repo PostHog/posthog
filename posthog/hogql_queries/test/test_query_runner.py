@@ -37,7 +37,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
@@ -408,6 +408,70 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:48:42+00:00")
 
         mock_on_commit.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "force_async_trends",
+                "ExperimentTrendsQuery",
+                "posthog.hogql_queries.experiments.experiment_trends_query_runner.ExperimentTrendsQueryRunner",
+                ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+                None,
+                LimitContext.QUERY_ASYNC,
+            ),
+            (
+                "async_trends",
+                "ExperimentTrendsQuery",
+                "posthog.hogql_queries.experiments.experiment_trends_query_runner.ExperimentTrendsQueryRunner",
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
+                LimitContext.QUERY_ASYNC,
+            ),
+            (
+                "force_async_funnels",
+                "ExperimentFunnelsQuery",
+                "posthog.hogql_queries.experiments.experiment_funnels_query_runner.ExperimentFunnelsQueryRunner",
+                ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+                None,
+                LimitContext.QUERY_ASYNC,
+            ),
+            (
+                "blocking_trends",
+                "ExperimentTrendsQuery",
+                "posthog.hogql_queries.experiments.experiment_trends_query_runner.ExperimentTrendsQueryRunner",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                None,
+                None,
+            ),
+            (
+                "explicit_limit_context",
+                "ExperimentTrendsQuery",
+                "posthog.hogql_queries.experiments.experiment_trends_query_runner.ExperimentTrendsQueryRunner",
+                ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+                LimitContext.POSTHOG_AI,
+                LimitContext.POSTHOG_AI,
+            ),
+        ]
+    )
+    def test_get_query_runner_limit_context_for_force_blocking_execution(
+        self,
+        _name: str,
+        kind: str,
+        runner_path: str,
+        execution_mode: ExecutionMode,
+        limit_context: LimitContext | None,
+        expected_limit_context: LimitContext | None,
+    ) -> None:
+        with mock.patch(runner_path) as mock_runner:
+            get_query_runner(
+                {"kind": kind},
+                self.team,
+                limit_context=limit_context,
+                execution_mode=execution_mode,
+            )
+
+        mock_runner.assert_called_once()
+        self.assertEqual(mock_runner.call_args.kwargs["limit_context"], expected_limit_context)
 
     def test_modifier_passthrough(self):
         try:
