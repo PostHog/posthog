@@ -14,6 +14,7 @@ type CompareFilterProps = {
     updateCompareFilter: (compareFilter: CompareFilterType) => void
     disabled?: boolean
     disableReason?: string | null
+    fullWidth?: boolean
 }
 
 export function CompareFilter({
@@ -21,6 +22,7 @@ export function CompareFilter({
     updateCompareFilter,
     disabled,
     disableReason,
+    fullWidth,
 }: CompareFilterProps): JSX.Element | null {
     // This keeps the state of the rolling date range filter, even when different drop down options are selected
     // The default value for this is one month
@@ -74,6 +76,7 @@ export function CompareFilter({
     return (
         <LemonSelect
             icon={<IconClock />}
+            fullWidth={fullWidth}
             onSelect={(newValue) => {
                 if (newValue === 'compareTo') {
                     updateCompareFilter({ compare: true, compare_to: tentativeCompareTo })
