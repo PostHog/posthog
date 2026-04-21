@@ -2,12 +2,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { toSentenceCase } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { BillingProductV2AddonType } from '~/types'
@@ -27,8 +25,6 @@ interface BillingProductAddonActionsProps {
     buttonSize?: LemonButtonProps['size']
     ctaTextOverride?: string
     align?: 'left' | 'right'
-    /** Skip rendering the trial status tag when the caller already shows it elsewhere. */
-    hideTrialTag?: boolean
     /** Collapse pricing into the CTA: hide the paragraph below and swap the next-to-button flat rate for the prorated amount when it applies. */
     hidePricingNote?: boolean
 }
@@ -39,7 +35,6 @@ export const BillingProductAddonActions = ({
     buttonSize,
     ctaTextOverride,
     align = 'right',
-    hideTrialTag = false,
     hidePricingNote = false,
 }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
@@ -89,42 +84,25 @@ export const BillingProductAddonActions = ({
         )
     }
 
-    const renderTrialActions = (): JSX.Element => (
-        <div className={clsx('flex flex-col', align === 'left' ? 'items-start' : 'items-end justify-end')}>
-            {!hideTrialTag && (
-                <Tooltip
-                    title={
-                        <p>
-                            You are currently on a free trial for <b>{toSentenceCase(billing?.trial?.target || '')}</b>{' '}
-                            until <b>{dayjs(billing?.trial?.expires_at).format('LL')}</b>. At the end of the trial{' '}
-                            {billing?.trial?.type === 'autosubscribe'
-                                ? 'you will be automatically subscribed to the plan.'
-                                : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
-                        </p>
-                    }
-                >
-                    <LemonTag type="completion" icon={<IconCheckCircle />}>
-                        You're on a trial for this add-on
-                    </LemonTag>
-                </Tooltip>
-            )}
-            {/* Hide Cancel button only for Enterprise 'standard' trials (typically sales-managed) */}
-            {(addon.type !== 'enterprise' || billing?.trial?.type === 'autosubscribe') && (
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={() => {
-                        setSurveyResponse('$survey_response_1', addon.type)
-                        reportSurveyShown(TRIAL_CANCELLATION_SURVEY_ID, addon.type)
-                    }}
-                    loading={trialLoading}
-                    className={hideTrialTag ? undefined : 'mt-1'}
-                >
-                    Cancel trial
-                </LemonButton>
-            )}
-        </div>
-    )
+    const renderTrialActions = (): JSX.Element | null => {
+        // Hide Cancel button only for Enterprise 'standard' trials (typically sales-managed)
+        if (addon.type === 'enterprise' && billing?.trial?.type !== 'autosubscribe') {
+            return null
+        }
+        return (
+            <LemonButton
+                type="primary"
+                size="small"
+                onClick={() => {
+                    setSurveyResponse('$survey_response_1', addon.type)
+                    reportSurveyShown(TRIAL_CANCELLATION_SURVEY_ID, addon.type)
+                }}
+                loading={trialLoading}
+            >
+                Cancel trial
+            </LemonButton>
+        )
+    }
 
     const renderPurchaseActions = (): JSX.Element => {
         const hasFlatRate = !!currentAndUpgradePlans?.upgradePlan?.flat_rate
