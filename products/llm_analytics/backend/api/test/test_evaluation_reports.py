@@ -61,11 +61,38 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_list_reports(self):
-        self._create_report()
+        self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
         self._create_report()
         response = self.client.get(self.base_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 2)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        # Default (non-MCP) list keeps the full payload the web UI relies on.
+        first = results[0]
+        for field in ("delivery_targets", "rrule", "starts_at", "timezone_name", "report_prompt_guidance"):
+            self.assertIn(field, first)
+
+    def test_mcp_list_returns_slim_payload(self):
+        self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
+        response = self.client.get(self.base_url, HTTP_X_POSTHOG_CLIENT="mcp")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        first = results[0]
+        for dropped in (
+            "rrule",
+            "starts_at",
+            "timezone_name",
+            "delivery_targets",
+            "max_sample_size",
+            "report_prompt_guidance",
+            "cooldown_minutes",
+            "daily_run_cap",
+            "created_by",
+        ):
+            self.assertNotIn(dropped, first)
+        self.assertIn("id", first)
+        self.assertIn("evaluation", first)
 
     def test_list_excludes_deleted(self):
         self._create_report()

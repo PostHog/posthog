@@ -1625,6 +1625,17 @@ export const ShortcutPositionEnumApi = {
     Hidden: 'hidden',
 } as const
 
+/**
+ * Shape of each item in UserSerializer.pending_invites.
+ */
+export interface PendingInviteApi {
+    id: string
+    target_email: string
+    organization_id: string
+    organization_name: string
+    created_at: string
+}
+
 export type UserApiNotificationSettings = { [key: string]: unknown }
 
 export interface UserApi {
@@ -1685,6 +1696,7 @@ export interface UserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    readonly pending_invites: readonly PendingInviteApi[]
 }
 
 export interface PaginatedUserListApi {
@@ -1756,6 +1768,7 @@ export interface PatchedUserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    readonly pending_invites?: readonly PendingInviteApi[]
 }
 
 export type SubscriptionsDeliveriesListParams = {
