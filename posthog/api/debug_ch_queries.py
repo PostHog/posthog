@@ -326,7 +326,7 @@ class DebugCHQueries(viewsets.ViewSet):
             )
             return {str(row[0]): round(float(row[1])) for row in response.results or []}
         except Exception:
-            logger.warning("Failed to fetch org MRR from billing tables, skipping")
+            logger.warning("Failed to fetch org MRR from billing tables, skipping", exc_info=True)
             return {}
 
     @action(detail=False, methods=["GET"], url_path="slowest_queries")
