@@ -616,9 +616,20 @@ tools:
             Cancel a currently running sync job for a specific table schema. If no sync is running, returns
             an error. Use 'external-data-schemas-list' to check which schemas have status 'Running' before
             calling this.
-    external-data-schemas-delete-data-destroy:
+    external-data-schemas-delete-data:
         operation: external_data_schemas_delete_data_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete synced table data
+        description: >
+            Delete the synced table data from PostHog but keep the schema entry. The schema remains visible
+            in the source and can be re-synced. Use this to clear stale or corrupt data before triggering
+            a fresh sync.
     external-data-schemas-incremental-fields-create:
         operation: external_data_schemas_incremental_fields_create
         enabled: false

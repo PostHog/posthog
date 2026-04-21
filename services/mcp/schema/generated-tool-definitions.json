@@ -1004,6 +1004,21 @@
             "readOnlyHint": false
         }
     },
+    "external-data-schemas-delete-data": {
+        "description": "Delete the synced table data from PostHog but keep the schema entry. The schema remains visible in the source and can be re-synced. Use this to clear stale or corrupt data before triggering a fresh sync.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Delete synced table data",
+        "title": "Delete synced table data",
+        "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "external-data-schemas-reload": {
         "description": "Trigger an incremental sync for a single table schema. Picks up where the last sync left off. Use this to manually sync a specific table without triggering all tables in the source.",
         "category": "Data warehouse",

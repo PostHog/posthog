@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     ExternalDataSchemasCancelCreateBody,
     ExternalDataSchemasCancelCreateParams,
+    ExternalDataSchemasDeleteDataDestroyParams,
     ExternalDataSchemasListQueryParams,
     ExternalDataSchemasPartialUpdateBody,
     ExternalDataSchemasPartialUpdateParams,
@@ -629,6 +630,21 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
     },
 })
 
+const ExternalDataSchemasDeleteDataSchema = ExternalDataSchemasDeleteDataDestroyParams.omit({ project_id: true })
+
+const externalDataSchemasDeleteData = (): ToolBase<typeof ExternalDataSchemasDeleteDataSchema, unknown> => ({
+    name: 'external-data-schemas-delete-data',
+    schema: ExternalDataSchemasDeleteDataSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasDeleteDataSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/delete_data/`,
+        })
+        return result
+    },
+})
+
 const ExternalDataSchemasReloadSchema = ExternalDataSchemasReloadCreateParams.omit({ project_id: true }).extend(
     ExternalDataSchemasReloadCreateBody.shape
 )
@@ -696,6 +712,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
     'external-data-schemas-partial-update': externalDataSchemasPartialUpdate,
     'external-data-schemas-cancel': externalDataSchemasCancel,
+    'external-data-schemas-delete-data': externalDataSchemasDeleteData,
     'external-data-schemas-reload': externalDataSchemasReload,
     'external-data-schemas-resync': externalDataSchemasResync,
 }
