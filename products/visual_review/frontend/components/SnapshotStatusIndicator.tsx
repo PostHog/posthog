@@ -93,7 +93,7 @@ export function SnapshotStatusIndicator({
         <span className="flex items-center gap-2">
             {/* Transition pill */}
             <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs ${styles.bg}`}>
-                {hasBaseline && <span className="text-muted">baseline</span>}
+                {hasBaseline && <span className="text-muted">before</span>}
                 <span className={styles.text}>→ {label.toLowerCase()}</span>
             </span>
 

@@ -408,7 +408,7 @@ export function SnapshotDiffViewer({
                             )}
                             {snapshot.baseline_artifact?.content_hash && (
                                 <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted">Baseline</span>
+                                    <span className="text-muted">Before</span>
                                     <span className="font-mono">
                                         {snapshot.baseline_artifact.content_hash.slice(0, 10)}…
                                     </span>
@@ -416,7 +416,7 @@ export function SnapshotDiffViewer({
                             )}
                             {snapshot.current_artifact?.content_hash && (
                                 <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted">Current</span>
+                                    <span className="text-muted">After</span>
                                     <span className="font-mono">
                                         {snapshot.current_artifact.content_hash.slice(0, 10)}…
                                     </span>

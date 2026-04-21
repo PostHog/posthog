@@ -215,15 +215,15 @@ export function VisualImageDiffViewer({
                 <div className="flex flex-col gap-3 p-3 lg:flex-row lg:justify-center lg:items-start">
                     <ImagePanel
                         url={baselineUrl}
-                        label="Baseline"
-                        emptyTitle="Baseline snapshot missing"
+                        label="Before"
+                        emptyTitle="Before snapshot missing"
                         imgClassName={pixelatedClass}
                         imgStyle={pixelatedStyle}
                     />
                     <ImagePanel
                         url={currentUrl}
-                        label="Current"
-                        emptyTitle="Current snapshot missing"
+                        label="After"
+                        emptyTitle="After snapshot missing"
                         imgClassName={pixelatedClass}
                         imgStyle={pixelatedStyle}
                     />
@@ -246,25 +246,25 @@ export function VisualImageDiffViewer({
                     style={isSmallImage ? { width: (imageWidth ?? 0) * 2, maxWidth: '100%' } : undefined}
                 >
                     <div className="flex items-center justify-between px-2 py-1 border-b bg-bg-3000 text-[11px] font-semibold uppercase tracking-wide">
-                        <span>Baseline</span>
+                        <span>Before</span>
                         {mode === 'blend' && (
                             <span className="font-normal normal-case tracking-normal tabular-nums text-muted">
                                 {100 - blendPercentage}% / {blendPercentage}%
                             </span>
                         )}
-                        <span>Current</span>
+                        <span>After</span>
                     </div>
                     <div ref={overlayRef} className="relative overflow-hidden">
                         {baselineUrl ? (
                             <img
                                 src={baselineUrl}
-                                alt="Baseline snapshot"
+                                alt="Before snapshot"
                                 className="w-full h-auto bg-black/5 block"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
                             />
                         ) : (
-                            <EmptyImageState title="Baseline snapshot missing" />
+                            <EmptyImageState title="Before snapshot missing" />
                         )}
 
                         {activeOverlayUrl && (
@@ -284,7 +284,7 @@ export function VisualImageDiffViewer({
                             >
                                 <img
                                     src={activeOverlayUrl}
-                                    alt="Current snapshot"
+                                    alt="After snapshot"
                                     className="w-full h-auto bg-black/5 block"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
@@ -330,9 +330,9 @@ export function VisualImageDiffViewer({
     const renderSingleImageBody = (): JSX.Element => {
         const singleImage =
             result === 'new' ? currentUrl : result === 'removed' ? baselineUrl : currentUrl || baselineUrl || diffUrl
-        const singleLabel = result === 'new' ? 'Current snapshot' : 'Baseline snapshot'
+        const singleLabel = result === 'new' ? 'New snapshot' : 'Before snapshot'
         const emptyTitle =
-            result === 'new' ? 'New snapshot is missing an image' : 'Removed snapshot has no baseline image'
+            result === 'new' ? 'New snapshot is missing an image' : 'Removed snapshot has no before image'
 
         return (
             <div className="p-3 flex justify-center">
