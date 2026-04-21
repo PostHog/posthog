@@ -5,12 +5,17 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
+from products.logs.backend.alert_state_machine import AlertState, NotificationAction
 from products.logs.backend.temporal.metrics import (
     ALERTING_ACTIVITY_TYPES,
     AlertOutcome,
     ExecutionTimeRecorder,
     LogsAlertingMetricsInterceptor,
+    increment_check_errors,
     increment_checks_total,
+    increment_notification_failures,
+    increment_state_transition,
+    record_alerts_active,
     record_check_duration,
     record_schedule_to_start_latency,
     record_scheduler_lag,
@@ -46,6 +51,77 @@ class TestIncrementChecksTotal:
 
         mock_get_meter.assert_called_once_with({"outcome": outcome})
         mock_counter.add.assert_called_once_with(1)
+
+
+class TestIncrementCheckErrors:
+    @pytest.mark.parametrize("category", ["server_busy", "query_performance", "invalid_query", "cancelled", "unknown"])
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_increments_counter_with_category(self, mock_get_meter: MagicMock, category):
+        mock_meter = MagicMock()
+        mock_counter = MagicMock()
+        mock_meter.create_counter.return_value = mock_counter
+        mock_get_meter.return_value = mock_meter
+
+        increment_check_errors(category)
+
+        mock_get_meter.assert_called_once_with({"category": category})
+        (name, _description), _ = mock_meter.create_counter.call_args
+        assert name == "logs_alerting_check_errors_total"
+        mock_counter.add.assert_called_once_with(1)
+
+
+class TestIncrementNotificationFailures:
+    @pytest.mark.parametrize(
+        "action,expected_label",
+        [(NotificationAction.FIRE, "firing"), (NotificationAction.RESOLVE, "resolved")],
+    )
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_increments_counter_with_event(self, mock_get_meter: MagicMock, action, expected_label):
+        mock_meter = MagicMock()
+        mock_counter = MagicMock()
+        mock_meter.create_counter.return_value = mock_counter
+        mock_get_meter.return_value = mock_meter
+
+        increment_notification_failures(action)
+
+        mock_get_meter.assert_called_once_with({"event": expected_label})
+        mock_meter.create_counter.assert_called_once()
+        (name, _description), _ = mock_meter.create_counter.call_args
+        assert name == "logs_alerting_notification_failures_total"
+        mock_counter.add.assert_called_once_with(1)
+
+
+class TestIncrementStateTransition:
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_increments_counter_with_from_and_to(self, mock_get_meter: MagicMock):
+        mock_meter = MagicMock()
+        mock_counter = MagicMock()
+        mock_meter.create_counter.return_value = mock_counter
+        mock_get_meter.return_value = mock_meter
+
+        increment_state_transition(AlertState.NOT_FIRING, AlertState.FIRING)
+
+        mock_get_meter.assert_called_once_with({"from": "not_firing", "to": "firing"})
+        (name, _description), _ = mock_meter.create_counter.call_args
+        assert name == "logs_alerting_state_transitions_total"
+        mock_counter.add.assert_called_once_with(1)
+
+
+class TestRecordAlertsActive:
+    @pytest.mark.parametrize("count", [17, 0])
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_sets_gauge_with_count(self, mock_get_meter: MagicMock, count: int):
+        mock_meter = MagicMock()
+        mock_gauge = MagicMock()
+        mock_meter.create_gauge.return_value = mock_gauge
+        mock_get_meter.return_value = mock_meter
+
+        record_alerts_active(count)
+
+        mock_get_meter.assert_called_once_with()
+        (name, _description), _ = mock_meter.create_gauge.call_args
+        assert name == "logs_alerting_alerts_active"
+        mock_gauge.set.assert_called_once_with(count)
 
 
 class TestRecordCheckDuration:

@@ -229,11 +229,11 @@ export const FEATURE_FLAGS = {
     AI_ONLY_MODE: 'ai-only-mode', // owner: #team-posthog-ai
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     ALERTS_ANOMALY_DETECTION: 'alerts-anomaly-detection', // owner: @andrewm4894
+    /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
+    ALERTS_HISTORY_CHART: 'alerts-history-chart', // owner: #team-analytics-platform
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
     /** Insight alert quiet hours (schedule restriction UI; backend field is always honored when set). */
     ALERTS_QUIET_HOURS: 'alerts-quiet-hours', // owner: @mattp, #team-analytics-platform
-    /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
-    ALERTS_HISTORY_CHART: 'alerts-history-chart', // owner: #team-analytics-platform
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
     AUTOCAPTURE_SAVE_AS_ACTION: 'autocapture-save-as-action', // owner: #team-product-analytics
@@ -299,7 +299,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_SIGNIFICANCE_ALERTS: 'experiment-significance-alerts', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_MATURED_USERS_FILTER: 'experiments-matured-users-filter', // owner: @jurajmajerik #team-experiments
-    EXPERIMENTS_METRIC_EVENTS_PRECOMPUTATION: 'experiments-metric-events-precomputation', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SAMPLE_RATIO_MISMATCH: 'experiments-sample-ratio-mismatch', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_TEMPLATES: 'experiments-templates', // owner: @rodrigoi #team-experiments
@@ -399,7 +398,6 @@ export const FEATURE_FLAGS = {
     PIPELINE_STATUS_PAGE: 'pipeline-status-page', // owner: @clr182 #team-support
     POST_ONBOARDING_MODAL_EXPERIMENT: 'post-onboarding-modal-experiment', // owner: @fercgomes #team-growth multivariate=control,test
     POSTHOG_AI_ALERTS: 'posthog-ai-alerts', // owner: #team-posthog-ai
-    PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
     POSTHOG_AI_CHANGELOG: 'posthog-ai-changelog', // owner: #team-posthog-ai
     POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG: 'posthog-ai-conversation-feedback-config', // owner: #team-posthog-ai
@@ -409,6 +407,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS: 'product-analytics-ai-insight-analysis', // owner: #team-analytics-platform, used to show AI analysis section in insights
     PRODUCT_ANALYTICS_DASHBOARD_AI_ANALYSIS: 'product-analytics-dashboard-ai-analysis', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
+    PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     PRODUCT_ANALYTICS_HIDE_WEEKENDS: 'product-analytics-hide-weekends', // owner: @kliment-slice #team-irl-events
     PRODUCT_ANALYTICS_HOG_CHARTS: 'product-analytics-hog-charts', // owner: @sampennington #team-product-analytics
     PRODUCT_ANALYTICS_HOME_TAB: 'product-analytics-home-tab', // owner: @anirudhpillai #team-product-analytics
