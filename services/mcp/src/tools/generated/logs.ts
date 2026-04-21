@@ -117,7 +117,6 @@ const logsAlertsList = (): ToolBase<
                     'threshold_count',
                     'threshold_operator',
                     'window_minutes',
-                    'filters',
                     'created_at',
                     'updated_at',
                 ])

@@ -1045,7 +1045,7 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
         self.assertFalse(result)
 
-    @patch.dict("os.environ", {"POSTHOG_FEATURE_FLAGS_FORCE_ENABLED": "my-flag"})
+    @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"my-flag"}))
     @patch("posthoganalytics.feature_enabled")
     def test_force_enabled_bypasses_posthoganalytics(self, mock_ff):
         request = self._create_mock_request()
@@ -1056,7 +1056,7 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         self.assertTrue(result)
         mock_ff.assert_not_called()
 
-    @patch.dict("os.environ", {"POSTHOG_FEATURE_FLAGS_FORCE_ENABLED": "flag-a, flag-b, flag-c"})
+    @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"flag-a", "flag-b", "flag-c"}))
     @patch("posthoganalytics.feature_enabled")
     def test_force_enabled_supports_multiple_flags(self, mock_ff):
         request = self._create_mock_request()
@@ -1067,7 +1067,7 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         self.assertTrue(result)
         mock_ff.assert_not_called()
 
-    @patch.dict("os.environ", {"POSTHOG_FEATURE_FLAGS_FORCE_ENABLED": "other-flag"})
+    @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"other-flag"}))
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_force_enabled_does_not_affect_unlisted_flags(self, mock_ff):
         request = self._create_mock_request()

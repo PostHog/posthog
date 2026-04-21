@@ -63,6 +63,7 @@ tools:
     logs-alerts-list:
         operation: logs_alerts_list
         enabled: true
+        feature_flag: logs-alerting
         scopes:
             - logs:read
         annotations:
@@ -84,12 +85,12 @@ tools:
                 - threshold_count
                 - threshold_operator
                 - window_minutes
-                - filters
                 - created_at
                 - updated_at
     logs-alerts-create:
         operation: logs_alerts_create
         enabled: true
+        feature_flag: logs-alerting
         scopes:
             - logs:write
         annotations:
@@ -136,6 +137,7 @@ tools:
     logs-alerts-retrieve:
         operation: logs_alerts_retrieve
         enabled: true
+        feature_flag: logs-alerting
         scopes:
             - logs:read
         annotations:
@@ -172,6 +174,7 @@ tools:
     logs-alerts-partial-update:
         operation: logs_alerts_partial_update
         enabled: true
+        feature_flag: logs-alerting
         scopes:
             - logs:write
         annotations:
@@ -218,6 +221,7 @@ tools:
     logs-alerts-destroy:
         operation: logs_alerts_destroy
         enabled: true
+        feature_flag: logs-alerting
         scopes:
             - logs:write
         annotations:

@@ -700,6 +700,12 @@ class AccessControlPermission(ScopeBasePermission):
         return False
 
 
+_FORCE_ENABLED_FLAGS: frozenset[str] = frozenset()
+if settings.DEBUG or settings.TEST:
+    _raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
+    _FORCE_ENABLED_FLAGS = frozenset(f.strip() for f in _raw.split(",") if f.strip())
+
+
 class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
         user = cast(User, request.user)
@@ -718,13 +724,9 @@ class PostHogFeatureFlagPermission(BasePermission):
         else:
             config = flag
 
-        # Allow force-enabling specific flags via environment variable (for CI/local testing).
-        force_enabled_raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
-        forced_flags = {f.strip() for f in force_enabled_raw.split(",") if f.strip()}
-
         for required_flag, actions in config.items():
             if "*" in actions or view.action in actions:
-                if required_flag in forced_flags:
+                if required_flag in _FORCE_ENABLED_FLAGS:
                     return True
 
                 org_id = str(organization.id)
