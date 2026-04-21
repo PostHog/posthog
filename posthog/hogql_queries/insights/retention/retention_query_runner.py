@@ -15,6 +15,7 @@ from posthog.schema import (
     InCohortVia,
     IntervalType,
     RetentionEntity,
+    RetentionEntityKind,
     RetentionQuery,
     RetentionQueryResponse,
     RetentionType,
@@ -109,6 +110,115 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             and self.query.retentionFilter.cumulative
         ):
             raise ValidationError("Cumulative retention is not supported for 24 hour windows.")
+
+        self._validate_data_warehouse_retention()
+
+    def _validate_data_warehouse_retention(self) -> None:
+        if not self.is_data_warehouse_retention:
+            return
+
+        start_is_dw = self._is_data_warehouse_entity(self.start_event)
+        return_is_dw = self._is_data_warehouse_entity(self.return_event)
+        if not (start_is_dw and return_is_dw):
+            raise ValidationError(
+                "Data warehouse retention requires both target and returning entities to be data warehouse nodes."
+            )
+
+        if not self.start_event.table_name or self.start_event.table_name != self.return_event.table_name:
+            raise ValidationError(
+                "Data warehouse retention requires both target and returning entities to reference the same table."
+            )
+        if not self.start_event.timestamp_field or not self.start_event.distinct_id_field:
+            raise ValidationError(
+                "Data warehouse retention requires timestamp_field and distinct_id_field on the target entity."
+            )
+        if self.return_event.timestamp_field != self.start_event.timestamp_field:
+            raise ValidationError(
+                "Data warehouse retention target and returning entities must use the same timestamp_field."
+            )
+        if self.return_event.distinct_id_field != self.start_event.distinct_id_field:
+            raise ValidationError(
+                "Data warehouse retention target and returning entities must use the same distinct_id_field."
+            )
+
+        retention_filter = self.query.retentionFilter
+        if self.is_24h_window_calculation:
+            raise ValidationError("24 hour windows are not yet supported for data warehouse retention.")
+        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
+            raise ValidationError(
+                "First-time and first-ever retention types are not yet supported for data warehouse retention."
+            )
+        if self.is_custom_bracket_retention:
+            raise ValidationError("Custom retention brackets are not yet supported for data warehouse retention.")
+        if self.breakdowns_in_query:
+            raise ValidationError("Breakdowns are not yet supported for data warehouse retention.")
+        if self.group_type_index is not None:
+            raise ValidationError("Group aggregation is not supported for data warehouse retention.")
+        if retention_filter and retention_filter.aggregationType in (AggregationType.SUM, AggregationType.AVG):
+            raise ValidationError(
+                "Sum/avg aggregation is not yet supported for data warehouse retention."
+            )
+        if retention_filter and (retention_filter.minimumOccurrences or 1) > 1:
+            raise ValidationError(
+                "Minimum occurrences greater than 1 is not yet supported for data warehouse retention."
+            )
+        if self.query.samplingFactor is not None:
+            raise ValidationError("Sampling is not supported for data warehouse retention.")
+        if self.query.filterTestAccounts:
+            raise ValidationError("Test account filters are not supported for data warehouse retention.")
+
+    @staticmethod
+    def _is_data_warehouse_entity(entity: RetentionEntity | None) -> bool:
+        if entity is None:
+            return False
+        return entity.kind == RetentionEntityKind.DATA_WAREHOUSE_NODE
+
+    @cached_property
+    def is_data_warehouse_retention(self) -> bool:
+        return self._is_data_warehouse_entity(self.start_event) or self._is_data_warehouse_entity(self.return_event)
+
+    @cached_property
+    def _data_warehouse_table_name(self) -> str:
+        assert self.is_data_warehouse_retention
+        table_name = self.start_event.table_name or self.return_event.table_name
+        assert table_name is not None
+        return table_name
+
+    @cached_property
+    def _data_warehouse_timestamp_field(self) -> str:
+        assert self.is_data_warehouse_retention
+        field = self.start_event.timestamp_field or self.return_event.timestamp_field
+        assert field is not None
+        return field
+
+    @cached_property
+    def _data_warehouse_distinct_id_field(self) -> str:
+        assert self.is_data_warehouse_retention
+        field = self.start_event.distinct_id_field or self.return_event.distinct_id_field
+        assert field is not None
+        return field
+
+    @cached_property
+    def _source_table_chain(self) -> list[str | int]:
+        if self.is_data_warehouse_retention:
+            return cast(list[str | int], [self._data_warehouse_table_name])
+        return cast(list[str | int], ["events"])
+
+    @cached_property
+    def _source_timestamp_chain(self) -> list[str | int]:
+        if self.is_data_warehouse_retention:
+            return cast(
+                list[str | int], [self._data_warehouse_table_name, self._data_warehouse_timestamp_field]
+            )
+        return cast(list[str | int], ["events", "timestamp"])
+
+    @cached_property
+    def _actor_id_chain(self) -> list[str | int]:
+        if self.is_data_warehouse_retention:
+            return cast(
+                list[str | int], [self._data_warehouse_table_name, self._data_warehouse_distinct_id_field]
+            )
+        return cast(list[str | int], ["events", self.target_field])
 
     def update_hogql_modifiers(self) -> None:
         """
@@ -208,11 +318,20 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     @cached_property
     def start_entity_expr(self) -> ast.Expr:
-        return entity_to_expr(self.start_event, self.team)
+        return self._entity_to_expr(self.start_event)
 
     @cached_property
     def return_entity_expr(self) -> ast.Expr:
-        return entity_to_expr(self.return_event, self.team)
+        return self._entity_to_expr(self.return_event)
+
+    def _entity_to_expr(self, entity: RetentionEntity) -> ast.Expr:
+        # Data warehouse entities don't carry an event name — each row in the table represents
+        # an "event". Property filters still apply through the generic property path.
+        if self._is_data_warehouse_entity(entity):
+            if entity.properties is not None and entity.properties != []:
+                return property_to_expr(entity.properties, self.team)
+            return ast.Constant(value=True)
+        return entity_to_expr(entity, self.team)
 
     @cached_property
     def target_field(self) -> str:
@@ -227,10 +346,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         global_event_filters = self.events_where_clause(
             self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence
         )
-        # Pre-filter events to only those we care about
-        is_relevant_event = ast.Or(exprs=[self.start_entity_expr, self.return_entity_expr])
-        if not self.is_first_ever_occurrence:
-            global_event_filters.append(is_relevant_event)
+        # Pre-filter events to only those we care about. For data warehouse retention,
+        # every row in the backing table is a candidate event and the start/return entity
+        # expressions only carry property filters (already applied via events_where_clause
+        # per-entity when they're non-trivial).
+        if not self.is_data_warehouse_retention:
+            is_relevant_event = ast.Or(exprs=[self.start_entity_expr, self.return_entity_expr])
+            if not self.is_first_ever_occurrence:
+                global_event_filters.append(is_relevant_event)
 
         if self.group_type_index is not None:
             global_event_filters.append(
@@ -292,7 +415,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         """
         Timestamp filter between date_from and date_to
         """
-        field_to_compare = ast.Field(chain=["events", "timestamp"])
+        field_to_compare = ast.Field(chain=self._source_timestamp_chain)
         return ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -335,6 +458,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         )
 
     def get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
+        if self._is_data_warehouse_entity(entity):
+            # Data warehouse entities don't have an event name column. Returning [None]
+            # signals "match all rows" and disables event-name pre-filtering.
+            return [None]
         if entity.type == EntityType.ACTIONS and entity.id:
             action = Action.objects.get(pk=int(entity.id), team__project_id=self.team.project_id)
             return action.get_step_events()
@@ -615,7 +742,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
-            source=ast.Field(chain=["events", "timestamp"])
+            source=ast.Field(chain=self._source_timestamp_chain)
         )
 
         event_filters = self.global_event_filters.copy()
@@ -870,7 +997,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             )
 
         select_fields: list[ast.Expr] = [
-            ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.target_field])),
+            ast.Alias(alias="actor_id", expr=ast.Field(chain=self._actor_id_chain)),
             # start events between date_from and date_to (represented by start of interval)
             # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
             ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
@@ -945,7 +1072,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         inner_query = ast.SelectQuery(
             select=select_fields,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=self._source_table_chain)),
             where=ast.And(exprs=event_filters),
             group_by=[ast.Field(chain=["actor_id"])],
             having=ast.And(

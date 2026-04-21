@@ -2975,7 +2975,7 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
-export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
+export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode | NodeKind.DataWarehouseNode
 
 export interface RetentionEntity {
     id?: string | number // TODO: Fix weird typing issues
@@ -2988,6 +2988,14 @@ export interface RetentionEntity {
     custom_name?: string
     /** filters on the event */
     properties?: AnyPropertyFilter[]
+    /** Data warehouse table name (only used when kind is DataWarehouseNode) */
+    table_name?: string
+    /** Data warehouse timestamp field (only used when kind is DataWarehouseNode) */
+    timestamp_field?: string
+    /** Data warehouse field used as the actor identifier (only used when kind is DataWarehouseNode) */
+    distinct_id_field?: string
+    /** Data warehouse row identifier field (only used when kind is DataWarehouseNode) */
+    id_field?: string
 }
 
 export enum RetentionDashboardDisplayType {
