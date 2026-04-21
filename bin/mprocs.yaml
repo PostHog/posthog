@@ -32,7 +32,7 @@ procs:
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
-        ready_pattern: 'Uvicorn running on'
+        ready_pattern: 'Listening at'
         # no capability: always_required via intent-map.yaml
 
     celery-worker:

@@ -30,12 +30,14 @@ else
     echo "🐧 Linux detected, binding to Docker bridge gateway: $HOST_BIND"
 fi
 
-# uvicorn with watchfiles for fast native file-watching reload (FSEvents/inotify).
-# Single-process — no fork like Django's autoreloader, so the app only loads once.
-python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m uvicorn posthog.asgi:application \
-    --host "$HOST_BIND" \
-    --port 8000 \
+python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m granian \
+    --interface asgi \
+    posthog.asgi:application \
     --reload \
-    --reload-dir ./posthog \
-    --reload-dir ./ee \
-    --reload-dir ./products
+    --reload-paths ./posthog \
+    --reload-paths ./ee \
+    --reload-paths ./products \
+    --reload-paths ./frontend/src/products.json \
+    --host $HOST_BIND \
+    --log-level debug \
+    --workers 1

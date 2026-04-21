@@ -7,7 +7,7 @@ procs:
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
-        ready_pattern: 'Uvicorn running on'
+        ready_pattern: 'Listening at'
         env:
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_e2e_test'
             CLICKHOUSE_DATABASE: 'posthog_test'

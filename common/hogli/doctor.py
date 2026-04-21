@@ -1272,7 +1272,7 @@ def _is_excluded(args: str) -> bool:
 def _has_known_executable(args: str) -> bool:
     """Check if the command starts with a known PostHog dev executable."""
 
-    known = ("python", "node", "celery", "uvicorn", "dagster", "cargo", "air", "tsx", "esbuild", "pnpm")
+    known = ("python", "node", "celery", "granian", "uvicorn", "dagster", "cargo", "air", "tsx", "esbuild", "pnpm")
     first_word = args.split()[0].rsplit("/", 1)[-1] if args else ""
     return first_word in known
 
@@ -1309,7 +1309,7 @@ def _categorize_process(args: str) -> str:
     """Return a category string based on the command line."""
 
     lower = args.lower()
-    if any(kw in lower for kw in ("python", "celery", "uvicorn", "dagster", "gunicorn")):
+    if any(kw in lower for kw in ("python", "celery", "granian", "uvicorn", "dagster", "gunicorn")):
         return "python"
     if any(kw in lower for kw in ("node", "tsx", "esbuild", "pnpm", "vite")):
         return "node"

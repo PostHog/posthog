@@ -398,7 +398,8 @@ jobs:
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   python manage.py start_temporal_worker --task-queue analytics-platform-task-queue &> /tmp/temporal-worker.log &
-                  python -m uvicorn posthog.asgi:application --host 0.0.0.0 --port 8000 --workers 2 &> /tmp/server.log &
+                  # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
                   # Start the Node.js containers now that the database exists and migrations have run.
                   # plugins: CDP (no mode = default capabilities)
                   # ingestion-general: event ingestion (ingestion-v2-combined mode)
