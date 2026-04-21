@@ -94,6 +94,8 @@ GATE_ONLY_PATTERNS = (
     "bin/find_python_dependencies.py",
     "bin/granian_metrics.py",
     "bin/unit_metrics.py",
+    "tools/hogli/",
+    "tools/hogli-commands/",
 )
 
 # Max changed files before we give up and run everything
