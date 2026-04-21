@@ -50,7 +50,7 @@ async function getOrFetchCached<D extends keyof State, T extends keyof State>(de
         if (cached !== undefined) {
             waitUntil(
                 fetchAndCache().catch((error) => {
-                    getPostHogClient(false).captureException(error, undefined, {
+                    getPostHogClient().captureException(error, undefined, {
                         tag: 'max_ai',
                         context: `${opts.name}_background_revalidation`,
                     })
@@ -61,7 +61,7 @@ async function getOrFetchCached<D extends keyof State, T extends keyof State>(de
 
         return await fetchAndCache()
     } catch (error) {
-        getPostHogClient(false).captureException(error, undefined, {
+        getPostHogClient().captureException(error, undefined, {
             tag: 'max_ai',
             context: `get_or_fetch_${opts.name}`,
         })
