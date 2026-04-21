@@ -2,13 +2,18 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTableColumns, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { shortTimeZone } from 'lib/utils'
 
 import {
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
+    LogsAlertSparklineBucketApi,
     ThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
@@ -20,10 +25,62 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
     return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
 }
 
+const SNOOZE_DURATIONS = [
+    { label: '30 minutes', minutes: 30 },
+    { label: '1 hour', minutes: 60 },
+    { label: '4 hours', minutes: 240 },
+    { label: '24 hours', minutes: 1440 },
+]
+
+function alertSparklineData(sparkline: readonly LogsAlertSparklineBucketApi[] | undefined): SparklineTimeSeries[] {
+    if (!sparkline || sparkline.length === 0) {
+        return []
+    }
+    return [
+        {
+            name: 'Breached',
+            values: sparkline.map((b) => b.breached),
+            color: 'danger',
+        },
+        {
+            name: 'Errored',
+            values: sparkline.map((b) => b.errored),
+            color: 'warning',
+        },
+        {
+            name: 'Quiet',
+            values: sparkline.map((b) => (b.breached === 0 && b.errored === 0 ? 1 : 0)),
+            color: 'border',
+        },
+    ]
+}
+
+function alertSparklineLabels(sparkline: readonly LogsAlertSparklineBucketApi[] | undefined): string[] {
+    if (!sparkline) {
+        return []
+    }
+    const tz = shortTimeZone()
+    const tzSuffix = tz ? ` ${tz}` : ''
+    return sparkline.map((b) => {
+        const startUtc = dayjs.utc(b.timestamp)
+        const start = startUtc.local()
+        const end = startUtc.add(1, 'hour').local()
+        return `${start.format('MMM D, HH:mm')} – ${end.format('HH:mm')}${tzSuffix}`
+    })
+}
+
 export function LogsAlertList(): JSX.Element {
     const { alerts, alertsLoading, resettingAlertIds } = useValues(logsAlertingLogic)
-    const { setEditingAlert, setIsCreating, deleteAlert, toggleAlertEnabled, resetAlert, setViewingHistoryAlert } =
-        useActions(logsAlertingLogic)
+    const {
+        setEditingAlert,
+        setIsCreating,
+        deleteAlert,
+        toggleAlertEnabled,
+        resetAlert,
+        setViewingHistoryAlert,
+        snoozeAlert,
+        unsnoozeAlert,
+    } = useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
         {
@@ -39,7 +96,11 @@ export function LogsAlertList(): JSX.Element {
             title: 'Status',
             dataIndex: 'state',
             render: (_, alert) => (
-                <LogsAlertStateIndicator state={alert.state} lastErrorMessage={alert.last_error_message} />
+                <LogsAlertStateIndicator
+                    state={alert.state}
+                    lastErrorMessage={alert.last_error_message}
+                    snoozeUntil={alert.snooze_until}
+                />
             ),
         },
         {
@@ -55,6 +116,23 @@ export function LogsAlertList(): JSX.Element {
                 ) : (
                     <span className="text-muted text-xs">Never</span>
                 ),
+        },
+        {
+            title: (
+                <Tooltip title="Breached (red) and errored (yellow) checks over the last 24 hours. Grey bars mark quiet hours.">
+                    <span className="cursor-help">Last 24h</span>
+                </Tooltip>
+            ),
+            render: (_, alert) => (
+                <Sparkline
+                    data={alertSparklineData(alert.sparkline)}
+                    labels={alertSparklineLabels(alert.sparkline)}
+                    className="h-6 w-20"
+                    type="bar"
+                    maximumIndicator={false}
+                    hideZerosInTooltip
+                />
+            ),
         },
         {
             title: 'Enabled',
@@ -86,6 +164,18 @@ export function LogsAlertList(): JSX.Element {
                                     label: 'View history',
                                     onClick: () => setViewingHistoryAlert(alert),
                                 },
+                                alert.state === LogsAlertConfigurationStateEnumApi.Snoozed
+                                    ? {
+                                          label: 'Unsnooze',
+                                          onClick: () => unsnoozeAlert(alert.id),
+                                      }
+                                    : {
+                                          label: 'Snooze',
+                                          items: SNOOZE_DURATIONS.map((d) => ({
+                                              label: d.label,
+                                              onClick: () => snoozeAlert(alert.id, d.minutes),
+                                          })),
+                                      },
                                 ...(alert.state === LogsAlertConfigurationStateEnumApi.Broken
                                     ? [
                                           {

@@ -72,7 +72,7 @@ class TestGetResource:
 
         assert resource["name"] == "campaigns"
         assert resource["table_name"] == "campaigns"
-        assert resource["primary_key"] == ["id"]
+        assert "primary_key" not in resource
         assert isinstance(resource["endpoint"], dict)
         assert resource["endpoint"]["path"] == "/ad_accounts/test_account/campaigns"
         assert resource["endpoint"]["method"] == "GET"
@@ -85,7 +85,7 @@ class TestGetResource:
         assert isinstance(resource["write_disposition"], dict)
         write_disposition = resource["write_disposition"]
         assert write_disposition["disposition"] == "merge"
-        assert write_disposition["strategy"] == "upsert"  # type: ignore[typeddict-item]  # ty: ignore[invalid-key]
+        assert write_disposition["strategy"] == "upsert"  # ty: ignore[invalid-key]
         assert isinstance(resource["endpoint"], dict)
         endpoint_params = resource["endpoint"]["params"]
         assert endpoint_params is not None
@@ -98,7 +98,7 @@ class TestGetResource:
         assert isinstance(resource["write_disposition"], dict)
         write_disposition = resource["write_disposition"]
         assert write_disposition["disposition"] == "merge"
-        assert write_disposition["strategy"] == "upsert"  # type: ignore[typeddict-item]  # ty: ignore[invalid-key]
+        assert write_disposition["strategy"] == "upsert"  # ty: ignore[invalid-key]
         assert isinstance(resource["endpoint"], dict)
         assert resource["endpoint"]["method"] == "POST"
         endpoint_json = resource["endpoint"]["json"]

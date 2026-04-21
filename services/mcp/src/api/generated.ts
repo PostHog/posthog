@@ -19950,6 +19950,15 @@ export namespace Schemas {
       Broken: 'broken',
     } as const;
 
+    export interface LogsAlertSparklineBucket {
+      /** Bucket start timestamp (UTC, hourly). */
+      timestamp: string;
+      /** Count of breached checks in this hour. */
+      breached: number;
+      /** Count of errored checks in this hour. */
+      errored: number;
+    }
+
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id: string;
@@ -20029,6 +20038,8 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_error_message: string | null;
+      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+      readonly sparkline: readonly LogsAlertSparklineBucket[];
       /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -26170,6 +26181,8 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_error_message?: string | null;
+      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+      readonly sparkline?: readonly LogsAlertSparklineBucket[];
       /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
