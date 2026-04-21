@@ -81,6 +81,7 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
             name=resource.name,
             items=lambda: resource,
             primary_keys=["id"],
+            column_hints=resource.column_hints,
         )
 
     @property

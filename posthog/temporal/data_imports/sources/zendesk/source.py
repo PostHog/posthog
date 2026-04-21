@@ -120,6 +120,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             name=resource.name,
             items=lambda: resource,
             primary_keys=["id"],
+            column_hints=resource.column_hints,
         )
 
         partition_key = PARTITION_FIELDS.get(inputs.schema_name, None)

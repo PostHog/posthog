@@ -39,6 +39,16 @@ class Resource:
         self._kwargs = kwargs or {}
         self._data_from = data_from
 
+    @property
+    def column_hints(self) -> Optional[dict[str, Any]]:
+        """Return a mapping of column name to ``data_type`` extracted from the
+        resource's ``columns`` hint, suitable for ``SourceResponse.column_hints``.
+        """
+        columns = self._hints.get("columns")
+        if columns is None:
+            return None
+        return {key: value.get("data_type") for key, value in columns.items()}
+
     def add_map(self, fn: Callable[[dict[str, Any]], dict[str, Any]]) -> "Resource":
         self._maps.append(fn)
         return self

@@ -6,7 +6,7 @@ import uuid
 import decimal
 import hashlib
 import datetime
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -19,7 +19,6 @@ import pyarrow.compute as pc
 from arro3.core.types import ArrowSchemaExportable
 from circular_dict import CircularDict
 from dateutil import parser
-from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
@@ -101,15 +100,6 @@ def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | 
         return None
     except (ValueError, OverflowError, TypeError):
         return None
-
-
-def _get_column_hints(resource: Any) -> dict[str, TDataType | None] | None:
-    columns = resource._hints.get("columns")
-
-    if columns is None:
-        return None
-
-    return {key: value.get("data_type") for key, value in columns.items()}  # type: ignore
 
 
 def _handle_null_columns_with_definitions(table: pa.Table, source: SourceResponse) -> pa.Table:

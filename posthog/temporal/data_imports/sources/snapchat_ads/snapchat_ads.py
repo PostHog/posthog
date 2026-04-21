@@ -57,7 +57,7 @@ def get_snapchat_resource(
 
     # Set write disposition based on incremental field usage
     if should_use_incremental_field and config.incremental_fields:
-        resource["write_disposition"] = {  # type: ignore[typeddict-item]
+        resource["write_disposition"] = {
             "disposition": "merge",
             "strategy": "upsert",
         }

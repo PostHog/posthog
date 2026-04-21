@@ -97,4 +97,5 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
             name=resource.name,
             items=lambda: resource,
             primary_keys=["id"] if inputs.should_use_incremental_field else None,
+            column_hints=resource.column_hints,
         )

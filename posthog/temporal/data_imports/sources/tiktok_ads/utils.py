@@ -412,6 +412,8 @@ class TikTokAdsAuth(AuthConfigBase):
         self.access_token = access_token
 
     def __call__(self, request: PreparedRequest) -> PreparedRequest:
+        if self.access_token is None:
+            raise ValueError("TikTok Ads access token is not configured")
         request.headers["Access-Token"] = self.access_token
         request.headers["Content-Type"] = "application/json"
         return request

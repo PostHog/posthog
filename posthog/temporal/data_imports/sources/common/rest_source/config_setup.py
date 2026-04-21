@@ -130,7 +130,7 @@ def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:
         auth = auth_class()
 
     if isinstance(auth_config, dict):
-        auth_type: AuthType = auth_config.get("type") or "bearer"  # type: ignore[assignment]
+        auth_type: AuthType = auth_config.get("type") or "bearer"
         auth_class = get_auth_class(auth_type)
         auth = auth_class(**exclude_keys(auth_config, {"type"}))
 

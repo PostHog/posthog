@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 
 from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth, BearerTokenAuth, HttpBasicAuth
@@ -15,6 +17,12 @@ from posthog.temporal.data_imports.sources.common.rest_source.paginators import 
     JSONResponsePaginator,
     OffsetPaginator,
     SinglePagePaginator,
+)
+from posthog.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+    EndpointResourceBase,
+    IncrementalConfig,
 )
 
 
@@ -42,7 +50,7 @@ class TestCreatePaginator:
 
     def test_invalid_type_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid paginator"):
-            create_paginator("nonexistent")
+            create_paginator(cast(Any, "nonexistent"))
 
 
 class TestCreateAuth:
@@ -86,7 +94,7 @@ class TestSetupIncrementalObject:
 
     def test_from_config(self) -> None:
         params: dict = {}
-        config = {
+        config: IncrementalConfig = {
             "cursor_path": "modified",
             "initial_value": "2024-01-01",
             "start_param": "start",
@@ -115,32 +123,35 @@ class TestMergeResourceEndpoints:
     def test_default_params_merged_with_resource_params(self) -> None:
         """Default ``endpoint.params`` must be merged with resource-level params,
         not dropped when the resource also defines params."""
-        default = {"endpoint": {"params": {"limit": 100, "page_size": 25}}}
-        resource = {"endpoint": {"params": {"since": "2024-01-01"}}}
+        default: EndpointResourceBase = {"endpoint": {"params": {"limit": 100, "page_size": 25}}}
+        resource: EndpointResource = {"endpoint": {"params": {"since": "2024-01-01"}}}
 
         merged = _merge_resource_endpoints(default, resource)
 
-        assert merged["endpoint"]["params"] == {
+        endpoint = cast(Endpoint, merged["endpoint"])
+        assert endpoint["params"] == {
             "limit": 100,
             "page_size": 25,
             "since": "2024-01-01",
         }
 
     def test_resource_params_override_default_params(self) -> None:
-        default = {"endpoint": {"params": {"limit": 100}}}
-        resource = {"endpoint": {"params": {"limit": 50}}}
+        default: EndpointResourceBase = {"endpoint": {"params": {"limit": 100}}}
+        resource: EndpointResource = {"endpoint": {"params": {"limit": 50}}}
 
         merged = _merge_resource_endpoints(default, resource)
 
-        assert merged["endpoint"]["params"] == {"limit": 50}
+        endpoint = cast(Endpoint, merged["endpoint"])
+        assert endpoint["params"] == {"limit": 50}
 
     def test_default_json_and_params_are_independent(self) -> None:
         """Merging ``params`` must not be affected by default ``json`` and
         vice versa."""
-        default = {"endpoint": {"json": {"a": 1}, "params": {"limit": 100}}}
-        resource = {"endpoint": {"json": {"b": 2}, "params": {"since": "x"}}}
+        default: EndpointResourceBase = {"endpoint": {"json": {"a": 1}, "params": {"limit": 100}}}
+        resource: EndpointResource = {"endpoint": {"json": {"b": 2}, "params": {"since": "x"}}}
 
         merged = _merge_resource_endpoints(default, resource)
 
-        assert merged["endpoint"]["params"] == {"limit": 100, "since": "x"}
-        assert merged["endpoint"]["json"] == {"a": 1, "b": 2}
+        endpoint = cast(Endpoint, merged["endpoint"])
+        assert endpoint["params"] == {"limit": 100, "since": "x"}
+        assert endpoint["json"] == {"a": 1, "b": 2}

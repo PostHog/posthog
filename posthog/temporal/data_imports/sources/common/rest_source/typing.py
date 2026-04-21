@@ -14,7 +14,7 @@ from .paginators import (
     SinglePagePaginator,
 )
 
-HTTPMethodBasic = Literal["get", "post", "put", "patch", "delete"]
+HTTPMethodBasic = Literal["get", "post", "put", "patch", "delete", "GET", "POST", "PUT", "PATCH", "DELETE"]
 TSortOrder = Literal["asc", "desc"]
 LastValueFunc = Callable[..., Any]
 TTableHintTemplate = Any
@@ -190,6 +190,7 @@ class ResourceBase(TypedDict, total=False):
     write_disposition: Optional[TTableHintTemplate]
     parent: Optional[TTableHintTemplate]
     columns: Optional[TTableHintTemplate]
+    primary_key: Optional[TTableHintTemplate]
     merge_key: Optional[TTableHintTemplate]
     schema_contract: Optional[TTableHintTemplate]
     table_format: Optional[TTableHintTemplate]
