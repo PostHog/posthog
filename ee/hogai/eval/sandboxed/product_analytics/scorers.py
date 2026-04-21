@@ -1,7 +1,7 @@
-"""Retention scorers for the sandboxed product-analytics eval.
+"""Product-analytics scorers for the sandboxed eval.
 
-Both scorers extract the final ``query-retention`` MCP tool call the agent
-made, then grade it against an expected shape or against the user prompt.
+Each scorer extracts the final ``query-<insight>`` MCP tool call the agent
+made, then grades it against an expected shape or against the user prompt.
 Binary outputs only — the LLM is asked yes/no.
 """
 
@@ -15,6 +15,19 @@ from braintrust import Score
 from ee.hogai.eval.sandboxed.scorers import iter_successful_tool_calls, normalize_tool_name
 
 QUERY_RETENTION_TOOL_NAME = "query-retention"
+QUERY_TRENDS_TOOL_NAME = "query-trends"
+
+# PostHog MCP tools that persist saved-insight state. The sandbox is disposable
+# but these tools still hit real rows, so any successful call is a bug in the
+# agent's behaviour for a "just run the query" prompt.
+INSIGHT_WRITE_TOOLS = frozenset(
+    {
+        "insight-create",
+        "insight-update",
+        "insight-partial-update",
+        "insight-destroy",
+    }
+)
 
 BINARY_CHOICE_SCORES = {"yes": 1.0, "no": 0.0}
 
@@ -179,6 +192,176 @@ Evaluation rules:
 </actual_query>
 
 Is the time range / period in the actual query consistent with the user's prompt? Answer `yes` or `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=_JUDGE_MODEL,
+            max_tokens=512,
+            **kwargs,
+        )
+
+
+def extract_last_query_trends_input(output: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the input dict of the most recent successful ``query-trends`` call.
+
+    Returns ``None`` when the agent never ran the tool successfully — scorers
+    that depend on this should short-circuit with ``score=None`` in that case
+    rather than counting it as an incorrect trends query.
+    """
+    if not output:
+        return None
+    messages = output.get("messages")
+    if not messages:
+        return None
+
+    last_input: dict[str, Any] | None = None
+    for tool_use, _ in iter_successful_tool_calls(messages):
+        if normalize_tool_name(tool_use.get("name")) != QUERY_TRENDS_TOOL_NAME:
+            continue
+        tool_input = tool_use.get("input")
+        if isinstance(tool_input, dict):
+            last_input = tool_input
+    return last_input
+
+
+class TrendsSchemaAlignment(LLMClassifier):
+    """Binary yes/no: does the trends query the agent ran match the expected one?"""
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return await self._judge_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._judge_sync(output, expected, **kwargs)
+
+    async def _judge_async(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return await super()._run_eval_async(prepared["output"], prepared["expected"], **kwargs)
+
+    def _judge_sync(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return super()._run_eval_sync(prepared["output"], prepared["expected"], **kwargs)
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        actual = extract_last_query_trends_input(output)
+        if actual is None:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "Agent never ran query-trends successfully"},
+            )
+        expected_query = (expected or {}).get("trends_query") if isinstance(expected, dict) else None
+        if not isinstance(expected_query, dict):
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "No expected.trends_query provided"},
+            )
+        return {
+            "output": {"trends_query": actual},
+            "expected": {"trends_query": expected_query},
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="trends_schema_alignment",
+            prompt_template="""
+You are comparing two trends query specs. The ACTUAL spec was produced by an agent via PostHog's `query-trends` MCP tool. The EXPECTED spec is the correct answer we want.
+
+Treat these fields as material:
+- `kind` (must be `TrendsQuery`).
+- `series[]` — each series must match on:
+    - `kind` (e.g. `EventsNode`, `ActionsNode`).
+    - `event` — event names are case-sensitive and must match exactly. `null` is the "All events" sentinel.
+    - `math` — e.g. `total`, `dau` (unique users, legacy name), `unique_session`, `avg`, `median`, `p95`, `sum`, etc.
+    - `math_property` — required when the math operation needs one (e.g. `avg` of `$session_duration`).
+    - `properties` — entity-level property filters; `key`, `operator`, `value`, and `type` must match. Multiple selected values may appear as arrays.
+- `dateRange.date_from` / `dateRange.date_to` — relative windows like `-14d`, `-3m`, `-1y` are acceptable when equivalent to the expected window. Absolute dates must match.
+- `interval` — `hour` / `day` / `week` / `month`.
+- `breakdownFilter.breakdowns[]` — each breakdown's `property` and `type` must match. If expected has no breakdown, actual shouldn't introduce one.
+- `trendsFilter.display` — only when it is non-default in the expected spec (e.g. `BoldNumber`, `ActionsBar`).
+- `trendsFilter.formulaNodes[]` — formulas must match semantically (e.g. `A/B` vs `B/A * 100`).
+
+Ignore `filterTestAccounts`, `samplingFactor`, `showLegend`, `showValuesOnSeries`, `smoothingIntervals`, `compareFilter`, and other cosmetic fields unless they were set explicitly in the expected spec.
+
+<expected_query>
+{{expected.trends_query}}
+</expected_query>
+
+<actual_query>
+{{output.trends_query}}
+</actual_query>
+
+Does the actual trends query match the expected trends query on the material fields above? Answer `yes` or `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=_JUDGE_MODEL,
+            max_tokens=512,
+            **kwargs,
+        )
+
+
+class TrendsTimeRangeRelevancy(LLMClassifier):
+    """Binary yes/no: is the trends query's time range / interval consistent with the user prompt?"""
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return await self._judge_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._judge_sync(output, expected, **kwargs)
+
+    async def _judge_async(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return await super()._run_eval_async(prepared["output"], prepared["expected"], **kwargs)
+
+    def _judge_sync(self, output, expected, **kwargs):
+        prepared = self._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+        return super()._run_eval_sync(prepared["output"], prepared["expected"], **kwargs)
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        actual = extract_last_query_trends_input(output)
+        if actual is None:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "Agent never ran query-trends successfully"},
+            )
+        prompt = _extract_user_prompt(output)
+        return {
+            "output": {
+                "trends_query": actual,
+                "prompt": prompt,
+            },
+            "expected": expected or {},
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="trends_time_range_relevancy",
+            prompt_template="""
+Check the time range and interval granularity of a trends query against the user's prompt.
+
+Evaluation rules:
+1. Explicit time mentions (e.g. "last 14 days", "last 3 months", "this year", "January 2025") — `dateRange.date_from` must be consistent (`-14d`, `-3m`, an absolute `YYYY-MM-DD`, etc.). Absolute ranges must match month/year.
+2. Implicit granularity mentions — "daily" → `interval: "day"`, "weekly" → `week`, "monthly" → `month`, "hourly" → `hour`.
+3. If the prompt has no time component at all, a sensible default (last 30 days with `interval: "day"`) is acceptable.
+4. Ignore `filterTestAccounts`, display type, breakdowns, series math, and unrelated fields — they are not about time.
+
+<user_prompt>
+{{output.prompt}}
+</user_prompt>
+
+<actual_query>
+{{output.trends_query}}
+</actual_query>
+
+Is the time range / interval in the actual query consistent with the user's prompt? Answer `yes` or `no`.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
             model=_JUDGE_MODEL,
