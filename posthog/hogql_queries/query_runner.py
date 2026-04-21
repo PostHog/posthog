@@ -195,9 +195,9 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
 _SHARED_MODE_WHITELIST = {
     # Cache only is default refresh mode - remap to async so shared insights stay fresh
     ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
-    # Legacy refresh=true - but on shared insights, we don't give the ability to refresh at will
-    # TODO: Adjust once shared insights can poll for async query_status
-    ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    # `refresh=force_blocking` (CALCULATE_BLOCKING_ALWAYS) must recalculate even when cache looks fresh,
+    # otherwise shared dashboard "Refresh" cannot move last_refresh / staleness (was mapped to IF_STALE only).
+    ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     # Allow regular async
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
     # - All others fall back to extended cache -
