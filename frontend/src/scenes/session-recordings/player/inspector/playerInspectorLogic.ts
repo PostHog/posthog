@@ -473,6 +473,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             {
                 setLogsLoadError: (_, { error }) => error,
                 loadLogsSuccess: () => false,
+                loadMoreLogsSuccess: () => false,
             },
         ],
     })),
@@ -578,6 +579,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         return capped ? combined.slice(0, MAX_LOG_ENTRIES) : combined
                     } catch (error) {
                         console.error('Failed to load more backend logs for session replay', error)
+                        actions.setLogsLoadError(true)
                         return values.logs
                     }
                 },
