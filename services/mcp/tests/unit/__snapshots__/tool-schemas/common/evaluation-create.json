@@ -1,52 +1,71 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "conditions": {
+            "description": "Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each."
+        },
+        "deleted": {
+            "description": "Set to true to soft-delete the evaluation.",
+            "type": "boolean"
+        },
         "description": {
-            "description": "Description of what this evaluation checks.",
+            "description": "Optional description of what this evaluation checks.",
             "type": "string"
         },
         "enabled": {
-            "description": "Whether the evaluation runs automatically on new generations. Defaults to false.",
+            "description": "Whether the evaluation runs automatically on new $ai_generation events.",
             "type": "boolean"
         },
         "evaluation_config": {
-            "description": "Configuration for the evaluation. Provide \"prompt\" for llm_judge or \"source\" for hog type.",
-            "properties": {
-                "prompt": {
-                    "description": "The prompt for the LLM judge (required when evaluation_type is \"llm_judge\").",
-                    "type": "string"
-                },
-                "source": {
-                    "description": "Hog source code (required when evaluation_type is \"hog\").",
-                    "type": "string"
-                }
-            },
-            "type": "object"
+            "description": "Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}."
         },
         "evaluation_type": {
-            "description": "Type of evaluation. \"llm_judge\" uses an LLM to score generations against a prompt. \"hog\" runs deterministic Hog code.",
+            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog",
             "enum": ["llm_judge", "hog"],
             "type": "string"
         },
         "model_configuration": {
-            "description": "LLM model configuration (required for llm_judge evaluations).",
-            "properties": {
-                "model": {
-                    "description": "Model identifier (e.g. \"gpt-4o\", \"claude-sonnet-4-20250514\").",
-                    "type": "string"
+            "anyOf": [
+                {
+                    "description": "Nested serializer for model configuration.",
+                    "properties": {
+                        "model": {
+                            "maxLength": 100,
+                            "type": "string"
+                        },
+                        "provider": {
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks",
+                            "enum": ["openai", "anthropic", "gemini", "openrouter", "fireworks"],
+                            "type": "string"
+                        },
+                        "provider_key_id": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "provider_key_name": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["provider", "model"],
+                    "type": "object"
                 },
-                "provider": {
-                    "description": "LLM provider to use.",
-                    "enum": ["openai", "anthropic", "gemini", "openrouter", "fireworks"],
-                    "type": "string"
-                },
-                "provider_key_id": {
-                    "description": "UUID of a stored provider key. Omit to use trial credits.",
-                    "type": "string"
+                {
+                    "type": "null"
                 }
-            },
-            "required": ["provider", "model"],
-            "type": "object"
+            ]
         },
         "name": {
             "description": "Name of the evaluation.",
@@ -54,20 +73,14 @@
             "type": "string"
         },
         "output_config": {
-            "properties": {
-                "allows_na": {
-                    "description": "Whether the evaluation can return N/A for non-applicable generations.",
-                    "type": "boolean"
-                }
-            },
-            "type": "object"
+            "description": "Optional output config, e.g. {'allows_na': true} to allow N/A results."
         },
         "output_type": {
-            "const": "boolean",
-            "description": "Output type. Currently only \"boolean\" is supported.",
+            "description": "Output format. Currently only 'boolean' is supported.\n\n* `boolean` - Boolean (Pass/Fail)",
+            "enum": ["boolean"],
             "type": "string"
         }
     },
-    "required": ["name", "evaluation_type", "evaluation_config"],
+    "required": ["name", "evaluation_type", "output_type"],
     "type": "object"
 }

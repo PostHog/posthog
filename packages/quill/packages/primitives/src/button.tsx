@@ -39,6 +39,10 @@ const buttonVariants = cva(
                 true: 'justify-start',
                 false: '',
             },
+            inert: {
+                true: 'cursor-default not-disabled:hover:bg-transparent not-disabled:active:translate-y-0',
+                false: '',
+            },
         },
         defaultVariants: {
             variant: 'default',

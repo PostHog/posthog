@@ -4,7 +4,7 @@ from typing import Final, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import F, OuterRef, Q, QuerySet, Subquery
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -44,9 +44,9 @@ from products.logs.backend.alert_state_machine import (
     apply_user_reset,
     evaluate_alert_check,
 )
-from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
-ALLOWED_WINDOW_MINUTES = {1, 5, 10, 15, 30, 60}
+ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
@@ -85,7 +85,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     last_error_message = serializers.SerializerMethodField(
         help_text=(
             "Error message from the most recent errored check, or null if the alert's "
-            "most recent check was successful. Sourced from LogsAlertCheck without "
+            "most recent check was successful. Sourced from LogsAlertEvent without "
             "denormalization so retention-aware cleanup rules stay the only source of truth."
         ),
     )
@@ -100,7 +100,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # Subquery annotation yields either the error_message string or None.
             return cast(str | None, annotated)
         return (
-            LogsAlertCheck.objects.filter(alert=obj, error_message__isnull=False)
+            LogsAlertEvent.objects.filter(
+                alert=obj,
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=False,
+            )
             .order_by("-created_at")
             .values_list("error_message", flat=True)
             .first()
@@ -186,32 +190,36 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
             enabled_change = validated_data["enabled"]
 
-        # Resolve the state-machine transition in priority order: enable/disable wins over
-        # snooze, which wins over threshold/filter changes. Window-only edits don't touch
-        # state at all. All transitions return an Outcome; apply_outcome is the single
-        # place that actually writes to `state`/`consecutive_failures`.
-        snapshot = instance.to_snapshot()
-        if enabled_change is True:
-            apply_outcome(instance, apply_enable(snapshot))
-        elif enabled_change is False:
-            apply_outcome(instance, apply_disable(snapshot))
-        elif snooze_data is not _SENTINEL:
-            if snooze_data is None:
-                apply_outcome(instance, apply_unsnooze(snapshot))
-            else:
-                apply_outcome(instance, apply_snooze(snapshot))
-        elif threshold_changed:
-            apply_outcome(instance, apply_threshold_change(snapshot))
+        # Wrap the state-machine transition + LogsAlertEvent insert + super().save in one
+        # transaction so a save failure can't orphan an audit row (or vice versa). Matches
+        # the atomic guarantee the reset viewset action already provides.
+        with transaction.atomic():
+            # Resolve the state-machine transition in priority order: enable/disable wins over
+            # snooze, which wins over threshold/filter changes. Window-only edits don't touch
+            # state at all. All transitions return an Outcome; apply_outcome is the single
+            # place that actually writes to `state`/`consecutive_failures`.
+            snapshot = instance.to_snapshot()
+            if enabled_change is True:
+                apply_outcome(instance, apply_enable(snapshot), kind=LogsAlertEvent.Kind.ENABLE)
+            elif enabled_change is False:
+                apply_outcome(instance, apply_disable(snapshot), kind=LogsAlertEvent.Kind.DISABLE)
+            elif snooze_data is not _SENTINEL:
+                if snooze_data is None:
+                    apply_outcome(instance, apply_unsnooze(snapshot), kind=LogsAlertEvent.Kind.UNSNOOZE)
+                else:
+                    apply_outcome(instance, apply_snooze(snapshot), kind=LogsAlertEvent.Kind.SNOOZE)
+            elif threshold_changed:
+                apply_outcome(instance, apply_threshold_change(snapshot), kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE)
 
-        # snooze_until is a timestamp column, not a state — carry it alongside the state
-        # transition so the serializer's single save persists both.
-        if snooze_data is not _SENTINEL:
-            instance.snooze_until = snooze_data
+            # snooze_until is a timestamp column, not a state — carry it alongside the state
+            # transition so the serializer's single save persists both.
+            if snooze_data is not _SENTINEL:
+                instance.snooze_until = snooze_data
 
-        if threshold_changed or window_changed:
-            instance.clear_next_check()
+            if threshold_changed or window_changed:
+                instance.clear_next_check()
 
-        return super().update(instance, validated_data)
+            return super().update(instance, validated_data)
 
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
@@ -239,6 +247,23 @@ def _validate_filters(filters: dict) -> None:
         raise ValidationError(
             {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
         )
+
+
+class LogsAlertEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LogsAlertEvent
+        fields = [
+            "id",
+            "created_at",
+            "kind",
+            "state_before",
+            "state_after",
+            "threshold_breached",
+            "result_count",
+            "error_message",
+            "query_duration_ms",
+        ]
+        read_only_fields = fields
 
 
 class LogsAlertSimulateBucketSerializer(serializers.Serializer):
@@ -464,7 +489,11 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Correlated subquery so list/retrieve can surface `last_error_message` in a
         # single round-trip instead of one extra query per alert.
         latest_error = (
-            LogsAlertCheck.objects.filter(alert=OuterRef("pk"), error_message__isnull=False)
+            LogsAlertEvent.objects.filter(
+                alert=OuterRef("pk"),
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=False,
+            )
             .order_by("-created_at")
             .values("error_message")[:1]
         )
@@ -551,6 +580,43 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
+        responses={200: LogsAlertEventSerializer(many=True)},
+        description=(
+            "Paginated event history for this alert, newest first. Returns state transitions, "
+            "errored checks, and user-initiated control-plane rows (reset, enable/disable, "
+            "snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't "
+            "change and there was no error) are filtered out since only the last 10 are kept "
+            "and they carry no forensic value. Optional `?kind=...` narrows to a single kind."
+        ),
+    )
+    @action(detail=True, methods=["GET"], url_path="events")
+    def events(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        queryset = (
+            LogsAlertEvent.objects.filter(alert=alert)
+            .filter(
+                ~Q(kind=LogsAlertEvent.Kind.CHECK) | Q(error_message__isnull=False) | ~Q(state_before=F("state_after"))
+            )
+            .order_by("-created_at")
+        )
+
+        kind = request.query_params.get("kind")
+        if kind is not None:
+            valid_kinds = LogsAlertEvent.Kind.values
+            if kind not in valid_kinds:
+                raise ValidationError({"kind": f"Must be one of {sorted(valid_kinds)}."})
+            queryset = queryset.filter(kind=kind)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = LogsAlertEventSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = LogsAlertEventSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
         responses={200: LogsAlertConfigurationSerializer},
         description="Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.",
     )
@@ -563,7 +629,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except InvalidTransition:
             raise ValidationError({"state": "Only broken alerts can be reset."})
         with transaction.atomic():
-            update_fields = apply_outcome(alert, outcome)
+            update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
             update_fields.extend(alert.clear_next_check())
             alert.save(update_fields=update_fields)
             # The model's auto-signal skips these fields (signal_exclusions silences
@@ -634,7 +700,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         minute_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, 1)
 
         # Compute rolling window sum: for each minute, sum the preceding window_minutes of counts.
-        # This matches the real alerting cadence: check every minute, count logs in the last N minutes.
+        # Simulate samples at minute granularity for a dense preview chart; real alerts evaluate
+        # less frequently (see LogsAlertConfiguration.check_interval_minutes, currently 5m).
         counts = [b.count for b in minute_buckets]
         rolling_counts: list[int] = []
         for i in range(len(counts)):
@@ -656,7 +723,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             last_notified_at=None,
             snooze_until=None,
             consecutive_failures=0,
-            recent_checks_breached=(),
+            recent_events_breached=(),
         )
 
         result_buckets = []
@@ -676,7 +743,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 resolve_count += 1
 
             # Build the recent window including this check (same as what the state machine saw)
-            recent = (breached, *snapshot.recent_checks_breached)[:evaluation_periods]
+            recent = (breached, *snapshot.recent_events_breached)[:evaluation_periods]
 
             # Detect cooldown suppression: state changed but notification was suppressed
             cooldown_suppressed = (
@@ -720,7 +787,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 last_notified_at=bucket.timestamp if outcome.update_last_notified_at else snapshot.last_notified_at,
                 snooze_until=None,
                 consecutive_failures=outcome.consecutive_failures,
-                recent_checks_breached=recent,
+                recent_events_breached=recent,
             )
 
         response_data = {

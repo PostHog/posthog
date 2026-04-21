@@ -232,6 +232,16 @@ export const OriginProductEnumApi = {
     SignalReport: 'signal_report',
 } as const
 
+/**
+ * * `implementation` - Implementation
+ */
+export type SignalReportTaskRelationshipEnumApi =
+    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
+
+export const SignalReportTaskRelationshipEnumApi = {
+    Implementation: 'implementation',
+} as const
+
 export interface PatchedTaskApi {
     readonly id?: string
     /** @nullable */
@@ -254,6 +264,7 @@ export interface PatchedTaskApi {
     github_integration?: number | null
     /** @nullable */
     signal_report?: string | null
+    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
     /** JSON schema for the task. This is used to validate the output of the task. */
     json_schema?: unknown | null
     /** If true, this task is for internal use and should not be exposed to end users. */
@@ -277,9 +288,9 @@ export interface PatchedTaskApi {
  * * `interactive` - interactive
  * `background` - background
  */
-export type ModeA07EnumApi = (typeof ModeA07EnumApi)[keyof typeof ModeA07EnumApi]
+export type Mode051EnumApi = (typeof Mode051EnumApi)[keyof typeof Mode051EnumApi]
 
-export const ModeA07EnumApi = {
+export const Mode051EnumApi = {
     Interactive: 'interactive',
     Background: 'background',
 } as const
@@ -355,7 +366,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: ModeA07EnumApi
+    mode?: Mode051EnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -436,7 +447,7 @@ export interface CodexTaskRunCreateSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: ModeA07EnumApi
+    mode?: Mode051EnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
@@ -489,7 +500,7 @@ export interface TaskRunResumeRequestSchemaApi {
 
 * `interactive` - interactive
 * `background` - background */
-    mode?: ModeA07EnumApi
+    mode?: Mode051EnumApi
     /**
      * Git branch to checkout in the sandbox
      * @maxLength 255
