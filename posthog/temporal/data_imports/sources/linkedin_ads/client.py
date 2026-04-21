@@ -169,7 +169,11 @@ class LinkedinAdsClient:
             if not response.elements:
                 break
 
-            metadata = json.loads(response.response.text).get("metadata", {})
+            # A malformed/empty envelope is treated as "no more pages" rather than crashing the sync.
+            try:
+                metadata = json.loads(response.response.text).get("metadata", {})
+            except (TypeError, ValueError):
+                metadata = {}
             next_page_token = metadata.get("nextPageToken")
 
             yield response.elements, next_page_token
