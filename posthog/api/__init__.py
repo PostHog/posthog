@@ -158,6 +158,7 @@ from . import (
     user_home_settings,
     web_vitals,
     webauthn,
+    welcome,
 )
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
@@ -688,6 +689,12 @@ organizations_router.register(
     r"resource_transfers",
     resource_transfer.ResourceTransferViewSet,
     "organization_resource_transfers",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"welcome",
+    welcome.WelcomeViewSet,
+    "organization_welcome",
     ["organization_id"],
 )
 
