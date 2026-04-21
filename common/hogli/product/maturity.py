@@ -231,11 +231,11 @@ def score_facade(backend_dir: Path) -> DimensionScore:
 
     # Facade — must have actual function definitions, not just re-exports
     facade_path = backend_dir / "facade" / "api.py"
-    fn_names: list[str] = []
+    real_facade = False
     if facade_path.exists():
-        has_real_functions = has_any_function_defs(facade_path)
-        if not has_real_functions:
-            parts.append("facade (re-export only, not a real facade)")
+        real_facade = has_any_function_defs(facade_path)
+        if not real_facade:
+            parts.append("facade (re-export only)")
         else:
             impure = imports_any(facade_path, ["rest_framework"])
             fn_names = get_public_function_names(facade_path)
@@ -263,12 +263,16 @@ def score_facade(backend_dir: Path) -> DimensionScore:
         parts.append("no logic")
 
     # Views inside product + using facade
+    # "uses facade" only counts when the facade is real — importing a
+    # re-export passthrough isn't meaningful isolation
     if views_path is not None:
         score += 20
         uses_facade, _ = view_facade_usage(views_path)
-        if uses_facade:
+        if uses_facade and real_facade:
             score += 20
             parts.append("views use facade")
+        elif uses_facade:
+            parts.append("views import facade (but facade is fake)")
         else:
             parts.append("views skip facade")
     else:
@@ -311,9 +315,15 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
     uses_facade, _ = view_facade_usage(views_path)
     orm_queries = count_direct_orm_queries(views_path)
 
-    if uses_facade:
+    # Check if the facade is real (has function definitions, not re-exports)
+    facade_api = backend_dir / "facade" / "api.py"
+    real_facade = facade_api.exists() and has_any_function_defs(facade_api)
+
+    if uses_facade and real_facade:
         score += 25
         parts.append("uses facade")
+    elif uses_facade:
+        parts.append("imports facade (but facade is fake)")
     else:
         parts.append("no facade usage")
 
@@ -447,7 +457,7 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, int] |
             parts.append("tach (no interfaces)")
 
         # Cross-product depends_on: each one is an explicit coupling
-        n_cross_deps, cross_deps = _count_tach_depends_on(block)
+        n_cross_deps, _cross_deps = _count_tach_depends_on(block)
         if n_cross_deps == 0:
             score += 15
             parts.append("no cross-product deps")
