@@ -186,6 +186,28 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('infiniteListResultsReceived guards malformed property definition payloads', () => {
+        // Regression test for a Firefox-only TypeError:
+        // "iterable for Object.fromEntries should have array-like objects"
+        // If the upstream fetcher returns an unexpected shape, infiniteListLogic's
+        // `response.results || response` fallback can surface a non-array or an array
+        // containing non-objects to this listener. The guard should silently skip.
+        it.each([
+            { description: 'non-array results payload', results: undefined as any, count: 1 },
+            { description: 'results containing primitive entries', results: ['oops', 42], count: 2 },
+            { description: 'results containing null/undefined entries', results: [null, undefined], count: 2 },
+            { description: 'results missing name field', results: [{ id: 'x' }], count: 1 },
+        ])('does not throw on $description', ({ results, count }) => {
+            expect(() => {
+                logic.actions.infiniteListResultsReceived(TaxonomicFilterGroupType.EventProperties, {
+                    results,
+                    count,
+                    searchQuery: '',
+                })
+            }).not.toThrow()
+        })
+    })
+
     it('tabs skip groups with no results', async () => {
         await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1).clearHistory()
 

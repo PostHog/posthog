@@ -1675,17 +1675,23 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 results.count > 0 &&
                 (groupType === TaxonomicFilterGroupType.EventProperties ||
                     groupType === TaxonomicFilterGroupType.PersonProperties ||
-                    groupType === TaxonomicFilterGroupType.NumericalEventProperties)
+                    groupType === TaxonomicFilterGroupType.NumericalEventProperties) &&
+                Array.isArray(results.results)
             ) {
-                const propertyDefinitions: PropertyDefinition[] = results.results as PropertyDefinition[]
                 const apiType = groupType === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
-                const newPropertyDefinitions = Object.fromEntries(
-                    propertyDefinitions.map((propertyDefinition) => [
-                        `${apiType}/${propertyDefinition.name}`,
-                        propertyDefinition,
-                    ])
-                )
-                updatePropertyDefinitions(newPropertyDefinitions)
+                const entries: [string, PropertyDefinition][] = []
+                for (const item of results.results) {
+                    // Guard: Firefox throws on Object.fromEntries if any entry isn't array-like,
+                    // so silently skip malformed upstream payloads (e.g. when the API response
+                    // falls through the `response.results || response` path in infiniteListLogic).
+                    if (item && typeof item === 'object' && typeof (item as PropertyDefinition).name === 'string') {
+                        const propertyDefinition = item as PropertyDefinition
+                        entries.push([`${apiType}/${propertyDefinition.name}`, propertyDefinition])
+                    }
+                }
+                if (entries.length > 0) {
+                    updatePropertyDefinitions(Object.fromEntries(entries))
+                }
             }
         },
     })),
