@@ -5,6 +5,10 @@ inputs:
     workflow-type:
         description: 'Workflow type (storybook, playwright, or backend)'
         required: true
+    post-comment:
+        description: 'Whether to post a PR comment after committing (set false to handle externally)'
+        required: false
+        default: 'true'
     patch-path:
         description: 'Path where patch artifacts are already downloaded (e.g., /tmp/snapshot-patches/)'
         required: true
@@ -41,6 +45,9 @@ outputs:
     changes:
         description: 'JSON object with change counts'
         value: ${{ steps.commit.outputs.changes }}
+    snapshot-sha:
+        description: 'The SHA of the snapshot commit (if one was created)'
+        value: ${{ steps.ghcommit.outputs.commit-hash }}
 
 runs:
     using: composite
@@ -158,7 +165,7 @@ runs:
               GITHUB_TOKEN: ${{ inputs.github-token }}
 
         - name: Post snapshot comment
-          if: steps.commit.outputs.committed == 'true'
+          if: steps.commit.outputs.committed == 'true' && inputs.post-comment == 'true'
           shell: bash
           env:
               GH_TOKEN: ${{ inputs.github-token }}

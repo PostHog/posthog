@@ -507,6 +507,8 @@ jobs:
 
         name: Validate migrations and OpenAPI types
         runs-on: depot-ubuntu-latest
+        outputs:
+            needs-openapi-commit: ${{ steps.openapi-check.outputs.needs-commit }}
 
         steps:
             - uses: actions/checkout@v6
@@ -1502,8 +1504,13 @@ jobs:
     handle-snapshots:
         name: Commit generated backend updates
         needs: [changes, check-migrations, detect-snapshot-mode, django, turbo-tests]
-        # Run even if some matrix jobs failed (to commit updates from passing jobs)
-        if: ${{ always() && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+        # Run only when patches may exist: snapshot update mode OR OpenAPI types need committing.
+        # This avoids spinning up a runner on every backend PR just to find no patches.
+        if: >-
+            ${{ always()
+            && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+            && (needs.detect-snapshot-mode.outputs.mode == 'update'
+                || needs.check-migrations.outputs.needs-openapi-commit == 'true') }}
         runs-on: ubuntu-latest
         timeout-minutes: 5
         permissions:
@@ -1576,10 +1583,12 @@ jobs:
                   echo "message=$message" >> $GITHUB_OUTPUT
 
             - name: Commit generated updates
+              id: commit-snapshots
               if: steps.collect.outputs.has-patches == 'true'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: backend
+                  post-comment: 'false'
                   patch-path: /tmp/patches
                   snapshot-path: '.'
                   commit-message: ${{ steps.collect.outputs.message }}
@@ -1588,6 +1597,31 @@ jobs:
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   branch-name: ${{ github.event.pull_request.head.ref }}
                   github-token: ${{ steps.app-token.outputs.token }}
+
+            - name: Post query snapshots comment
+              if: steps.commit-snapshots.outputs.committed == 'true' && steps.collect.outputs.has-snapshots == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  .github/scripts/post-snapshot-comment.js \
+                    "backend" \
+                    "update" \
+                    '${{ steps.commit-snapshots.outputs.changes }}' \
+                    "${{ github.event.pull_request.number }}" \
+                    "${{ github.repository }}" \
+                    "${{ github.event.pull_request.head.sha }}" \
+                    "${{ steps.commit-snapshots.outputs.snapshot-sha }}"
+
+            - name: Post OpenAPI types comment
+              if: steps.commit-snapshots.outputs.committed == 'true' && steps.collect.outputs.has-openapi == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  .github/scripts/post-openapi-comment.js \
+                    "${{ github.event.pull_request.number }}" \
+                    "${{ github.repository }}" \
+                    "${{ github.event.pull_request.head.sha }}" \
+                    "${{ steps.commit-snapshots.outputs.snapshot-sha }}"
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
