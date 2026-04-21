@@ -271,7 +271,7 @@ def _channel_messages_generator(
         cursor = next_cursor
         has_more = cursor is not None
 
-        if has_more:
+        if cursor is not None:
             # Checkpoint: all messages on this page and their thread replies have been yielded.
             # On resume we start from next_cursor, so no duplication of parent messages.
             resumable_source_manager.save_state(
