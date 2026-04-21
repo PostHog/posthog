@@ -232,9 +232,9 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         top_sources = response.json()["top_sources"]
         assert len(top_sources) == 5
-        assert len({entry["source"] for entry in top_sources}) == 5
+        assert len({entry["name"] for entry in top_sources}) == 5
         for entry in top_sources:
-            assert "source" in entry
+            assert "name" in entry
             assert "visitors" in entry
             assert isinstance(entry["visitors"], int)
 

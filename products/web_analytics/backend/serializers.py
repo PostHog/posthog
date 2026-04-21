@@ -33,7 +33,7 @@ class TopPageSerializer(serializers.Serializer):
 
 
 class TopSourceSerializer(serializers.Serializer):
-    source = serializers.CharField(help_text="Initial referring domain.")
+    name = serializers.CharField(help_text="Initial referring domain.")
     visitors = serializers.IntegerField(help_text="Unique visitors from this source.")
     change = WoWChangeSerializer(
         allow_null=True, help_text="Period-over-period change in visitors, null when not meaningful."

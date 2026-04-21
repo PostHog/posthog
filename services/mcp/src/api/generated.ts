@@ -33296,7 +33296,7 @@ export namespace Schemas {
 
     export interface TopSource {
       /** Initial referring domain. */
-      source: string;
+      name: string;
       /** Unique visitors from this source. */
       visitors: number;
       /** Period-over-period change in visitors, null when not meaningful. */

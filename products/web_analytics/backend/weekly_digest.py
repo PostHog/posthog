@@ -168,7 +168,7 @@ def get_top_sources(team: Team, limit: int = 5, days: int = 7) -> list[dict]:
 
         return [
             {
-                "source": row[0] or "",
+                "name": row[0] or "",
                 "visitors": row[1][0],
                 "change": compute_week_over_week_change(row[1][0], row[1][1], higher_is_better=True),
             }
