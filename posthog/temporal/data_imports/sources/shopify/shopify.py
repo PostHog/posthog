@@ -36,7 +36,6 @@ PHASE_LATEST = "latest"
 class ShopifyResumeConfig:
     phase: str
     cursor: str
-    query: str | None = None
 
 
 class ShopifyPermissionError(Exception):
@@ -142,7 +141,7 @@ def _make_paginated_shopify_request(
             # Checkpoint points to the NEXT unfetched page, so resume never re-fetches
             # a page already yielded; primary-key merge semantics still dedupe if it does.
             if resumable_source_manager is not None:
-                resumable_source_manager.save_state(ShopifyResumeConfig(phase=phase, cursor=next_cursor, query=query))
+                resumable_source_manager.save_state(ShopifyResumeConfig(phase=phase, cursor=next_cursor))
 
 
 def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> str:

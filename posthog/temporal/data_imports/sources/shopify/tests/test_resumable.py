@@ -83,8 +83,8 @@ class TestMakePaginatedShopifyRequest:
         # save_state fires only when has_next_page is True (final page is terminal).
         assert manager.save_state.call_count == 2
         saved_configs = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved_configs[0] == ShopifyResumeConfig(phase=PHASE_ALL, cursor="cursor-1", query=None)
-        assert saved_configs[1] == ShopifyResumeConfig(phase=PHASE_ALL, cursor="cursor-2", query=None)
+        assert saved_configs[0] == ShopifyResumeConfig(phase=PHASE_ALL, cursor="cursor-1")
+        assert saved_configs[1] == ShopifyResumeConfig(phase=PHASE_ALL, cursor="cursor-2")
 
     def test_seeds_initial_cursor_on_resume(self) -> None:
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS]
@@ -110,7 +110,7 @@ class TestMakePaginatedShopifyRequest:
         assert sess.post.call_count == 1
         assert captured[0]["cursor"] == "resume-cursor"
 
-    def test_tags_saved_state_with_phase_and_query(self) -> None:
+    def test_tags_saved_state_with_phase(self) -> None:
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS]
         logger = MagicMock()
         manager = _make_manager()
@@ -134,7 +134,7 @@ class TestMakePaginatedShopifyRequest:
 
         assert manager.save_state.call_count == 1
         saved = manager.save_state.call_args_list[0].args[0]
-        assert saved == ShopifyResumeConfig(phase=PHASE_LATEST, cursor="next", query="created_at:>'2026-01-01'")
+        assert saved == ShopifyResumeConfig(phase=PHASE_LATEST, cursor="next")
 
     def test_no_save_without_manager(self) -> None:
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS]
@@ -200,13 +200,13 @@ class TestShopifySourceResume:
         manager.load_state.assert_not_called()
         assert manager.save_state.call_count == 1
         saved = manager.save_state.call_args_list[0].args[0]
-        assert saved == ShopifyResumeConfig(phase=PHASE_ALL, cursor="cursor-1", query=None)
+        assert saved == ShopifyResumeConfig(phase=PHASE_ALL, cursor="cursor-1")
 
         assert "cursor" not in captured[0]
 
     def test_resume_full_refresh_seeds_cursor_and_skips_initial_request(self) -> None:
         logger = MagicMock()
-        resume_state = ShopifyResumeConfig(phase=PHASE_ALL, cursor="resume-here", query=None)
+        resume_state = ShopifyResumeConfig(phase=PHASE_ALL, cursor="resume-here")
         manager = _make_manager(can_resume=True, resume_state=resume_state)
 
         with patch("posthog.temporal.data_imports.sources.shopify.shopify.requests.Session") as session_cls:
@@ -237,12 +237,7 @@ class TestShopifySourceResume:
 
     def test_resume_latest_phase_skips_earliest_sweep(self) -> None:
         logger = MagicMock()
-        # ORDERS uses updated_at as its incremental query filter.
-        resume_state = ShopifyResumeConfig(
-            phase=PHASE_LATEST,
-            cursor="latest-cursor",
-            query="updated_at:>'2026-01-10'",
-        )
+        resume_state = ShopifyResumeConfig(phase=PHASE_LATEST, cursor="latest-cursor")
         manager = _make_manager(can_resume=True, resume_state=resume_state)
 
         with patch("posthog.temporal.data_imports.sources.shopify.shopify.requests.Session") as session_cls:
@@ -273,12 +268,7 @@ class TestShopifySourceResume:
 
     def test_resume_earliest_phase_runs_remaining_earliest_then_latest(self) -> None:
         logger = MagicMock()
-        # ORDERS uses updated_at as its incremental query filter.
-        resume_state = ShopifyResumeConfig(
-            phase=PHASE_EARLIEST,
-            cursor="earliest-cursor",
-            query="updated_at:<'2026-01-01'",
-        )
+        resume_state = ShopifyResumeConfig(phase=PHASE_EARLIEST, cursor="earliest-cursor")
         manager = _make_manager(can_resume=True, resume_state=resume_state)
 
         with patch("posthog.temporal.data_imports.sources.shopify.shopify.requests.Session") as session_cls:
