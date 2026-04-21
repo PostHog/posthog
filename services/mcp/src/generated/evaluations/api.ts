@@ -107,7 +107,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
             provider: zod
                 .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+                    '* `openai` - openai\n* `anthropic` - anthropic\n* `gemini` - gemini\n* `openrouter` - openrouter\n* `fireworks` - fireworks'
                 ),
             model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.string().nullish(),
@@ -178,7 +178,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
             provider: zod
                 .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+                    '* `openai` - openai\n* `anthropic` - anthropic\n* `gemini` - gemini\n* `openrouter` - openrouter\n* `fireworks` - fireworks'
                 ),
             model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.string().nullish(),
