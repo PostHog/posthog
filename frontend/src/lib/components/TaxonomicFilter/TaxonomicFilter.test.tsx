@@ -257,9 +257,13 @@ describe('TaxonomicFilter', () => {
             const searchInput = screen.getByTestId('taxonomic-filter-searchfield')
             await userEvent.type(searchInput, 'xyznonexistent')
 
-            await waitFor(() => {
-                expect(screen.queryByTestId('prop-filter-events-0')).not.toBeInTheDocument()
-            })
+            // Wait for the debounced API call (500ms) to complete and results to clear
+            await waitFor(
+                () => {
+                    expect(screen.queryByTestId('prop-filter-events-0')).not.toBeInTheDocument()
+                },
+                { timeout: 3000 }
+            )
 
             await userEvent.clear(searchInput)
 
@@ -661,9 +665,13 @@ describe('TaxonomicFilter', () => {
 
             await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'zzznonexistentevent12345')
 
-            await waitFor(() => {
-                expect(screen.queryAllByTestId(/^prop-filter-events-/)).toHaveLength(0)
-            })
+            // Wait for the debounced API call (500ms) to complete and the empty state to render
+            await waitFor(
+                () => {
+                    expect(screen.queryAllByTestId(/^prop-filter-events-/)).toHaveLength(0)
+                },
+                { timeout: 3000 }
+            )
         })
     })
 
