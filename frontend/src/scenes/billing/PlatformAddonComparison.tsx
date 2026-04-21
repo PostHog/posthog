@@ -30,33 +30,35 @@ import { billingProductLogic } from './billingProductLogic'
 import { PlanIcon } from './PlanComparison'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
-const COMPARISON_ADDONS: BillingPlan[] = [BillingPlan.Boost, BillingPlan.Scale, BillingPlan.Enterprise]
-
-const PLAN_DESCRIPTION: Partial<Record<BillingPlan, string>> = {
-    [BillingPlan.Boost]: 'Essentials for security and compliance',
-    [BillingPlan.Scale]: 'Everything in Boost plus',
-    [BillingPlan.Enterprise]: 'Everything in Scale plus',
-}
-
 type CoreFeature = { icon: JSX.Element; label: string }
-const CORE_FEATURES: Partial<Record<BillingPlan, CoreFeature[]>> = {
-    [BillingPlan.Boost]: [
-        { icon: <IconLock />, label: 'Access control' },
-        { icon: <IconInfinity />, label: 'Unlimited projects' },
-        { icon: <IconShieldLock />, label: 'SSO & 2FA enforcement' },
-        { icon: <IconShield />, label: 'HIPAA BAA' },
-    ],
-    [BillingPlan.Scale]: [
-        { icon: <IconActivity />, label: 'Team activity logs' },
-        { icon: <IconCheckCircle />, label: 'Approvals' },
-        { icon: <IconShieldLock />, label: 'SAML' },
-        { icon: <IconHeadset />, label: 'Priority support' },
-    ],
-    [BillingPlan.Enterprise]: [
-        { icon: <IconShieldPeople />, label: 'Role-based access control' },
-        { icon: <IconGroups />, label: 'SCIM' },
-        { icon: <IconCrown />, label: 'Dedicated account manager' },
-    ],
+
+const COMPARISON_PLANS: Partial<Record<BillingPlan, { description: string; coreFeatures: CoreFeature[] }>> = {
+    [BillingPlan.Boost]: {
+        description: 'Essentials for security and compliance',
+        coreFeatures: [
+            { icon: <IconLock />, label: 'Access control' },
+            { icon: <IconInfinity />, label: 'Unlimited projects' },
+            { icon: <IconShieldLock />, label: 'SSO & 2FA enforcement' },
+            { icon: <IconShield />, label: 'HIPAA BAA' },
+        ],
+    },
+    [BillingPlan.Scale]: {
+        description: 'Everything in Boost plus',
+        coreFeatures: [
+            { icon: <IconActivity />, label: 'Team activity logs' },
+            { icon: <IconCheckCircle />, label: 'Approvals' },
+            { icon: <IconShieldLock />, label: 'SAML' },
+            { icon: <IconHeadset />, label: 'Priority support' },
+        ],
+    },
+    [BillingPlan.Enterprise]: {
+        description: 'Everything in Scale plus',
+        coreFeatures: [
+            { icon: <IconShieldPeople />, label: 'Role-based access control' },
+            { icon: <IconGroups />, label: 'SCIM' },
+            { icon: <IconCrown />, label: 'Dedicated account manager' },
+        ],
+    },
 }
 
 type ComparisonFeature = {
@@ -64,31 +66,6 @@ type ComparisonFeature = {
     name: string
     description?: string | null
     includedIn: Map<string, BillingFeatureType>
-}
-
-const buildComparisonFeatures = (addons: BillingProductV2AddonType[]): ComparisonFeature[] => {
-    // Preserve insertion order so features appear in the same order they're returned
-    // by the backend (boost first, then scale-only, then enterprise-only).
-    const features = new Map<string, ComparisonFeature>()
-    addons.forEach((addon) => {
-        addon.features?.forEach((feature) => {
-            if (feature.entitlement_only) {
-                return
-            }
-            const existing = features.get(feature.key)
-            if (existing) {
-                existing.includedIn.set(addon.type, feature)
-            } else {
-                features.set(feature.key, {
-                    key: feature.key,
-                    name: feature.name,
-                    description: feature.description,
-                    includedIn: new Map([[addon.type, feature]]),
-                })
-            }
-        })
-    })
-    return Array.from(features.values())
 }
 
 const PlanCard = ({
@@ -99,11 +76,10 @@ const PlanCard = ({
     onExpandCompare: () => void
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
-    const { currentAndUpgradePlans } = useValues(billingProductLogic({ product: addon }))
-    // Fall back to currentPlan when the addon is subscribed — upgradePlan is null on the current tier.
-    const pricedPlan = currentAndUpgradePlans?.upgradePlan ?? currentAndUpgradePlans?.currentPlan
-    const coreFeatures = CORE_FEATURES[addon.type as BillingPlan] || []
-    const description = PLAN_DESCRIPTION[addon.type as BillingPlan]
+    const pricedPlan = addon.plans?.find((p) => p.flat_rate)
+    const plan = COMPARISON_PLANS[addon.type as BillingPlan]
+    const coreFeatures = plan?.coreFeatures ?? []
+    const description = plan?.description
     const isOnTrial = billing?.trial?.target === addon.type
 
     return (
@@ -211,30 +187,22 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
     )
 }
 
-export const PlatformAddonComparison = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
-    const comparableAddons = COMPARISON_ADDONS.map((type) =>
-        product.addons?.find((addon) => addon.type === type && !addon.legacy_product)
-    ).filter((addon): addon is BillingProductV2AddonType => !!addon)
-    const legacyAddon = product.addons?.find((addon) => addon.legacy_product && addon.subscribed) ?? null
-    const hasPlatformAddon = comparableAddons.some((addon) => addon.subscribed)
-    const [isCompareOpen, setIsCompareOpen] = useState(hasPlatformAddon || !!legacyAddon)
-
-    if (comparableAddons.length === 0) {
-        return null
+const ComparisonTable = ({
+    addons,
+    features,
+}: {
+    addons: BillingProductV2AddonType[]
+    features: ComparisonFeature[]
+}): JSX.Element => {
+    const gridStyle = {
+        gridTemplateColumns: `minmax(320px, 3fr) repeat(${addons.length}, minmax(120px, 1fr))`,
     }
 
-    const tableAddons = legacyAddon ? [legacyAddon, ...comparableAddons] : comparableAddons
-    const features = buildComparisonFeatures(tableAddons)
-
-    const tableGridStyle = {
-        gridTemplateColumns: `minmax(320px, 3fr) repeat(${tableAddons.length}, minmax(120px, 1fr))`,
-    }
-
-    const comparisonTable = (
+    return (
         <div>
-            <div className="grid" style={tableGridStyle}>
+            <div className="grid" style={gridStyle}>
                 <div className="px-4 py-4 text-sm font-semibold text-secondary">Feature</div>
-                {tableAddons.map((addon) => (
+                {addons.map((addon) => (
                     <div
                         key={addon.type}
                         className="px-4 py-4 text-sm font-semibold text-secondary text-center border-l border-primary"
@@ -244,14 +212,14 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
                 ))}
             </div>
             {features.map((feature) => (
-                <div key={feature.key} className="grid border-t border-primary" style={tableGridStyle}>
+                <div key={feature.key} className="grid border-t border-primary" style={gridStyle}>
                     <div className="px-4 py-4">
                         <div className="text-sm font-semibold">{feature.name}</div>
                         {feature.description && (
                             <div className="text-xs text-secondary mt-1">{feature.description}</div>
                         )}
                     </div>
-                    {tableAddons.map((addon) => (
+                    {addons.map((addon) => (
                         <div
                             key={addon.type}
                             className="px-4 py-4 flex items-center justify-center border-l border-primary"
@@ -263,6 +231,43 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
             ))}
         </div>
     )
+}
+
+export const PlatformAddonComparison = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+    const comparableAddons = (Object.keys(COMPARISON_PLANS) as BillingPlan[])
+        .map((type) => product.addons?.find((addon) => addon.type === type && !addon.legacy_product))
+        .filter((addon): addon is BillingProductV2AddonType => !!addon)
+    const legacyAddon = product.addons?.find((addon) => addon.legacy_product && addon.subscribed) ?? null
+    const hasPlatformAddon = comparableAddons.some((addon) => addon.subscribed)
+    const [isCompareOpen, setIsCompareOpen] = useState(hasPlatformAddon || !!legacyAddon)
+
+    if (comparableAddons.length === 0) {
+        return null
+    }
+
+    const tableAddons = legacyAddon ? [legacyAddon, ...comparableAddons] : comparableAddons
+
+    // Features appear in the order the backend returns them (boost → scale-only → enterprise-only).
+    const featuresByKey = new Map<string, ComparisonFeature>()
+    tableAddons.forEach((addon) => {
+        addon.features?.forEach((feature) => {
+            if (feature.entitlement_only) {
+                return
+            }
+            const existing = featuresByKey.get(feature.key)
+            if (existing) {
+                existing.includedIn.set(addon.type, feature)
+            } else {
+                featuresByKey.set(feature.key, {
+                    key: feature.key,
+                    name: feature.name,
+                    description: feature.description,
+                    includedIn: new Map([[addon.type, feature]]),
+                })
+            }
+        })
+    })
+    const features = Array.from(featuresByKey.values())
 
     return (
         <div className="flex flex-col gap-4">
@@ -289,7 +294,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
                                     </span>
                                 </div>
                             ),
-                            content: comparisonTable,
+                            content: <ComparisonTable addons={tableAddons} features={features} />,
                         },
                     ]}
                 />
