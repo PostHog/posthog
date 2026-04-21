@@ -19,6 +19,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models.integration import TLS, Authority, Credentials
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -621,6 +622,19 @@ class RedshiftCopyActivityInputs:
     table: TableParameters
     copy: CopyParameters
 
+    def credentials(self) -> Credentials:
+        user = self.connection.user
+        password = self.connection.password
+        return Credentials(user, password)
+
+    def authority(self) -> Authority:
+        host = self.connection.host
+        port = self.connection.port
+        return Authority(host, port)
+
+    def tls(self) -> TLS:
+        return TLS(ssl_mode="prefer" if settings.TEST else "require")
+
 
 @dataclasses.dataclass
 class RedshiftInsertInputs:
@@ -629,6 +643,19 @@ class RedshiftInsertInputs:
     batch_export: BatchExportInsertInputs
     connection: ConnectionParameters
     table: TableParameters
+
+    def credentials(self) -> Credentials:
+        user = self.connection.user
+        password = self.connection.password
+        return Credentials(user, password)
+
+    def authority(self) -> Authority:
+        host = self.connection.host
+        port = self.connection.port
+        return Authority(host, port)
+
+    def tls(self) -> TLS:
+        return TLS(ssl_mode="prefer" if settings.TEST else "require")
 
 
 class RedshiftConsumer(Consumer):
@@ -904,7 +931,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             else inputs.table.name
         )
 
-        async with RedshiftClient.from_inputs(inputs.connection).connect() as redshift_client:
+        async with RedshiftClient.from_inputs(inputs, database=inputs.connection.database).connect() as redshift_client:
             remove_duplicates = True
             # filter out fields that are not in the destination table
             try:
@@ -1251,7 +1278,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         if result.error is not None:
             return result
 
-        async with RedshiftClient.from_inputs(inputs.connection).connect() as redshift_client:
+        async with RedshiftClient.from_inputs(inputs, database=inputs.connection.database).connect() as redshift_client:
             remove_duplicates = True
 
             # filter out fields that are not in the destination table
