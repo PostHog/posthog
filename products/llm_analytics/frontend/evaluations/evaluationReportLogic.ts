@@ -71,7 +71,7 @@ function draftFromReport(report: EvaluationReport): ReportConfigDraft {
         slackChannelValue: slackTarget?.channel ?? '',
         reportPromptGuidance: report.report_prompt_guidance ?? '',
         triggerThreshold: report.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT,
-        cooldownHours: report.cooldown_minutes ? Math.round(report.cooldown_minutes / 60) : COOLDOWN_HOURS_DEFAULT,
+        cooldownHours: Math.max(1, Math.round((report.cooldown_minutes ?? COOLDOWN_HOURS_DEFAULT * 60) / 60)),
     }
 }
 
@@ -336,7 +336,13 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 }
                 if (configDraft.frequency === 'every_n') {
                     data.trigger_threshold = configDraft.triggerThreshold
-                    data.cooldown_minutes = configDraft.cooldownHours * 60
+                    // Only write cooldown_minutes back when the user changed it — the draft rounds
+                    // minutes to hours for display, so unconditionally writing (hours * 60) would
+                    // silently clobber sub-hour values set via the API (e.g. 89 min → 60 min).
+                    const seededCooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
+                    if (configDraft.cooldownHours !== seededCooldownHours) {
+                        data.cooldown_minutes = configDraft.cooldownHours * 60
+                    }
                 }
                 actions.updateReport({ reportId: activeReport.id, data })
             } else {

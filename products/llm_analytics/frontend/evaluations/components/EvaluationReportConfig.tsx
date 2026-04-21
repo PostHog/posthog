@@ -365,20 +365,23 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                 <>
                     <ReportFormFields evaluationId={evaluationId} />
                     <SaveReportButton evaluationId={evaluationId} />
-                    {configDraft.frequency === 'every_n' ? (
-                        <div className="text-sm text-muted mt-4">
-                            A report will be generated when{' '}
-                            {activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT} new evaluation results arrive,
-                            at most once every {Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))}{' '}
-                            {(activeReport.cooldown_minutes ?? 60) <= 60 ? 'hour' : 'hours'}. Checked every 5 minutes.
-                        </div>
-                    ) : (
-                        activeReport.next_delivery_date && (
-                            <div className="text-sm text-muted mt-4">
-                                Next delivery: {new Date(activeReport.next_delivery_date).toLocaleString()}
-                            </div>
-                        )
-                    )}
+                    {configDraft.frequency === 'every_n'
+                        ? (() => {
+                              const cooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
+                              return (
+                                  <div className="text-sm text-muted mt-4">
+                                      A report will be generated when{' '}
+                                      {activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT} new evaluation
+                                      results arrive, at most once every {cooldownHours}{' '}
+                                      {cooldownHours === 1 ? 'hour' : 'hours'}. Checked every 5 minutes.
+                                  </div>
+                              )
+                          })()
+                        : activeReport.next_delivery_date && (
+                              <div className="text-sm text-muted mt-4">
+                                  Next delivery: {new Date(activeReport.next_delivery_date).toLocaleString()}
+                              </div>
+                          )}
                     <p className="text-xs text-muted m-0 mt-2">Generated reports appear in the Reports tab.</p>
                 </>
             ) : (
