@@ -11,6 +11,7 @@ import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writ
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import { IngestionLagIndicator } from '../common/slas'
 import {
     EventFiltersBatchContext,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
@@ -25,6 +26,7 @@ import { newBatchingPipeline } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
+import { IngestionSlas } from '../slas/builder'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import {
     AiEventOutput,
@@ -83,6 +85,7 @@ export interface JoinedIngestionPipelineDeps {
     cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
     topHog: TopHogRegistry
+    slas: IngestionSlas<IngestionLagIndicator>
 }
 
 export interface JoinedIngestionPipelineInput {
@@ -141,6 +144,7 @@ export function createJoinedIngestionPipeline<
         cookielessManager,
         groupTypeManager,
         topHog,
+        slas,
     } = deps
 
     const topHogWrapper = createTopHogWrapper(topHog)
@@ -176,6 +180,7 @@ export function createJoinedIngestionPipeline<
         groupStore,
         groupId,
         topHog: topHogWrapper,
+        slas,
     }
 
     return newBatchingPipeline<

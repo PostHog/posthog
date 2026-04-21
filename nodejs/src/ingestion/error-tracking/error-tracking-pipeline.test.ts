@@ -25,6 +25,7 @@ import {
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
+import { createSlaRegistry } from './slas/registry'
 
 // Skip retry sleeps so tests run instantly
 jest.mock('~/utils/utils', () => ({
@@ -303,6 +304,7 @@ describe('ErrorTrackingPipeline', () => {
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             overflowEnabled: false,
             topHog: mockTopHog,
+            slas: createSlaRegistry().build({ pipeline: 'error_tracking', lane: 'main' }),
         }
     })
 

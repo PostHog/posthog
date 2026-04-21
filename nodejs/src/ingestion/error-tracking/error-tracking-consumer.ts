@@ -16,7 +16,9 @@ import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import { OverflowOutput } from '../common/outputs'
+import { IngestionLagIndicator } from '../common/slas'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
+import { IngestionSlas } from '../slas/builder'
 import { TopHog } from '../tophog'
 import { MainLaneOverflowRedirect } from '../utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from '../utils/overflow-redirect/overflow-lane-overflow-redirect'
@@ -29,6 +31,7 @@ import {
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
+import { createSlaRegistry } from './slas/registry'
 
 /**
  * Configuration values for ErrorTrackingConsumer.
@@ -104,6 +107,7 @@ export class ErrorTrackingConsumer {
     protected overflowRedirectService?: OverflowRedirectService
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
+    protected slas: IngestionSlas<IngestionLagIndicator>
 
     constructor(
         private config: ErrorTrackingConsumerOptions,
@@ -149,6 +153,11 @@ export class ErrorTrackingConsumer {
                 redisRepository: overflowRedisRepository,
             })
         }
+
+        this.slas = createSlaRegistry().build({
+            pipeline: config.pipeline,
+            lane: config.lane,
+        })
     }
 
     public get service(): PluginServerService {
@@ -207,6 +216,7 @@ export class ErrorTrackingConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             topHog: this.topHog,
+            slas: this.slas,
         })
 
         logger.info('✅', `${this.name} - pipeline initialized`)

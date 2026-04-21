@@ -23,6 +23,7 @@ import {
     createJoinedIngestionPipeline,
 } from '../ingestion/analytics/joined-ingestion-pipeline'
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
+import { createSlaRegistry } from '../ingestion/analytics/slas/registry'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import {
@@ -358,6 +359,10 @@ export class IngestionApiServer implements NodeServer {
             cookielessManager: this.cookielessManager,
             groupTypeManager,
             topHog: this.topHog,
+            slas: createSlaRegistry().build({
+                pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
+                lane: this.config.INGESTION_LANE ?? 'unknown',
+            }),
         }
         this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
 

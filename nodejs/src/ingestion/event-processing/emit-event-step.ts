@@ -32,7 +32,7 @@ export interface EmitEventStepInput<O extends string> {
 
 export function createEmitEventStep<O extends string, T extends EmitEventStepInput<O>>(
     config: EmitEventStepConfig<O>
-): ProcessingStep<T, void> {
+): ProcessingStep<T, T> {
     return function emitEventStep(input) {
         const { eventsToEmit, headers, message } = input
         const { outputs, groupId } = config
@@ -80,7 +80,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
             sideEffects.push(emitPromise)
         }
 
-        return Promise.resolve(ok(undefined, sideEffects))
+        return Promise.resolve(ok(input, sideEffects))
     }
 }
 

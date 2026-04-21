@@ -12,6 +12,7 @@ import { PersonsStore } from '../../../worker/ingestion/persons/persons-store'
 import { AiEventOutput, AsyncOutput, EVENTS_OUTPUT, EventOutput } from '../../analytics/outputs'
 import { PersonDistinctIdsOutput, PersonsOutput } from '../../analytics/outputs'
 import { IngestionWarningsOutput } from '../../common/outputs'
+import { INGESTION_LAG_INDICATOR, IngestionLagIndicator } from '../../common/slas'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { createEmitEventStep } from '../../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../../event-processing/event-pipeline-options'
@@ -21,11 +22,13 @@ import { createNormalizeProcessPersonFlagStep } from '../../event-processing/nor
 import { createPrepareEventStep } from '../../event-processing/prepare-event-step'
 import { createProcessPersonlessStep } from '../../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../../event-processing/process-persons-step'
+import { createReportSlisStep } from '../../event-processing/report-slis-step'
 import { SplitAiEventsStepConfig, createSplitAiEventsStep } from '../../event-processing/split-ai-events-step'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../../pipelines/extensions/tophog'
 import { isDropResult } from '../../pipelines/results'
+import { IngestionSlas } from '../../slas/builder'
 import { createProcessAiEventStep } from './steps/process-ai-event-step'
 
 export interface AiEventSubpipelineInput {
@@ -48,6 +51,7 @@ export interface AiEventSubpipelineConfig {
     splitAiEventsConfig: SplitAiEventsStepConfig
     groupId: string
     topHog: TopHogWrapper
+    slas: IngestionSlas<IngestionLagIndicator>
 }
 
 export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput, TContext>(
@@ -65,6 +69,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         splitAiEventsConfig,
         groupId,
         topHog,
+        slas,
     } = config
 
     return builder
@@ -146,4 +151,5 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
                 ]
             )
         )
+        .pipe(createReportSlisStep(slas.indicator(INGESTION_LAG_INDICATOR)))
 }

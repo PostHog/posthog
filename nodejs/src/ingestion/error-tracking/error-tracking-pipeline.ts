@@ -14,6 +14,7 @@ import {
     OverflowOutput,
     TophogOutput,
 } from '../common/outputs'
+import { INGESTION_LAG_INDICATOR, IngestionLagIndicator } from '../common/slas'
 import {
     createApplyEventRestrictionsStep,
     createOverflowLaneTTLRefreshStep,
@@ -26,6 +27,7 @@ import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '../event-processing/readonly-process-groups-step'
+import { createReportSlisStep } from '../event-processing/report-slis-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
@@ -33,6 +35,7 @@ import { TopHogRegistry, count, countOk, createTopHogWrapper } from '../pipeline
 import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
+import { IngestionSlas } from '../slas/builder'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
@@ -72,6 +75,7 @@ export interface ErrorTrackingPipelineConfig {
     overflowLaneTTLRefreshService?: OverflowRedirectService
     /** TopHog registry for metrics. */
     topHog: TopHogRegistry
+    slas: IngestionSlas<IngestionLagIndicator>
 }
 
 /**
@@ -116,6 +120,7 @@ export function createErrorTrackingPipeline(
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         topHog,
+        slas,
     } = config
 
     const topHogWrapper = createTopHogWrapper(topHog)
@@ -215,6 +220,7 @@ export function createErrorTrackingPipeline(
                                                     ]
                                                 )
                                             )
+                                            .pipe(createReportSlisStep(slas.indicator(INGESTION_LAG_INDICATOR)))
                                     )
                             )
                             .handleIngestionWarnings(outputs)

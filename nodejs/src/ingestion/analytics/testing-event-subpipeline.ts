@@ -12,6 +12,7 @@ import { createNormalizeEventStep } from '../event-processing/normalize-event-st
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+import { createDropResultStep } from '../pipelines/helpers'
 import { EVENTS_OUTPUT, EventOutput, HeatmapsOutput } from './outputs'
 
 export interface TestingEventSubpipelineInput {
@@ -52,4 +53,5 @@ export function createTestingEventSubpipeline<TInput extends TestingEventSubpipe
                 groupId,
             })
         )
+        .pipe(createDropResultStep())
 }

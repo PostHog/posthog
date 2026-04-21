@@ -6,6 +6,7 @@ import { BatchPipelineBuilder, newBatchPipelineBuilder } from './builders'
 import { OkResultWithContext, PipelineWarning } from './pipeline.interface'
 import { PipelineResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
+import { ProcessingStep } from './steps'
 
 export type DefaultContext = { message: Message }
 
@@ -102,4 +103,13 @@ export function createUnwrapper<TInput, TOutput, C, R extends string = never>(
     batchPipeline: BatchPipeline<TInput, TOutput, C, C, R>
 ): BatchPipelineUnwrapper<TInput, TOutput, C, R> {
     return new BatchPipelineUnwrapper(batchPipeline)
+}
+
+/**
+ * Terminal step that discards the value and returns `void`. Useful when a
+ * pipeline chain produces a non-void result that callers don't need — e.g.
+ * after `createEmitEventStep` which passes its input through.
+ */
+export function createDropResultStep<T>(): ProcessingStep<T, void> {
+    return () => Promise.resolve(ok(undefined))
 }

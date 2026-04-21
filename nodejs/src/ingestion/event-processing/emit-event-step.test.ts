@@ -108,7 +108,7 @@ describe('emit-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value).toBeUndefined()
+                    expect(result.value).toBe(input)
                 }
                 expect(result.sideEffects).toHaveLength(1)
                 expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
@@ -136,7 +136,7 @@ describe('emit-event-step', () => {
 
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
-                expect(result.value).toBeUndefined()
+                expect(result.value).toBe(input)
             }
             expect(result.sideEffects).toHaveLength(1)
 

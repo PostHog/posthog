@@ -9,6 +9,7 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { IngestionWarningsOutput } from '../common/outputs'
+import { INGESTION_LAG_INDICATOR, IngestionLagIndicator } from '../common/slas'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
@@ -20,10 +21,12 @@ import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { createProcessGroupsStep } from '../event-processing/process-groups-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../event-processing/process-persons-step'
+import { createReportSlisStep } from '../event-processing/report-slis-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../pipelines/extensions/tophog'
 import { isDropResult } from '../pipelines/results'
+import { IngestionSlas } from '../slas/builder'
 import {
     AsyncOutput,
     EVENTS_OUTPUT,
@@ -52,6 +55,7 @@ export interface EventSubpipelineConfig {
     groupStore: BatchWritingGroupStore
     groupId: string
     topHog: TopHogWrapper
+    slas: IngestionSlas<IngestionLagIndicator>
 }
 
 export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
@@ -68,6 +72,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         groupStore,
         groupId,
         topHog,
+        slas,
     } = config
 
     return builder
@@ -148,4 +153,5 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 ]
             )
         )
+        .pipe(createReportSlisStep(slas.indicator(INGESTION_LAG_INDICATOR)))
 }

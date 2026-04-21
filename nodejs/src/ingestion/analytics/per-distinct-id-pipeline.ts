@@ -9,11 +9,13 @@ import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { AI_EVENT_TYPES } from '../ai'
 import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
 import { IngestionWarningsOutput } from '../common/outputs'
+import { IngestionLagIndicator } from '../common/slas'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
+import { IngestionSlas } from '../slas/builder'
 import {
     ClientIngestionWarningSubpipelineInput,
     createClientIngestionWarningSubpipeline,
@@ -47,6 +49,7 @@ export interface PerDistinctIdPipelineConfig {
     groupStore: BatchWritingGroupStore
     groupId: string
     topHog: TopHogWrapper
+    slas: IngestionSlas<IngestionLagIndicator>
 }
 
 export interface PerDistinctIdPipelineContext {
@@ -81,6 +84,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
         groupStore,
         groupId,
         topHog,
+        slas,
     } = config
 
     return builder.retry(
@@ -109,6 +113,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             splitAiEventsConfig,
                             groupId,
                             topHog,
+                            slas,
                         })
                     )
                     .branch('event', (b) =>
@@ -122,6 +127,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             groupStore,
                             groupId,
                             topHog,
+                            slas,
                         })
                     )
             ),

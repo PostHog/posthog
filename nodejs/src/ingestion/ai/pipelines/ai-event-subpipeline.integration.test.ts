@@ -10,6 +10,7 @@ import { createTestTeam } from '../../../../tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../analytics/outputs'
+import { createSlaRegistry } from '../../analytics/slas/registry'
 import { INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { newPipelineBuilder } from '../../pipelines/builders'
@@ -95,6 +96,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
         splitAiEventsConfig: { enabled: false, enabledTeams: '*', stripHeavyProperties: false },
         groupId: 'test-group',
         topHog: (step) => step,
+        slas: createSlaRegistry().build({ pipeline: 'test', lane: 'main' }),
         ...configOverrides,
     }
 

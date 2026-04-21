@@ -41,6 +41,7 @@ import {
     PersonDistinctIdsOutput,
     PersonsOutput,
 } from './analytics/outputs'
+import { createSlaRegistry } from './analytics/slas/registry'
 import { EventFilterManager } from './common/event-filters'
 import {
     AppMetricsOutput,
@@ -50,11 +51,13 @@ import {
     OverflowOutput,
     TophogOutput,
 } from './common/outputs'
+import { IngestionLagIndicator } from './common/slas'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
 import { IngestionOutputs } from './outputs/ingestion-outputs'
 import { createOkContext } from './pipelines/helpers'
+import { IngestionSlas } from './slas/builder'
 import { TopHog } from './tophog'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
@@ -130,6 +133,7 @@ export class IngestionConsumer {
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
     private topHog!: TopHog
+    private slas: IngestionSlas<IngestionLagIndicator>
 
     private joinedPipeline!: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
@@ -225,6 +229,11 @@ export class IngestionConsumer {
             pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
             lane: this.config.INGESTION_LANE ?? 'unknown',
         })
+
+        this.slas = createSlaRegistry().build({
+            pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
+            lane: this.config.INGESTION_LANE ?? 'unknown',
+        })
     }
 
     public get service(): PluginServerService {
@@ -286,6 +295,7 @@ export class IngestionConsumer {
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,
             topHog: this.topHog!,
+            slas: this.slas,
         }
         this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
 
