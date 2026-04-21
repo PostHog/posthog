@@ -19,8 +19,8 @@ const tool = (): ToolBase<typeof schema, unknown> => ({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/database_schema/`,
             body: {
-                source_type: params.source_type,
                 ...params.payload,
+                source_type: params.source_type,
             },
         })
         return result
