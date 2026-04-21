@@ -61,6 +61,7 @@ def get_resource(
     return {
         "name": config.name,
         "table_name": config.name,
+        "primary_key": config.primary_key,
         "write_disposition": {
             "disposition": "merge",
             "strategy": "upsert",

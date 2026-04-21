@@ -393,7 +393,9 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         data_selector: Optional[Any] = None,
         hooks: Optional[Any] = None,
     ):
-        return iter([list(mock_data_response)])
+        # Yield each record as its own page so tests that probe chunking
+        # by record size still see one call per record.
+        return iter([[item] for item in mock_data_response])
 
     def mock_to_session_credentials(class_self):
         return {
