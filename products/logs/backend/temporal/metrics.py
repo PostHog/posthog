@@ -12,7 +12,15 @@ from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, 
 
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.logs.backend.alert_error_classifier import AlertErrorCode
+from products.logs.backend.alert_state_machine import AlertState, NotificationAction
+
 logger = get_write_only_logger(__name__)
+
+_NOTIFICATION_FAILURE_LABELS: dict[NotificationAction, str] = {
+    NotificationAction.FIRE: "firing",
+    NotificationAction.RESOLVE: "resolved",
+}
 
 ALERTING_ACTIVITY_TYPES = frozenset(
     {
@@ -71,6 +79,43 @@ def increment_checks_total(outcome: AlertOutcome) -> None:
     meter = get_metric_meter({"outcome": outcome})
     counter = meter.create_counter("logs_alerting_checks_total", "Number of individual alert checks by outcome")
     counter.add(1)
+
+
+def increment_check_errors(category: AlertErrorCode) -> None:
+    meter = get_metric_meter({"category": category})
+    counter = meter.create_counter(
+        "logs_alerting_check_errors_total",
+        "Errored alert checks broken down by classifier category",
+    )
+    counter.add(1)
+
+
+def increment_notification_failures(action: NotificationAction) -> None:
+    label = _NOTIFICATION_FAILURE_LABELS[action]
+    meter = get_metric_meter({"event": label})
+    counter = meter.create_counter(
+        "logs_alerting_notification_failures_total",
+        "Kafka produce failures for firing/resolved notifications",
+    )
+    counter.add(1)
+
+
+def increment_state_transition(from_state: AlertState, to_state: AlertState) -> None:
+    meter = get_metric_meter({"from": from_state.value, "to": to_state.value})
+    counter = meter.create_counter(
+        "logs_alerting_state_transitions_total",
+        "Alert state transitions by from/to state (worker-committed)",
+    )
+    counter.add(1)
+
+
+def record_alerts_active(count: int) -> None:
+    meter = get_metric_meter()
+    gauge = meter.create_gauge(
+        "logs_alerting_alerts_active",
+        "Number of due alerts evaluated this cycle",
+    )
+    gauge.set(count)
 
 
 def record_check_duration(duration_ms: int) -> None:
