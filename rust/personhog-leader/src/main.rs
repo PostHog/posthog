@@ -5,6 +5,7 @@ use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::setup_metrics_routes;
+use dashmap::DashMap;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use personhog_coordination::pod::{PodConfig, PodHandle};
@@ -20,7 +21,7 @@ use tracing_subscriber::EnvFilter;
 use personhog_leader::cache::PartitionedCache;
 use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
-use personhog_leader::service::PersonHogLeaderService;
+use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService};
 
 common_alloc::used!();
 
@@ -134,11 +135,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?)
     };
 
+    let locks = Arc::new(DashMap::new());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
         config.kafka_person_state_topic.clone(),
         fallback_pool,
+        Arc::clone(&locks),
     );
 
     // Connect to etcd and start coordination
@@ -168,6 +171,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _guard = coordination_handle.process_scope();
         if let Err(e) = pod.run(coordination_handle.shutdown_token()).await {
             coordination_handle.signal_failure(format!("Coordination error: {e}"));
+        }
+    });
+
+    // Periodic sweep of idle per-key locks
+    let sweep_locks = Arc::clone(&locks);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            sweep_idle_locks(&sweep_locks);
         }
     });
 

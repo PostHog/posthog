@@ -3,6 +3,8 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
+
 use common::{
     create_leader_client, create_local_kafka_producer, create_test_kafka, seed_person,
     start_coordinator, start_leader_pod, start_leader_pod_with_lease_ttl,
@@ -145,6 +147,7 @@ async fn unowned_partition_returns_failed_precondition() {
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
         None,
+        Arc::new(DashMap::new()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -437,6 +440,7 @@ async fn update_produces_person_state_to_kafka() {
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
         None,
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(0);
@@ -529,6 +533,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
         None,
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(0);
@@ -626,6 +631,7 @@ async fn e2e_update_produces_to_local_kafka() {
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
         None,
+        Arc::new(DashMap::new()),
     );
 
     cache.create_partition(0);

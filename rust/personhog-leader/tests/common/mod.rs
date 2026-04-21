@@ -3,6 +3,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
+
 use async_trait::async_trait;
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
@@ -221,6 +223,7 @@ pub async fn start_leader_pod(
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
         None,
+        Arc::new(DashMap::new()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -277,6 +280,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
         None,
+        Arc::new(DashMap::new()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -354,6 +358,7 @@ pub async fn start_leader_with_pg_fallback(
         kafka_producer,
         CHANGELOG_TOPIC.to_string(),
         Some(pool),
+        Arc::new(DashMap::new()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

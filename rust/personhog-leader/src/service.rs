@@ -23,7 +23,7 @@ pub struct PersonHogLeaderService {
     /// Per-key locks to serialize concurrent updates for the same person.
     /// Prevents lost updates from concurrent get -> compute -> produce -> put
     /// sequences, and thundering herd on PG fallback.
-    locks: DashMap<PersonCacheKey, Arc<Mutex<()>>>,
+    locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
     producer: FutureProducer<KafkaContext>,
     changelog_topic: String,
     /// Read-only pool for PG fallback on cache miss.
@@ -36,10 +36,11 @@ impl PersonHogLeaderService {
         producer: FutureProducer<KafkaContext>,
         changelog_topic: String,
         fallback_pool: Option<PgPool>,
+        locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
     ) -> Self {
         Self {
             cache,
-            locks: DashMap::new(),
+            locks,
             producer,
             changelog_topic,
             fallback_pool,
@@ -273,5 +274,66 @@ impl PersonHogLeader for PersonHogLeaderService {
             person: Some(proto),
             updated: true,
         }))
+    }
+}
+
+/// Remove lock entries that no one is currently waiting on. Entries
+/// with `Arc::strong_count == 1` are only held by the map itself, so
+/// no request is actively using them. Returns the number removed.
+pub fn sweep_idle_locks(locks: &DashMap<PersonCacheKey, Arc<Mutex<()>>>) -> usize {
+    let before = locks.len();
+    locks.retain(|_, v| Arc::strong_count(v) > 1);
+    let removed = before - locks.len();
+    if removed > 0 {
+        tracing::debug!(removed, remaining = locks.len(), "swept idle locks");
+    }
+    removed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_key(team_id: i64, person_id: i64) -> PersonCacheKey {
+        PersonCacheKey { team_id, person_id }
+    }
+
+    #[test]
+    fn sweep_removes_idle_entries() {
+        let locks = DashMap::new();
+        locks.insert(make_key(1, 1), Arc::new(Mutex::new(())));
+        locks.insert(make_key(1, 2), Arc::new(Mutex::new(())));
+        locks.insert(make_key(1, 3), Arc::new(Mutex::new(())));
+
+        let removed = sweep_idle_locks(&locks);
+
+        assert_eq!(removed, 3);
+        assert_eq!(locks.len(), 0);
+    }
+
+    #[test]
+    fn sweep_preserves_held_entries() {
+        let locks = DashMap::new();
+        locks.insert(make_key(1, 1), Arc::new(Mutex::new(())));
+        locks.insert(make_key(1, 2), Arc::new(Mutex::new(())));
+        locks.insert(make_key(1, 3), Arc::new(Mutex::new(())));
+
+        // Simulate an active holder cloning the Arc (as lookup_or_load does)
+        let _held = locks.get(&make_key(1, 2)).unwrap().clone();
+
+        let removed = sweep_idle_locks(&locks);
+
+        assert_eq!(removed, 2);
+        assert_eq!(locks.len(), 1);
+        assert!(locks.contains_key(&make_key(1, 2)));
+    }
+
+    #[test]
+    fn sweep_is_noop_when_empty() {
+        let locks: DashMap<PersonCacheKey, Arc<Mutex<()>>> = DashMap::new();
+
+        let removed = sweep_idle_locks(&locks);
+
+        assert_eq!(removed, 0);
     }
 }
