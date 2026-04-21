@@ -93,9 +93,9 @@ from products.endpoints.backend.insight_transformers import (
 from products.endpoints.backend.materialization import (
     SUPPORTED_BUCKET_FUNCTIONS,
     VariablePlaceholderFinder,
-    _extract_aggregate_name,
     analyze_variables_for_materialization,
     convert_insight_query_to_hogql,
+    extract_aggregate_name,
     get_reaggregation,
     transform_query_for_materialization,
     transform_select_for_materialized_table,
@@ -2437,7 +2437,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     else:
                         if isinstance(parsed, ast.SelectQuery) and parsed.select:
                             for expr in parsed.select:
-                                agg_name = _extract_aggregate_name(expr)
+                                agg_name = extract_aggregate_name(expr)
                                 if agg_name:
                                     reagg_info = get_reaggregation(agg_name)
                                     reagg = reagg_info.reaggregate_fn if reagg_info else None

@@ -10,12 +10,14 @@ from posthog.hogql.parser import parse_select
 
 from products.endpoints.backend.materialization import (
     DownstreamCTEShape,
+    analyze_variables_for_materialization,
+    transform_query_for_materialization,
+)
+from products.endpoints.backend.materialization.cte_propagation import (
     _build_cte_read_graph,
     _classify_downstream_cte,
     _downstream_ctes,
     _topological_order,
-    analyze_variables_for_materialization,
-    transform_query_for_materialization,
 )
 
 pytestmark = [pytest.mark.django_db]
@@ -819,7 +821,7 @@ class TestStripCombinators(APIBaseTest):
         ]
     )
     def test_strips_to_known_base(self, func_name, expected_base):
-        from products.endpoints.backend.materialization import _strip_combinators
+        from products.endpoints.backend.materialization.aggregates import _strip_combinators
 
         assert _strip_combinators(func_name) == expected_base
 
@@ -835,7 +837,7 @@ class TestStripCombinators(APIBaseTest):
         ]
     )
     def test_returns_none_for_unknown(self, func_name):
-        from products.endpoints.backend.materialization import _strip_combinators
+        from products.endpoints.backend.materialization.aggregates import _strip_combinators
 
         result = _strip_combinators(func_name)
         # Should return the base but it won't be in REAGGREGATABLE_BASE_FUNCTIONS
