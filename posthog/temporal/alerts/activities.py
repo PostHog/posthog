@@ -230,15 +230,17 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
 
 # Idempotency: empty targets_notified = not yet delivered; non-empty = already delivered.
-# Lets Temporal retry notify_alert safely.
+# Lets Temporal retry notify_alert safely after a transient failure past the send.
 @temporalio.activity.defn
 async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
     """Send notifications for a previously evaluated alert check (idempotent)."""
 
     @database_sync_to_async(thread_sensitive=False)
     def _notify() -> None:
+        # Mismatched pair surfaces as DoesNotExist instead of notifying the wrong alert.
         alert_check = AlertCheck.objects.select_related("alert_configuration", "alert_configuration__team").get(
-            pk=inputs.alert_check_id
+            pk=inputs.alert_check_id,
+            alert_configuration_id=inputs.alert_id,
         )
 
         if alert_check.targets_notified:
