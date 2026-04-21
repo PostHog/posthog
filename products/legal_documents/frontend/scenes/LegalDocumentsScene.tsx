@@ -147,12 +147,6 @@ export function LegalDocumentsScene(): JSX.Element {
                         ),
                     },
                     {
-                        title: 'Mode',
-                        width: 100,
-                        render: (_: any, row: LegalDocument) =>
-                            row.document_type === 'DPA' ? row.dpa_mode || '—' : '—',
-                    },
-                    {
                         title: 'Status',
                         width: 150,
                         render: (_: any, row: LegalDocument) =>

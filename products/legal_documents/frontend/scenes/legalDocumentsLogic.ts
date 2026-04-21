@@ -9,7 +9,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-import { BillingType, UserBasicType } from '~/types'
+import { BillingType } from '~/types'
 
 import type { legalDocumentsLogicType } from './legalDocumentsLogicType'
 
@@ -17,20 +17,21 @@ export type LegalDocumentType = 'BAA' | 'DPA'
 export type DPAMode = 'pretty' | 'lawyer' | 'fairytale' | 'tswift'
 export type LegalDocumentStatus = 'submitted_for_signature' | 'signed'
 
+export interface LegalDocumentCreator {
+    first_name: string
+    email: string
+}
+
 export interface LegalDocument {
     id: string
     document_type: LegalDocumentType
     company_name: string
-    company_address: string
     representative_name: string
-    representative_title: string
     representative_email: string
-    dpa_mode: DPAMode | ''
     status: LegalDocumentStatus
     signed_document_url: string
-    created_by: UserBasicType | null
+    created_by: LegalDocumentCreator | null
     created_at: string
-    updated_at: string | null
 }
 
 export interface LegalDocumentFormValues {

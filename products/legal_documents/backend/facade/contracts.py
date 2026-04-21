@@ -11,22 +11,22 @@ from uuid import UUID
 
 
 @dataclass(frozen=True)
-class LegalDocumentDTO:
-    """A legal document row as exposed to the outside world. Never includes webhook_secret."""
+class LegalDocumentCreator:
+    first_name: str
+    email: str
 
+
+@dataclass(frozen=True)
+class LegalDocumentDTO:
     id: UUID
     document_type: str
     company_name: str
-    company_address: str
     representative_name: str
-    representative_title: str
     representative_email: str
-    dpa_mode: str
     status: str
     signed_document_url: str
-    created_by: int | None
+    created_by: LegalDocumentCreator | None
     created_at: datetime
-    updated_at: datetime
 
 
 @dataclass(frozen=True)

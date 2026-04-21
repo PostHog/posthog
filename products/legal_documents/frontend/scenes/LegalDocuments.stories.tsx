@@ -7,9 +7,6 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 const SUBMITTER = {
-    id: 1234,
-    uuid: '0187c22c-06d9-0000-34fe-daa2e2afb504',
-    distinct_id: '0187c22c-06d9-0000-34fe-daa2e2afb505',
     first_name: 'Ada',
     email: 'ada@acme.example',
 }
@@ -19,31 +16,23 @@ const LEGAL_DOCUMENT_LIST = [
         id: '0187c22c-06d9-0000-34fe-daa2e2afb501',
         document_type: 'BAA',
         company_name: 'Acme Health, Inc.',
-        company_address: '',
         representative_name: 'Ada Lovelace',
-        representative_title: 'CEO',
         representative_email: 'ada@acme.example',
-        dpa_mode: '',
         status: 'signed',
         signed_document_url: 'https://app.pandadoc.com/s/acme-baa-signed.pdf',
         created_by: SUBMITTER,
         created_at: '2026-04-10T12:00:00Z',
-        updated_at: '2026-04-11T09:14:00Z',
     },
     {
         id: '0187c22c-06d9-0000-34fe-daa2e2afb502',
         document_type: 'DPA',
         company_name: 'Acme Health, Inc.',
-        company_address: '1 Analytics Way, San Francisco, CA',
         representative_name: 'Ada Lovelace',
-        representative_title: 'CEO',
         representative_email: 'ada@acme.example',
-        dpa_mode: 'pretty',
         status: 'submitted_for_signature',
         signed_document_url: '',
         created_by: SUBMITTER,
         created_at: '2026-04-20T15:30:00Z',
-        updated_at: '2026-04-20T15:30:00Z',
     },
 ]
 

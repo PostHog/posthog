@@ -15,20 +15,21 @@ from . import contracts
 
 
 def _to_dto(doc) -> contracts.LegalDocumentDTO:
+    creator = doc.created_by
     return contracts.LegalDocumentDTO(
         id=doc.id,
         document_type=doc.document_type,
         company_name=doc.company_name,
-        company_address=doc.company_address,
         representative_name=doc.representative_name,
-        representative_title=doc.representative_title,
         representative_email=doc.representative_email,
-        dpa_mode=doc.dpa_mode,
         status=doc.status,
         signed_document_url=doc.signed_document_url,
-        created_by=doc.created_by_id,
+        created_by=(
+            contracts.LegalDocumentCreator(first_name=creator.first_name or "", email=creator.email)
+            if creator is not None
+            else None
+        ),
         created_at=doc.created_at,
-        updated_at=doc.updated_at,
     )
 
 
