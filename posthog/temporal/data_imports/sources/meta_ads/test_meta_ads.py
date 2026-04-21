@@ -273,7 +273,7 @@ class TestTimeRangePagination:
                 _iter_time_range_pagination(
                     self.URL,
                     self.PARAMS,
-                    {"since": "2026-03-01", "until": "2026-04-30"},
+                    {"since": "2026-03-01", "until": "2026-04-29"},
                     None,
                     manager,
                 )
