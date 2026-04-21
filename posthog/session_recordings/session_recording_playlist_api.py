@@ -226,12 +226,12 @@ def _attach_empty_recordings_counts(playlists: list[SessionRecordingPlaylist]) -
         if getattr(playlist, "_is_synthetic", False):
             continue
         if not hasattr(playlist, "_prefetched_collection_count"):
-            playlist._prefetched_collection_count = {  # type: ignore[attr-defined]
+            playlist._prefetched_collection_count = {  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
                 "count": None,
                 "watched_count": None,
             }
         if not hasattr(playlist, "_prefetched_saved_filters_count"):
-            playlist._prefetched_saved_filters_count = _empty_saved_filters_counts()  # type: ignore[attr-defined]
+            playlist._prefetched_saved_filters_count = _empty_saved_filters_counts()  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
 
 
 def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user: User, team: Team) -> None:
