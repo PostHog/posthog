@@ -68,11 +68,9 @@ def fetch_data_in_yearly_chunks(
     """
     # On resume, restart at the saved chunk boundary and preserve the original sync window
     # (end_date) so we don't drift if the worker restarts on a later day.
-    if resumable_source_manager.can_resume():
-        saved_state = resumable_source_manager.load_state()
-        if saved_state is not None:
-            start_date = dt.date.fromisoformat(saved_state.next_start_date)
-            end_date = dt.date.fromisoformat(saved_state.end_date)
+    if resumable_source_manager.can_resume() and (saved_state := resumable_source_manager.load_state()) is not None:
+        start_date = dt.date.fromisoformat(saved_state.next_start_date)
+        end_date = dt.date.fromisoformat(saved_state.end_date)
 
     current_start = start_date
     errors: list[dict[str, typing.Any]] = []
