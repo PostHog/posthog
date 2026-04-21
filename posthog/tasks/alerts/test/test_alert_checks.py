@@ -34,7 +34,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 
 @freeze_time("2024-06-02T08:55:00.000Z")
 @patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
-@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches")
+@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
 class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -932,7 +932,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             ("relative_on_non_time_series", {"condition": {"type": "relative_increase"}}, "not compatible"),
         ]
     )
-    @patch("posthog.tasks.alerts.checks.send_notifications_for_disabled")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_disabled")
     def test_invalid_config_auto_disables_alert(
         self,
         _name: str,
@@ -965,7 +965,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert alert_check.targets_notified == {"users": ["user1@posthog.com"]}
         assert expected_error_fragment in alert_check.error["message"]
 
-    @patch("posthog.tasks.alerts.checks.send_notifications_for_disabled")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_disabled")
     def test_auto_disable_with_no_subscribers_sets_targets_notified_to_none(
         self,
         mock_send_disabled: MagicMock,
