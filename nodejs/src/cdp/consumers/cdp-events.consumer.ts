@@ -256,6 +256,8 @@ export class CdpEventsConsumer<
     protected async createHogFlowInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
+        await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
+
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
 

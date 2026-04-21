@@ -968,5 +968,26 @@ describe('hog flow processing', () => {
                 },
             })
         })
+
+        it('should load group properties for hog flow invocations', async () => {
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const spy = jest.spyOn(processor['groupsManager'], 'addGroupsToGlobalsList')
+
+            await processor['createHogFlowInvocations']([globals])
+
+            expect(spy).toHaveBeenCalledTimes(1)
+            expect(spy).toHaveBeenCalledWith([globals])
+        })
     })
 })
