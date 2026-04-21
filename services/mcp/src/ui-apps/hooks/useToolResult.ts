@@ -158,7 +158,7 @@ export function useToolResult<T = unknown>({
                 const data = params as Record<string, unknown>
                 captureToolInput({
                     toolName: typeof data.toolName === 'string' ? data.toolName : undefined,
-                    hasArguments: !!params.arguments,
+                    hasArguments: !!data.arguments,
                 })
             }
             // Do NOT register partial tool input handler (streaming)
