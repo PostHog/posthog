@@ -6,8 +6,8 @@
  *
  * Key principles:
  * - Receives experiment as prop (no duplicate loading)
- * - Read-only: no mutations, no editing, no creating
- * - Only loads and refreshes metrics results
+ * - Mostly read-only: legacy experiments can be archived, ended or finished, but not edited
+ * - Loads and metrics results
  * - Legacy experiments are frozen/read-only, so no auto-refresh or notifications
  *
  * New experiments should use the modern experimentLogic.tsx instead.
@@ -17,12 +17,12 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { refreshTreeItem } from 'lib/navigation/ProjectSidebar/utils'
-import { api } from 'lib/api'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 import { isLegacyExperimentQuery, isLegacySharedMetric } from 'scenes/experiments/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import api from '~/lib/api'
 import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '~/queries/query'
 import {
     CachedExperimentFunnelsQueryResponse,
@@ -31,7 +31,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import { Experiment, ExperimentConclusion } from '~/types'
+import { Experiment } from '~/types'
 
 import { modalsLogic } from '../modalsLogic'
 import type { legacyExperimentLogicType } from './legacyExperimentLogicType'
@@ -39,10 +39,9 @@ import type { legacyExperimentLogicType } from './legacyExperimentLogicType'
 export interface LegacyExperimentLogicProps {
     experiment: Experiment
     tabId: string
-    onExperimentUpdate?: (experiment: Experiment) => void
 }
 
-export type ExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
+export type LegacyExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
 
 /**
  * Validates that an experiment only contains legacy metrics.
@@ -110,7 +109,7 @@ interface LegacyMetricLoadingConfig {
     onSetErrors: (errors: any[]) => void
 }
 
-interface MetricLoadingSummary {
+interface LegacyMetricLoadingSummary {
     successfulCount: number
     erroredCount: number
     cachedCount: number
@@ -229,7 +228,7 @@ const loadLegacyMetrics = async ({
     orderedUuids,
     onSetLegacyResults,
     onSetErrors,
-}: LegacyMetricLoadingConfig): Promise<MetricLoadingSummary> => {
+}: LegacyMetricLoadingConfig): Promise<LegacyMetricLoadingSummary> => {
     const legacyResults: (
         | CachedLegacyExperimentQueryResponse
         | CachedExperimentTrendsQueryResponse
@@ -395,7 +394,7 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
         restoreUnmodifiedExperiment: true,
 
         // Metrics results loading
-        refreshExperimentResults: (forceRefresh?: boolean, triggeredBy?: ExperimentTriggeredBy) => ({
+        refreshExperimentResults: (forceRefresh?: boolean, triggeredBy?: LegacyExperimentTriggeredBy) => ({
             forceRefresh,
             triggeredBy: triggeredBy ?? 'manual',
         }),
@@ -410,7 +409,6 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
         setPrimaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
         loadPrimaryMetricsResults: (refresh?: boolean, refreshId?: string) => ({ refresh, refreshId }),
         setPrimaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
-        retryPrimaryMetric: (index: number) => ({ index }),
         setLegacySecondaryMetricsResults: (
             results: (
                 | CachedLegacyExperimentQueryResponse
@@ -421,7 +419,6 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
         ) => ({ results }),
         loadSecondaryMetricsResults: (refresh?: boolean, refreshId?: string) => ({ refresh, refreshId }),
         setSecondaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
-        retrySecondaryMetric: (index: number) => ({ index }),
         setSecondaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers(({ props }) => ({
@@ -491,7 +488,7 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
     selectors({
         experimentId: [(s) => [s.experiment], (experiment) => experiment.id],
     }),
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, actions }) => ({
         afterMount: () => {
             const experiment = values.experiment
 
@@ -509,12 +506,8 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`
                 )
-                // Notify parent component to update experiment
-                if (props.onExperimentUpdate) {
-                    props.onExperimentUpdate(response)
-                }
+                actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
-                lemonToast.success('Experiment archived successfully')
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to archive experiment')
             }
@@ -528,10 +521,7 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
                         conclusion_comment: values.experiment.conclusion_comment,
                     }
                 )
-                // Notify parent component to update experiment
-                if (props.onExperimentUpdate) {
-                    props.onExperimentUpdate(response)
-                }
+                actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to end experiment')
@@ -541,9 +531,6 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
             actions.endExperiment()
             actions.closeFinishExperimentModal()
             lemonToast.success('Experiment ended successfully')
-
-            // Legacy experiments don't have hogfetti celebrations
-            // That feature is only in modern experiments
         },
         finishExperiment: async ({ selectedVariantKey }) => {
             try {
@@ -555,24 +542,14 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
                         conclusion_comment: values.experiment.conclusion_comment,
                     }
                 )
-                // Notify parent component to update experiment
-                if (props.onExperimentUpdate) {
-                    props.onExperimentUpdate(response)
-                }
+                actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
                 actions.closeFinishExperimentModal()
                 lemonToast.success('Experiment ended. The selected variant has been rolled out to all users.')
-
-                // Legacy experiments don't have hogfetti celebrations
-                // That feature is only in modern experiments
             } catch (error: any) {
                 actions.closeFinishExperimentModal()
                 lemonToast.error(error.detail || 'Failed to ship variant')
             }
-        },
-        setExperiment: ({ update }) => {
-            // Local update happens via reducer
-            // No need to notify parent for temporary changes (e.g., in modals)
         },
         restoreUnmodifiedExperiment: () => {
             if (values.unmodifiedExperiment) {
@@ -650,94 +627,6 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
             } finally {
                 actions.setSecondaryMetricsResultsLoading(false)
             }
-        },
-        retryPrimaryMetric: async ({ index }) => {
-            const experiment = values.experiment
-            const metrics = [...experiment.metrics]
-            const savedMetricsPrimary = experiment.saved_metrics
-                .filter((sm) => sm.metadata.type === 'primary')
-                .map((sm) => sm.query)
-
-            const allMetrics = [...metrics, ...savedMetricsPrimary]
-            const metric = allMetrics[index]
-
-            if (!metric) {
-                return
-            }
-
-            const refreshId = generateRefreshId()
-
-            // Clear the error for this metric
-            const currentErrors = [...values.primaryMetricsResultsErrors]
-            currentErrors[index] = null
-            actions.setPrimaryMetricsResultsErrors(currentErrors)
-
-            // Retry loading this single metric
-            await loadLegacyMetrics({
-                metrics: [metric],
-                experimentId: experiment.id,
-                refresh: true,
-                teamId: values.currentTeamId,
-                refreshId,
-                isPrimary: true,
-                isRetry: true,
-                metricIndexOffset: index,
-                orderedUuids: null,
-                onSetLegacyResults: (results) => {
-                    const currentResults = [...values.legacyPrimaryMetricsResults]
-                    currentResults[index] = results[0]
-                    actions.setLegacyPrimaryMetricsResults(currentResults)
-                },
-                onSetErrors: (errors) => {
-                    const currentErrors = [...values.primaryMetricsResultsErrors]
-                    currentErrors[index] = errors[0]
-                    actions.setPrimaryMetricsResultsErrors(currentErrors)
-                },
-            })
-        },
-        retrySecondaryMetric: async ({ index }) => {
-            const experiment = values.experiment
-            const metrics = [...experiment.metrics_secondary]
-            const savedMetricsSecondary = experiment.saved_metrics
-                .filter((sm) => sm.metadata.type === 'secondary')
-                .map((sm) => sm.query)
-
-            const allMetrics = [...metrics, ...savedMetricsSecondary]
-            const metric = allMetrics[index]
-
-            if (!metric) {
-                return
-            }
-
-            const refreshId = generateRefreshId()
-
-            // Clear the error for this metric
-            const currentErrors = [...values.secondaryMetricsResultsErrors]
-            currentErrors[index] = null
-            actions.setSecondaryMetricsResultsErrors(currentErrors)
-
-            // Retry loading this single metric
-            await loadLegacyMetrics({
-                metrics: [metric],
-                experimentId: experiment.id,
-                refresh: true,
-                teamId: values.currentTeamId,
-                refreshId,
-                isPrimary: false,
-                isRetry: true,
-                metricIndexOffset: index,
-                orderedUuids: null,
-                onSetLegacyResults: (results) => {
-                    const currentResults = [...values.legacySecondaryMetricsResults]
-                    currentResults[index] = results[0]
-                    actions.setLegacySecondaryMetricsResults(currentResults)
-                },
-                onSetErrors: (errors) => {
-                    const currentErrors = [...values.secondaryMetricsResultsErrors]
-                    currentErrors[index] = errors[0]
-                    actions.setSecondaryMetricsResultsErrors(currentErrors)
-                },
-            })
         },
     })),
 ])
