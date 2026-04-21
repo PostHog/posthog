@@ -236,24 +236,32 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if created_by:
             qs = qs.filter(created_by_id=created_by)
 
-        if search:
-            search_term = search.strip()
-            if search_term:
-                search_q = Q(title__icontains=search_term) | Q(description__icontains=search_term)
-                # Slugs look like "<team-prefix>-<task_number>". If the search term is a bare
-                # number, or looks like "<prefix>-<number>", also match by task_number so users
-                # can find tasks by slug.
-                number_part = search_term.split("-")[-1].strip()
-                if number_part.isdigit():
-                    search_q |= Q(task_number=int(number_part))
-                qs = qs.filter(search_q)
-
-        if status_filter:
-            latest_run_status = TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at").values("status")[:1]
-            qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
-
-        # Only filter by internal on list — retrieve should always work if you have the ID
+        # Only apply list-oriented filters on list — retrieve/update should always work if
+        # you have the ID. Without this guard, a client passing a query param while fetching
+        # a single task by ID would see an unexpected 404 when the task does not match.
         if self.action == "list":
+            if search:
+                search_term = search.strip()
+                if search_term:
+                    search_q = Q(title__icontains=search_term) | Q(description__icontains=search_term)
+                    # Slugs look like "<team-prefix>-<task_number>". If the search term is a bare
+                    # number, or looks like "<prefix>-<number>", also match by task_number so users
+                    # can find tasks by slug.
+                    number_part = search_term.split("-")[-1].strip()
+                    if number_part.isdigit():
+                        search_q |= Q(task_number=int(number_part))
+                    qs = qs.filter(search_q)
+
+            if status_filter:
+                # `-id` is a deterministic tiebreaker when two runs share a `created_at`
+                # timestamp (e.g. both seeded with `timezone.now()` in the same tick).
+                latest_run_status = (
+                    TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id").values("status")[:1]
+                )
+                qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(
+                    _latest_run_status=status_filter
+                )
+
             internal_param = getattr(self.request, "validated_query_data", {}).get("internal")
             if internal_param is True:
                 qs = qs.filter(internal=True)
@@ -263,7 +271,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
         qs = qs.select_related("created_by", "team").prefetch_related("runs")
 
-        # `stage` joins through runs and can produce duplicate task rows.
+        # `stage` joins through `runs` and can produce duplicate task rows. If any other
+        # JOIN-producing filter is added above, broaden this guard (or move `.distinct()`
+        # to run unconditionally).
         if stage:
             qs = qs.distinct()
 

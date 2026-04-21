@@ -4,12 +4,15 @@ import uuid
 import asyncio
 import threading
 from collections.abc import Iterator
+from datetime import timedelta
 from typing import ClassVar, cast
+from urllib.parse import quote
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.http import StreamingHttpResponse
 from django.test import TestCase, override_settings
+from django.utils import timezone as django_timezone
 
 import jwt
 from parameterized import parameterized
@@ -948,14 +951,14 @@ class TestTaskAPI(BaseTaskAPITest):
     )
     def test_filter_by_search(self, _name, search_value, expected_indices):
         tasks = []
-        # Task numbers are assigned by _assign_task_number starting from 0 within a team,
-        # so these will be numbered 0, 1, 2 in insertion order.
-        titles_and_descriptions = [
-            ("Fix login flow", "Users cannot sign in on mobile"),
-            ("Ship new feature", "Roll out regression-proof bug fix"),
-            ("Cleanup", "Addresses a latent bug in the parser"),
+        # Pin task_number explicitly so the "matches_task_number" and "matches_slug_style_input"
+        # cases don't silently break if anything in setup were to bump the per-team counter.
+        titles_descriptions_and_numbers = [
+            ("Fix login flow", "Users cannot sign in on mobile", 0),
+            ("Ship new feature", "Roll out regression-proof bug fix", 1),
+            ("Cleanup", "Addresses a latent bug in the parser", 2),
         ]
-        for title, description in titles_and_descriptions:
+        for title, description, task_number in titles_descriptions_and_numbers:
             tasks.append(
                 Task.objects.create(
                     team=self.team,
@@ -963,13 +966,12 @@ class TestTaskAPI(BaseTaskAPITest):
                     description=description,
                     origin_product=Task.OriginProduct.USER_CREATED,
                     created_by=self.user,
+                    task_number=task_number,
                 )
             )
 
         url = "/api/projects/@current/tasks/"
         if search_value is not None:
-            from urllib.parse import quote
-
             url += f"?search={quote(search_value)}"
 
         response = self.client.get(url)
@@ -990,10 +992,6 @@ class TestTaskAPI(BaseTaskAPITest):
         ]
     )
     def test_filter_by_status(self, _name, status_value, expected_indices):
-        from datetime import timedelta
-
-        from django.utils import timezone as django_timezone
-
         # Explicit timestamps avoid flaky ordering when two runs share the same
         # default `created_at=now()` microsecond on fast machines.
         base_time = django_timezone.now()
@@ -1040,10 +1038,6 @@ class TestTaskAPI(BaseTaskAPITest):
 
     def test_filter_by_status_uses_latest_run_not_any_run(self):
         """A task whose latest run is in_progress must not match status=completed, even if an older run completed."""
-        from datetime import timedelta
-
-        from django.utils import timezone as django_timezone
-
         base_time = django_timezone.now()
 
         task = self.create_task("Task with mixed runs")

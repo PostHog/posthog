@@ -140,6 +140,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         setSearchQuery: () => {
+            cache.listLoadRequested = true
             // Debounce search keystrokes to avoid a request per character.
             if (cache.searchDebounce) {
                 clearTimeout(cache.searchDebounce)
@@ -149,12 +150,15 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }, SEARCH_DEBOUNCE_MS)
         },
         setRepository: () => {
+            cache.listLoadRequested = true
             actions.loadTasks(values.listParams)
         },
         setStatus: () => {
+            cache.listLoadRequested = true
             actions.loadTasks(values.listParams)
         },
         setCreatedBy: () => {
+            cache.listLoadRequested = true
             actions.loadTasks(values.listParams)
         },
         submitNewTask: async () => {
@@ -268,13 +272,20 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
     events(({ actions, values, cache }) => ({
         afterMount: () => {
-            actions.loadTasks(values.listParams)
             actions.loadRepositories()
+            // `urlToAction` may dispatch filter setters synchronously on mount, and the
+            // `user` subscription may dispatch `setCreatedBy` to set the default filter.
+            // Each of those listeners triggers `loadTasks` and sets `cache.listLoadRequested`,
+            // so we only need to fire here when nothing else did.
+            if (!cache.listLoadRequested) {
+                actions.loadTasks(values.listParams)
+            }
         },
         beforeUnmount: () => {
             if (cache.searchDebounce) {
                 clearTimeout(cache.searchDebounce)
             }
+            cache.listLoadRequested = false
         },
     })),
 ])

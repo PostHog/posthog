@@ -24,8 +24,11 @@ export const tasksLogic = kea<tasksLogicType>([
         tasks: [
             [] as Task[],
             {
-                loadTasks: async (params: TaskListParams = {}) => {
+                // `breakpoint` cancels this invocation if a newer `loadTasks` action has been
+                // dispatched, so filter changes don't overwrite state with stale responses.
+                loadTasks: async (params: TaskListParams = {}, breakpoint) => {
                     const response = await api.tasks.list(params)
+                    breakpoint()
                     return response.results
                 },
                 createTask: async ({ data }: { data: TaskUpsertProps }) => {
