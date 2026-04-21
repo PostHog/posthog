@@ -1,11 +1,9 @@
 <functions>
     <!--
-      The six real funnel UDFs. As of v12 these default to RowBinary format
-      on the wire. The binary is the same `aggregate_funnel`; the trailing
-      positional token (nullable_string / array_string / u64) tells the codec
-      how to decode breakdown values for each variant. ClickHouse prefixes
-      each batch with a newline-terminated row count because of
-      send_chunk_header=true.
+      The six real funnel UDFs share one binary (aggregate_funnel <steps|trends>).
+      Wire format is MsgPack; the binary detects the breakdown shape at runtime
+      from the first prop_vals element's marker (or the first event's breakdown
+      slot if prop_vals is empty).
     -->
 
     <function>
@@ -41,7 +39,7 @@
             <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinaryWithNamesAndTypes</format>
+        <format>MsgPack</format>
         <send_chunk_header>true</send_chunk_header>
         <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
@@ -80,7 +78,7 @@
             <type>Array(Tuple(Nullable(Float64), UUID, UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinaryWithNamesAndTypes</format>
+        <format>MsgPack</format>
         <send_chunk_header>true</send_chunk_header>
         <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
@@ -119,7 +117,7 @@
             <type>Array(Tuple(Nullable(Float64), UUID, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinaryWithNamesAndTypes</format>
+        <format>MsgPack</format>
         <send_chunk_header>true</send_chunk_header>
         <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
@@ -162,7 +160,7 @@
             <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinaryWithNamesAndTypes</format>
+        <format>MsgPack</format>
         <send_chunk_header>true</send_chunk_header>
         <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
@@ -205,7 +203,7 @@
             <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinaryWithNamesAndTypes</format>
+        <format>MsgPack</format>
         <send_chunk_header>true</send_chunk_header>
         <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
@@ -248,7 +246,7 @@
             <type>Array(Tuple(Nullable(Float64), UInt64, UUID, UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>RowBinaryWithNamesAndTypes</format>
+        <format>MsgPack</format>
         <send_chunk_header>true</send_chunk_header>
         <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>

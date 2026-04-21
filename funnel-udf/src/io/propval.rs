@@ -1,188 +1,160 @@
-use clickhouse_types::DataTypeNode;
+// Reading / writing breakdown values through the MsgPack codec.
+//
+// MsgPack is self-describing: a breakdown value's wire type (bin/str, int,
+// array) tells us which PropVal variant it is without a separate header.
+// We still use `BreakdownShape` because the UDF has to emit results in a
+// single consistent layout (one slot in the output tuple), and that layout
+// is decided once per invocation by peeking at the first incoming breakdown.
 
-use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
+use std::io::{BufRead, Write};
+
+use rmp::Marker;
+
+use crate::codec::msgpack;
+#[cfg(test)]
+use crate::codec::msgpack::peek_marker;
 use crate::codec::{CodecError, CodecResult};
-use crate::io::column::{array_elem, read_nullable_string, read_string, read_u64_col};
+use crate::io::column::{read_array_len, read_nullable_string, read_string};
 use crate::types::{BreakdownShape, Bytes, PropVal};
 
-// Reads a single breakdown value — at either a `prop_vals` element position or
-// a per-event tuple position. `t` is the actual column/field type from the
-// block header. The declared `BreakdownShape` still governs which PropVal
-// variant we produce.
-pub fn read_propval<R: RowBinaryRead + ?Sized>(
-    r: &mut R,
-    shape: BreakdownShape,
-    t: &DataTypeNode,
-) -> CodecResult<PropVal> {
+/// Read one breakdown value under the given shape.
+pub fn read_propval<R: BufRead>(r: &mut R, shape: BreakdownShape) -> CodecResult<PropVal> {
     match shape {
-        BreakdownShape::NullableString => Ok(PropVal::String(Bytes(read_nullable_string(r, t)?))),
+        BreakdownShape::NullableString => Ok(PropVal::String(Bytes(read_nullable_string(r)?))),
         BreakdownShape::ArrayString => {
-            let inner = array_elem(t, "breakdown")?;
-            let len = r.read_varint()? as usize;
-            let mut out = Vec::with_capacity(len);
-            for _ in 0..len {
-                out.push(Bytes(read_string(r, inner)?));
+            let n = read_array_len(r)?;
+            let mut out = Vec::with_capacity(n);
+            for _ in 0..n {
+                out.push(Bytes(read_string(r)?));
             }
             Ok(PropVal::Vec(out))
         }
-        BreakdownShape::U64 => Ok(PropVal::Int(read_u64_col(r, t)?)),
+        BreakdownShape::U64 => Ok(PropVal::Int(msgpack::read_u64(r)?)),
     }
 }
 
-/// Reads the entire `prop_vals` column: `Array(<shape>)`.
-pub fn read_propval_array<R: RowBinaryRead + ?Sized>(
+/// Read the full `prop_vals` array as a list of PropVals under the shape.
+pub fn read_propval_array<R: BufRead>(
     r: &mut R,
     shape: BreakdownShape,
-    t: &DataTypeNode,
 ) -> CodecResult<Vec<PropVal>> {
-    let inner = array_elem(t, "prop_vals")?;
-    let len = r.read_varint()? as usize;
-    let mut out = Vec::with_capacity(len);
-    for _ in 0..len {
-        out.push(read_propval(r, shape, inner)?);
+    let n = read_array_len(r)?;
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        out.push(read_propval(r, shape)?);
     }
     Ok(out)
 }
 
-// Writer side is unchanged — we emit the schema we declare in the output
-// block header, so this is self-consistent.
-pub fn write_propval<W: RowBinaryWrite + ?Sized>(
-    w: &mut W,
-    p: &PropVal,
-    shape: BreakdownShape,
-) -> CodecResult<()> {
+/// Detect the breakdown shape from the next MsgPack marker on the wire.
+/// Returns None if the marker is not recognized as a breakdown shape tag
+/// (caller should produce a meaningful error with context).
+pub fn shape_from_marker(m: Marker) -> Option<BreakdownShape> {
+    match m {
+        Marker::FixPos(_)
+        | Marker::FixNeg(_)
+        | Marker::U8
+        | Marker::U16
+        | Marker::U32
+        | Marker::U64
+        | Marker::I8
+        | Marker::I16
+        | Marker::I32
+        | Marker::I64 => Some(BreakdownShape::U64),
+        Marker::Null
+        | Marker::FixStr(_)
+        | Marker::Str8
+        | Marker::Str16
+        | Marker::Str32
+        | Marker::Bin8
+        | Marker::Bin16
+        | Marker::Bin32 => Some(BreakdownShape::NullableString),
+        Marker::FixArray(_) | Marker::Array16 | Marker::Array32 => {
+            Some(BreakdownShape::ArrayString)
+        }
+        _ => None,
+    }
+}
+
+/// Peek the next wire marker to figure out the breakdown shape without
+/// consuming anything. Returns None at EOF.
+#[cfg(test)]
+pub fn peek_shape<R: BufRead>(r: &mut R) -> CodecResult<Option<BreakdownShape>> {
+    let m = peek_marker(r)?;
+    Ok(m.and_then(shape_from_marker))
+}
+
+// -------- Write side --------
+
+pub fn write_propval<W: Write>(w: &mut W, p: &PropVal, shape: BreakdownShape) -> CodecResult<()> {
     match (shape, p) {
-        (BreakdownShape::NullableString, PropVal::String(b)) => {
-            w.write_u8(0)?; // non-null
-            w.write_bytes(&b.0)
-        }
+        (BreakdownShape::NullableString, PropVal::String(b)) => msgpack::write_bin(w, &b.0),
         (BreakdownShape::ArrayString, PropVal::Vec(v)) => {
-            w.write_array(v, |w, b| w.write_bytes(&b.0))
+            msgpack::write_array_len(w, v.len() as u32)?;
+            for b in v {
+                msgpack::write_bin(w, &b.0)?;
+            }
+            Ok(())
         }
-        (BreakdownShape::U64, PropVal::Int(n)) => w.write_u64_le(*n),
+        (BreakdownShape::U64, PropVal::Int(n)) => msgpack::write_uint(w, *n),
         _ => Err(CodecError::ShapeMismatch),
-    }
-}
-
-/// The `DataTypeNode` we emit in output block headers for a given shape.
-/// Must match write_propval's wire format exactly.
-pub fn shape_output_type(shape: BreakdownShape) -> DataTypeNode {
-    match shape {
-        BreakdownShape::NullableString => DataTypeNode::Nullable(Box::new(DataTypeNode::String)),
-        BreakdownShape::ArrayString => DataTypeNode::Array(Box::new(DataTypeNode::String)),
-        BreakdownShape::U64 => DataTypeNode::UInt64,
-    }
-}
-
-/// Detects the intended `BreakdownShape` from the actual `prop_vals` column type
-/// on the wire. We're permissive about wire types (see io/column.rs for the
-/// rationale) so each shape accepts a family of near-variants:
-///   - U64: any integer element (cohort ids fit in UInt64; narrower widths are fine)
-///   - ArrayString: nested `Array(String)` (with or without LowCardinality)
-///   - NullableString: Nullable(String) or plain String (treat non-nullable as always-non-null)
-pub fn detect_shape(prop_vals_type: &DataTypeNode) -> CodecResult<BreakdownShape> {
-    let inner = array_elem(prop_vals_type, "detect_shape on prop_vals")?;
-    let peeled = match inner {
-        DataTypeNode::LowCardinality(x) => x.as_ref(),
-        other => other,
-    };
-    match peeled {
-        DataTypeNode::UInt8
-        | DataTypeNode::UInt16
-        | DataTypeNode::UInt32
-        | DataTypeNode::UInt64
-        | DataTypeNode::Int8
-        | DataTypeNode::Int16
-        | DataTypeNode::Int32
-        | DataTypeNode::Int64 => Ok(BreakdownShape::U64),
-        DataTypeNode::Array(el)
-            if matches!(**el, DataTypeNode::String | DataTypeNode::LowCardinality(_)) =>
-        {
-            Ok(BreakdownShape::ArrayString)
-        }
-        DataTypeNode::Nullable(el) if matches!(**el, DataTypeNode::String) => {
-            Ok(BreakdownShape::NullableString)
-        }
-        DataTypeNode::String => Ok(BreakdownShape::NullableString),
-        other => Err(CodecError::TypeMismatch(format!(
-            "prop_vals: unsupported element type {other}"
-        ))),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codec::msgpack::{write_array_len, write_bin, write_nil, write_uint};
+    use std::io::Cursor;
 
-    fn nullable_string() -> DataTypeNode {
-        DataTypeNode::Nullable(Box::new(DataTypeNode::String))
+    fn peek(buf: Vec<u8>) -> Option<BreakdownShape> {
+        let mut cur = Cursor::new(buf);
+        peek_shape(&mut cur).unwrap()
     }
 
     #[test]
-    fn shape_detection() {
-        assert_eq!(
-            detect_shape(&DataTypeNode::Array(Box::new(nullable_string()))).unwrap(),
-            BreakdownShape::NullableString
-        );
-        assert_eq!(
-            detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::UInt64))).unwrap(),
-            BreakdownShape::U64
-        );
-        assert_eq!(
-            detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::Array(
-                Box::new(DataTypeNode::String)
-            ))))
-            .unwrap(),
-            BreakdownShape::ArrayString
-        );
-    }
-
-    #[test]
-    fn shape_detection_accepts_plain_string_as_nullable() {
-        // HogQL-generated queries don't always wrap string breakdowns in Nullable.
-        // Plain `Array(String)` should map to the NullableString shape and be
-        // treated as always-non-null on read.
-        assert_eq!(
-            detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::String))).unwrap(),
-            BreakdownShape::NullableString
-        );
-    }
-
-    #[test]
-    fn shape_detection_accepts_narrower_int_widths() {
-        // Cohort breakdowns may arrive as Int64 (HogQL's default for int literals)
-        // or other widths; they all map to the U64 shape.
-        assert_eq!(
-            detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::Int64))).unwrap(),
-            BreakdownShape::U64
-        );
-        assert_eq!(
-            detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::UInt32))).unwrap(),
-            BreakdownShape::U64
-        );
-    }
-
-    #[test]
-    fn nullable_string_reads_nullable_wire() {
+    fn shape_from_nullable_string_bin() {
         let mut buf = Vec::new();
-        buf.write_u8(0).unwrap();
-        buf.write_bytes(b"hi").unwrap();
-        let mut slice = buf.as_slice();
-        let got = read_propval(
-            &mut slice,
-            BreakdownShape::NullableString,
-            &nullable_string(),
-        )
-        .unwrap();
+        write_bin(&mut buf, b"en").unwrap();
+        assert_eq!(peek(buf), Some(BreakdownShape::NullableString));
+    }
+
+    #[test]
+    fn shape_from_nil_is_nullable_string() {
+        let mut buf = Vec::new();
+        write_nil(&mut buf).unwrap();
+        assert_eq!(peek(buf), Some(BreakdownShape::NullableString));
+    }
+
+    #[test]
+    fn shape_from_uint_is_u64() {
+        let mut buf = Vec::new();
+        write_uint(&mut buf, 42).unwrap();
+        assert_eq!(peek(buf), Some(BreakdownShape::U64));
+    }
+
+    #[test]
+    fn shape_from_array_is_array_string() {
+        let mut buf = Vec::new();
+        write_array_len(&mut buf, 0).unwrap();
+        assert_eq!(peek(buf), Some(BreakdownShape::ArrayString));
+    }
+
+    #[test]
+    fn read_propval_nullable_bytes() {
+        let mut buf = Vec::new();
+        write_bin(&mut buf, b"hi").unwrap();
+        let mut cur = Cursor::new(buf);
+        let got = read_propval(&mut cur, BreakdownShape::NullableString).unwrap();
         assert_eq!(got, PropVal::String(Bytes(b"hi".to_vec())));
     }
 
     #[test]
-    fn u64_reads_uint64_wire() {
+    fn read_propval_u64() {
         let mut buf = Vec::new();
-        buf.write_u64_le(1209600).unwrap();
-        let mut slice = buf.as_slice();
-        let got = read_propval(&mut slice, BreakdownShape::U64, &DataTypeNode::UInt64).unwrap();
+        write_uint(&mut buf, 1209600).unwrap();
+        let mut cur = Cursor::new(buf);
+        let got = read_propval(&mut cur, BreakdownShape::U64).unwrap();
         assert_eq!(got, PropVal::Int(1209600));
     }
 
@@ -190,29 +162,9 @@ mod tests {
     fn non_utf8_bytes_survive() {
         let bad = vec![0xff, 0xfe, 0x00, 0x80];
         let mut buf = Vec::new();
-        buf.write_u8(0).unwrap();
-        buf.write_bytes(&bad).unwrap();
-        let mut slice = buf.as_slice();
-        let got = read_propval(
-            &mut slice,
-            BreakdownShape::NullableString,
-            &nullable_string(),
-        )
-        .unwrap();
+        write_bin(&mut buf, &bad).unwrap();
+        let mut cur = Cursor::new(buf);
+        let got = read_propval(&mut cur, BreakdownShape::NullableString).unwrap();
         assert_eq!(got, PropVal::String(Bytes(bad)));
-    }
-
-    #[test]
-    fn unexpected_null_errors() {
-        let mut buf = Vec::new();
-        buf.write_u8(1).unwrap();
-        let mut slice = buf.as_slice();
-        let err = read_propval(
-            &mut slice,
-            BreakdownShape::NullableString,
-            &nullable_string(),
-        )
-        .unwrap_err();
-        assert!(matches!(err, CodecError::UnexpectedNull));
     }
 }

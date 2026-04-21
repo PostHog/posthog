@@ -1,45 +1,36 @@
 #![allow(dead_code)]
 
 pub mod chunk;
-pub mod header;
-pub mod rowbinary;
+pub mod msgpack;
 
 use std::io;
 
 #[derive(Debug)]
 pub enum CodecError {
     Io(io::Error),
-    InvalidNullMarker(u8),
-    VarintOverflow,
     InvalidUtf8,
     UnexpectedNull,
     ShapeMismatch,
     InvalidChunkHeader(String),
     UnexpectedEof,
-    UnknownType(String),
     TypeMismatch(String),
     IntOutOfRange {
         from: &'static str,
         to: &'static str,
         value: i128,
     },
-    SchemaLen {
-        got: usize,
-        want: usize,
-    },
+    Schema(String),
 }
 
 impl std::fmt::Display for CodecError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(e) => write!(f, "io error: {e}"),
-            Self::InvalidNullMarker(b) => write!(f, "invalid Nullable marker byte: {b}"),
-            Self::VarintOverflow => write!(f, "varint overflow: exceeded 10 bytes"),
             Self::InvalidUtf8 => write!(f, "invalid utf-8 in String value"),
             Self::UnexpectedNull => {
                 write!(
                     f,
-                    "unexpected null in Nullable(String) — caller requires non-null"
+                    "unexpected nil in Nullable slot — caller requires non-null"
                 )
             }
             Self::ShapeMismatch => {
@@ -47,7 +38,6 @@ impl std::fmt::Display for CodecError {
             }
             Self::InvalidChunkHeader(s) => write!(f, "invalid chunk header: {s:?}"),
             Self::UnexpectedEof => write!(f, "unexpected eof mid-row"),
-            Self::UnknownType(s) => write!(f, "unsupported ClickHouse type from header: {s}"),
             Self::TypeMismatch(s) => write!(f, "type mismatch: {s}"),
             Self::IntOutOfRange { from, to, value } => {
                 write!(
@@ -55,9 +45,7 @@ impl std::fmt::Display for CodecError {
                     "integer out of range: {value} ({from}) does not fit in {to}"
                 )
             }
-            Self::SchemaLen { got, want } => {
-                write!(f, "block header declares {got} columns, expected {want}")
-            }
+            Self::Schema(s) => write!(f, "schema error: {s}"),
         }
     }
 }

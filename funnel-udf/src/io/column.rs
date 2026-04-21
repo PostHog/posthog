@@ -1,303 +1,132 @@
-// Column readers for the XML-declared UDF slots.
-//
-// These are intentionally permissive about wire types because HogQL / ClickHouse
-// don't reliably emit the exact XML-declared argument type — e.g. a literal `3`
-// for a `UInt8` slot can arrive as `UInt8`, `Int64`, or any integer width in
-// between. We accept the whole int family and narrow with bounds checks, and
-// accept non-nullable variants where Nullable was declared (treating them as
-// always-non-null, matching the funnel invariant that these fields are never
-// null by the time they reach the UDF). Array readers do the same element-wise.
-// Tuple arity and column count remain strict — those are structural invariants,
-// not type-coercion candidates.
+// Slot-level readers for the declared UDF argument shapes, on top of
+// `codec::msgpack`. MsgPack is self-describing, so these readers don't
+// take a declared-type parameter the way RowBinary's did — they just
+// pull the next MsgPack value off the stream and coerce/range-check
+// into the expected Rust type.
 
-use clickhouse_types::DataTypeNode;
+use std::io::Read;
 
-use crate::codec::rowbinary::RowBinaryRead;
+use crate::codec::msgpack;
 use crate::codec::{CodecError, CodecResult};
 
-/// Reads any integer type off the wire and returns it as i128 for range checking.
-/// Errors if the declared type is not an integer CH type we know about.
-fn read_int_any<R: RowBinaryRead + ?Sized>(
-    r: &mut R,
-    t: &DataTypeNode,
-) -> CodecResult<(i128, &'static str)> {
-    match t {
-        DataTypeNode::UInt8 => Ok((r.read_u8()? as i128, "UInt8")),
-        DataTypeNode::UInt16 => Ok((r.read_u16_le()? as i128, "UInt16")),
-        DataTypeNode::UInt32 => Ok((r.read_u32_le()? as i128, "UInt32")),
-        DataTypeNode::UInt64 => Ok((r.read_u64_le()? as i128, "UInt64")),
-        DataTypeNode::Int8 => Ok((r.read_i8()? as i128, "Int8")),
-        DataTypeNode::Int16 => Ok((r.read_i16_le()? as i128, "Int16")),
-        DataTypeNode::Int32 => Ok((r.read_i32_le()? as i128, "Int32")),
-        DataTypeNode::Int64 => Ok((r.read_i64_le()? as i128, "Int64")),
-        DataTypeNode::Bool => Ok((r.read_u8()? as i128, "Bool")),
-        other => Err(CodecError::TypeMismatch(format!(
-            "expected integer type, got {other}"
-        ))),
-    }
+pub fn read_u8_col<R: Read>(r: &mut R) -> CodecResult<u8> {
+    msgpack::read_u8(r)
 }
 
-pub fn read_u8_col<R: RowBinaryRead + ?Sized>(r: &mut R, t: &DataTypeNode) -> CodecResult<u8> {
-    let (v, from) = read_int_any(r, t)?;
-    if !(0..=255).contains(&v) {
-        return Err(CodecError::IntOutOfRange {
-            from,
-            to: "UInt8",
-            value: v,
-        });
-    }
-    Ok(v as u8)
+pub fn read_u64_col<R: Read>(r: &mut R) -> CodecResult<u64> {
+    msgpack::read_u64(r)
 }
 
-pub fn read_u64_col<R: RowBinaryRead + ?Sized>(r: &mut R, t: &DataTypeNode) -> CodecResult<u64> {
-    let (v, from) = read_int_any(r, t)?;
-    if v < 0 || v > u64::MAX as i128 {
-        return Err(CodecError::IntOutOfRange {
-            from,
-            to: "UInt64",
-            value: v,
-        });
-    }
-    Ok(v as u64)
+pub fn read_u32_col<R: Read>(r: &mut R) -> CodecResult<u32> {
+    msgpack::read_u32(r)
 }
 
-fn narrow_to_i8(v: i128, from: &'static str) -> CodecResult<i8> {
-    if (i8::MIN as i128..=i8::MAX as i128).contains(&v) {
-        Ok(v as i8)
-    } else {
-        Err(CodecError::IntOutOfRange {
-            from,
-            to: "Int8",
-            value: v,
-        })
-    }
+/// Read a `Nullable(Float64)` — errors if the value is nil. Funnel invariant:
+/// event timestamps are never null by the time they reach the UDF.
+pub fn read_nullable_f64<R: Read>(r: &mut R) -> CodecResult<f64> {
+    msgpack::read_f64_nullable(r)
 }
 
-/// Reads a `Nullable(Float64)` or plain `Float64` column.
-/// Funnel invariant: timestamps are non-null by the time they reach the UDF.
-pub fn read_nullable_f64<R: RowBinaryRead + ?Sized>(
-    r: &mut R,
-    t: &DataTypeNode,
-) -> CodecResult<f64> {
-    match t {
-        DataTypeNode::Nullable(inner) if matches!(**inner, DataTypeNode::Float64) => {
-            match r.read_u8()? {
-                0 => r.read_f64_le(),
-                1 => Err(CodecError::UnexpectedNull),
-                b => Err(CodecError::InvalidNullMarker(b)),
-            }
-        }
-        DataTypeNode::Float64 => r.read_f64_le(),
-        DataTypeNode::Float32 => {
-            let mut b = [0u8; 4];
-            r.read_exact(&mut b)?;
-            Ok(f32::from_le_bytes(b) as f64)
-        }
-        other => Err(CodecError::TypeMismatch(format!(
-            "expected Float64 or Nullable(Float64), got {other}"
-        ))),
-    }
+/// Read a plain `String` column as raw bytes.
+pub fn read_string<R: Read>(r: &mut R) -> CodecResult<Vec<u8>> {
+    msgpack::read_bytes(r)
 }
 
-/// Reads a plain `String` column as raw bytes. Also accepts `LowCardinality(String)`
-/// since LowCardinality is a storage hint that's transparent in RowBinary.
-pub fn read_string<R: RowBinaryRead + ?Sized>(r: &mut R, t: &DataTypeNode) -> CodecResult<Vec<u8>> {
-    match peel_low_cardinality(t) {
-        DataTypeNode::String => r.read_bytes(),
-        DataTypeNode::FixedString(n) => {
-            let mut buf = vec![0u8; *n];
-            r.read_exact(&mut buf)?;
-            Ok(buf)
-        }
-        other => Err(CodecError::TypeMismatch(format!(
-            "expected String, got {other}"
-        ))),
-    }
+/// Read a `Nullable(String)` as raw bytes — errors on nil.
+/// Funnel invariant: `ifNull(..., '')` upstream means nulls never arrive.
+pub fn read_nullable_string<R: Read>(r: &mut R) -> CodecResult<Vec<u8>> {
+    msgpack::read_bytes_nullable(r)
 }
 
-/// Reads a `Nullable(String)` or plain `String` column as raw bytes.
-/// Plain String is treated as always-non-null (funnel invariant from upstream
-/// `ifNull(..., '')` substitution).
-pub fn read_nullable_string<R: RowBinaryRead + ?Sized>(
-    r: &mut R,
-    t: &DataTypeNode,
-) -> CodecResult<Vec<u8>> {
-    match peel_low_cardinality(t) {
-        DataTypeNode::Nullable(inner) if matches!(**inner, DataTypeNode::String) => {
-            match r.read_u8()? {
-                0 => r.read_bytes(),
-                1 => Err(CodecError::UnexpectedNull),
-                b => Err(CodecError::InvalidNullMarker(b)),
-            }
-        }
-        DataTypeNode::String => r.read_bytes(),
-        other => Err(CodecError::TypeMismatch(format!(
-            "expected String or Nullable(String), got {other}"
-        ))),
-    }
-}
-
-/// Reads an array whose elements should be Int8. Accepts any int-family element
-/// type and narrows per-element with a bounds check. `Array(Nothing)` (CH's type
-/// for the empty literal `[]`) is accepted as an empty array regardless of length
-/// prefix.
-pub fn read_array_i8<R: RowBinaryRead + ?Sized>(
-    r: &mut R,
-    t: &DataTypeNode,
-) -> CodecResult<Vec<i8>> {
-    let inner = array_elem(t, "Array(Int8)")?;
-    let len = r.read_varint()? as usize;
-
-    // Empty arrays carry no element bytes — skip element-type inspection entirely.
-    // This also covers `Array(Nothing)`, which is normalized to `Array(Int8)` in
-    // the header parser; an empty-length prefix reaches this branch with any
-    // declared element type.
-    if len == 0 {
-        return Ok(Vec::new());
-    }
-
+/// Read an `Array(Int8)`.
+pub fn read_array_i8<R: Read>(r: &mut R) -> CodecResult<Vec<i8>> {
+    let len = msgpack::read_array_len(r)?;
     let mut out = Vec::with_capacity(len);
     for _ in 0..len {
-        let (v, from) = read_int_any(r, inner)?;
-        out.push(narrow_to_i8(v, from)?);
+        out.push(msgpack::read_i8(r)?);
     }
     Ok(out)
 }
 
-/// Strips a `LowCardinality(T)` wrapper if present; returns the inner type
-/// otherwise.
-pub fn peel_low_cardinality(t: &DataTypeNode) -> &DataTypeNode {
-    match t {
-        DataTypeNode::LowCardinality(inner) => inner,
-        other => other,
-    }
+/// Read the length prefix of a top-level array. Used by callers that
+/// need the element count ahead of the element reads.
+pub fn read_array_len<R: Read>(r: &mut R) -> CodecResult<usize> {
+    msgpack::read_array_len(r)
 }
 
-/// Extracts the element type from an `Array(T)`, erroring with context if `t` is not an Array.
-pub fn array_elem<'a>(t: &'a DataTypeNode, ctx: &str) -> CodecResult<&'a DataTypeNode> {
-    match t {
-        DataTypeNode::Array(inner) => Ok(inner),
-        other => Err(CodecError::TypeMismatch(format!(
-            "{ctx}: expected Array(...), got {other}"
-        ))),
+/// Read a tuple — MsgPack encodes tuples as fixed-length arrays. We verify
+/// the arity matches what we expect before letting the caller pull elements.
+pub fn read_tuple_arity<R: Read>(r: &mut R, expected: usize, ctx: &str) -> CodecResult<()> {
+    let got = msgpack::read_array_len(r)?;
+    if got != expected {
+        return Err(CodecError::Schema(format!(
+            "{ctx}: expected tuple of {expected} elements, got {got}"
+        )));
     }
+    Ok(())
 }
 
-/// Extracts tuple field types, asserting the expected arity.
-pub fn tuple_fields<'a>(
-    t: &'a DataTypeNode,
-    expected: usize,
-    ctx: &str,
-) -> CodecResult<&'a [DataTypeNode]> {
-    match t {
-        DataTypeNode::Tuple(fields) if fields.len() == expected => Ok(fields),
-        DataTypeNode::Tuple(fields) => Err(CodecError::TypeMismatch(format!(
-            "{ctx}: Tuple arity {} != expected {}",
-            fields.len(),
-            expected
-        ))),
-        other => Err(CodecError::TypeMismatch(format!(
-            "{ctx}: expected Tuple, got {other}"
-        ))),
-    }
-}
-
-/// Reads a UUID from a `UUID` column.
-pub fn read_uuid<R: RowBinaryRead + ?Sized>(
-    r: &mut R,
-    t: &DataTypeNode,
-) -> CodecResult<uuid::Uuid> {
-    match t {
-        DataTypeNode::UUID => r.read_uuid(),
-        other => Err(CodecError::TypeMismatch(format!(
-            "expected UUID, got {other}"
-        ))),
-    }
+pub fn read_uuid<R: Read>(r: &mut R) -> CodecResult<uuid::Uuid> {
+    msgpack::read_uuid(r)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codec::rowbinary::RowBinaryWrite;
-    use std::io::Write;
+    use crate::codec::msgpack::{write_array_len, write_bin, write_nil, write_sint, write_uint};
+    use std::io::Cursor;
 
     #[test]
-    fn u8_accepts_int64_wire() {
+    fn u8_accepts_wider_int_on_wire() {
         let mut buf = Vec::new();
-        buf.write_all(&42i64.to_le_bytes()).unwrap();
-        let mut slice = buf.as_slice();
-        let got = read_u8_col(&mut slice, &DataTypeNode::Int64).unwrap();
-        assert_eq!(got, 42);
+        write_uint(&mut buf, 42).unwrap();
+        let mut cur = Cursor::new(buf);
+        assert_eq!(read_u8_col(&mut cur).unwrap(), 42);
     }
 
     #[test]
-    fn u8_rejects_int64_out_of_range() {
+    fn u8_rejects_out_of_range() {
         let mut buf = Vec::new();
-        buf.write_all(&300i64.to_le_bytes()).unwrap();
-        let mut slice = buf.as_slice();
-        let err = read_u8_col(&mut slice, &DataTypeNode::Int64).unwrap_err();
-        assert!(matches!(err, CodecError::IntOutOfRange { to: "UInt8", .. }));
+        write_uint(&mut buf, 300).unwrap();
+        let mut cur = Cursor::new(buf);
+        let err = read_u8_col(&mut cur).unwrap_err();
+        assert!(matches!(err, CodecError::IntOutOfRange { .. }));
     }
 
     #[test]
     fn u64_rejects_negative() {
         let mut buf = Vec::new();
-        buf.write_all(&(-1i64).to_le_bytes()).unwrap();
-        let mut slice = buf.as_slice();
-        let err = read_u64_col(&mut slice, &DataTypeNode::Int64).unwrap_err();
-        assert!(matches!(
-            err,
-            CodecError::IntOutOfRange { to: "UInt64", .. }
-        ));
+        write_sint(&mut buf, -1).unwrap();
+        let mut cur = Cursor::new(buf);
+        let err = read_u64_col(&mut cur).unwrap_err();
+        assert!(matches!(err, CodecError::IntOutOfRange { .. }));
     }
 
     #[test]
-    fn array_i8_accepts_array_int64() {
+    fn array_i8_reads_mixed_widths() {
         let mut buf = Vec::new();
-        buf.write_varint(3).unwrap();
-        buf.write_all(&1i64.to_le_bytes()).unwrap();
-        buf.write_all(&(-2i64).to_le_bytes()).unwrap();
-        buf.write_all(&3i64.to_le_bytes()).unwrap();
-        let mut slice = buf.as_slice();
-        let got = read_array_i8(
-            &mut slice,
-            &DataTypeNode::Array(Box::new(DataTypeNode::Int64)),
-        )
-        .unwrap();
-        assert_eq!(got, vec![1, -2, 3]);
+        write_array_len(&mut buf, 3).unwrap();
+        write_sint(&mut buf, 1).unwrap(); // fixpos
+        write_sint(&mut buf, -2).unwrap(); // fixneg
+        write_sint(&mut buf, 3).unwrap();
+        let mut cur = Cursor::new(buf);
+        assert_eq!(read_array_i8(&mut cur).unwrap(), vec![1, -2, 3]);
     }
 
     #[test]
-    fn array_i8_empty_skips_element_type_check() {
-        // Regardless of declared element type, a zero-length prefix should return
-        // an empty Vec without inspecting the element type. Use Int64 here as a
-        // stand-in for `Nothing` (which is normalized to Int8 by the header parser).
+    fn nullable_string_accepts_plain_bytes() {
         let mut buf = Vec::new();
-        buf.write_varint(0).unwrap();
-        let mut slice = buf.as_slice();
-        let got = read_array_i8(
-            &mut slice,
-            &DataTypeNode::Array(Box::new(DataTypeNode::Int64)),
-        )
-        .unwrap();
-        assert!(got.is_empty());
+        write_bin(&mut buf, b"hello").unwrap();
+        let mut cur = Cursor::new(buf);
+        assert_eq!(read_nullable_string(&mut cur).unwrap(), b"hello");
     }
 
     #[test]
-    fn nullable_string_accepts_plain_string() {
+    fn nullable_string_errors_on_nil() {
         let mut buf = Vec::new();
-        buf.write_bytes(b"hello").unwrap();
-        let mut slice = buf.as_slice();
-        let got = read_nullable_string(&mut slice, &DataTypeNode::String).unwrap();
-        assert_eq!(got, b"hello");
-    }
-
-    #[test]
-    fn nullable_f64_accepts_plain_float64() {
-        let mut buf = Vec::new();
-        buf.write_f64_le(1.5).unwrap();
-        let mut slice = buf.as_slice();
-        let got = read_nullable_f64(&mut slice, &DataTypeNode::Float64).unwrap();
-        assert_eq!(got, 1.5);
+        write_nil(&mut buf).unwrap();
+        let mut cur = Cursor::new(buf);
+        let err = read_nullable_string(&mut cur).unwrap_err();
+        assert!(matches!(err, CodecError::UnexpectedNull));
     }
 }
