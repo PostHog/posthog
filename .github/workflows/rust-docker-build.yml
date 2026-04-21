@@ -110,6 +110,9 @@ jobs:
                     - release: hypercache-server
                       digest_key: hypercache-server
                       values_key: image
+                    - release: personhog-cannon
+                      digest_key: personhog-cannon
+                      values_key: image
         steps:
             - name: get deployer token
               id: deployer

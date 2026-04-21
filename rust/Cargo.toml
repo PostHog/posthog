@@ -48,6 +48,7 @@ members = [
     "personhog-proto",
     "personhog-replica",
     "personhog-router",
+    "personhog-cannon",
 ]
 
 [workspace.lints.rust]

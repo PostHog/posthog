@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: personhog-cannon
+  namespace: posthog
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: personhog-cannon
+  namespace: posthog
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets/scale"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: personhog-cannon
+  namespace: posthog
+subjects:
+  - kind: ServiceAccount
+    name: personhog-cannon
+    namespace: posthog
+roleRef:
+  kind: Role
+  name: personhog-cannon
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: personhog-cannon
+  namespace: posthog
+  labels:
+    app: personhog-cannon
+spec:
+  serviceAccountName: personhog-cannon
+  containers:
+    - name: cannon
+      image: ghcr.io/posthog/posthog/personhog-cannon:latest
+      command: ["sleep", "infinity"]
+      env:
+        - name: ROUTER_URL
+          value: "http://personhog-router:50052"
+        - name: ETCD_ENDPOINTS
+          value: "http://posthog-personhog-etcd:2379"
+        - name: ETCD_PREFIX
+          value: "/personhog/"
+        - name: NAMESPACE
+          value: "posthog"
+        - name: RUST_LOG
+          value: "personhog_cannon=info"
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: "2"
+          memory: 512Mi
+  restartPolicy: Never

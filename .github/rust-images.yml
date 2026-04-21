@@ -80,3 +80,7 @@
 - image: hypercache-server
   dockerfile: ./rust/Dockerfile
   project: plc74nsj8z
+
+- image: personhog-cannon
+  dockerfile: ./rust/Dockerfile.personhog-cannon
+  project: g0kjbvxgqx
