@@ -1,6 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTableColumns, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonSwitch,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,7 +18,11 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils'
 
+import IconSlack from 'public/services/slack.png'
+import IconWebhook from 'public/services/webhook.svg'
+
 import {
+    DestinationTypesEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
     LogsAlertSparklineBucketApi,
@@ -133,6 +145,32 @@ export function LogsAlertList(): JSX.Element {
                     hideZerosInTooltip
                 />
             ),
+        },
+        {
+            title: 'Notification destinations',
+            dataIndex: 'destination_types',
+            render: (_, alert) => {
+                const types = alert.destination_types ?? []
+                if (types.length === 0) {
+                    return <LemonTag type="warning">None</LemonTag>
+                }
+                return (
+                    <div className="flex gap-1">
+                        {types.includes(DestinationTypesEnumApi.Slack) && (
+                            <LemonTag>
+                                <img src={IconSlack} alt="" className="h-3 w-3 object-contain" />
+                                Slack
+                            </LemonTag>
+                        )}
+                        {types.includes(DestinationTypesEnumApi.Webhook) && (
+                            <LemonTag>
+                                <img src={IconWebhook} alt="" className="h-3 w-3 object-contain" />
+                                Webhook
+                            </LemonTag>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Created by',

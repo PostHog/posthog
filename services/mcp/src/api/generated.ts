@@ -13552,6 +13552,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `slack` - slack
+    * `webhook` - webhook
+     */
+    export type DestinationTypesEnum = typeof DestinationTypesEnum[keyof typeof DestinationTypesEnum];
+
+
+    export const DestinationTypesEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
+
+    /**
      * * `Desktop` - Desktop
     * `Mobile` - Mobile
     * `Tablet` - Tablet
@@ -20274,6 +20286,8 @@ export namespace Schemas {
       readonly last_error_message: string | null;
       /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
       readonly sparkline: readonly LogsAlertSparklineBucket[];
+      /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+      readonly destination_types: readonly DestinationTypesEnum[];
       /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -20288,10 +20302,10 @@ export namespace Schemas {
      * * `slack` - slack
     * `webhook` - webhook
      */
-    export type LogsAlertCreateDestinationTypeEnum = typeof LogsAlertCreateDestinationTypeEnum[keyof typeof LogsAlertCreateDestinationTypeEnum];
+    export type TypeC34Enum = typeof TypeC34Enum[keyof typeof TypeC34Enum];
 
 
-    export const LogsAlertCreateDestinationTypeEnum = {
+    export const TypeC34Enum = {
       Slack: 'slack',
       Webhook: 'webhook',
     } as const;
@@ -20301,7 +20315,7 @@ export namespace Schemas {
 
     * `slack` - slack
     * `webhook` - webhook */
-      type: LogsAlertCreateDestinationTypeEnum;
+      type: TypeC34Enum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -26517,6 +26531,8 @@ export namespace Schemas {
       readonly last_error_message?: string | null;
       /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
       readonly sparkline?: readonly LogsAlertSparklineBucket[];
+      /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+      readonly destination_types?: readonly DestinationTypesEnum[];
       /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
