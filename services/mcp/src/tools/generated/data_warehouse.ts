@@ -39,7 +39,7 @@ import {
     WarehouseSavedQueriesRunCreateParams,
     WarehouseSavedQueriesRunHistoryRetrieveParams,
 } from '@/generated/data_warehouse/api'
-import { ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
+import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -100,6 +100,7 @@ const externalDataSourcesList = (): ToolBase<
 
 const ExternalDataSourcesCreateSchema = ExternalDataSourcesCreateBody.extend({
     source_type: ExternalDataSourceTypeSchema,
+    payload: ExternalDataSourcePayloadSchema,
 })
 
 const externalDataSourcesCreate = (): ToolBase<
@@ -117,11 +118,11 @@ const externalDataSourcesCreate = (): ToolBase<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
         if (params.source_type !== undefined) {
             body['source_type'] = params.source_type
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
         }
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'POST',

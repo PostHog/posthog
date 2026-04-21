@@ -119,7 +119,6 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod
     .object({
         prefix: zod.string().max(externalDataSourcesCreateBodyPrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesCreateBodyDescriptionMax).nullish(),
-        job_inputs: zod.unknown().nullish(),
     })
     .describe('Mixin for serializers to add user access control fields')
 

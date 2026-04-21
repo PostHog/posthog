@@ -2,6 +2,12 @@ import { z } from 'zod'
 
 import { InsightQuerySchema, PropertyFilter } from './query'
 
+export const ExternalDataSourcePayloadSchema = z
+    .record(z.string(), z.unknown())
+    .describe(
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
+    )
+
 export const ExternalDataSourceTypeSchema = z
     .enum([
         'Postgres',

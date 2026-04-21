@@ -125,9 +125,12 @@ tools:
         exclude_params:
             - client_secret
             - account_id
+            - job_inputs
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
+            payload:
+                input_schema: ExternalDataSourcePayloadSchema
     external-data-sources-retrieve:
         operation: external_data_sources_retrieve
         enabled: true
