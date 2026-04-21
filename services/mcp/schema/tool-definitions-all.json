@@ -1536,7 +1536,7 @@
         "required_scopes": ["external_data_source:write"],
         "new_mcp": true,
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false

@@ -653,7 +653,7 @@ tools:
             - external_data_source:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: false
         title: Resync table schema from scratch
         description: >
