@@ -5007,6 +5007,38 @@ export namespace Schemas {
       Snoozed: 'Snoozed',
     } as const;
 
+    /**
+     * * `pending` - pending
+    * `running` - running
+    * `done` - done
+    * `failed` - failed
+    * `skipped` - skipped
+     */
+    export type InvestigationStatusEnum = typeof InvestigationStatusEnum[keyof typeof InvestigationStatusEnum];
+
+
+    export const InvestigationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Done: 'done',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * * `true_positive` - true_positive
+    * `false_positive` - false_positive
+    * `inconclusive` - inconclusive
+     */
+    export type InvestigationVerdictEnum = typeof InvestigationVerdictEnum[keyof typeof InvestigationVerdictEnum];
+
+
+    export const InvestigationVerdictEnum = {
+      TruePositive: 'true_positive',
+      FalsePositive: 'false_positive',
+      Inconclusive: 'inconclusive',
+    } as const;
+
     export interface AlertCheck {
       readonly id: string;
       readonly created_at: string;
@@ -5020,6 +5052,18 @@ export namespace Schemas {
       /** @nullable */
       readonly interval: string | null;
       readonly triggered_metadata: unknown | null;
+      readonly investigation_status: InvestigationStatusEnum | NullEnum | null;
+      readonly investigation_verdict: InvestigationVerdictEnum | NullEnum | null;
+      /** @nullable */
+      readonly investigation_summary: string | null;
+      /**
+       * Short ID of the Notebook produced by the investigation agent, when the agent ran for this check.
+       * @nullable
+       */
+      readonly investigation_notebook_short_id: string | null;
+      /** @nullable */
+      readonly notification_sent_at: string | null;
+      readonly notification_suppressed_by_agent: boolean;
     }
 
     export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
@@ -5431,6 +5475,18 @@ export namespace Schemas {
       blocked_windows: AlertScheduleRestrictionWindow[];
     }
 
+    /**
+     * * `notify` - Notify
+    * `suppress` - Suppress
+     */
+    export type InvestigationInconclusiveActionEnum = typeof InvestigationInconclusiveActionEnum[keyof typeof InvestigationInconclusiveActionEnum];
+
+
+    export const InvestigationInconclusiveActionEnum = {
+      Notify: 'notify',
+      Suppress: 'suppress',
+    } as const;
+
     export interface Alert {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -5489,6 +5545,15 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_value: number | null;
+      /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+      investigation_agent_enabled?: boolean;
+      /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+      investigation_gates_notifications?: boolean;
+      /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+
+    * `notify` - Notify
+    * `suppress` - Suppress */
+      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
     }
 
     export interface AlertSimulate {
@@ -15384,8 +15449,13 @@ export namespace Schemas {
        * @nullable
        */
       name?: string | null;
-      /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. */
-      rollout_percentage: number;
+      /** @nullable */
+      rollout_percentage?: number | null;
+      /**
+       * Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.
+       * @nullable
+       */
+      split_percent?: number | null;
     }
 
     export interface ExperimentParameters {
@@ -15581,7 +15651,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
@@ -19875,22 +19945,6 @@ export namespace Schemas {
       has_more: boolean;
     }
 
-    /**
-     * * `today` - today
-    * `this_week` - this_week
-    * `inactive` - inactive
-    * `never` - never
-     */
-    export type LastActiveEnum = typeof LastActiveEnum[keyof typeof LastActiveEnum];
-
-
-    export const LastActiveEnum = {
-      Today: 'today',
-      ThisWeek: 'this_week',
-      Inactive: 'inactive',
-      Never: 'never',
-    } as const;
-
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -19960,6 +20014,15 @@ export namespace Schemas {
       Snoozed: 'snoozed',
       Broken: 'broken',
     } as const;
+
+    export interface LogsAlertSparklineBucket {
+      /** Bucket start timestamp (UTC, hourly). */
+      timestamp: string;
+      /** Count of breached checks in this hour. */
+      breached: number;
+      /** Count of errored checks in this hour. */
+      errored: number;
+    }
 
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */
@@ -20040,6 +20103,8 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_error_message: string | null;
+      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+      readonly sparkline: readonly LogsAlertSparklineBucket[];
       /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -23905,6 +23970,17 @@ export namespace Schemas {
       Hidden: 'hidden',
     } as const;
 
+    /**
+     * Shape of each item in UserSerializer.pending_invites.
+     */
+    export interface PendingInvite {
+      id: string;
+      target_email: string;
+      organization_id: string;
+      organization_name: string;
+      created_at: string;
+    }
+
     export type UserNotificationSettings = {[key: string]: unknown};
 
     export interface User {
@@ -23965,7 +24041,7 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
-      readonly is_organization_first_user: boolean;
+      readonly pending_invites: readonly PendingInvite[];
     }
 
     export interface PaginatedUserList {
@@ -24108,66 +24184,6 @@ export namespace Schemas {
       results: WebExperimentsAPI[];
     }
 
-    export interface _WelcomeInviter {
-      name: string;
-      email: string;
-    }
-
-    export interface _WelcomeTeamMember {
-      name: string;
-      email: string;
-      /** @nullable */
-      avatar: string | null;
-      role: string;
-      last_active: LastActiveEnum;
-    }
-
-    export interface _WelcomeRecentActivity {
-      /** Scope.activity pair, e.g. 'Insight.created'. */
-      type: string;
-      actor_name: string;
-      entity_name: string;
-      /** @nullable */
-      entity_url: string | null;
-      timestamp: string;
-    }
-
-    export interface _WelcomePopularDashboard {
-      id: number;
-      name: string;
-      description: string;
-      team_id: number;
-      url: string;
-    }
-
-    export interface _WelcomeSuggestedStep {
-      label: string;
-      href: string;
-      reason: string;
-      docs_href?: string;
-      product_key?: string;
-    }
-
-    export interface WelcomeResponse {
-      organization_name: string;
-      inviter: _WelcomeInviter | null;
-      team_members: _WelcomeTeamMember[];
-      recent_activity: _WelcomeRecentActivity[];
-      popular_dashboards: _WelcomePopularDashboard[];
-      products_in_use: string[];
-      suggested_next_steps: _WelcomeSuggestedStep[];
-      is_organization_first_user: boolean;
-    }
-
-    export interface PaginatedWelcomeResponseList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: WelcomeResponse[];
-    }
-
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -24278,6 +24294,15 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_value?: number | null;
+      /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+      investigation_agent_enabled?: boolean;
+      /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+      investigation_gates_notifications?: boolean;
+      /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+
+    * `notify` - Notify
+    * `suppress` - Suppress */
+      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
     }
 
     export interface PatchedAnnotation {
@@ -25474,7 +25499,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown | null;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
@@ -26242,6 +26267,8 @@ export namespace Schemas {
        * @nullable
        */
       readonly last_error_message?: string | null;
+      /** 24 hourly buckets of breached + errored check counts for the last 24h, ordered oldest-first. Drives the activity column on the alert list — empty sparkline = healthy alert. Ok checks are not included: retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), so only events that survive the prune (breached + errored) are meaningful over a 24h window. */
+      readonly sparkline?: readonly LogsAlertSparklineBucket[];
       /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -28415,7 +28442,7 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
-      readonly is_organization_first_user?: boolean;
+      readonly pending_invites?: readonly PendingInvite[];
     }
 
     export interface PatchedUserInterview {
@@ -36616,17 +36643,6 @@ export namespace Schemas {
     };
 
     export type RolesRoleMembershipsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type WelcomeListParams = {
     /**
      * Number of results to return per page.
      */

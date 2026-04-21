@@ -53,6 +53,7 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
     last_checked_at: null,
     consecutive_failures: 0,
     last_error_message: null,
+    sparkline: [],
     created_at: '2024-01-01T00:00:00Z',
     created_by: {
         id: 1,
