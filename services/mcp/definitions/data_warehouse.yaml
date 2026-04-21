@@ -297,3 +297,6 @@ tools:
     external-data-schemas-resync-create:
         operation: external_data_schemas_resync_create
         enabled: false
+    external-data-sources-bulk-update-schemas-partial-update:
+        operation: external_data_sources_bulk_update_schemas_partial_update
+        enabled: false
