@@ -944,21 +944,6 @@
             "readOnlyHint": true
         }
     },
-    "sql-variables-list": {
-        "description": "List reusable SQL variables in the project. In SQL-first MCP clients, prefer querying system.insight_variables directly. Returns each variable's display name, generated code_name, type, default value, and allowed values for List variables.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
-        "summary": "List SQL variables",
-        "title": "List SQL variables",
-        "required_scopes": ["insight_variable:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "sql-variables-create": {
         "description": "Create a reusable SQL variable for HogQL queries. Provide a human-readable name and type. The code_name is generated from the name and is referenced in SQL as {variables.code_name}. For List variables, provide values as the allowed options.",
         "category": "Data warehouse",
@@ -972,21 +957,6 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "sql-variables-get": {
-        "description": "Get a SQL variable by ID. In SQL-first MCP clients, prefer querying system.insight_variables directly unless you already have the variable ID and need the API representation.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
-        "summary": "Get SQL variable",
-        "title": "Get SQL variable",
-        "required_scopes": ["insight_variable:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "sql-variables-update": {

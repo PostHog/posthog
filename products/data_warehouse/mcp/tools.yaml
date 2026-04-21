@@ -272,22 +272,6 @@ tools:
     query-tab-state-user-retrieve:
         operation: query_tab_state_user_retrieve
         enabled: false
-    sql-variables-list:
-        operation: insight_variables_list
-        enabled: true
-        scopes:
-            - insight_variable:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        mcp_version: 1
-        list: true
-        title: List SQL variables
-        description: >
-            List reusable SQL variables in the project. In SQL-first MCP clients, prefer querying
-            system.insight_variables directly. Returns each variable's display name, generated code_name, type, default
-            value, and allowed values for List variables.
     sql-variables-create:
         operation: insight_variables_create
         enabled: true
@@ -302,20 +286,6 @@ tools:
             Create a reusable SQL variable for HogQL queries. Provide a human-readable name and type. The code_name is
             generated from the name and is referenced in SQL as {variables.code_name}. For List variables, provide
             values as the allowed options.
-    sql-variables-get:
-        operation: insight_variables_retrieve
-        enabled: true
-        scopes:
-            - insight_variable:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        mcp_version: 1
-        title: Get SQL variable
-        description: >
-            Get a SQL variable by ID. In SQL-first MCP clients, prefer querying system.insight_variables directly unless
-            you already have the variable ID and need the API representation.
     sql-variables-update:
         operation: insight_variables_partial_update
         enabled: true

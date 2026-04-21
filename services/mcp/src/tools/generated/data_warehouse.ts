@@ -26,10 +26,8 @@ import {
     ExternalDataSourcesRetrieveParams,
     InsightVariablesCreateBody,
     InsightVariablesDestroyParams,
-    InsightVariablesListQueryParams,
     InsightVariablesPartialUpdateBody,
     InsightVariablesPartialUpdateParams,
-    InsightVariablesRetrieveParams,
     WarehouseSavedQueriesCreateBody,
     WarehouseSavedQueriesDestroyParams,
     WarehouseSavedQueriesListQueryParams,
@@ -267,28 +265,6 @@ const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardS
     },
 })
 
-const SqlVariablesListSchema = InsightVariablesListQueryParams
-
-const sqlVariablesList = (): ToolBase<
-    typeof SqlVariablesListSchema,
-    WithPostHogUrl<Schemas.PaginatedInsightVariableList>
-> => ({
-    name: 'sql-variables-list',
-    schema: SqlVariablesListSchema,
-    mcpVersion: 1,
-    handler: async (context: Context, params: z.infer<typeof SqlVariablesListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedInsightVariableList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/`,
-            query: {
-                page: params.page,
-            },
-        })
-        return await withPostHogUrl(context, result, '/sql')
-    },
-})
-
 const SqlVariablesCreateSchema = InsightVariablesCreateBody
 
 const sqlVariablesCreate = (): ToolBase<typeof SqlVariablesCreateSchema, Schemas.InsightVariable> => ({
@@ -313,22 +289,6 @@ const sqlVariablesCreate = (): ToolBase<typeof SqlVariablesCreateSchema, Schemas
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/`,
             body,
-        })
-        return result
-    },
-})
-
-const SqlVariablesGetSchema = InsightVariablesRetrieveParams.omit({ project_id: true })
-
-const sqlVariablesGet = (): ToolBase<typeof SqlVariablesGetSchema, Schemas.InsightVariable> => ({
-    name: 'sql-variables-get',
-    schema: SqlVariablesGetSchema,
-    mcpVersion: 1,
-    handler: async (context: Context, params: z.infer<typeof SqlVariablesGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.InsightVariable>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -841,9 +801,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-refresh-schemas': externalDataSourcesRefreshSchemas,
     'external-data-sources-reload': externalDataSourcesReload,
     'external-data-sources-wizard': externalDataSourcesWizard,
-    'sql-variables-list': sqlVariablesList,
     'sql-variables-create': sqlVariablesCreate,
-    'sql-variables-get': sqlVariablesGet,
     'sql-variables-update': sqlVariablesUpdate,
     'sql-variables-delete': sqlVariablesDelete,
     'view-list': viewList,
