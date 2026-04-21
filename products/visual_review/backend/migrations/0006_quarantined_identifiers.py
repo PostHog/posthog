@@ -18,15 +18,7 @@ class Migration(migrations.Migration):
                 ("identifier", models.CharField(max_length=512)),
                 (
                     "run_type",
-                    models.CharField(
-                        choices=[
-                            ("storybook", "storybook"),
-                            ("playwright", "playwright"),
-                            ("cypress", "cypress"),
-                            ("other", "other"),
-                        ],
-                        max_length=20,
-                    ),
+                    models.CharField(max_length=64),
                 ),
                 ("reason", models.CharField(max_length=255)),
                 (
@@ -76,5 +68,10 @@ class Migration(migrations.Migration):
                 ],
                 max_length=20,
             ),
+        ),
+        migrations.AlterField(
+            model_name="run",
+            name="run_type",
+            field=models.CharField(default="other", max_length=64),
         ),
     ]

@@ -122,7 +122,7 @@ class Run(models.Model):
     team_id = models.BigIntegerField(db_index=True)
 
     status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
-    run_type = models.CharField(max_length=20, choices=[(t.value, t.value) for t in RunType], default=RunType.OTHER)
+    run_type = models.CharField(max_length=64, default=RunType.OTHER)
 
     # Git context
     commit_sha = models.CharField(max_length=40)
@@ -343,7 +343,7 @@ class QuarantinedIdentifier(models.Model):
     team_id = models.BigIntegerField(db_index=True)
 
     identifier = models.CharField(max_length=512)
-    run_type = models.CharField(max_length=20, choices=[(t.value, t.value) for t in RunType])
+    run_type = models.CharField(max_length=64)
     reason = models.CharField(max_length=255)
     source = models.CharField(
         max_length=10,

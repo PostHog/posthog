@@ -683,7 +683,8 @@ def _stamp_quarantine(run: Run) -> None:
     """Evaluate quarantine policy and freeze it on each snapshot."""
     now = timezone.now()
     quarantined_ids = set(
-        QuarantinedIdentifier.objects.filter(repo_id=run.repo_id, run_type=run.run_type, team_id=run.team_id)
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(repo_id=run.repo_id, run_type=run.run_type, team_id=run.team_id)
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
         .values_list("identifier", flat=True)
     )
@@ -703,7 +704,7 @@ def finalize_run(run_id: UUID, error_message: str = "") -> Run:
     # Stamp quarantine state — evaluated now and frozen on each snapshot
     _stamp_quarantine(run)
 
-    snapshots = list(run.snapshots.select_related("tolerated_hash_match").all())
+    snapshots = list(run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all())
 
     # Gating counts exclude quarantined identifiers — they don't block PRs
     changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
@@ -1478,6 +1479,7 @@ def list_quarantined_identifiers(
     return list(qs.order_by("-created_at"))
 
 
+@transaction.atomic(using=WRITER_DB)
 def quarantine_identifier(
     repo_id: UUID,
     identifier: str,
@@ -1488,6 +1490,13 @@ def quarantine_identifier(
     expires_at: datetime | None = None,
 ) -> QuarantinedIdentifier:
     get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    now = timezone.now()
+    QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
+        repo_id=repo_id,
+        identifier=identifier,
+        run_type=run_type,
+        team_id=team_id,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now)
     return QuarantinedIdentifier.objects.using(WRITER_DB).create(
         repo_id=repo_id,
         identifier=identifier,
@@ -1500,6 +1509,7 @@ def quarantine_identifier(
 
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
+    get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     QuarantinedIdentifier.objects.using(WRITER_DB).filter(
         repo_id=repo_id,
         identifier=identifier,

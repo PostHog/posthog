@@ -13,7 +13,7 @@ class RunStatus(StrEnum):
 
 
 class RunType(StrEnum):
-    """Type of visual test run."""
+    """Well-known run type constants. Not exhaustive — users can use any string."""
 
     STORYBOOK = "storybook"
     PLAYWRIGHT = "playwright"

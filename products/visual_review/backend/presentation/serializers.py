@@ -154,8 +154,15 @@ class QuarantinedIdentifierEntrySerializer(DataclassSerializer):
 
 
 class QuarantineInputSerializer(DataclassSerializer):
+    identifier = serializers.CharField(max_length=512)
+    reason = serializers.CharField(max_length=255)
+
     class Meta:
         dataclass = QuarantineInput
+
+
+class UnquarantineQuerySerializer(serializers.Serializer):
+    identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to unquarantine")
 
 
 class CreateRepoInputSerializer(DataclassSerializer):
