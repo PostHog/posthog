@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
@@ -9,7 +10,20 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
+
+
+@dataclasses.dataclass
+class MailchimpResumeConfig:
+    """Resume state for the ``contacts`` endpoint's fan-out loop.
+
+    ``contacts`` iterates every audience list and paginates members within each.
+    The checkpoint is the (list_id, offset) we were about to fetch next.
+    """
+
+    list_id: str
+    offset: int
 
 
 def extract_data_center(api_key: str) -> str:
@@ -180,10 +194,12 @@ def _fetch_contacts_for_list(
     api_key: str,
     dc: str,
     list_id: str,
-    since_last_changed: str | None = None,
+    since_last_changed: str | None,
+    resumable_source_manager: ResumableSourceManager[MailchimpResumeConfig],
+    start_offset: int = 0,
 ) -> Iterator[dict[str, Any]]:
     """Fetch all contacts for a specific list with pagination."""
-    offset = 0
+    offset = start_offset
     page_size = 1000
 
     headers = {
@@ -210,6 +226,13 @@ def _fetch_contacts_for_list(
         data = response.json()
         contacts = data.get("members", [])
 
+        if not contacts:
+            break
+
+        # Save the checkpoint for the page we just fetched *before* yielding.
+        # On resume we re-fetch this page — duplicates are deduped by (list_id, id).
+        resumable_source_manager.save_state(MailchimpResumeConfig(list_id=list_id, offset=offset))
+
         for contact in contacts:
             contact["list_id"] = list_id
             yield contact
@@ -217,12 +240,13 @@ def _fetch_contacts_for_list(
         total_items = data.get("total_items", 0)
         offset += page_size
 
-        if offset >= total_items or not contacts:
+        if offset >= total_items:
             break
 
 
 def _get_contacts_iterator(
     api_key: str,
+    resumable_source_manager: ResumableSourceManager[MailchimpResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[dict[str, Any]]:
@@ -235,9 +259,31 @@ def _get_contacts_iterator(
 
     lists = _fetch_all_lists(api_key, dc)
 
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # Only honour the saved list_id if it still exists; otherwise fall back to a fresh run.
+    list_ids = {lst["id"] for lst in lists}
+    skip_until_match = resume_config is not None and resume_config.list_id in list_ids
+
     for lst in lists:
         list_id = lst["id"]
-        yield from _fetch_contacts_for_list(api_key, dc, list_id, since_last_changed)
+
+        if skip_until_match:
+            assert resume_config is not None  # narrows for the type checker
+            if list_id != resume_config.list_id:
+                continue
+            skip_until_match = False
+            start_offset = resume_config.offset
+        else:
+            start_offset = 0
+
+        yield from _fetch_contacts_for_list(
+            api_key,
+            dc,
+            list_id,
+            since_last_changed,
+            resumable_source_manager,
+            start_offset=start_offset,
+        )
 
 
 def mailchimp_source(
@@ -245,6 +291,7 @@ def mailchimp_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[MailchimpResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -258,6 +305,7 @@ def mailchimp_source(
             name=endpoint,
             items=lambda: _get_contacts_iterator(
                 api_key,
+                resumable_source_manager,
                 should_use_incremental_field,
                 db_incremental_field_last_value,
             ),
