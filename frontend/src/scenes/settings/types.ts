@@ -125,6 +125,7 @@ export type SettingId =
     | 'environment-experiment-stats-method'
     | 'environment-experiment-confidence-level'
     | 'environment-experiment-recalculation-time'
+    | 'environment-experiment-matured-users'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-suppression-rules'
     | 'error-tracking-ingestion-controls'

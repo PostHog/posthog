@@ -905,6 +905,226 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert not LogsAlertEvent.objects.filter(alert_id=created["id"]).exists()
 
+    # --- Event history ---
+
+    def _events_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/events/"
+
+    def test_events_returns_rows_newest_first(self):
+        created = self._create_via_api()
+        older_transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="firing",
+            state_after="not_firing",
+        )
+        newer_transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(self._events_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        ids = [row["id"] for row in results]
+        assert ids.index(str(newer_transition.id)) < ids.index(str(older_transition.id))
+
+    def test_events_filters_out_quiet_check_rows(self):
+        # "Quiet" CHECK rows (state didn't change, no error) carry no forensic value and
+        # are kept inline at a cap of 10 per alert — surfacing them in the event history
+        # would bury the interesting transitions. Backend filter pins this contract.
+        created = self._create_via_api()
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="firing",
+            state_after="firing",
+        )
+        transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        errored = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+            error_message="CH timeout",
+        )
+
+        response = self.client.get(self._events_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        returned_ids = {row["id"] for row in results}
+        assert returned_ids == {str(transition.id), str(errored.id)}
+
+    @parameterized.expand([(kind,) for kind in LogsAlertEvent.Kind.values])
+    def test_events_filter_by_kind(self, kind):
+        created = self._create_via_api()
+        # CHECK rows need a real transition to survive the quiet-row filter; control-plane
+        # kinds are never quiet-filtered so any state pair is fine.
+        kept_before, kept_after = (
+            ("not_firing", "firing") if kind == LogsAlertEvent.Kind.CHECK else ("not_firing", "not_firing")
+        )
+        kept = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=kind,
+            threshold_breached=False,
+            state_before=kept_before,
+            state_after=kept_after,
+        )
+        # Noise row of a different kind with a state transition so it survives the quiet
+        # filter and would show up absent the ?kind= narrowing.
+        other_kind = next(k for k in LogsAlertEvent.Kind.values if k != kind)
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=other_kind,
+            threshold_breached=False,
+            state_before="firing",
+            state_after="not_firing",
+        )
+
+        response = self.client.get(self._events_url(created["id"]), {"kind": kind})
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        returned_ids = {row["id"] for row in results}
+        assert returned_ids == {str(kept.id)}
+
+    def test_events_rejects_unknown_kind(self):
+        created = self._create_via_api()
+
+        response = self.client.get(self._events_url(created["id"]), {"kind": "not_a_real_kind"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "kind"
+
+    def test_events_scoped_to_alert_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team,
+            name="Other team alert",
+            threshold_count=10,
+            filters={"severityLevels": ["error"]},
+        )
+
+        response = self.client.get(self._events_url(str(other_alert.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # --- Sparkline ---
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_has_24_hourly_buckets_on_empty_alert(self):
+        created = self._create_via_api()
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        sparkline = response.json()["sparkline"]
+        assert len(sparkline) == 24
+        assert all(bucket["breached"] == 0 and bucket["errored"] == 0 for bucket in sparkline)
+        # Buckets are ordered oldest-first, hourly-aligned.
+        timestamps = [bucket["timestamp"] for bucket in sparkline]
+        assert timestamps == sorted(timestamps)
+
+    def _make_event_at(self, alert_id: str, when: datetime, **fields) -> LogsAlertEvent:
+        """Create a LogsAlertEvent at a specific timestamp (works around auto_now_add)."""
+        defaults = {
+            "kind": LogsAlertEvent.Kind.CHECK,
+            "threshold_breached": False,
+            "state_before": "not_firing",
+            "state_after": "not_firing",
+        }
+        defaults.update(fields)
+        event = LogsAlertEvent.objects.create(alert_id=alert_id, **defaults)
+        LogsAlertEvent.objects.filter(pk=event.pk).update(created_at=when)
+        event.refresh_from_db()
+        return event
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_buckets_breached_and_errored_events(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 7, 15, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 10, tzinfo=UTC),
+            state_before="firing",
+            state_after="errored",
+            error_message="Query timeout",
+        )
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 16, 9, 45, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        sparkline = response.json()["sparkline"]
+        total_breached = sum(b["breached"] for b in sparkline)
+        total_errored = sum(b["errored"] for b in sparkline)
+        assert total_breached == 2
+        assert total_errored == 1
+
+    @parameterized.expand([(k.value, k) for k in LogsAlertEvent.Kind if k != LogsAlertEvent.Kind.CHECK])
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_excludes_control_plane_row(self, _name: str, kind: LogsAlertEvent.Kind):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        self._make_event_at(alert_id, datetime(2025, 12, 16, 9, 0, tzinfo=UTC), kind=kind)
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        sparkline = response.json()["sparkline"]
+        assert all(b["breached"] == 0 and b["errored"] == 0 for b in sparkline)
+
+    @freeze_time("2025-12-16T10:30:00Z")
+    def test_sparkline_excludes_events_older_than_24h(self):
+        created = self._create_via_api()
+        alert_id = created["id"]
+        # 26h before frozen time — outside the lookback window.
+        self._make_event_at(
+            alert_id,
+            datetime(2025, 12, 15, 8, 0, tzinfo=UTC),
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+
+        sparkline = response.json()["sparkline"]
+        assert all(b["breached"] == 0 and b["errored"] == 0 for b in sparkline)
+
     # --- Simulate ---
 
     def _simulate_url(self) -> str:

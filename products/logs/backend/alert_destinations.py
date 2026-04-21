@@ -37,7 +37,7 @@ _FIRE_RESOLVE_WEBHOOK_BODY: dict[str, str] = {
 EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "firing": EventKindSpec(
         event_id="$logs_alert_firing",
-        header="Log alert '{event.properties.alert_name}' is firing",
+        header="🔴 Log alert '{event.properties.alert_name}' is firing",
         body=(
             "*Threshold breached:* {event.properties.result_count} logs in "
             "{event.properties.window_minutes}m "
@@ -49,7 +49,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     ),
     "resolved": EventKindSpec(
         event_id="$logs_alert_resolved",
-        header="Log alert '{event.properties.alert_name}' has resolved",
+        header="🟢 Log alert '{event.properties.alert_name}' has resolved",
         body=(
             "*Current count:* {event.properties.result_count} logs in "
             "{event.properties.window_minutes}m "
@@ -61,7 +61,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     ),
     "broken": EventKindSpec(
         event_id="$logs_alert_auto_disabled",
-        header="Log alert '{event.properties.alert_name}' was auto-disabled",
+        header="⚠️ Log alert '{event.properties.alert_name}' was auto-disabled",
         body=(
             "*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n"
             "*Last error:* {event.properties.last_error_message}"

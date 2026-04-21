@@ -5,7 +5,7 @@ import * as React from 'react'
 import { Button } from './button'
 import { Checkbox } from './checkbox'
 import { cn } from './lib/utils'
-import { MenuLabel } from './menuLabel'
+import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {
