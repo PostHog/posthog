@@ -99,6 +99,25 @@ class ExperimentService:
                 raise ValidationError(f"Feature flag variant at index {i} must have a 'key' field")
 
     @staticmethod
+    def validate_variant_percentages(parameters: dict | None) -> None:
+        """Each variant must carry split_percent (recommended) or rollout_percentage (deprecated).
+
+        The API serializer translates split_percent to rollout_percentage before this runs, but we
+        check for either field so direct service callers (facade, max_tools) are also covered.
+        Once we fully migrate to split_percent, we can remove this validation and make split_percent
+        required in the type system instead.
+        """
+        if not parameters:
+            return
+        for variant in parameters.get("feature_flag_variants", []) or []:
+            if not isinstance(variant, dict):
+                continue  # validate_variant_shapes handles this
+            if "split_percent" not in variant and "rollout_percentage" not in variant:
+                raise ValidationError(
+                    "Each variant must include split_percent (recommended) or rollout_percentage (deprecated)."
+                )
+
+    @staticmethod
     def validate_experiment_parameters(parameters: dict | None) -> None:
         """Validate experiment parameters accepted by the API layer.
 
@@ -109,6 +128,7 @@ class ExperimentService:
             return
 
         ExperimentService.validate_variant_shapes(parameters)
+        ExperimentService.validate_variant_percentages(parameters)
 
         variants = parameters.get("feature_flag_variants", [])
 
@@ -396,6 +416,7 @@ class ExperimentService:
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         self.validate_variant_shapes(parameters)
+        self.validate_variant_percentages(parameters)
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         self.validate_metric_action_ids(metrics, self.team.id)

@@ -2845,6 +2845,37 @@ class TestExperimentService(APIBaseTest):
                 parameters={"feature_flag_variants": ["control", "test"]},
             )
 
+    def test_variant_missing_both_percentages_raises_validation_error(self):
+        """Variant without split_percent or rollout_percentage should be rejected."""
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Missing Percentages",
+                feature_flag_key="missing-pct-flag",
+                parameters={
+                    "feature_flag_variants": [
+                        {"key": "control"},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            )
+        assert "split_percent" in str(ctx.exception)
+
+    def test_variant_with_only_rollout_percentage_succeeds(self):
+        """Legacy clients sending only rollout_percentage must still work (deprecated but accepted)."""
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Legacy rollout only",
+            feature_flag_key="legacy-rollout-flag",
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        )
+        assert experiment.id is not None
+
     def test_duplicate_metric_uuids_raises_validation_error(self):
         """Metrics with duplicate UUIDs should be rejected."""
         service = self._service()

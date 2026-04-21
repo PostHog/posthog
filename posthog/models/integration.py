@@ -1129,11 +1129,30 @@ class GoogleAdsIntegration:
             },
         )
 
+        if response.status_code == 401:
+            logger.warning(
+                "GoogleAdsIntegration: Auth error listing conversion actions",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+            )
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            self.integration.save(update_fields=["errors"])
+            raise ValidationError(
+                "This integration's authentication is no longer valid. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
+
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
+            )
+
         if response.status_code != 200:
             capture_exception(
                 Exception(f"GoogleAdsIntegration: Failed to list ads conversion actions: {response.text}")
             )
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         return response.json()
 
@@ -1142,7 +1161,7 @@ class GoogleAdsIntegration:
     def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
         response = requests.request(
             "GET",
-            f"https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
+            "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -1150,9 +1169,28 @@ class GoogleAdsIntegration:
             },
         )
 
+        if response.status_code == 401:
+            logger.warning(
+                "GoogleAdsIntegration: Auth error listing accessible accounts",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+            )
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            self.integration.save(update_fields=["errors"])
+            raise ValidationError(
+                "This integration's authentication is no longer valid. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
+
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
+            )
+
         if response.status_code != 200:
             capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         accessible_accounts = response.json()
         all_accounts: list[dict[str, str]] = []
@@ -1524,6 +1562,25 @@ class LinkedInAdsIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
+    def _check_auth_error(self, response: requests.Response, context: str) -> None:
+        if response.status_code == 401:
+            logger.warning(
+                f"LinkedInAdsIntegration: Auth error {context}",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+            )
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            self.integration.save(update_fields=["errors"])
+            raise ValidationError(
+                "This integration's authentication is no longer valid. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
+            )
+
     def list_linkedin_ads_conversion_rules(self, account_id):
         response = requests.request(
             "GET",
@@ -1535,6 +1592,7 @@ class LinkedInAdsIntegration:
             },
         )
 
+        self._check_auth_error(response, "listing conversion rules")
         return response.json()
 
     def list_linkedin_ads_accounts(self) -> dict:
@@ -1548,6 +1606,7 @@ class LinkedInAdsIntegration:
             },
         )
 
+        self._check_auth_error(response, "listing ad accounts")
         return response.json()
 
 
@@ -1560,6 +1619,25 @@ class ClickUpIntegration:
 
         self.integration = integration
 
+    def _check_auth_error(self, response: requests.Response, context: str) -> None:
+        if response.status_code == 401:
+            logger.warning(
+                f"ClickUpIntegration: Auth error {context}",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+            )
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            self.integration.save(update_fields=["errors"])
+            raise ValidationError(
+                "This integration's authentication is no longer valid. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
+            )
+
     def list_clickup_spaces(self, workspace_id):
         response = requests.request(
             "GET",
@@ -1570,9 +1648,10 @@ class ClickUpIntegration:
             },
         )
 
+        self._check_auth_error(response, "listing spaces")
         if response.status_code != 200:
             capture_exception(Exception(f"ClickUpIntegration: Failed to list spaces: {response.text}"))
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         return response.json()
 
@@ -1586,9 +1665,10 @@ class ClickUpIntegration:
             },
         )
 
+        self._check_auth_error(response, "listing lists")
         if response.status_code != 200:
             capture_exception(Exception(f"ClickUpIntegration: Failed to list lists: {response.text}"))
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         return response.json()
 
@@ -1602,9 +1682,10 @@ class ClickUpIntegration:
             },
         )
 
+        self._check_auth_error(response, "listing folders")
         if response.status_code != 200:
             capture_exception(Exception(f"ClickUpIntegration: Failed to list folders: {response.text}"))
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         return response.json()
 
@@ -1615,9 +1696,10 @@ class ClickUpIntegration:
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
         )
 
+        self._check_auth_error(response, "listing workspaces")
         if response.status_code != 200:
             capture_exception(Exception(f"ClickUpIntegration: Failed to list workspaces: {response.text}"))
-            raise Exception(f"There was an internal error")
+            raise Exception("There was an internal error")
 
         return response.json()
 
