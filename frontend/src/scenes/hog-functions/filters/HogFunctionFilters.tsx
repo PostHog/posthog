@@ -388,11 +388,11 @@ export function HogFunctionFilters({
                                     },
                                     {
                                         value: MASKING_HASH_PER_PERSON_PER_DAY,
-                                        label: 'Run once per person per calendar day (UTC)',
+                                        label: 'Once per person per day (UTC)',
                                     },
                                     {
                                         value: MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY,
-                                        label: 'Run once per person per event name per calendar day (UTC)',
+                                        label: 'Once per person per event per day (UTC)',
                                     },
                                 ]}
                                 value={value?.hash ?? null}
@@ -500,7 +500,7 @@ export function HogFunctionFilters({
                     per event name per person, not once per action. If you want to trigger only once regardless of event
                     name, use "
                     {configuration.masking?.hash === MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY
-                        ? 'Run once per person per calendar day'
+                        ? 'Once per person per day (UTC)'
                         : 'Run once per person per interval'}
                     " instead.
                 </LemonBanner>
