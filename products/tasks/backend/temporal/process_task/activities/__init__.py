@@ -26,6 +26,11 @@ from .provision_sandbox import (
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .run_autoresearch_campaign import (
+    RunAutoresearchCampaignInput,
+    RunAutoresearchCampaignOutput,
+    run_autoresearch_campaign_in_sandbox,
+)
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
@@ -55,6 +60,8 @@ __all__ = [
     "TrackWorkflowEventInput",
     "UpdateTaskRunStatusInput",
     "RelaySandboxEventsInput",
+    "RunAutoresearchCampaignInput",
+    "RunAutoresearchCampaignOutput",
     "SendFollowupToSandboxInput",
     "cleanup_sandbox",
     "create_resume_snapshot",
@@ -63,6 +70,7 @@ __all__ = [
     "execute_task_in_sandbox",
     "forward_pending_user_message",
     "relay_sandbox_events",
+    "run_autoresearch_campaign_in_sandbox",
     "send_followup_to_sandbox",
     "get_sandbox_for_repository",
     "get_task_processing_context",

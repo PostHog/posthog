@@ -306,6 +306,17 @@ QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIF
 CLICKHOUSE_CONN_POOL_MIN: int = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
 CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
 
+# Query-performance autoresearch proxy endpoint: base URLs for the two
+# ClickHouse clusters a sandbox is allowed to reach. Default to the local
+# instance so dev just works; in prod these point at the dedicated test
+# cluster (autoresearch) and prod cluster (PR-writing verification).
+CLICKHOUSE_PERF_TEST_HTTP_URL: str = os.getenv(
+    "CLICKHOUSE_PERF_TEST_HTTP_URL", f"http://{CLICKHOUSE_HOST}:8123"
+)
+CLICKHOUSE_PERF_PROD_HTTP_URL: str = os.getenv(
+    "CLICKHOUSE_PERF_PROD_HTTP_URL", f"http://{CLICKHOUSE_HOST}:8123"
+)
+
 CLICKHOUSE_STABLE_HOST: str = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
 # If enabled, some queries will use system.cluster table to query each shard
 CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(

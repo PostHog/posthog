@@ -38,7 +38,14 @@ SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
-SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
+# In DEBUG mode, default to the dev gateway at the conventional host bridge port
+# (see bin/start-llm-gateway). That value is identical for every developer, so
+# hardcoding it beats requiring a per-dev env var. Prod/staging still require
+# an explicit override via $SANDBOX_LLM_GATEWAY_URL.
+_DEFAULT_SANDBOX_LLM_GATEWAY_URL = "http://host.docker.internal:3308" if DEBUG else None
+SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env(
+    "SANDBOX_LLM_GATEWAY_URL", _DEFAULT_SANDBOX_LLM_GATEWAY_URL, optional=True
+)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
