@@ -29,12 +29,6 @@ import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const COMPARISON_ADDONS: BillingPlan[] = [BillingPlan.Boost, BillingPlan.Scale, BillingPlan.Enterprise]
 
-const PLAN_TAGLINES: Record<string, string> = {
-    [BillingPlan.Boost]: 'For early-stage startups',
-    [BillingPlan.Scale]: 'For scaling teams',
-    [BillingPlan.Enterprise]: 'For larger organizations',
-}
-
 type CoreFeature = { icon: JSX.Element; label: string }
 const CORE_FEATURES: Record<string, CoreFeature[]> = {
     [BillingPlan.Boost]: [
@@ -53,13 +47,6 @@ const CORE_FEATURES: Record<string, CoreFeature[]> = {
         { icon: <IconShieldPeople />, label: 'Role-based access control' },
         { icon: <IconGroups />, label: 'SCIM' },
         { icon: <IconCrown />, label: 'Dedicated account manager' },
-    ],
-    [BillingPlan.Teams]: [
-        { icon: <IconHeadset />, label: 'Priority support' },
-        { icon: <IconActivity />, label: 'Activity logs' },
-        { icon: <IconLock />, label: 'Access control' },
-        { icon: <IconShieldLock />, label: 'SSO & 2FA enforcement' },
-        { icon: <IconShield />, label: 'HIPAA BAA' },
     ],
 }
 
@@ -99,7 +86,6 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product: addon }))
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const coreFeatures = CORE_FEATURES[addon.type] || []
-    const tagline = PLAN_TAGLINES[addon.type]
 
     return (
         <div
@@ -116,7 +102,6 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
                     </LemonTag>
                 )}
             </div>
-            {tagline && <p className="text-sm text-secondary m-0">{tagline}</p>}
             {coreFeatures.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                     {coreFeatures.map((feature) => (
@@ -145,7 +130,6 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
     const { currentAndUpgradePlans, surveyID } = useValues(billingProductLogic({ product: addon }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product: addon }))
     const currentPlan = currentAndUpgradePlans?.currentPlan
-    const coreFeatures = CORE_FEATURES[addon.type] ?? []
 
     return (
         <div className="flex flex-col gap-3 p-5 rounded bg-surface-secondary ring-2 ring-accent">
@@ -162,15 +146,6 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                         You're subscribed to our legacy {addon.name} plan. Compare plans to see if it makes sense to
                         switch.
                     </p>
-                    {coreFeatures.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                            {coreFeatures.map((feature) => (
-                                <LemonTag key={feature.label} icon={feature.icon}>
-                                    {feature.label}
-                                </LemonTag>
-                            ))}
-                        </div>
-                    )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0 self-center">
                     {currentPlan?.flat_rate && (
@@ -216,7 +191,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
     const hasPlatformAddon = comparableAddons.some((addon) => addon.subscribed)
 
     const tableGridStyle = {
-        gridTemplateColumns: `minmax(240px, 1.5fr) repeat(${tableAddons.length}, 1fr)`,
+        gridTemplateColumns: `minmax(320px, 3fr) repeat(${tableAddons.length}, minmax(120px, 1fr))`,
     }
 
     const comparisonTable = (
