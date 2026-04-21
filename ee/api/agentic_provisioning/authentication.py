@@ -157,6 +157,8 @@ class ProvisioningAuthentication(BaseAuthentication):
                 )
                 capture_exception(e)
                 return None
+            if app is None:
+                return None
             return app if app.provisioning_active else None
 
         try:
