@@ -1120,12 +1120,13 @@ class TestExperimentService(APIBaseTest):
             }
         ]
         snapshot = deepcopy(input_metrics)
+        metric_kwargs: dict[str, Any] = {field: input_metrics}
 
         service.create_experiment(
             name=f"No Mutate Create {_name}",
             feature_flag_key=f"no-mutate-create-flag-{_name}",
             allow_unknown_events=True,
-            **{field: input_metrics},
+            **metric_kwargs,
         )
 
         assert input_metrics == snapshot
