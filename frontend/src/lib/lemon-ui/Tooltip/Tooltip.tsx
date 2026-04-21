@@ -8,6 +8,7 @@ import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { cn } from 'lib/utils/css-classes'
 
 import { Link } from '../Link'
+import { trackTooltipMount, trackTooltipUnmount } from './tooltipInstrumentation'
 
 export type TooltipTitle = string | React.ReactNode | (() => string)
 
@@ -81,6 +82,11 @@ export function Tooltip({
     const floatingContainer = useFloatingContainer()
 
     const open = controlledOpen ?? uncontrolledOpen
+
+    useEffect(() => {
+        trackTooltipMount()
+        return trackTooltipUnmount
+    }, [])
 
     useLayoutEffect(() => {
         if (open) {

@@ -1,3 +1,5 @@
+import { getTooltipStats } from 'lib/lemon-ui/Tooltip/tooltipInstrumentation'
+
 const SCAN_INTERVAL_MS = 30_000
 const TOP_N = 10
 const IDLE_TIMEOUT_MS = 5_000
@@ -84,6 +86,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 }
                 previousDetachedCount = result.totalDetachedElements
 
+                const tooltipStats = getTooltipStats()
                 posthog.capture('detached_elements', {
                     total_elements: result.totalElements,
                     detached_elements: result.totalDetachedElements,
@@ -91,6 +94,10 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                     all_components: mapToTopN(result.componentToFiberNodeCount, TOP_N),
                     scan_duration_ms: Math.round(result.end - result.start),
                     current_path: window.location.pathname,
+                    tooltips_active: tooltipStats.active,
+                    tooltips_peak: tooltipStats.peak,
+                    tooltips_total_mounts: tooltipStats.totalMounts,
+                    tooltips_total_unmounts: tooltipStats.totalUnmounts,
                 })
             })
 
