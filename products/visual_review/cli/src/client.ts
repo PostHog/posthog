@@ -26,6 +26,14 @@ export type {
     UploadTargetApi as UploadTarget,
 }
 
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function shouldRetry(status: number, attempt: number, maxRetries: number): boolean {
+    return status >= 500 && attempt < maxRetries
+}
+
 export interface ClientConfig {
     apiUrl: string
     teamId: string
@@ -74,13 +82,12 @@ export class VisualReviewClient {
 
             const text = await response.text()
 
-            // Only retry on 5xx server errors
-            if (response.status >= 500 && attempt < maxRetries) {
-                const delayMs = baseDelayMs * Math.pow(2, attempt) // 1s, 2s, 4s
+            if (shouldRetry(response.status, attempt, maxRetries)) {
+                const delayMs = baseDelayMs * Math.pow(2, attempt)
                 console.warn(
                     `[vr] API returned ${response.status}, retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})...`
                 )
-                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                await sleep(delayMs)
                 continue
             }
 
@@ -149,12 +156,12 @@ export class VisualReviewClient {
                 return
             }
 
-            if (response.status >= 500 && attempt < maxRetries) {
+            if (shouldRetry(response.status, attempt, maxRetries)) {
                 const delayMs = baseDelayMs * Math.pow(2, attempt)
                 console.warn(
                     `[vr] S3 upload returned ${response.status}, retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})...`
                 )
-                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                await sleep(delayMs)
                 continue
             }
 
