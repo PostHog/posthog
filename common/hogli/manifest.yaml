@@ -779,3 +779,11 @@ environment:
         bin_script: fix-rdkafka-paths
         description: 'Rewrite node-rdkafka dylib paths to use @loader_path on macOS for worktree portability'
         hidden: true
+    warm:flags:cache:
+        bin_script: warm-flags-cache
+        description: 'Warm the feature-flags hypercache by batch-building flag caches for every team (Rust port of the Python warmer)'
+        hidden: true
+    warm:flags:cache:local:
+        bin_script: warm-flags-cache-local
+        description: 'Warm the feature-flags hypercache against the local dev environment'
+        hidden: true
