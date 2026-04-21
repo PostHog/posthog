@@ -38,23 +38,17 @@ export function AIConsentPopoverWrapper({
         <Popover
             // Note: Sync the copy below with organization-ai-consent in SettingsMap.tsx
             overlay={
-                <div className="flex flex-col m-1.5">
+                <div className="flex flex-col m-1.5 max-w-sm">
                     <p className="font-medium text-pretty mb-0">
-                        PostHog AI needs your approval to potentially process
-                        <br />
-                        identifying user data with{' '}
+                        PostHog AI needs your approval to potentially process identifying user data with{' '}
                         <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
                             <dfn>external AI providers</dfn>
                         </Tooltip>
-                        .<br />
-                        <i>Your data won't be used for training models.</i>
+                        . <i>Your data won't be used for training models.</i>
                     </p>
                     <p className="text-muted text-xs leading-relaxed mb-2">
-                        If your org requires a Data Processing Agreement (DPA)
-                        <br />
-                        for compliance (and your existing DPA doesn't already
-                        <br />
-                        cover AI subprocessors),{' '}
+                        If your org requires a Data Processing Agreement (DPA) for compliance (and your existing DPA
+                        doesn't already cover AI subprocessors),{' '}
                         <Link to="https://posthog.com/dpa" target="_blank">
                             you can get a fresh DPA here
                         </Link>
