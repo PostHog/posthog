@@ -1308,6 +1308,17 @@ export function parseJSONPreview(raw: unknown): unknown {
     return parsePartialJSON(truncated)
 }
 
+// `JSON.stringify` throws on circular references and BigInt values. When rendering LLM trace data
+// in the UI we don't want a malformed payload to crash the component, so wrap it in try/catch with
+// a `String(value)` fallback that always produces something.
+export function safeStringify(value: unknown, indent: number = 2): string {
+    try {
+        return JSON.stringify(value, null, indent) ?? String(value)
+    } catch {
+        return String(value)
+    }
+}
+
 export function removeMilliseconds(timestamp: string): string {
     return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
 }

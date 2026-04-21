@@ -5,7 +5,7 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient, type GroupType } from '@/api/client'
-import { AnalyticsEvent, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
+import { AnalyticsEvent, evaluateFeatureFlags, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
     CUSTOM_API_BASE_URL,
@@ -14,7 +14,7 @@ import {
     getBaseUrlForRegion,
     toCloudRegion,
 } from '@/lib/constants'
-import { handleToolError } from '@/lib/errors'
+import { handleToolError, wrapError } from '@/lib/errors'
 import { buildInstructionsV2 } from '@/lib/instructions'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { formatResponse } from '@/lib/response'
@@ -26,7 +26,14 @@ import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
-import type { CloudRegion, Context, State, Tool } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type CloudRegion,
+    type Context,
+    type State,
+    type Tool,
+} from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
 function buildInstructions(groupTypes?: GroupType[]): string {
@@ -241,7 +248,7 @@ export class MCP extends McpAgent<Env> {
         if (!_distinctId) {
             const userResult = await (await this.api()).users().me()
             if (!userResult.success) {
-                throw new Error(`Failed to get user: ${userResult.error.message}`)
+                throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
             }
             await this.cache.set('distinctId', userResult.data.distinct_id)
             _distinctId = userResult.data.distinct_id as string
@@ -303,15 +310,19 @@ export class MCP extends McpAgent<Env> {
             }
 
             try {
-                const result = await handler(params)
+                // Handler can return a special key POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY in the result which,
+                // when present, is used as the text content instead of TOON-encoding the raw result.
+                // This is useful for tools that want to return pre-formatted text (e.g. tables)
+                // or return JSON for programmatic consumption.
+                const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedResults, ...rawResult } =
+                    await handler(params)
 
                 // For tools with UI resources, include structuredContent for better UI rendering
                 // structuredContent is not added to model context, only used by UI apps
                 const hasUiResource = tool._meta?.ui?.resourceUri
 
                 // If there's a UI resource, include analytics metadata for the UI app
-                // The structuredContent is typed as WithAnalytics<T> where T is the tool result
-                let structuredContent: WithAnalytics<typeof result> | typeof result = result
+                let structuredContent: WithAnalytics<typeof rawResult> | typeof rawResult = rawResult
                 if (hasUiResource) {
                     const distinctId = await this.getDistinctId()
                     const analyticsMetadata: AnalyticsMetadata = {
@@ -319,13 +330,13 @@ export class MCP extends McpAgent<Env> {
                         toolName: tool.name,
                     }
                     structuredContent = {
-                        ...result,
+                        ...rawResult,
                         _analytics: analyticsMetadata,
                     }
                 }
 
-                const useJson = tool._meta?.responseFormat === 'json'
-                const text = useJson ? JSON.stringify(result) : formatResponse(result)
+                const useJson = tool._meta?.[POSTHOG_META_KEY]?.responseFormat === 'json'
+                const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
                 return {
                     content: [
@@ -334,7 +345,7 @@ export class MCP extends McpAgent<Env> {
                             text,
                         },
                     ],
-                    // Include raw result as structuredContent for UI apps to consume
+                    // Include raw result as structuredContent for UI apps to consume only in case there is a UI resource
                     ...(hasUiResource ? { structuredContent } : {}),
                 }
             } catch (error: any) {
@@ -387,9 +398,10 @@ export class MCP extends McpAgent<Env> {
     async init(): Promise<void> {
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
-        // Pre-seed cache, fetch group types, and evaluate feature flag in parallel
+        // Pre-seed cache, fetch group types, and evaluate feature flags in parallel
         const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
         const flagPromise = this.resolveVersionFlag()
+        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
@@ -397,9 +409,10 @@ export class MCP extends McpAgent<Env> {
             await this.cache.set('projectId', projectId)
         }
 
-        // Resolve group types and feature flag (started above in parallel with cache seeding)
+        // Resolve group types and feature flags (started above in parallel with cache seeding)
         const groupTypes = await groupTypesPromise
         const flagVersion = await flagPromise
+        const toolFeatureFlags = await toolFlagsPromise
         const version = flagVersion ?? clientVersion ?? 1
         const instructions = version === 2 ? buildInstructions(groupTypes) : INSTRUCTIONS_TEMPLATE_V1
 
@@ -429,6 +442,7 @@ export class MCP extends McpAgent<Env> {
             version,
             excludeTools,
             readOnly,
+            featureFlags: toolFeatureFlags,
         })
 
         // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
@@ -479,6 +493,20 @@ export class MCP extends McpAgent<Env> {
         try {
             const distinctId = await this.getDistinctId()
             return (await isFeatureFlagEnabled('mcp-version-2', distinctId)) ? 2 : undefined
+        } catch {
+            return undefined
+        }
+    }
+
+    private async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
+        try {
+            const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
+            const flagKeys = getRequiredFeatureFlags(version)
+            if (flagKeys.length === 0) {
+                return undefined
+            }
+            const distinctId = await this.getDistinctId()
+            return await evaluateFeatureFlags(flagKeys, distinctId)
         } catch {
             return undefined
         }

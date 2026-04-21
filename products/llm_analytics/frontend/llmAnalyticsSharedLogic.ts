@@ -9,6 +9,7 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { hasRecentAIEvents } from 'lib/utils/aiEventsUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -58,13 +59,64 @@ export interface LLMAnalyticsSharedLogicProps {
     }
 }
 
+export interface ApplyUrlStatePayload {
+    propertyFilters: AnyPropertyFilter[]
+    dateFrom: string | null
+    dateTo: string | null
+    shouldFilterTestAccounts: boolean
+    datesChanged: boolean
+}
+
+interface BuildApplyUrlStatePayloadInput {
+    dateFrom: string | null
+    dateTo: string | null
+    shouldFilterTestAccounts: boolean
+    propertyFilters: AnyPropertyFilter[]
+    currentDateFilter: { dateFrom: string | null; dateTo: string | null }
+    currentPropertyFilters: AnyPropertyFilter[]
+}
+
+/**
+ * Build the payload for `applyUrlState` from a DataTable's query source. Preserves
+ * reference identity on unchanged `propertyFilters` so Kea selectors short-circuit,
+ * and computes `datesChanged` so the dashboard-tab date picker is not overwritten
+ * when only filters change.
+ */
+export function buildApplyUrlStatePayload({
+    dateFrom,
+    dateTo,
+    shouldFilterTestAccounts,
+    propertyFilters,
+    currentDateFilter,
+    currentPropertyFilters,
+}: BuildApplyUrlStatePayloadInput): ApplyUrlStatePayload {
+    return {
+        propertyFilters: objectsEqual(propertyFilters, currentPropertyFilters)
+            ? currentPropertyFilters
+            : propertyFilters,
+        dateFrom,
+        dateTo,
+        shouldFilterTestAccounts,
+        datesChanged: dateFrom !== currentDateFilter.dateFrom || dateTo !== currentDateFilter.dateTo,
+    }
+}
+
 export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsSharedLogic']),
     props({} as LLMAnalyticsSharedLogicProps),
     key((props: LLMAnalyticsSharedLogicProps) => `${props?.personId || 'llmAnalyticsScene'}::${props?.tabId || ''}`),
     connect(() => ({
-        values: [sceneLogic, ['sceneKey'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
-        actions: [teamLogic, ['addProductIntent']],
+        values: [
+            sceneLogic,
+            ['sceneKey'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
+        ],
+        actions: [teamLogic, ['addProductIntent'], filterTestAccountsDefaultsLogic, ['setLocalDefault']],
     })),
 
     actions({
@@ -73,15 +125,9 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         setShouldFilterSupportTraces: (shouldFilterSupportTraces: boolean) => ({ shouldFilterSupportTraces }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
         // Batched action for URL-to-state sync. Dispatched once from urlToAction
-        // instead of multiple individual actions, producing a single actionToUrl
-        // URL change instead of 3-4 separate ones.
-        applyUrlState: (state: {
-            propertyFilters: AnyPropertyFilter[]
-            dateFrom: string | null
-            dateTo: string | null
-            shouldFilterTestAccounts: boolean
-            datesChanged: boolean
-        }) => state,
+        // or scene-level setQuery handlers instead of multiple individual actions,
+        // producing a single actionToUrl URL change instead of 3-4 separate ones.
+        applyUrlState: (state: ApplyUrlStatePayload) => state,
     }),
 
     reducers({
@@ -141,10 +187,16 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         },
     })),
 
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
             if (hasSentAiEvent) {
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+            }
+        },
+        setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => {
+            const divergesFromEffectiveDefault = shouldFilterTestAccounts !== values.filterTestAccountsDefault
+            if (divergesFromEffectiveDefault) {
+                actions.setLocalDefault(shouldFilterTestAccounts)
             }
         },
     })),
@@ -321,6 +373,11 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                 product_type: ProductKey.LLM_ANALYTICS,
                 intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
             })
+        }
+
+        const urlHasTestAccountsParam = 'filter_test_accounts' in router.values.searchParams
+        if (!urlHasTestAccountsParam && values.filterTestAccountsDefault !== values.shouldFilterTestAccounts) {
+            actions.setShouldFilterTestAccounts(values.filterTestAccountsDefault)
         }
     }),
 ])

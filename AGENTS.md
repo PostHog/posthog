@@ -78,13 +78,9 @@ This repository is public and all commit messages, pull request titles, and pull
 
 Examples:
 
-- ✅ Good: `fix(insights): handle missing series color in trend export`
-- ✅ Good: `chore(ci): reduce flaky backend test retries`
-- ❌ Avoid: `fix: patch issue found in acme-co prod workspace after sales escalation`
-- ❌ Avoid: `chore: workaround for internal k8s outage in us-east-2`
-- ❌ Avoid: `feat: add migration for private enterprise customer contract requirement`
-- ❌ Avoid: `fix: will run fine on our 12 million rows there now`
-- ❌ Avoid: `fix: we were failing there for 300 teams`
+- ✅ `fix(insights): handle missing series color in trend export`
+- ❌ `fix: patch issue found in acme-co prod workspace after sales escalation` — references internal customer
+- ❌ `fix: will run fine on our 12 million rows there now` — leaks private operational scale
 
 ## CI / GitHub Actions
 
@@ -105,20 +101,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - New features should live in `products/` — read [products/README.md](products/README.md) for layout and setup. When _creating a new_ product, follow [products/architecture.md](products/architecture.md) (DTOs, facades, isolation)
 - Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
 - **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
-- **PostHog event capture in Celery tasks:** Do not use `posthoganalytics.capture()` directly in Celery tasks — events will be silently lost because the global client's background flush may never run before the worker exits. Instead, use `ph_scoped_capture` from `posthog.ph_client`, which creates a dedicated client and flushes on context-manager exit:
-
-  ```python
-  from posthog.ph_client import ph_scoped_capture
-
-  @shared_task
-  def my_celery_task():
-      with ph_scoped_capture() as capture_ph_event:
-          capture_ph_event(
-              distinct_id="...",
-              event="my_event",
-              properties={...},
-          )
-  ```
+- **PostHog event capture in Celery tasks:** Do not use `posthoganalytics.capture()` in Celery tasks — events are silently lost. Use `ph_scoped_capture` from `posthog.ph_client` instead (see its docstring for why and usage).
 
 ## Code Style
 
@@ -150,3 +133,21 @@ When automating a convention, try these in order — only fall back to the next 
 4. **AGENTS.md / CLAUDE.md instructions** — when automated enforcement isn't suitable
 
 Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
+
+### Mandatory skill invocation
+
+ALWAYS invoke the matching skill **before** writing or reviewing code in these areas — do not skip, do not attempt the work without loading the skill first.
+
+**Always invoke:**
+
+- `/improving-drf-endpoints` — any DRF viewset or serializer change
+- `/django-migrations` — any Django migration
+- `/clickhouse-migrations` — any ClickHouse migration
+- `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
+
+**Invoke when in the area:**
+
+- `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
+- `/modifying-taxonomic-filter` — any TaxonomicFilter change
+- `/sending-notifications` — adding notification support
+- `/writing-skills` — creating or updating skills in `.agents/skills/`

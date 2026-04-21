@@ -139,7 +139,7 @@ def get_top_pages(team: Team, limit: int = 5, days: int = 7) -> list[dict]:
                 "host": "",
                 "path": row[0] or "",
                 "visitors": row[1][0],
-                "pageviews": row[2][0],
+                "change": compute_week_over_week_change(row[1][0], row[1][1], higher_is_better=True),
             }
             for row in response.results
         ]
@@ -170,6 +170,7 @@ def get_top_sources(team: Team, limit: int = 5, days: int = 7) -> list[dict]:
             {
                 "source": row[0] or "",
                 "visitors": row[1][0],
+                "change": compute_week_over_week_change(row[1][0], row[1][1], higher_is_better=True),
             }
             for row in response.results
             if row[0]
