@@ -75,18 +75,15 @@ pub trait RowBinaryRead: Read {
         Err(CodecError::VarintOverflow)
     }
 
-    // Strict UTF-8. Use only for protocol-controlled fields (e.g. attribution
-    // type, order type) that are written by PostHog-side code and guaranteed
-    // to be UTF-8. Wire-format identical to read_bytes.
+    // Strict UTF-8. Only for protocol-controlled fields (attribution_type,
+    // funnel_order_type) whose sender guarantees UTF-8.
     fn read_string(&mut self) -> CodecResult<String> {
         let buf = self.read_bytes()?;
         String::from_utf8(buf).map_err(|_| CodecError::InvalidUtf8)
     }
 
-    // ClickHouse `String` is a byte-typed column. Use this for any value that
-    // could originate from user data (event property, breakdown key, etc.);
-    // enforcing UTF-8 there would crash on arbitrary bytes that CH stores
-    // without complaint.
+    // ClickHouse `String` is byte-typed: user-data fields (breakdown keys, event
+    // properties) can hold arbitrary bytes. Must not enforce UTF-8 here.
     fn read_bytes(&mut self) -> CodecResult<Vec<u8>> {
         let len = self.read_varint()? as usize;
         let mut buf = vec![0u8; len];
@@ -94,8 +91,8 @@ pub trait RowBinaryRead: Read {
         Ok(buf)
     }
 
-    // ClickHouse stores UUID as two little-endian u64s: high half then low half.
-    // uuid::Uuid's byte layout is big-endian per RFC 4122, so we do the swap here.
+    // ClickHouse writes UUID as two little-endian u64s (high half then low half),
+    // not the RFC 4122 big-endian byte order that `uuid::Uuid` uses.
     fn read_uuid(&mut self) -> CodecResult<Uuid> {
         let hi = self.read_u64_le()?;
         let lo = self.read_u64_le()?;
@@ -255,18 +252,15 @@ mod tests {
         }
     }
 
-    // UUID fixture: matches what ClickHouse emits for
-    //   SELECT toUUID('01020304-0506-0708-090a-0b0c0d0e0f10') FORMAT RowBinary
-    // i.e. 16 bytes that, when interpreted as two LE u64s (hi then lo), reproduce
-    // the RFC 4122 UUID above.
+    // Fixture pins ClickHouse's UUID byte order: two LE u64s (hi, lo).
+    // This matches `SELECT toUUID('01020304-0506-0708-090a-0b0c0d0e0f10') FORMAT RowBinary`.
     #[test]
     fn uuid_clickhouse_byte_order() {
         let u = Uuid::parse_str("01020304-0506-0708-090a-0b0c0d0e0f10").unwrap();
         let mut buf = Vec::new();
         buf.write_uuid(u).unwrap();
-        // uuid as_u64_pair: hi = 0x0102030405060708, lo = 0x090a0b0c0d0e0f10
-        // Little-endian hi on wire: 08 07 06 05 04 03 02 01
-        // Little-endian lo on wire: 10 0f 0e 0d 0c 0b 0a 09
+        // hi=0x0102030405060708 LE: 08 07 06 05 04 03 02 01
+        // lo=0x090a0b0c0d0e0f10 LE: 10 0f 0e 0d 0c 0b 0a 09
         assert_eq!(
             buf,
             vec![

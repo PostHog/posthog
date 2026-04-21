@@ -15,7 +15,6 @@ pub enum CodecError {
     UnexpectedNull,
     ShapeMismatch,
     InvalidChunkHeader(String),
-    UnexpectedEof,
     UnknownType(String),
     TypeMismatch(String),
     IntOutOfRange {
@@ -46,7 +45,6 @@ impl std::fmt::Display for CodecError {
                 write!(f, "PropVal variant does not match declared BreakdownShape")
             }
             Self::InvalidChunkHeader(s) => write!(f, "invalid chunk header: {s:?}"),
-            Self::UnexpectedEof => write!(f, "unexpected eof mid-row"),
             Self::UnknownType(s) => write!(f, "unsupported ClickHouse type from header: {s}"),
             Self::TypeMismatch(s) => write!(f, "type mismatch: {s}"),
             Self::IntOutOfRange { from, to, value } => {

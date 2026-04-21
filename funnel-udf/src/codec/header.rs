@@ -1,13 +1,4 @@
-// RowBinaryWithNamesAndTypes block header.
-//
-// Wire shape (emitted once per block, before any row data):
-//   varint   n_columns
-//   n_columns × String   column names
-//   n_columns × String   column types (parsed into DataTypeNode by clickhouse-types)
-//
-// The executable-pool transport sits behind `send_chunk_header=true`, which
-// adds a separate `N\n` *chunk* header before this block header (handled in
-// codec::chunk).
+// RowBinaryWithNamesAndTypes block header: varint n_cols, n_cols names, n_cols type strings.
 
 use clickhouse_types::{put_leb128, Column, DataTypeNode};
 
@@ -15,9 +6,6 @@ use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
 
 pub fn read_block_header<R: RowBinaryRead + ?Sized>(r: &mut R) -> CodecResult<Vec<Column>> {
-    // We do the varint + length-prefixed string reads ourselves (same bits the
-    // crate would use via `impl Buf`) and delegate just the type parsing to
-    // `DataTypeNode::new` — that's the piece we don't want to re-implement.
     let n = r.read_varint()? as usize;
     let mut names = Vec::with_capacity(n);
     for _ in 0..n {
@@ -26,12 +14,10 @@ pub fn read_block_header<R: RowBinaryRead + ?Sized>(r: &mut R) -> CodecResult<Ve
     let mut types = Vec::with_capacity(n);
     for _ in 0..n {
         let type_str = String::from_utf8(r.read_bytes()?).map_err(|_| CodecError::InvalidUtf8)?;
-        // ClickHouse emits `Nothing` for empty-literal arrays (e.g. `[]` has type
-        // `Array(Nothing)`). The clickhouse-types crate doesn't know about it, and
-        // our readers will treat zero-length arrays as empty regardless of element
-        // type — so substitute a concrete type the parser accepts. Any non-empty
-        // array can't carry `Nothing` anyway (CH would have errored upstream).
-        let normalized = type_str.replace("Nothing", "Int8");
+        // ClickHouse emits `Array(Nothing)` for a bare `[]` literal (no element
+        // context), and `clickhouse-types` can't parse Nothing. The array length
+        // is always 0, so the element type we substitute is never read.
+        let normalized = type_str.replace("Array(Nothing)", "Array(Int8)");
         let node = DataTypeNode::new(&normalized)
             .map_err(|e| CodecError::UnknownType(format!("{type_str:?}: {e}")))?;
         types.push(node);
@@ -47,19 +33,14 @@ pub fn write_block_header<W: RowBinaryWrite + ?Sized>(
     w: &mut W,
     columns: &[Column],
 ) -> CodecResult<()> {
-    // Use the crate's LEB128 writer to stay wire-compatible with its reader,
-    // even though our write_varint is the same encoding.
     let mut leb_buf = Vec::with_capacity(10);
-
     put_leb128(&mut leb_buf, columns.len() as u64);
     w.write_all(&leb_buf)?;
-
     for c in columns {
         w.write_bytes(c.name.as_bytes())?;
     }
     for c in columns {
-        let ty = c.data_type.to_string();
-        w.write_bytes(ty.as_bytes())?;
+        w.write_bytes(c.data_type.to_string().as_bytes())?;
     }
     Ok(())
 }
@@ -91,5 +72,36 @@ mod tests {
         assert_eq!(parsed[0].name, "num_steps");
         assert_eq!(parsed[0].data_type, DataTypeNode::UInt8);
         assert_eq!(parsed[1].name, "value");
+    }
+
+    #[test]
+    fn header_normalizes_array_nothing() {
+        let mut buf = Vec::new();
+        buf.write_varint(1).unwrap();
+        buf.write_bytes(b"optional_steps").unwrap();
+        buf.write_bytes(b"Array(Nothing)").unwrap();
+        let mut slice = buf.as_slice();
+        let cols = read_block_header(&mut slice).unwrap();
+        assert_eq!(
+            cols[0].data_type,
+            DataTypeNode::Array(Box::new(DataTypeNode::Int8))
+        );
+    }
+
+    #[test]
+    fn header_preserves_nothing_outside_array() {
+        let mut buf = Vec::new();
+        buf.write_varint(1).unwrap();
+        buf.write_bytes(b"kind").unwrap();
+        buf.write_bytes(b"Enum8('Nothing' = 1, 'Something' = 2)")
+            .unwrap();
+        let mut slice = buf.as_slice();
+        let cols = read_block_header(&mut slice).unwrap();
+        match &cols[0].data_type {
+            DataTypeNode::Enum(_, values) => {
+                assert!(values.values().any(|v| v == "Nothing"));
+            }
+            other => panic!("expected Enum, got {other:?}"),
+        }
     }
 }

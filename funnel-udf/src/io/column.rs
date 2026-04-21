@@ -1,27 +1,29 @@
-// Column readers for the XML-declared UDF slots.
+// Permissive leaves, strict structure. Two things to know:
 //
-// These are intentionally permissive about wire types because HogQL / ClickHouse
-// don't reliably emit the exact XML-declared argument type — e.g. a literal `3`
-// for a `UInt8` slot can arrive as `UInt8`, `Int64`, or any integer width in
-// between. We accept the whole int family and narrow with bounds checks, and
-// accept non-nullable variants where Nullable was declared (treating them as
-// always-non-null, matching the funnel invariant that these fields are never
-// null by the time they reach the UDF). Array readers do the same element-wise.
-// Tuple arity and column count remain strict — those are structural invariants,
-// not type-coercion candidates.
+//   1. ClickHouse puts the source expression's inferred type on the wire, not the
+//      UDF's XML-declared arg type. A UInt8 slot routinely arrives as Int64
+//      because HogQL emits integer literals as Int64. We widen through i128 and
+//      narrow with bounds checks. LowCardinality wrappers are transparent in
+//      RowBinary, so we peel them.
+//
+//   2. The XML declares several slots Nullable(T) but ClickHouse may send plain T
+//      when the source expression is statically non-null. We accept both and
+//      treat plain T as always-non-null; the `ifNull(..., '')` / `toFloat()`
+//      upstream makes this safe.
+//
+// Tuple arity and column count are checked exactly — a mismatch there means the
+// UDF contract is broken.
 
 use clickhouse_types::DataTypeNode;
 
 use crate::codec::rowbinary::RowBinaryRead;
 use crate::codec::{CodecError, CodecResult};
 
-/// Reads any integer type off the wire and returns it as i128 for range checking.
-/// Errors if the declared type is not an integer CH type we know about.
 fn read_int_any<R: RowBinaryRead + ?Sized>(
     r: &mut R,
     t: &DataTypeNode,
 ) -> CodecResult<(i128, &'static str)> {
-    match t {
+    match t.remove_low_cardinality() {
         DataTypeNode::UInt8 => Ok((r.read_u8()? as i128, "UInt8")),
         DataTypeNode::UInt16 => Ok((r.read_u16_le()? as i128, "UInt16")),
         DataTypeNode::UInt32 => Ok((r.read_u32_le()? as i128, "UInt32")),
@@ -73,8 +75,6 @@ fn narrow_to_i8(v: i128, from: &'static str) -> CodecResult<i8> {
     }
 }
 
-/// Reads a `Nullable(Float64)` or plain `Float64` column.
-/// Funnel invariant: timestamps are non-null by the time they reach the UDF.
 pub fn read_nullable_f64<R: RowBinaryRead + ?Sized>(
     r: &mut R,
     t: &DataTypeNode,
@@ -99,10 +99,8 @@ pub fn read_nullable_f64<R: RowBinaryRead + ?Sized>(
     }
 }
 
-/// Reads a plain `String` column as raw bytes. Also accepts `LowCardinality(String)`
-/// since LowCardinality is a storage hint that's transparent in RowBinary.
 pub fn read_string<R: RowBinaryRead + ?Sized>(r: &mut R, t: &DataTypeNode) -> CodecResult<Vec<u8>> {
-    match peel_low_cardinality(t) {
+    match t.remove_low_cardinality() {
         DataTypeNode::String => r.read_bytes(),
         DataTypeNode::FixedString(n) => {
             let mut buf = vec![0u8; *n];
@@ -115,14 +113,11 @@ pub fn read_string<R: RowBinaryRead + ?Sized>(r: &mut R, t: &DataTypeNode) -> Co
     }
 }
 
-/// Reads a `Nullable(String)` or plain `String` column as raw bytes.
-/// Plain String is treated as always-non-null (funnel invariant from upstream
-/// `ifNull(..., '')` substitution).
 pub fn read_nullable_string<R: RowBinaryRead + ?Sized>(
     r: &mut R,
     t: &DataTypeNode,
 ) -> CodecResult<Vec<u8>> {
-    match peel_low_cardinality(t) {
+    match t.remove_low_cardinality() {
         DataTypeNode::Nullable(inner) if matches!(**inner, DataTypeNode::String) => {
             match r.read_u8()? {
                 0 => r.read_bytes(),
@@ -162,15 +157,6 @@ pub fn read_array_i8<R: RowBinaryRead + ?Sized>(
         out.push(narrow_to_i8(v, from)?);
     }
     Ok(out)
-}
-
-/// Strips a `LowCardinality(T)` wrapper if present; returns the inner type
-/// otherwise.
-pub fn peel_low_cardinality(t: &DataTypeNode) -> &DataTypeNode {
-    match t {
-        DataTypeNode::LowCardinality(inner) => inner,
-        other => other,
-    }
 }
 
 /// Extracts the element type from an `Array(T)`, erroring with context if `t` is not an Array.
@@ -267,11 +253,38 @@ mod tests {
         assert_eq!(got, vec![1, -2, 3]);
     }
 
+    // ClickHouse infers Array(UInt8) for small positive literals like `[0,0,0]`.
+    // The narrow path must accept that.
+    #[test]
+    fn array_i8_accepts_array_uint8() {
+        let mut buf = Vec::new();
+        buf.write_varint(3).unwrap();
+        buf.write_u8(0).unwrap();
+        buf.write_u8(5).unwrap();
+        buf.write_u8(127).unwrap();
+        let mut slice = buf.as_slice();
+        let got = read_array_i8(
+            &mut slice,
+            &DataTypeNode::Array(Box::new(DataTypeNode::UInt8)),
+        )
+        .unwrap();
+        assert_eq!(got, vec![0, 5, 127]);
+    }
+
+    #[test]
+    fn read_int_peels_low_cardinality() {
+        let mut buf = Vec::new();
+        buf.write_u64_le(42).unwrap();
+        let mut slice = buf.as_slice();
+        let t = DataTypeNode::LowCardinality(Box::new(DataTypeNode::UInt64));
+        let got = read_u64_col(&mut slice, &t).unwrap();
+        assert_eq!(got, 42);
+    }
+
+    // Empty array: no element bytes follow, so element-type is never inspected.
+    // Covers the Array(Nothing) path post-normalization in header.rs.
     #[test]
     fn array_i8_empty_skips_element_type_check() {
-        // Regardless of declared element type, a zero-length prefix should return
-        // an empty Vec without inspecting the element type. Use Int64 here as a
-        // stand-in for `Nothing` (which is normalized to Int8 by the header parser).
         let mut buf = Vec::new();
         buf.write_varint(0).unwrap();
         let mut slice = buf.as_slice();

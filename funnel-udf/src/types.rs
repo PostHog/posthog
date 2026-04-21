@@ -1,8 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-// CH `String` is byte-typed, not UTF-8. Breakdown values are Vec<u8> end-to-end;
-// the newtype exists so PropVal can keep its derive while still round-tripping a
-// JSON string in the debug path.
+// ClickHouse `String` is byte-typed, not UTF-8. Breakdown values are Vec<u8>
+// end-to-end; the newtype lets PropVal keep its derive while still round-tripping
+// a JSON string on the debug path.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bytes(pub Vec<u8>);
 

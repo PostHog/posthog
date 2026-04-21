@@ -10,16 +10,17 @@ use crate::io::propval::{read_propval, read_propval_array, shape_output_type, wr
 use crate::trends::{Args, Event, ResultStruct};
 use crate::types::BreakdownShape;
 
-// Column layout (per XML aggregate_funnel_trends / ..._array_trends / ..._cohort_trends):
-//   0  UInt8    from_step
-//   1  UInt8    to_step
-//   2  UInt8    num_steps
-//   3  UInt64   conversion_window_limit
-//   4  String   breakdown_attribution_type
-//   5  String   funnel_order_type
-//   6  Array(<breakdown shape>)   prop_vals
-//   7  Array(Tuple(Nullable(Float64), UInt64, UUID, <breakdown shape>, Array(Int8)))  value
+// Column layout per XML aggregate_funnel_trends{,_array_trends,_cohort_trends}:
+//   0 UInt8    from_step
+//   1 UInt8    to_step
+//   2 UInt8    num_steps
+//   3 UInt64   conversion_window_limit
+//   4 String   breakdown_attribution_type
+//   5 String   funnel_order_type
+//   6 Array(<breakdown shape>)                                                     prop_vals
+//   7 Array(Tuple(Nullable(Float64), UInt64, UUID, <breakdown shape>, Array(Int8))) value
 const COLUMN_COUNT: usize = 8;
+pub const PROP_VALS_INDEX: usize = 6;
 
 pub fn read_args<R: RowBinaryRead + ?Sized>(
     r: &mut R,

@@ -49,8 +49,7 @@ mod e2e {
     use std::io::Cursor;
     use uuid::Uuid;
 
-    // Writes a block header whose types exactly match the XML-declared shapes
-    // — the same shapes the Python callers CAST to before invoking the UDF.
+    // Test fixture: block header with the exact XML-declared steps shapes.
     fn write_steps_header(buf: &mut Vec<u8>) {
         let nullable_string = DataTypeNode::Nullable(Box::new(DataTypeNode::String));
         let nullable_f64 = DataTypeNode::Nullable(Box::new(DataTypeNode::Float64));
@@ -116,7 +115,7 @@ mod e2e {
         let out_bytes = writer.into_inner();
         let mut out = out_bytes.as_slice();
 
-        // No chunk header on output — CH's `send_chunk_header` is input-only.
+        // send_chunk_header is input-only; output is plain RBWNAT.
         let out_cols = crate::codec::header::read_block_header(&mut out).unwrap();
         assert_eq!(out_cols.len(), 1);
         assert_eq!(out_cols[0].name, "result");
@@ -127,7 +126,6 @@ mod e2e {
         let step = out.read_i8().unwrap();
         assert_eq!(step, 2);
 
-        // Output emits Nullable(String) for the breakdown slot.
         let nullable_string = DataTypeNode::Nullable(Box::new(DataTypeNode::String));
         let breakdown =
             read_propval(&mut out, BreakdownShape::NullableString, &nullable_string).unwrap();
@@ -148,9 +146,8 @@ mod e2e {
 
     #[test]
     fn rowbinary_empty_input_chunk_emits_header_only() {
-        // Empty chunk (n=0) still carries a block header that declares schema
-        // — we must consume it before looping, and we still emit the format
-        // header so CH has schema for the (empty) result block.
+        // n=0 still carries a block header (schema) we must consume, and we
+        // must emit an output header so CH gets schema for the empty result.
         let mut input_buf = Vec::new();
         write_chunk_header(&mut input_buf, 0).unwrap();
         write_steps_header(&mut input_buf);
@@ -169,17 +166,15 @@ mod e2e {
         assert!(writer.into_inner().is_empty());
     }
 
+    // Same logical fixture as the rowbinary test, but as JSONEachRow input.
     #[test]
     fn json_path_still_works_for_same_fixture() {
-        // Same logical fixture as the rowbinary test, but as JSONEachRow input.
         let input = r#"{"num_steps":3,"conversion_window_limit":3600,"breakdown_attribution_type":"first_touch","funnel_order_type":"ordered","prop_vals":["en"],"optional_steps":[],"value":[{"timestamp":1.0,"uuid":"00000000-0000-0000-0000-000000000001","breakdown":"en","steps":[1]},{"timestamp":2.0,"uuid":"00000000-0000-0000-0000-000000000002","breakdown":"en","steps":[2]},{"timestamp":3.0,"uuid":"00000000-0000-0000-0000-000000000003","breakdown":"en","steps":[3]}]}
 "#;
         let mut reader = std::io::BufReader::new(input.as_bytes());
         let mut writer = Cursor::new(Vec::new());
         run_json(&mut reader, &mut writer, Mode::Steps).unwrap();
         let s = String::from_utf8(writer.into_inner()).unwrap();
-        // Light shape check: output is JSON wrapping a single result tuple whose first
-        // element (step reached, 0-indexed) is 2.
         assert!(s.contains("\"result\""), "json output: {s}");
         assert!(
             s.starts_with(r#"{"result":[[2,"#),
@@ -205,14 +200,13 @@ struct Cli {
     format: Format,
 }
 
-// CLI contract:
-//   aggregate_funnel <mode>                   -> RowBinaryWithNamesAndTypes (default)
-//   aggregate_funnel <mode> --json            -> JSON (opt-in for debugging / benchmark)
-// mode = "steps" | "trends"
+// CLI:
+//   aggregate_funnel <steps|trends>            RowBinaryWithNamesAndTypes (default)
+//   aggregate_funnel <steps|trends> --json     JSONEachRow (debug / benchmark)
 //
-// The breakdown shape used to be a positional CLI arg (one of nullable_string /
-// array_string / u64). It's now detected from the `prop_vals` column's type in
-// the block header, so a single binary serves all 3 variants.
+// Breakdown shape (nullable_string / array_string / u64) is detected at runtime
+// from the prop_vals column type in the block header, so one binary serves all
+// three XML variants.
 fn parse_cli(argv: &[String]) -> std::result::Result<Cli, String> {
     let mut mode: Option<Mode> = None;
     let mut format = Format::RowBinary;
@@ -249,13 +243,13 @@ fn run_rowbinary<R: BufRead, W: Write>(
     writer: &mut W,
     mode: Mode,
 ) -> CodecResult<()> {
-    // Shape used to be supplied via a CLI arg; now we detect it from the
-    // `prop_vals` column on the wire. In steps mode that's index 4, in trends
-    // mode it's index 6.
     let prop_vals_index = match mode {
-        Mode::Steps => 4,
-        Mode::Trends => 6,
+        Mode::Steps => io::steps_io::PROP_VALS_INDEX,
+        Mode::Trends => io::trends_io::PROP_VALS_INDEX,
     };
+    // One loop iteration per UDF invocation. executable_pool keeps us alive
+    // across invocations to skip fork/exec; each invocation's input/output is
+    // self-contained (own `N\n` chunk header, own RBWNAT block header + rows).
     loop {
         let n = match read_chunk_header(reader)? {
             Some(n) => n,
@@ -272,9 +266,6 @@ fn run_rowbinary<R: BufRead, W: Write>(
             .clone();
         let shape = io::propval::detect_shape(&prop_vals_type)?;
 
-        // `send_chunk_header=true` applies only to the input side (CH -> our
-        // stdin). On output we emit plain `RowBinaryWithNamesAndTypes`:
-        // format header, then rows — no `N\n` chunk prefix.
         match mode {
             Mode::Steps => {
                 let mut results = Vec::with_capacity(n as usize);

@@ -1,10 +1,10 @@
 <functions>
     <!--
-      The six real funnel UDFs. As of v12 these default to RowBinary format
-      on the wire. The binary is the same `aggregate_funnel`; the trailing
-      positional token (nullable_string / array_string / u64) tells the codec
-      how to decode breakdown values for each variant. ClickHouse prefixes
-      each batch with a newline-terminated row count because of
+      The six real funnel UDFs share one binary (aggregate_funnel <steps|trends>).
+      Wire format is RowBinaryWithNamesAndTypes; the binary reads the prop_vals
+      column type at runtime to pick the breakdown shape, so one binary serves
+      all three variants (nullable_string / array_string / u64). ClickHouse
+      prefixes each batch with a newline-terminated row count because of
       send_chunk_header=true.
     -->
 

@@ -15,4 +15,9 @@ clickhouse-types = "0.1"
 rstest = "0.26.1"
 
 [profile.release]
-lto = true
+# Aggressive: the UDF runs in a long-lived pool, but build size and startup
+# still matter for the respawn path.
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

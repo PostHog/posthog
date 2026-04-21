@@ -13,10 +13,12 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.queries.breakdown_props import NOT_IN_COHORT_ID, get_breakdown_cohort_name
 from posthog.utils import DATERANGE_MAP
 
-# Hard cap on events passed per entity into the funnel UDF. Sized so that a single
-# entity hitting the cap would exceed the ClickHouse ~50 GB per-query process budget
-# on its own — normal entities are 3–4 orders of magnitude below this. Prevents a
-# pathological user from OOMing the UDF process.
+# Hard cap on events sent per entity to the funnel UDF. Set high deliberately:
+# heavy power users can legitimately produce millions of events in a query window,
+# so this only clips truly pathological entities that would OOM the UDF subprocess
+# through the stdin pipe. ClickHouse's max_memory_usage handles aggregation-time
+# OOM separately — arraySlice(arraySort(groupArray(...))) still materializes the
+# full array before slicing.
 MAX_EVENTS_PER_ENTITY = 100_000_000
 
 

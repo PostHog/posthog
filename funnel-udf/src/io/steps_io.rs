@@ -10,18 +10,16 @@ use crate::io::propval::{read_propval, read_propval_array, shape_output_type, wr
 use crate::steps::{Args, Event, Result as StepsResult};
 use crate::types::BreakdownShape;
 
-// Column layout (per XML aggregate_funnel / aggregate_funnel_cohort / aggregate_funnel_array):
-//   0  UInt8    num_steps
-//   1  UInt64   conversion_window_limit
-//   2  String   breakdown_attribution_type
-//   3  String   funnel_order_type
-//   4  Array(<breakdown shape>)   prop_vals
-//   5  Array(Int8)                optional_steps
-//   6  Array(Tuple(Nullable(Float64), UUID, <breakdown shape>, Array(Int8)))  value
-//
-// Types are strict: the Python callers CAST every arg to the XML-declared
-// shape, so any wire mismatch is a caller bug we fail fast on.
+// Column layout per XML aggregate_funnel{,_cohort,_array}:
+//   0 UInt8    num_steps
+//   1 UInt64   conversion_window_limit
+//   2 String   breakdown_attribution_type
+//   3 String   funnel_order_type
+//   4 Array(<breakdown shape>)                                              prop_vals
+//   5 Array(Int8)                                                           optional_steps
+//   6 Array(Tuple(Nullable(Float64), UUID, <breakdown shape>, Array(Int8))) value
 const COLUMN_COUNT: usize = 7;
+pub const PROP_VALS_INDEX: usize = 4;
 
 pub fn read_args<R: RowBinaryRead + ?Sized>(
     r: &mut R,

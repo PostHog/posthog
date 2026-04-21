@@ -5,10 +5,9 @@ use crate::codec::{CodecError, CodecResult};
 use crate::io::column::{array_elem, read_nullable_string, read_string, read_u64_col};
 use crate::types::{BreakdownShape, Bytes, PropVal};
 
-// Reads a single breakdown value — at either a `prop_vals` element position or
-// a per-event tuple position. `t` is the actual column/field type from the
-// block header. The declared `BreakdownShape` still governs which PropVal
-// variant we produce.
+// Reads one breakdown value. Shape is detected once per chunk (see `detect_shape`)
+// from the prop_vals column type and reused everywhere — one binary serves all 3
+// XML variants (nullable_string / array_string / u64) without a CLI flag.
 pub fn read_propval<R: RowBinaryRead + ?Sized>(
     r: &mut R,
     shape: BreakdownShape,
@@ -29,7 +28,6 @@ pub fn read_propval<R: RowBinaryRead + ?Sized>(
     }
 }
 
-/// Reads the entire `prop_vals` column: `Array(<shape>)`.
 pub fn read_propval_array<R: RowBinaryRead + ?Sized>(
     r: &mut R,
     shape: BreakdownShape,
@@ -44,8 +42,6 @@ pub fn read_propval_array<R: RowBinaryRead + ?Sized>(
     Ok(out)
 }
 
-// Writer side is unchanged — we emit the schema we declare in the output
-// block header, so this is self-consistent.
 pub fn write_propval<W: RowBinaryWrite + ?Sized>(
     w: &mut W,
     p: &PropVal,
@@ -64,8 +60,7 @@ pub fn write_propval<W: RowBinaryWrite + ?Sized>(
     }
 }
 
-/// The `DataTypeNode` we emit in output block headers for a given shape.
-/// Must match write_propval's wire format exactly.
+/// Output-header type for the breakdown slot; must stay in sync with `write_propval`.
 pub fn shape_output_type(shape: BreakdownShape) -> DataTypeNode {
     match shape {
         BreakdownShape::NullableString => DataTypeNode::Nullable(Box::new(DataTypeNode::String)),
@@ -74,12 +69,11 @@ pub fn shape_output_type(shape: BreakdownShape) -> DataTypeNode {
     }
 }
 
-/// Detects the intended `BreakdownShape` from the actual `prop_vals` column type
-/// on the wire. We're permissive about wire types (see io/column.rs for the
-/// rationale) so each shape accepts a family of near-variants:
-///   - U64: any integer element (cohort ids fit in UInt64; narrower widths are fine)
-///   - ArrayString: nested `Array(String)` (with or without LowCardinality)
-///   - NullableString: Nullable(String) or plain String (treat non-nullable as always-non-null)
+/// Picks the breakdown shape from the prop_vals element type on the wire.
+/// Each shape accepts a family of near-variants (see column.rs for why):
+///   U64           — any integer element (cohort ids)
+///   ArrayString   — Array(String) with or without LowCardinality wrap
+///   NullableString — Nullable(String) or plain String
 pub fn detect_shape(prop_vals_type: &DataTypeNode) -> CodecResult<BreakdownShape> {
     let inner = array_elem(prop_vals_type, "detect_shape on prop_vals")?;
     let peeled = match inner {
@@ -137,21 +131,20 @@ mod tests {
         );
     }
 
+    // ClickHouse strips the Nullable wrapper when the source expression is
+    // statically non-null — Array(String) without Nullable must still detect.
     #[test]
     fn shape_detection_accepts_plain_string_as_nullable() {
-        // HogQL-generated queries don't always wrap string breakdowns in Nullable.
-        // Plain `Array(String)` should map to the NullableString shape and be
-        // treated as always-non-null on read.
         assert_eq!(
             detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::String))).unwrap(),
             BreakdownShape::NullableString
         );
     }
 
+    // HogQL defaults integer literals to Int64, so a cohort-id breakdown can
+    // arrive as Int64 even though the XML declares Array(UInt64). All widths map.
     #[test]
     fn shape_detection_accepts_narrower_int_widths() {
-        // Cohort breakdowns may arrive as Int64 (HogQL's default for int literals)
-        // or other widths; they all map to the U64 shape.
         assert_eq!(
             detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::Int64))).unwrap(),
             BreakdownShape::U64
