@@ -498,7 +498,11 @@ export function HogFunctionFilters({
                 <LemonBanner type="info">
                     When filtering by an action that matches multiple event names, this destination will trigger once
                     per event name per person, not once per action. If you want to trigger only once regardless of event
-                    name, use "Run once per person per interval" instead.
+                    name, use "
+                    {configuration.masking?.hash === MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY
+                        ? 'Run once per person per calendar day'
+                        : 'Run once per person per interval'}
+                    " instead.
                 </LemonBanner>
             ) : null}
         </div>
