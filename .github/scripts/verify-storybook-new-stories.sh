@@ -76,11 +76,19 @@ failed_runs=0
 for run in $(seq 1 "$REPEAT_COUNT"); do
     echo "=== Run $run/$REPEAT_COUNT ==="
 
+    # First run: --updateSnapshot to create baselines for new stories.
+    # Subsequent runs: --ci to verify the snapshot is stable.
+    if [ "$run" -eq 1 ]; then
+        snapshot_flag="--updateSnapshot"
+    else
+        snapshot_flag="--ci"
+    fi
+
     set +e
     # Run test-storybook directly (skipping build:products which we already did).
     # pipefail is set at script level so tee preserves the exit code.
     pnpm --filter=@posthog/storybook exec test-storybook \
-        --ci --no-index-json --maxWorkers=1 \
+        $snapshot_flag --no-index-json --maxWorkers=1 \
         --browsers chromium \
         -- --testPathPattern "$pattern" 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
     exit_code=${PIPESTATUS[0]}

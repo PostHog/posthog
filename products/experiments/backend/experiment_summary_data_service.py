@@ -35,6 +35,7 @@ from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -131,28 +132,6 @@ def transform_variant_for_max(
     )
 
 
-def get_default_metric_title(metric_dict: dict) -> str:
-    """Generate a default title for a metric based on its configuration."""
-    metric_type = metric_dict.get("metric_type", "")
-    if metric_type == "funnel":
-        series = metric_dict.get("series", [])
-        if series:
-            first_event = series[0].get("event") or series[0].get("name") or "Event"
-            last_event = series[-1].get("event") or series[-1].get("name") or "Event"
-            if len(series) == 1:
-                return f"{first_event} conversion"
-            return f"{first_event} to {last_event}"
-    elif metric_type == "mean":
-        source = metric_dict.get("source", {})
-        event = source.get("event") or source.get("name") or "Event"
-        return f"Mean {event}"
-    elif metric_type == "ratio":
-        return "Ratio metric"
-    elif metric_type == "retention":
-        return "Retention metric"
-    return "Metric"
-
-
 def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatusResponse]:
     """Check if result is a cache miss or pending query status (i.e. incomplete result)."""
     return isinstance(result, (CacheMissResponse, QueryStatusResponse))
@@ -217,7 +196,7 @@ class ExperimentSummaryDataService:
                         workload=Workload.ONLINE,
                     )
                     result = query_runner.run(
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
                         analytics_props={"source": EventSource.POSTHOG_AI},
                     )
                 refresh_time = getattr(result, "last_refresh", None)
@@ -268,7 +247,7 @@ class ExperimentSummaryDataService:
                             team=experiment.team,
                         )
                         exposure_result = exposure_runner.run(
-                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
                             analytics_props={"source": EventSource.POSTHOG_AI},
                         )
 
@@ -314,10 +293,10 @@ class ExperimentSummaryDataService:
         primary_count = len(primary_metric_tasks)
         secondary_count = len(secondary_metric_tasks)
 
-        primary_query_results: list[MetricQueryResult | BaseException] = all_results[:primary_count]  # type: ignore[assignment]
+        primary_query_results: list[MetricQueryResult | BaseException] = all_results[:primary_count]  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         secondary_query_results: list[MetricQueryResult | BaseException] = all_results[
             primary_count : primary_count + secondary_count
-        ]  # type: ignore[assignment]
+        ]  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         exposure_query_result = all_results[-1]
 
         # Aggregate results

@@ -158,8 +158,8 @@ describe('PersonHogGroupRepository', () => {
         handlers = grpc.handlers
     })
 
-    function createRepo(grpcPercentage: number): PersonHogGroupRepository {
-        return new PersonHogGroupRepository(mockPostgres, grpcClient, grpcPercentage, 'test')
+    function createRepo(grpcPercentage: number, rolloutTeamIds: Set<number> = new Set()): PersonHogGroupRepository {
+        return new PersonHogGroupRepository(mockPostgres, grpcClient, grpcPercentage, rolloutTeamIds, 'test')
     }
 
     describe.each([
@@ -301,6 +301,90 @@ describe('PersonHogGroupRepository', () => {
             expect(result).toEqual(TEST_GROUP)
             expect(mockPostgres.fetchGroup).toHaveBeenCalledWith(TEAM_ID, GROUP_TYPE_INDEX, GROUP_KEY, options)
             expect(handlers.getGroup).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('team ID-based rollout', () => {
+        it('routes fetchGroup to gRPC when team ID is in rollout set (percentage 0)', async () => {
+            handlers.getGroup.mockReturnValue({ group: makeProtoGroup() })
+
+            const repo = createRepo(0, new Set([TEAM_ID]))
+            const result = await repo.fetchGroup(TEAM_ID, GROUP_TYPE_INDEX, GROUP_KEY, { useReadReplica: true })
+
+            expect(result).toEqual(TEST_GROUP)
+            expect(handlers.getGroup).toHaveBeenCalled()
+            expect(mockPostgres.fetchGroup).not.toHaveBeenCalled()
+        })
+
+        it('routes fetchGroup to postgres when team ID is not in rollout set (percentage 0)', async () => {
+            mockPostgres.fetchGroup.mockResolvedValue(TEST_GROUP)
+
+            const repo = createRepo(0, new Set([999 as TeamId]))
+            const result = await repo.fetchGroup(TEAM_ID, GROUP_TYPE_INDEX, GROUP_KEY, { useReadReplica: true })
+
+            expect(result).toEqual(TEST_GROUP)
+            expect(mockPostgres.fetchGroup).toHaveBeenCalled()
+            expect(handlers.getGroup).not.toHaveBeenCalled()
+        })
+
+        it('ignores percentage when team IDs are set', async () => {
+            mockPostgres.fetchGroup.mockResolvedValue(TEST_GROUP)
+
+            // percentage is 100 but team ID is not in the set — should use postgres
+            const repo = createRepo(100, new Set([999 as TeamId]))
+            const result = await repo.fetchGroup(TEAM_ID, GROUP_TYPE_INDEX, GROUP_KEY, { useReadReplica: true })
+
+            expect(result).toEqual(TEST_GROUP)
+            expect(mockPostgres.fetchGroup).toHaveBeenCalled()
+            expect(handlers.getGroup).not.toHaveBeenCalled()
+        })
+
+        it('routes fetchGroupsByKeys to gRPC when all team IDs are in rollout set', async () => {
+            const expectedResult = [
+                {
+                    team_id: TEAM_ID,
+                    group_type_index: GROUP_TYPE_INDEX,
+                    group_key: GROUP_KEY,
+                    group_properties: { name: 'Acme Corp' },
+                },
+            ]
+            handlers.getGroupsBatch.mockReturnValue({
+                results: [
+                    {
+                        key: { teamId: BigInt(TEAM_ID), groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY },
+                        group: makeProtoGroup({ groupProperties: jsonBytes({ name: 'Acme Corp' }) }),
+                    },
+                ],
+            })
+
+            const repo = createRepo(0, new Set([TEAM_ID]))
+            const result = await repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY])
+
+            expect(result).toEqual(expectedResult)
+            expect(handlers.getGroupsBatch).toHaveBeenCalled()
+            expect(mockPostgres.fetchGroupsByKeys).not.toHaveBeenCalled()
+        })
+
+        it('routes fetchGroupTypesByTeamIds to gRPC when all team IDs are in rollout set', async () => {
+            handlers.getGroupTypeMappingsByTeamIds.mockReturnValue(GROUP_TYPE_MAPPINGS_PROTO)
+
+            const repo = createRepo(0, new Set([TEAM_ID]))
+            const result = await repo.fetchGroupTypesByTeamIds([TEAM_ID])
+
+            expect(result).toEqual(GROUP_TYPE_MAPPINGS)
+            expect(handlers.getGroupTypeMappingsByTeamIds).toHaveBeenCalled()
+            expect(mockPostgres.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
+        })
+
+        it('routes fetchGroupTypesByTeamIds to postgres when not all team IDs are in rollout set', async () => {
+            mockPostgres.fetchGroupTypesByTeamIds.mockResolvedValue(GROUP_TYPE_MAPPINGS)
+
+            const repo = createRepo(0, new Set([TEAM_ID]))
+            const result = await repo.fetchGroupTypesByTeamIds([TEAM_ID, 999 as TeamId])
+
+            expect(result).toEqual(GROUP_TYPE_MAPPINGS)
+            expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalled()
+            expect(handlers.getGroupTypeMappingsByTeamIds).not.toHaveBeenCalled()
         })
     })
 

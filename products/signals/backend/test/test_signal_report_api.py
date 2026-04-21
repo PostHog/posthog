@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.models.team.team import Team
 
@@ -16,7 +17,7 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 class TestSignalReportDeleteAPI(APIBaseTest):
     def _url(self, report_id: str | None = None) -> str:
-        base = f"/api/projects/{self.team.id}/signal_reports/"
+        base = f"/api/projects/{self.team.id}/signals/reports/"
         if report_id:
             return f"{base}{report_id}/"
         return base
@@ -81,7 +82,7 @@ class TestSignalReportListAPI(APIBaseTest):
     """GET list/retrieve: `priority` from actionability artefacts; `ordering` (comma-separated, e.g. `status,-total_weight`)."""
 
     def _list_url(self, **query) -> str:
-        base = f"/api/projects/{self.team.id}/signal_reports/"
+        base = f"/api/projects/{self.team.id}/signals/reports/"
         if not query:
             return base
         return f"{base}?{urlencode(query)}"
@@ -121,6 +122,24 @@ class TestSignalReportListAPI(APIBaseTest):
         else:
             art.save()
         return art
+
+    def _actionability_artefact(self, report: SignalReport, *, actionability: str) -> SignalReportArtefact:
+        payload = {"explanation": "x", "actionability": actionability, "already_addressed": False}
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps(payload),
+        )
+        art.save()
+        return art
+
+    def _maybe_actionability_artefact(
+        self, report: SignalReport, actionability: str | None
+    ) -> SignalReportArtefact | None:
+        if actionability is None:
+            return None
+        return self._actionability_artefact(report, actionability=actionability)
 
     # --- priority ---
 
@@ -180,7 +199,7 @@ class TestSignalReportListAPI(APIBaseTest):
         report = self._create_report()
         self._priority_artefact(report, priority="P0")
 
-        url = f"/api/projects/{self.team.id}/signal_reports/{report.id}/"
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["priority"] == "P0"
@@ -235,6 +254,29 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(heavy.id)) < ids.index(str(light.id))
 
+    def test_ordering_by_priority_sorts_p0_first(self):
+        """priority ordering: P0 > P1 > P2 > P3 > P4 > null."""
+        r_p3 = self._create_report(title="P3 report", summary="s", signal_count=1, total_weight=1.0)
+        r_p1 = self._create_report(title="P1 report", summary="s", signal_count=1, total_weight=1.0)
+        r_p0 = self._create_report(title="P0 report", summary="s", signal_count=1, total_weight=1.0)
+        r_p2 = self._create_report(title="P2 report", summary="s", signal_count=1, total_weight=1.0)
+        r_none = self._create_report(title="No priority", summary="s", signal_count=1, total_weight=1.0)
+        r_p4 = self._create_report(title="P4 report", summary="s", signal_count=1, total_weight=1.0)
+        self._priority_artefact(r_p3, priority="P3")
+        self._priority_artefact(r_p1, priority="P1")
+        self._priority_artefact(r_p0, priority="P0")
+        self._priority_artefact(r_p2, priority="P2")
+        self._priority_artefact(r_p4, priority="P4")
+
+        response = self.client.get(self._list_url(status="ready", ordering="priority"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(r_p0.id)) < ids.index(str(r_p1.id))
+        assert ids.index(str(r_p1.id)) < ids.index(str(r_p2.id))
+        assert ids.index(str(r_p2.id)) < ids.index(str(r_p3.id))
+        assert ids.index(str(r_p3.id)) < ids.index(str(r_p4.id))
+        assert ids.index(str(r_p4.id)) < ids.index(str(r_none.id))
+
     def test_ordering_by_total_weight_only_crosses_status_rank(self):
         """Without `status`, `ordering=-total_weight` is a global sort by weight."""
         low_ready = self._create_report(
@@ -259,3 +301,52 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(high_candidate.id)) < ids.index(str(low_ready.id))
+
+    @parameterized.expand(
+        [
+            ("immediately_actionable_before_not_actionable", "immediately_actionable", "not_actionable"),
+            ("requires_human_input_before_not_actionable", "requires_human_input", "not_actionable"),
+            ("no_judgment_before_not_actionable", None, "not_actionable"),
+        ]
+    )
+    def test_status_ordering_splits_ready_by_actionability(
+        self, _name, left_actionability: str | None, right_actionability: str
+    ):
+        """`ordering=status` maps to pipeline_status_rank: actionable ready before not_actionable."""
+        r_left = self._create_report(title="L", summary="s", signal_count=1, total_weight=1.0)
+        r_right = self._create_report(title="R", summary="s", signal_count=1, total_weight=1.0)
+        self._maybe_actionability_artefact(r_left, left_actionability)
+        self._actionability_artefact(r_right, actionability=right_actionability)
+
+        response = self.client.get(self._list_url(status="ready", ordering="status"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(r_left.id)) < ids.index(str(r_right.id))
+
+    @parameterized.expand(
+        [
+            ("not_actionable", "not_actionable", False),
+            ("immediately_actionable", "immediately_actionable", True),
+            ("requires_human_input", "requires_human_input", True),
+        ]
+    )
+    def test_is_suggested_reviewer_matches_actionability(self, _name, actionability: str, expected_suggested: bool):
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="github",
+            uid=f"github-test-suggested-{actionability}",
+            extra_data={"login": "suggestedgh"},
+        )
+        report = self._create_report()
+        self._actionability_artefact(report, actionability=actionability)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "suggestedgh"}]),
+        )
+
+        response = self.client.get(self._list_url(status="ready"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["is_suggested_reviewer"] is expected_suggested

@@ -149,7 +149,10 @@ def test_stripe_source_creation_and_sync_updates_managed_views(team, api_client,
         data={
             "source_type": "Stripe",
             "payload": {
-                "stripe_secret_key": "sk_test_123",
+                "auth_method": {
+                    "selection": "api_key",
+                    "stripe_secret_key": "sk_test_123",
+                },
                 "schemas": [
                     {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                 ],

@@ -77,8 +77,14 @@ def extend_api_router() -> None:
         ["project_id", "dashboard_id"],
     )
 
-    register_grandfathered_environment_nested_viewset(
+    env_subscriptions_router, _ = register_grandfathered_environment_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
+    )
+    env_subscriptions_router.register(
+        r"deliveries",
+        subscription.SubscriptionDeliveryViewSet,
+        "environment_subscription_deliveries",
+        ["team_id", "subscription_id"],
     )
 
     environments_router.register(
@@ -138,12 +144,12 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="radar-bypass",
         ),
         path(
-            "api/admin/radar-bypass/",
+            "admin/api/radar-bypass/",
             RadarBypassViewSet.as_view({"get": "list", "post": "create"}),
             name="radar-bypass-api-list",
         ),
         path(
-            "api/admin/radar-bypass/<str:email>/",
+            "admin/api/radar-bypass/<str:email>/",
             RadarBypassViewSet.as_view({"delete": "destroy"}),
             name="radar-bypass-api-detail",
         ),
@@ -153,12 +159,12 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="email-mfa-bypass",
         ),
         path(
-            "api/admin/email-mfa-bypass/",
+            "admin/api/email-mfa-bypass/",
             EmailMFABypassViewSet.as_view({"get": "list", "post": "create"}),
             name="email-mfa-bypass-api-list",
         ),
         path(
-            "api/admin/email-mfa-bypass/<str:email>/",
+            "admin/api/email-mfa-bypass/<str:email>/",
             EmailMFABypassViewSet.as_view({"delete": "destroy"}),
             name="email-mfa-bypass-api-detail",
         ),
@@ -293,6 +299,16 @@ urlpatterns: list[Any] = [
         "api/agentic/provisioning/resources/<str:resource_id>/rotate_credentials",
         csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
         name="agentic_provisioning_rotate_credentials",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/update_service",
+        csrf_exempt(agentic_provisioning_views.provisioning_update_service),
+        name="agentic_provisioning_update_service",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/remove",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_remove),
+        name="agentic_provisioning_resource_remove",
     ),
     path(
         "api/agentic/provisioning/resources/<str:resource_id>",

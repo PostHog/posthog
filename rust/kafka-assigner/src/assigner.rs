@@ -602,6 +602,8 @@ fn registered_consumer_names(consumers: &[RegisteredConsumer]) -> Vec<String> {
 
 /// Adjust the active consumer list based on K8s controller intent.
 ///
+/// Public for integration testing with k3s testcontainers.
+///
 /// Two adjustments during rollouts:
 ///
 /// 1. **Deployment rollout** — old-gen Ready consumers are excluded from the
@@ -612,7 +614,7 @@ fn registered_consumer_names(consumers: &[RegisteredConsumer]) -> Vec<String> {
 ///    active list so their assignments are held. In a StatefulSet rollout the
 ///    same pod name comes back with a new revision, so there's no point
 ///    handing off to a different consumer.
-async fn filter_consumers_for_k8s(
+pub async fn filter_consumers_for_k8s(
     k8s: &K8sAwareness,
     consumers: &[RegisteredConsumer],
     mut active: Vec<String>,

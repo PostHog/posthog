@@ -13,6 +13,7 @@ from products.notifications.backend.facade.enums import (
     NotificationOnlyResourceType,
     NotificationType,
     Priority,
+    SourceType,
     TargetType,
 )
 from products.notifications.backend.logic import create_notification
@@ -92,6 +93,48 @@ class TestCreateNotification(BaseTest):
 
         assert cache.get(key1) is None
         assert cache.get(key2) is None
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_with_source_type_and_id(self, mock_publish, mock_ff):
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Test notification",
+            body="Test body",
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+            source_type=SourceType.DASHBOARD,
+            source_id="abc123",
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            event = create_notification(data)
+
+        assert event is not None
+        assert event.source_type == "dashboard"
+        assert event.source_id == "abc123"
+
+        mock_publish.assert_called_once()
+        kafka_data = mock_publish.call_args[0][0]
+        assert kafka_data.source_type == "dashboard"
+        assert kafka_data.source_id == "abc123"
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_without_source_type(self, mock_publish, mock_ff):
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Test notification",
+            body="Test body",
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+        )
+        event = create_notification(data)
+
+        assert event is not None
+        assert event.source_type is None
+        assert event.source_id is None
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=False)
     def test_feature_flag_disabled_returns_none(self, mock_ff):

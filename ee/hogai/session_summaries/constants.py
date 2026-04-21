@@ -22,7 +22,10 @@ SESSION_EVENTS_REPLAY_CUTOFF_MS = 5000
 MIN_SESSION_DURATION_FOR_SUMMARY_MS = 2 * SESSION_EVENTS_REPLAY_CUTOFF_MS + 1
 # Minimum session duration for video-based summarization, where we don't need (or want) to cut off anything
 MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S = 15
-MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S = 5  # Sessions below this activity threshold don't show much
+MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S = 10  # Sessions below this activity threshold don't show much
+MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S = (
+    3600  # Sessions above 1 hour of activity are too long to summarize quickly/well
+)
 
 # Temporal
 SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 60 * 24  # How long to store the DB data in Redis within Temporal jobs

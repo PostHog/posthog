@@ -9,7 +9,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.contrib.sessions.backends.db import SessionStore
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.test import RequestFactory, override_settings
 
 import jwt
@@ -191,6 +191,13 @@ class TestNonceValidation(BaseTest):
     def _mock_get_email(self, email: str, payload: dict):
         return patch("ee.middleware._get_email_from_id_token", return_value=(email, payload))
 
+    @staticmethod
+    def _assert_redirects_to_admin(response: HttpResponse) -> HttpResponseRedirect:
+        assert isinstance(response, HttpResponseRedirect)
+        assert response.status_code == 302
+        assert response.url == "/admin/"
+        return response
+
     def test_valid_nonce_accepted(self):
         nonce = secrets.token_urlsafe(32)
         state = secrets.token_urlsafe(32)
@@ -204,8 +211,7 @@ class TestNonceValidation(BaseTest):
                 with override_settings(ADMIN_OAUTH2_COOKIE_SECURE=False):
                     response = admin_oauth2_callback(request)
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, "/admin/")
+        response = self._assert_redirects_to_admin(response)
         # Nonce should be cleared from session
         self.assertNotIn(AdminOAuth2Middleware.SESSION_NONCE_KEY, request.session)
         # Verify success: verification secret should be set
@@ -226,8 +232,7 @@ class TestNonceValidation(BaseTest):
             with self._mock_token_exchange("fake_token"):
                 response = admin_oauth2_callback(request)
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, "/admin/")
+        response = self._assert_redirects_to_admin(response)
         # Verify rejection: no verification secret should be set
         self.assertNotIn(AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY, request.session)
         # Verify rejection: no verification cookie should be set
@@ -246,8 +251,7 @@ class TestNonceValidation(BaseTest):
             with self._mock_token_exchange("fake_token"):
                 response = admin_oauth2_callback(request)
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, "/admin/")
+        response = self._assert_redirects_to_admin(response)
         # Verify rejection: no verification secret should be set
         self.assertNotIn(AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY, request.session)
         # Verify rejection: no verification cookie should be set
@@ -281,6 +285,7 @@ class TestRedirectIncludesNonce(BaseTest):
 
         middleware = AdminOAuth2Middleware(get_response=lambda r: HttpResponse())
         response = middleware._redirect_to_oauth2(request)
+        assert isinstance(response, HttpResponseRedirect)
 
         # Check nonce is in the redirect URL
         self.assertIn("nonce=", response.url)
@@ -396,4 +401,57 @@ class TestMiddlewareVerification(BaseTest):
 
         # Should redirect to Google OAuth
         self.assertEqual(response.status_code, 302)
+        assert isinstance(response, HttpResponseRedirect)
         self.assertIn("accounts.google.com", response.url)
+
+    @parameterized.expand(
+        [
+            ("radar_bypass", "/admin/api/radar-bypass/"),
+            ("email_mfa_bypass", "/admin/api/email-mfa-bypass/"),
+        ]
+    )
+    @override_settings(
+        ADMIN_AUTH_GOOGLE_OAUTH2_KEY="test_client_id",
+        ADMIN_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
+        ADMIN_OAUTH2_COOKIE_SECURE=False,
+    )
+    def test_api_admin_unverified_returns_403(self, _name, path):
+        request = self.factory.get(path)
+        request.user = self.user
+        request.session = SessionStore()
+
+        middleware = AdminOAuth2Middleware(get_response=lambda r: HttpResponse("OK"))
+        response = middleware(request)
+
+        self.assertEqual(response.status_code, 403)
+
+    @parameterized.expand(
+        [
+            ("radar_bypass", "/admin/api/radar-bypass/"),
+            ("email_mfa_bypass", "/admin/api/email-mfa-bypass/"),
+        ]
+    )
+    @override_settings(
+        ADMIN_AUTH_GOOGLE_OAUTH2_KEY="test_client_id",
+        ADMIN_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
+        ADMIN_OAUTH2_COOKIE_SECURE=False,
+    )
+    def test_api_admin_verified_passes(self, _name, path):
+        request = self.factory.get(path)
+        request.user = self.user
+        request.session = SessionStore()
+
+        verification_secret = secrets.token_urlsafe(32)
+        request.session[AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY] = verification_secret
+        request.session[AdminOAuth2Middleware.SESSION_VERIFICATION_HASH_KEY] = AdminOAuth2Middleware._get_client_hash(
+            request
+        )
+
+        secret_hash = hashlib.sha256(verification_secret.encode()).hexdigest()
+        request.COOKIES[AdminOAuth2Middleware.COOKIE_NAME] = secret_hash
+
+        middleware = AdminOAuth2Middleware(get_response=lambda r: HttpResponse("OK"))
+        response = middleware(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"OK")

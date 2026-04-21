@@ -1195,7 +1195,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         # Enable precomputation
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"

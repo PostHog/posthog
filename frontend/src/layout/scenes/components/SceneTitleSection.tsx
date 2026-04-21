@@ -448,12 +448,19 @@ export function SceneName({
         onChange?.(value)
     }, renameDebounceMs)
 
+    useEffect(() => {
+        return () => {
+            debouncedOnBlurSave.flush()
+            debouncedOnChange.flush()
+        }
+    }, [debouncedOnBlurSave, debouncedOnChange])
+
     const handleBlur = (e: React.FocusEvent): void => {
         const relatedTarget = e.relatedTarget as HTMLElement | null
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
             return
         }
-        if (saveOnBlur && !forceEdit && !isGeneratingMetadata && name !== initialName) {
+        if (saveOnBlur && !isGeneratingMetadata && name !== initialName) {
             debouncedOnBlurSave(name || '')
         }
         if (!forceEdit) {
@@ -475,7 +482,7 @@ export function SceneName({
                             readOnly={isGeneratingMetadata}
                             onChange={(e) => {
                                 setName(e.target.value)
-                                if (forceEdit) {
+                                if (forceEdit && !saveOnBlur) {
                                     onChange?.(e.target.value)
                                 } else if (!saveOnBlur) {
                                     debouncedOnChange(e.target.value)
@@ -498,6 +505,9 @@ export function SceneName({
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                     e.preventDefault()
+                                    if (saveOnBlur && e.currentTarget.value !== initialName) {
+                                        onChange?.(e.currentTarget.value || '')
+                                    }
                                 }
                             }}
                         />
@@ -639,8 +649,15 @@ function SceneDescription({
         onChange?.(value)
     }, renameDebounceMs)
 
+    useEffect(() => {
+        return () => {
+            debouncedOnBlurSaveDescription.flush()
+            debouncedOnDescriptionChange.flush()
+        }
+    }, [debouncedOnBlurSaveDescription, debouncedOnDescriptionChange])
+
     const handleBlur = (): void => {
-        if (saveOnBlur && !forceEdit && !isGeneratingMetadata && description !== initialDescription) {
+        if (saveOnBlur && !isGeneratingMetadata && description !== initialDescription) {
             debouncedOnBlurSaveDescription(description || '')
         }
         if (!forceEdit) {
@@ -660,7 +677,7 @@ function SceneDescription({
                         readOnly={isGeneratingMetadata}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (forceEdit) {
+                            if (forceEdit && !saveOnBlur) {
                                 onChange?.(e.target.value)
                             } else if (!saveOnBlur) {
                                 debouncedOnDescriptionChange(e.target.value)

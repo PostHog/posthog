@@ -32,6 +32,12 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
+class BillingServiceOpenInvoicesError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
     """
     Get a user role display string in a given organization, if membership doesn't exist return None.
@@ -139,7 +145,8 @@ class BillingManager:
         # Get billing info from billing service
         billing_service_response = self._get_billing(organization, query_params)
 
-        if not billing_service_response.get("customer"):
+        customer = cast(dict[str, Any], billing_service_response).get("customer")
+        if not customer:
             return self._get_default_billing_response(organization)
 
         # Ensure the license and org are updated with the latest info
@@ -422,7 +429,7 @@ class BillingManager:
             organization.available_product_features = data["available_product_features"]
             org_modified = True
 
-        never_drop_data = data.get("never_drop_data", None)
+        never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
             org_modified = True
@@ -441,7 +448,10 @@ class BillingManager:
                 org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
 
         if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores.update(org_customer_trust_scores)
+            organization.customer_trust_scores = {
+                **(organization.customer_trust_scores or {}),
+                **org_customer_trust_scores,
+            }
             org_modified = True
 
         if org_modified:
@@ -588,6 +598,14 @@ class BillingManager:
             json={"billing_provider": billing_provider.value},
             timeout=30,
         )
+
+        if res.status_code == 409:
+            try:
+                data = res.json()
+            except JSONDecodeError:
+                data = {}
+            if data.get("code") == BillingAPIErrorCodes.OPEN_INVOICES_ERROR.value:
+                raise BillingServiceOpenInvoicesError(data.get("error_message", "Open invoices must be resolved first"))
 
         handle_billing_service_error(res, valid_codes=(200,))
 

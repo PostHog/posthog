@@ -31,6 +31,18 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: int = min(
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS", 1, type_cast=int),
     6,  # events_recent has 7-day TTL; cap with 1-day margin
 )
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES: int = max(
+    1,
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES", 5, type_cast=int),
+)
+# MAX_LOOKBACK_HOURS caps how far back a stale/missing checkpoint can reach.
+# With the defaults (LOOKBACK_DAYS=1 → 24h, MAX_LOOKBACK_HOURS=6), the
+# effective lookback is 6h. LOOKBACK_DAYS only has effect when
+# LOOKBACK_DAYS × 24 ≤ MAX_LOOKBACK_HOURS; otherwise it is capped.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
+    1,
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS", 6, type_cast=int),
+)
 
 # Feature flag cache refresh settings
 FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(

@@ -9,6 +9,8 @@
  */
 export interface NotificationEventApi {
     id: string
+    /** @nullable */
+    team_id: number | null
     notification_type: string
     priority: string
     title: string
@@ -20,6 +22,10 @@ export interface NotificationEventApi {
     resource_type: string | null
     resource_id: string
     source_url: string
+    /** @nullable */
+    source_type: string | null
+    /** @nullable */
+    source_id: string | null
     created_at: string
 }
 

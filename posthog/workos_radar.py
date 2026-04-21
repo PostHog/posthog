@@ -2,11 +2,10 @@
 WorkOS Radar integration for bot/fraud detection during authentication flows.
 
 This module provides a client for the WorkOS Radar Attempts API to evaluate
-signup and signin attempts for potential fraud or bot activity.
-
-When bypass=False and Radar returns a BLOCK verdict, the attempt is rejected
-with a SuspiciousAttemptBlocked exception unless the email is on the Redis
-bypass list managed via the admin tool.
+signup attempts for potential fraud or bot activity. When Radar returns a
+BLOCK verdict, the attempt is rejected with a SuspiciousAttemptBlocked
+exception unless the email is on the Redis bypass list managed via the
+admin tool.
 """
 
 import time
@@ -102,34 +101,15 @@ def evaluate_auth_attempt(
     action: RadarAction,
     auth_method: RadarAuthMethod,
     user_id: Optional[str] = None,
-    bypass: bool = False,
     turnstile_token: str = "",
     challenge_nonce: str = "",
 ) -> Optional[RadarVerdict]:
     """
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
 
-    Args:
-        request: The Django/DRF request object
-        email: The email address being used for auth
-        action: Whether this is a signup or signin attempt
-        auth_method: The authentication method (password or passkey)
-        user_id: Optional user ID if the user already exists (for signin)
-        bypass: When True, blocking is skipped (log-only mode).
-            When False (default), and verdict is BLOCK, raises
-            SuspiciousAttemptBlocked (unless the email is in the Redis
-            bypass list).
-        turnstile_token: Cloudflare Turnstile response token (from a
-            previously issued challenge).
-        challenge_nonce: Single-use nonce from a previous ChallengeRequired
-            response.
-
-    Returns:
-        The Radar verdict (allow, challenge, block, error, or disabled)
-
     Raises:
-        SuspiciousAttemptBlocked: When bypass=False and verdict is BLOCK and
-            the email is not in the bypass list.
+        SuspiciousAttemptBlocked: When verdict is BLOCK and the email is
+            not in the Redis bypass list.
         ChallengeRequired: When verdict is CHALLENGE and no valid Turnstile
             token was provided.
     """
@@ -140,42 +120,19 @@ def evaluate_auth_attempt(
         return None
 
     ip_address = get_ip_address(request)
-    raw_user_agent = _get_raw_user_agent(request)
     short_user_agent = get_short_user_agent(request)
 
-    start_time = time.perf_counter()
-    verdict = _call_radar_api(
+    verdict, duration_ms = _evaluate_verdict(
         email=email,
         ip_address=ip_address,
-        user_agent=raw_user_agent,
+        user_agent=_get_raw_user_agent(request),
         action=action,
         auth_method=auth_method,
+        turnstile_token=turnstile_token,
+        challenge_nonce=challenge_nonce,
     )
-    duration_ms = (time.perf_counter() - start_time) * 1000
 
-    will_block = False
-    will_challenge = False
-    was_bypassed = False
-    was_challenge_completed = False
-
-    if not bypass and verdict == RadarVerdict.BLOCK:
-        if is_radar_bypass_email(email):
-            was_bypassed = True
-        else:
-            will_block = True
-
-    if not bypass and verdict == RadarVerdict.CHALLENGE:
-        if is_radar_bypass_email(email):
-            was_bypassed = True
-        elif turnstile_token and challenge_nonce:
-            if validate_and_consume_nonce(challenge_nonce, email, ip_address) and verify_turnstile_token(
-                turnstile_token, ip_address
-            ):
-                was_challenge_completed = True
-            else:
-                will_block = True
-        else:
-            will_challenge = True
+    outcome = _decide_outcome(verdict, email, turnstile_token, challenge_nonce, ip_address)
 
     _log_radar_event(
         email=email,
@@ -186,41 +143,78 @@ def evaluate_auth_attempt(
         ip_address=ip_address,
         user_agent=short_user_agent,
         duration_ms=duration_ms,
-        was_blocked=will_block,
-        was_bypassed=was_bypassed,
-        was_challenged=will_challenge,
-        was_challenge_completed=was_challenge_completed,
+        was_blocked=outcome == "block",
+        was_bypassed=outcome == "bypass",
+        was_challenged=outcome == "challenge",
+        was_challenge_completed=outcome == "completed",
     )
 
-    if will_block:
-        logger.warning(
-            "workos_radar_attempt_blocked",
-            action=action.value,
-            email_hash=_hash_email(email),
-        )
+    if outcome == "block":
+        logger.warning("workos_radar_attempt_blocked", action=action.value, email_hash=_hash_email(email))
         raise SuspiciousAttemptBlocked()
 
-    if will_challenge:
+    if outcome == "challenge":
         if not settings.CLOUDFLARE_TURNSTILE_SITE_KEY:
-            logger.error(
-                "workos_radar_challenge_no_site_key",
-                action=action.value,
-                email_hash=_hash_email(email),
-            )
+            logger.error("workos_radar_challenge_no_site_key", action=action.value, email_hash=_hash_email(email))
             raise SuspiciousAttemptBlocked()
 
         nonce = create_challenge_nonce(email, ip_address)
-        logger.info(
-            "workos_radar_challenge_issued",
-            action=action.value,
-            email_hash=_hash_email(email),
-        )
+        logger.info("workos_radar_challenge_issued", action=action.value, email_hash=_hash_email(email))
         raise ChallengeRequired(
             challenge_nonce=nonce,
             turnstile_site_key=settings.CLOUDFLARE_TURNSTILE_SITE_KEY,
         )
 
     return verdict
+
+
+def _evaluate_verdict(
+    email: str,
+    ip_address: str,
+    user_agent: str,
+    action: RadarAction,
+    auth_method: RadarAuthMethod,
+    turnstile_token: str,
+    challenge_nonce: str,
+) -> tuple[RadarVerdict, float]:
+    """Return (verdict, api_duration_ms). Skip the Radar API call on challenge resubmits."""
+    if turnstile_token and challenge_nonce:
+        return RadarVerdict.CHALLENGE, 0.0
+
+    start_time = time.perf_counter()
+    verdict = _call_radar_api(
+        email=email,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        action=action,
+        auth_method=auth_method,
+    )
+    return verdict, (time.perf_counter() - start_time) * 1000
+
+
+def _decide_outcome(
+    verdict: RadarVerdict,
+    email: str,
+    turnstile_token: str,
+    challenge_nonce: str,
+    ip_address: str,
+) -> str:
+    """Return one of: 'allow', 'block', 'bypass', 'challenge', 'completed'."""
+    if turnstile_token and challenge_nonce:
+        nonce_valid = validate_and_consume_nonce(challenge_nonce, email, ip_address)
+        token_valid = nonce_valid and verify_turnstile_token(turnstile_token, ip_address)
+        return "completed" if token_valid else "block"
+
+    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE) and is_radar_bypass_email(email):
+        return "bypass"
+
+    if verdict == RadarVerdict.BLOCK:
+        return "block"
+
+    if verdict == RadarVerdict.CHALLENGE:
+        return "challenge"
+
+    return "allow"
 
 
 def _call_radar_api(

@@ -514,10 +514,15 @@ class DatabricksClient:
 
     async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_path: str, file_name: str):
         """Asynchronously put a local file stream to a Databricks volume."""
-        await self.execute_query(
-            f"PUT '__input_stream__' INTO '{volume_path}/{file_name}' OVERWRITE",
-            query_kwargs={"input_stream": file},
-        )
+        try:
+            await self.execute_query(
+                f"PUT '__input_stream__' INTO '{volume_path}/{file_name}' OVERWRITE",
+                query_kwargs={"input_stream": file},
+            )
+        except OperationalError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"PUT INTO '{volume_path}/{file_name}'", err.message)
+            raise
 
     async def acopy_into_table_from_volume(
         self,
@@ -925,11 +930,15 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
     return DatabricksIntegration(integration)
 
 
-def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
+def _is_insufficient_permissions_error(err: DatabaseError) -> bool:
     """Check if the error is an insufficient permissions error."""
     if err.message is None:
         return False
-    return "INSUFFICIENT_PERMISSIONS" in err.message or "PERMISSION_DENIED" in err.message
+    return (
+        "INSUFFICIENT_PERMISSIONS" in err.message
+        or "PERMISSION_DENIED" in err.message
+        or "AuthorizationFailure" in err.message
+    )
 
 
 def _is_warehouse_stopped_error(err: ServerOperationError) -> bool:

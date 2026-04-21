@@ -99,6 +99,10 @@ describe('PropertyFilters', () => {
             expect(screen.getAllByText('$browser').length).toBeGreaterThanOrEqual(1)
         })
 
+        await waitFor(() => {
+            expect(screen.getByTestId('prop-filter-event_properties-0').textContent).toMatch(/Browser/)
+        })
+
         await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
 
         await waitFor(() => {
@@ -152,7 +156,7 @@ describe('PropertyFilters', () => {
 
         await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$browser')
         await waitFor(() => {
-            expect(screen.getAllByText('$browser').length).toBeGreaterThanOrEqual(1)
+            expect(screen.getByTestId('prop-filter-event_properties-0').textContent).toMatch(/Browser/)
         })
 
         await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))

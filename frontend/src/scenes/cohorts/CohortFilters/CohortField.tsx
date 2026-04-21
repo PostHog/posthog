@@ -25,9 +25,18 @@ import {
     CohortSelectorFieldProps,
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
+    FieldOptionsType,
 } from 'scenes/cohorts/CohortFilters/types'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import {
+    AnyPropertyFilter,
+    PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 
 let uniqueMemoizedIndex = 0
 
@@ -102,6 +111,27 @@ export function CohortSelectorField({
     )
 }
 
+/**
+ * Wraps CohortSelectorField to show date-only or math-only operators based on
+ * the selected person property's type. Without this, DateTime properties like
+ * "date_of_birth" would show irrelevant operators like "contains" or "maximum".
+ *
+ * The operator auto-reset when switching between DateTime and non-DateTime
+ * properties is handled in cohortEditLogic's setCriteria listener.
+ */
+export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.Element {
+    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
+    const propertyKey = props.criteria?.key
+    const propDef = propertyKey ? getPropertyDefinition(propertyKey, PropertyDefinitionType.Person) : null
+    const isDateTime = propDef?.property_type === PropertyType.DateTime
+
+    const fieldOptionGroupTypes = isDateTime
+        ? [FieldOptionsType.SingleFieldDateOperators]
+        : [FieldOptionsType.CohortMathOperators]
+
+    return <CohortSelectorField {...props} fieldOptionGroupTypes={fieldOptionGroupTypes} />
+}
+
 export function CohortTaxonomicField({
     fieldKey,
     groupTypeFieldKey = 'event_type',
@@ -167,11 +197,12 @@ export function CohortPersonPropertiesValuesField({
 
     return (
         <PropertyValue
+            key={`${propertyKey}_${operator}`}
             operator={operator || PropertyOperator.Exact}
             propertyKey={propertyKey as string}
             type={PropertyFilterType.Person}
             value={value as PropertyFilterValue}
-            onSet={(newValue: PropertyOperator) => {
+            onSet={(newValue: PropertyFilterValue) => {
                 onChange({ [fieldKey]: newValue })
             }}
             placeholder="Enter value..."

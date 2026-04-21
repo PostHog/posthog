@@ -12,6 +12,7 @@ import {
     IconCode,
     IconCode2,
     IconDatabase,
+    IconExternal,
     IconPlusSmall,
 } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -30,19 +31,41 @@ import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelect
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
+
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
-export const QueryDatabase = (): JSX.Element => {
+export function getSidebarAddJoinSourceTableName(
+    recordType: string | undefined,
+    itemName: string,
+    tableName?: string
+): string | null {
+    switch (recordType) {
+        case 'view':
+        case 'managed-view':
+            return itemName
+        case 'endpoint':
+            return tableName ?? null
+        default:
+            return null
+    }
+}
+
+export const QueryDatabase = ({
+    virtualizationScrollContainerRef,
+}: {
+    virtualizationScrollContainerRef?: React.RefObject<HTMLDivElement | null>
+}): JSX.Element => {
     const {
         searchTerm,
         joinsByFieldName,
@@ -75,9 +98,10 @@ export const QueryDatabase = (): JSX.Element => {
         deleteDataWarehouseSavedQueryFolder,
         updateDataWarehouseSavedQueryFolder,
     } = useActions(dataWarehouseViewsLogic)
-    const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
+    const { deleteJoin } = useActions(sourceManagementLogic)
     const { deleteDraft } = useActions(draftsLogic)
-    const { setActiveTab, setQueryInput, setSourceQuery } = useActions(sqlEditorLogic)
+    const { openMaterializationModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
+        useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     const builtTabLogic = useMountedLogic(sqlEditorLogic)
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
@@ -195,6 +219,55 @@ export const QueryDatabase = (): JSX.Element => {
         }
     }
 
+    const isPreviewableViewItem = (item: TreeDataItem): boolean => {
+        return ['view', 'managed-view', 'endpoint'].includes(item.record?.type)
+    }
+
+    const previewItem = (item: TreeDataItem): void => {
+        if (!isPreviewableViewItem(item)) {
+            return
+        }
+
+        const table = item.record?.tableName || item.name
+        const previewQuery = `SELECT * FROM ${escapePropertyAsHogQLIdentifier(table)} LIMIT 100`
+        const nextConnectionId = connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
+
+        if (isEmbeddedMode) {
+            setActiveTab(OutputTab.Results)
+            setSourceQuery({
+                ...sourceQuery,
+                source: {
+                    ...sourceQuery.source,
+                    connectionId: nextConnectionId,
+                    query: previewQuery,
+                },
+            })
+            setQueryInput(previewQuery)
+            runQuery(previewQuery, true)
+            return
+        }
+
+        router.actions.push(
+            urls.sqlEditor({
+                query: previewQuery,
+                outputTab: OutputTab.Results,
+                connectionId: nextConnectionId,
+            })
+        )
+    }
+
+    const openItemEditor = (item: TreeDataItem, newTab = false): void => {
+        const url =
+            item.record?.type === 'endpoint' ? getEndpointUrl(item) : urls.sqlEditor({ view_id: item.record?.view.id })
+
+        if (newTab) {
+            newInternalTab(url)
+            return
+        }
+
+        router.actions.push(url)
+    }
+
     const getEndpointUrl = (item: TreeDataItem): string => {
         const endpointName = item.record?.table?.name ?? item.name
         const versionMatch = endpointName.match(/^(.+)_v(\d+)$/)
@@ -236,7 +309,9 @@ export const QueryDatabase = (): JSX.Element => {
                 )
             }}
             expandedItemIds={expandedItemIds}
-            onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+            onSetExpandedItemIds={
+                searchTerm ? setExpandedSearchFolders : (folderIds) => setExpandedFolders(folderIds, connectionId)
+            }
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
                     toggleFolderOpen(folder.id, isExpanded)
@@ -260,9 +335,11 @@ export const QueryDatabase = (): JSX.Element => {
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
                     const currentQueryInput = builtTabLogic.values.queryInput
-                    setQueryInput(
-                        buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
-                    )
+                    void buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
+                        .then(setQueryInput)
+                        .catch(() => {
+                            // Parsing can fail (e.g. parser init errors) — keep the editor untouched instead of raising.
+                        })
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
@@ -276,6 +353,7 @@ export const QueryDatabase = (): JSX.Element => {
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
+                const itemLabel = typeof item.displayName === 'string' ? item.displayName : item.name
                 const isHighlightedFolderDropTarget =
                     item.record?.type === 'folder' &&
                     item.record?.folderType === 'view-folder' &&
@@ -287,12 +365,21 @@ export const QueryDatabase = (): JSX.Element => {
                     activeDraggedViewId !== item.id
 
                 return (
-                    <span className="truncate">
+                    <span
+                        className="truncate"
+                        onDoubleClick={(e) => {
+                            if (!isPreviewableViewItem(item)) {
+                                return
+                            }
+                            e.stopPropagation()
+                            previewItem(item)
+                        }}
+                    >
                         <div className="flex flex-row gap-1 justify-between">
                             <div className="shrink-0 flex min-w-0 items-center gap-2">
                                 {hasMatches && searchTerm ? (
                                     <SearchHighlightMultiple
-                                        string={item.name}
+                                        string={itemLabel}
                                         substring={searchTerm}
                                         className={cn(isColumn && 'font-mono text-xs')}
                                     />
@@ -309,7 +396,7 @@ export const QueryDatabase = (): JSX.Element => {
                                             'truncate shrink-0'
                                         )}
                                     >
-                                        {item.name}
+                                        {item.displayName ?? item.name}
                                     </span>
                                 )}
                                 {isColumn && columnType ? (
@@ -414,13 +501,12 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    newInternalTab(
+                                    const nextConnectionId =
+                                        connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
+                                    router.actions.push(
                                         urls.sqlEditor({
-                                            query: `SELECT * FROM ${escapePropertyAsHogQLIdentifier(item.name)}`,
-                                            connectionId:
-                                                connectionId && connectionId !== POSTHOG_WAREHOUSE
-                                                    ? connectionId
-                                                    : undefined,
+                                            query: buildSelectAllQuery(item.name, null),
+                                            connectionId: nextConnectionId,
                                         })
                                     )
                                 }}
@@ -560,75 +646,89 @@ export const QueryDatabase = (): JSX.Element => {
                     item.record?.type === 'view' ||
                     item.record?.type === 'managed-view'
                 ) {
-                    // const viewUrl = getViewUrl(item) ||
-                    const url =
-                        item.record?.type === 'endpoint'
-                            ? getEndpointUrl(item)
-                            : urls.sqlEditor({ view_id: item.record?.view.id })
-                    const table = item.record?.tableName || item.name
-                    const selectAllQuery = `SELECT * FROM ${escapePropertyAsHogQLIdentifier(table)} LIMIT 100`
-                    const nextConnectionId =
-                        connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
+                    const editLabel = item.record.type === 'endpoint' ? 'Edit endpoint' : 'Edit view'
+                    const addJoinSourceTableName = getSidebarAddJoinSourceTableName(
+                        item.record.type,
+                        item.name,
+                        item.record.type === 'endpoint' ? item.record.tableName : undefined
+                    )
 
                     return (
                         <DropdownMenuGroup>
+                            <div className="flex gap-px">
+                                {!isEmbeddedMode && item.record.type !== 'endpoint' ? (
+                                    <>
+                                        <DropdownMenuItem
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                openItemEditor(item)
+                                            }}
+                                        >
+                                            <ButtonPrimitive menuItem className="flex-1 rounded-r-none">
+                                                {editLabel}
+                                            </ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                openItemEditor(item, true)
+                                            }}
+                                        >
+                                            <ButtonPrimitive
+                                                menuItem
+                                                className="px-2 rounded-l-none"
+                                                iconOnly
+                                                tooltip={editLabel}
+                                            >
+                                                <IconExternal />
+                                            </ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                    </>
+                                ) : (
+                                    <DropdownMenuItem
+                                        asChild
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            openItemEditor(item, true)
+                                        }}
+                                    >
+                                        <ButtonPrimitive menuItem>{editLabel}</ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                )}
+                            </div>
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    if (isEmbeddedMode) {
-                                        setActiveTab(OutputTab.Results)
-                                        setSourceQuery({
-                                            ...sourceQuery,
-                                            source: {
-                                                ...sourceQuery.source,
-                                                connectionId: nextConnectionId,
-                                            },
-                                        })
-                                        setQueryInput(selectAllQuery)
-                                        return
-                                    }
-
-                                    router.actions.push(
-                                        urls.sqlEditor({
-                                            query: selectAllQuery,
-                                            outputTab: OutputTab.Results,
-                                            connectionId: nextConnectionId,
-                                        })
-                                    )
+                                    previewItem(item)
                                 }}
                             >
-                                <ButtonPrimitive menuItem>Select all</ButtonPrimitive>
+                                <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
-                            {!isEmbeddedMode && item.record.type !== 'endpoint' ? (
+                            {addJoinSourceTableName ? (
                                 <DropdownMenuItem
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        router.actions.push(url)
+                                        selectSourceTable(addJoinSourceTableName)
                                     }}
                                 >
-                                    <ButtonPrimitive menuItem>Edit view definition</ButtonPrimitive>
+                                    <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
-                            <DropdownMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    newInternalTab(url)
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>Edit in new tab</ButtonPrimitive>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    void copyToClipboard(table)
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>Copy name</ButtonPrimitive>
-                            </DropdownMenuItem>
+                            {item.record.type === 'view' ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openMaterializationModal(item.record?.view)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Materialization</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                         </DropdownMenuGroup>
                     )
                 }
@@ -723,6 +823,8 @@ export const QueryDatabase = (): JSX.Element => {
                 }
                 return <TreeNodeDisplayIcon item={item} expandedItemIds={expandedItemIds} />
             }}
+            virtualized
+            virtualizationScrollContainerRef={virtualizationScrollContainerRef}
         />
     )
 }

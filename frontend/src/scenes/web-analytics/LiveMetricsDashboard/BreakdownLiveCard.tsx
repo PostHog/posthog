@@ -66,7 +66,7 @@ const BreakdownLiveCardInner = <T extends BreakdownItem>({
     const hasData = data.length > 0 && data.some((d) => d.count > 0)
 
     return (
-        <div className="bg-bg-light rounded-lg border border-border p-4 h-full flex flex-col">
+        <div className="bg-bg-light rounded-lg border border-border p-4 h-full min-h-[340px] flex flex-col">
             <div className="mb-4">
                 <h3 className="text-sm font-semibold text-default">{title}</h3>
             </div>

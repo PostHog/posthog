@@ -323,6 +323,11 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert config["sessionRecording"]["triggerGroups"][0]["id"] == "errors"
         assert config["sessionRecording"]["triggerGroups"][0]["sampleRate"] == 1.0
         assert config["sessionRecording"]["triggerGroups"][0]["minDurationMs"] == 0
+        # Events should be normalized to objects for SDK
+        assert config["sessionRecording"]["triggerGroups"][0]["conditions"]["events"] == [
+            {"name": "error"},
+            {"name": "crash"},
+        ]
         assert config["sessionRecording"]["triggerGroups"][1]["id"] == "feature-test"
         assert config["sessionRecording"]["triggerGroups"][1]["minDurationMs"] == 10000
         # V2 fields should be present

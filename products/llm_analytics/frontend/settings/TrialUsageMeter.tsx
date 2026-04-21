@@ -47,10 +47,10 @@ export function TrialUsageMeterDisplay({
                     Trial evaluations exhausted.{' '}
                     {showSettingsLink ? (
                         <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
-                            Add your OpenAI API key
+                            Add your API key
                         </Link>
                     ) : (
-                        'Add your OpenAI API key'
+                        'Add your API key'
                     )}{' '}
                     to continue running evaluations.
                 </p>

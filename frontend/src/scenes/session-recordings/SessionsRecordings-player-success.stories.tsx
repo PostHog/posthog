@@ -168,7 +168,7 @@ const meta: Meta = {
                     200,
                     { success: true },
                 ],
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
                     if (body.query.kind === 'HogQLQuery' && body.query.query.includes('$session_id as session_id')) {
@@ -213,7 +213,7 @@ export const RecordingsPlayListNoPinnedRecordings: Story = {
 }
 
 export const RecordingsPlayListWithPinnedRecordings: Story = {
-    parameters: { pageUrl: sceneUrl(urls.replayPlaylist('1234567')) },
+    parameters: { pageUrl: sceneUrl(urls.replayPlaylist('1234567')), testOptions: { snapshotBrowsers: [] } },
 }
 
 export const SecondRecordingInList: Story = {
@@ -236,7 +236,7 @@ export const RecentRecordingsEmpty: Story = {
                 'api/projects/:team/notebooks': { count: 0, next: null, previous: null, results: [] },
             },
             post: {
-                '/api/environments/:team_id/query': () => [200, { results: [] }],
+                '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
             },
         }),
     ],

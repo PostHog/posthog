@@ -1,6 +1,7 @@
 import './ImagePreview.scss'
 
 import clsx from 'clsx'
+import { useActions } from 'kea'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
@@ -16,12 +17,13 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
+import { autoCaptureEventToDescription, capitalizeFirstLetter, ceilMsToClosestSecond, isString } from 'lib/utils'
 import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
+import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
 
@@ -248,30 +250,32 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
 }
 
 function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; index: number }): JSX.Element {
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const [expanded, setExpanded] = useState(false)
+
+    const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(event.timeInRecording) - 1000)
 
     return (
         <div className={index > 0 ? 'border-t' : ''}>
-            <div
-                className="flex items-center gap-1 cursor-pointer hover:bg-surface-primary"
-                onClick={() => setExpanded(!expanded)}
-            >
-                <span className="shrink-0 text-secondary pl-2">
+            <div className="flex items-center gap-1 cursor-pointer hover:bg-surface-primary">
+                <span className="shrink-0 text-secondary pl-2" onClick={() => setExpanded(!expanded)}>
                     {expanded ? <IconCollapse className="text-sm" /> : <IconExpand className="text-sm" />}
                 </span>
-                <ItemTimeDisplay
-                    timestamp={event.timestamp}
-                    timeInRecording={event.timeInRecording}
-                    className="shrink-0 text-secondary !py-0"
-                />
-                <PropertyKeyInfo
-                    className="truncate"
-                    disablePopover
-                    disableIcon
-                    ellipsis
-                    value={capitalizeFirstLetter(autoCaptureEventToDescription(event.data))}
-                    type={TaxonomicFilterGroupType.Events}
-                />
+                <div className="flex items-center gap-1 flex-1 overflow-hidden" onClick={seekToEvent}>
+                    <ItemTimeDisplay
+                        timestamp={event.timestamp}
+                        timeInRecording={event.timeInRecording}
+                        className="shrink-0 text-secondary !py-0"
+                    />
+                    <PropertyKeyInfo
+                        className="truncate"
+                        disablePopover
+                        disableIcon
+                        ellipsis
+                        value={capitalizeFirstLetter(autoCaptureEventToDescription(event.data))}
+                        type={TaxonomicFilterGroupType.Events}
+                    />
+                </div>
             </div>
             {expanded ? (
                 <div className="pl-6 pb-1">

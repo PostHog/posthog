@@ -4,7 +4,13 @@ import pytest
 
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 from llm_gateway.request_context import (
+    RequestContext,
+    apply_posthog_context_from_headers,
+    get_posthog_flags,
+    get_posthog_properties,
     record_cost,
+    request_context_var,
+    set_request_context,
     set_throttle_context,
     throttle_context_var,
     throttle_runner_var,
@@ -84,3 +90,82 @@ class TestRecordCost:
         await record_cost(0.0015, end_user_id="fallback-id")
 
         assert context.end_user_id == "fallback-id"
+        mock_runner.record_cost.assert_called_once_with(context, 0.0015)
+
+
+class TestApplyPosthogContextFromHeaders:
+    @pytest.fixture(autouse=True)
+    def reset_request_context(self) -> None:
+        request_context_var.set(None)
+
+    def test_sets_properties_and_flags_from_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-POSTHOG-PROPERTY-VARIANT", "memes"),
+            ("X-POSTHOG-FLAG-EXPERIMENT", "test"),
+            ("Content-Type", "application/json"),
+        ]
+        set_request_context(RequestContext(request_id="req-123"))
+
+        apply_posthog_context_from_headers(request)
+
+        assert get_posthog_properties() == {"variant": "memes"}
+        assert get_posthog_flags() == {"experiment": "test"}
+
+    def test_leaves_existing_context_unchanged_without_matching_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [("Content-Type", "application/json")]
+        set_request_context(
+            RequestContext(
+                request_id="req-123",
+                posthog_properties={"existing": "property"},
+                posthog_flags={"existing": "flag"},
+            )
+        )
+
+        apply_posthog_context_from_headers(request)
+
+        assert get_posthog_properties() == {"existing": "property"}
+        assert get_posthog_flags() == {"existing": "flag"}
+
+    def test_updates_only_properties_preserves_existing_flags(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-POSTHOG-PROPERTY-VARIANT", "memes"),
+            ("Content-Type", "application/json"),
+        ]
+        set_request_context(
+            RequestContext(
+                request_id="req-123",
+                posthog_properties={"existing": "property"},
+                posthog_flags={"existing": "flag"},
+            )
+        )
+
+        apply_posthog_context_from_headers(request)
+
+        assert get_posthog_properties() == {"variant": "memes"}
+        assert get_posthog_flags() == {"existing": "flag"}
+
+    def test_updates_only_flags_preserves_existing_properties(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-POSTHOG-FLAG-EXPERIMENT", "test"),
+            ("Content-Type", "application/json"),
+        ]
+        set_request_context(
+            RequestContext(
+                request_id="req-123",
+                posthog_properties={"existing": "property"},
+                posthog_flags={"existing": "flag"},
+            )
+        )
+
+        apply_posthog_context_from_headers(request)
+
+        assert get_posthog_properties() == {"existing": "property"}
+        assert get_posthog_flags() == {"experiment": "test"}

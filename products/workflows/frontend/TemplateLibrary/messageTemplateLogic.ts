@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { NEW_TEMPLATE } from './constants'
 import type { messageTemplateLogicType } from './messageTemplateLogicType'
-import { MessageTemplate } from './messageTemplatesLogic'
+import { MessageTemplate } from './types'
 
 export interface MessageTemplateLogicProps {
     id: string

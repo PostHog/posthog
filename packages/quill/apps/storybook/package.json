@@ -1,0 +1,39 @@
+{
+    "name": "@posthog/quill-storybook",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "storybook": "pnpm --filter @posthog/quill-tokens build && storybook dev -p 6006",
+        "build-storybook": "pnpm --filter @posthog/quill-tokens build && storybook build",
+        "test:visual:ci:update": "pnpm exec test-storybook -u --junit --no-index-json --maxWorkers=1",
+        "test:visual:ci:verify": "pnpm exec test-storybook --ci --junit --no-index-json --maxWorkers=1",
+        "test:visual:debug": "PWDEBUG=1 pnpm exec test-storybook --browsers chromium --no-index-json"
+    },
+    "dependencies": {
+        "@fontsource-variable/inter": "^5.2.8",
+        "@posthog/quill": "workspace:^",
+        "@posthog/quill-tokens": "workspace:^",
+        "lucide-react": "^0.577.0",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+        "tailwindcss": "^4.1.17"
+    },
+    "devDependencies": {
+        "@storybook/addon-docs": "^7.6.4",
+        "@storybook/addon-toolbars": "^7.6.4",
+        "@storybook/react": "catalog:",
+        "@storybook/react-vite": "^7.6.4",
+        "@storybook/test-runner": "^0.16.0",
+        "@tailwindcss/vite": "^4.1.17",
+        "@types/jest-image-snapshot": "^6.4.0",
+        "@types/react": "^19.2.14",
+        "@types/react-dom": "^19.2.3",
+        "@vitejs/plugin-react": "^4.3.4",
+        "jest-image-snapshot": "^6.4.0",
+        "storybook": "^7.6.4",
+        "storybook-addon-pseudo-states": "2.1.2",
+        "typescript": "catalog:",
+        "vite": "^5.4.21"
+    }
+}

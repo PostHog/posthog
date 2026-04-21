@@ -133,6 +133,7 @@ const ProductAnalyticsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
 const ProductAnalyticsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactRouterInstallation,
     snippets: JS_WEB_SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const ProductAnalyticsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
