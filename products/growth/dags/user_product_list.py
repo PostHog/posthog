@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlparse
 
-from django.db import close_old_connections
+from django.db import connections
 
 import dagster
 import pydantic
@@ -305,7 +305,7 @@ def sync_colleagues_products_for_team_op(
         finally:
             # Release per-connection buffers between teams to keep RSS flat
             # across a 1000-team batch inside one subprocess.
-            close_old_connections()
+            connections.close_all()
 
     success_results = [r for r in results if r.status == "success"]
     failed_results = [r for r in results if r.status in ("failed", "error")]
@@ -449,7 +449,7 @@ def sync_cross_sell_products_for_team_op(
         finally:
             # Release per-connection buffers between teams to keep RSS flat
             # across a 1000-team batch inside one subprocess.
-            close_old_connections()
+            connections.close_all()
 
     success_results = [r for r in results if r.status == "success"]
     failed_results = [r for r in results if r.status in ("failed", "error")]
