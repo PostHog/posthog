@@ -5,14 +5,6 @@ from typing import Literal
 from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings
 
-# Customer-facing URL per region. Used as the `instance` group on captured events so the
-# per-region usage_report can filter by `$group_1 = region_url` and avoid double-counting
-# dual-captured events.
-REGION_TO_URL: dict[str, str] = {
-    "US": "https://us.posthog.com",
-    "EU": "https://eu.posthog.com",
-}
-
 
 class ProductCostLimit(BaseModel, frozen=True):
     limit_usd: float

@@ -85,7 +85,7 @@ class TestPostHogCallback:
 
             assert call_kwargs["distinct_id"] == "user-distinct-id-123"
             assert call_kwargs["event"] == "$ai_generation"
-            assert call_kwargs["groups"] == {"project": 456}
+            assert call_kwargs["groups"] == {"instance": "https://us.posthog.com", "project": 456}
 
             props = call_kwargs["properties"]
             assert props["$ai_model"] == "claude-3-opus"
@@ -117,8 +117,8 @@ class TestPostHogCallback:
 
             call_kwargs = mock_client.capture.call_args.kwargs
             # distinct_id should be a UUID string since no auth user
-            # No team_id and no region_url → empty groups dict
-            assert call_kwargs["groups"] == {}
+            # No team_id → only the region-derived `instance` group is present.
+            assert call_kwargs["groups"] == {"instance": "https://us.posthog.com"}
 
     @pytest.mark.asyncio
     async def test_on_success_uses_end_user_id_for_distinct_id(
@@ -250,14 +250,14 @@ class TestPostHogCallback:
         standard_logging_object: dict,
         mock_posthog_client: tuple,
     ) -> None:
-        """EU deployment: events get region super_property + `instance` group so the
-        per-region usage_report can filter on `$group_1 = region_url`."""
+        """EU deployment: the `Posthog` client is built with `region` as a super-property
+        and the event carries `instance = region_url` so the per-region usage_report can
+        filter on `$group_1 = region_url`."""
         mock_cls, mock_client = mock_posthog_client
         callback = PostHogCallback(
             api_key="eu-key",
             host="https://eu.i.posthog.com",
             region="EU",
-            region_url="https://eu.posthog.com",
         )
         kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
 
@@ -276,7 +276,6 @@ class TestPostHogCallback:
             )
             call_kwargs = mock_client.capture.call_args.kwargs
             assert call_kwargs["groups"] == {"instance": "https://eu.posthog.com", "project": 456}
-            assert call_kwargs["properties"]["region"] == "EU"
 
     @pytest.mark.asyncio
     async def test_mirror_dual_captures_to_second_project(
@@ -287,12 +286,11 @@ class TestPostHogCallback:
     ) -> None:
         """EU deployment with a US mirror: every event is sent to both projects so
         US team 2 gets dev visibility while EU team 1 stays the billing source of truth."""
-        mock_cls, _ = mock_posthog_client
+        mock_cls, mock_client = mock_posthog_client
         callback = PostHogCallback(
             api_key="eu-key",
             host="https://eu.i.posthog.com",
             region="EU",
-            region_url="https://eu.posthog.com",
             mirror_api_key="us-mirror-key",
             mirror_host="https://us.i.posthog.com",
         )
@@ -309,6 +307,16 @@ class TestPostHogCallback:
         keys = [call.args[0] for call in mock_cls.call_args_list]
         assert hosts == ["https://eu.i.posthog.com", "https://us.i.posthog.com"]
         assert keys == ["eu-key", "us-mirror-key"]
+
+        # Both clients were region-stamped identically — the event originated in EU
+        # regardless of which project it lands in.
+        for call in mock_cls.call_args_list:
+            assert call.kwargs["super_properties"] == {"region": "EU"}
+
+        # Both clients actually captured — construction alone isn't enough.
+        assert mock_client.capture.call_count == 2
+        primary_call, mirror_call = mock_client.capture.call_args_list
+        assert primary_call.kwargs == mirror_call.kwargs
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("product", ["wizard", "posthog_code", "llm_gateway"])
@@ -381,7 +389,7 @@ class TestPostHogCallback:
 
             call_kwargs = mock_client.capture.call_args.kwargs
             assert call_kwargs["distinct_id"] == "openai-end-user-456"
-            assert call_kwargs["groups"] == {"project": 456}
+            assert call_kwargs["groups"] == {"instance": "https://us.posthog.com", "project": 456}
 
             props = call_kwargs["properties"]
             assert props["$ai_trace_id"] == "metadata-user-id"

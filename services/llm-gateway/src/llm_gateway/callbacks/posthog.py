@@ -2,7 +2,7 @@ import ast
 import asyncio
 import json
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import structlog
@@ -18,6 +18,16 @@ from llm_gateway.request_context import (
 )
 
 logger = structlog.get_logger(__name__)
+
+Region = Literal["US", "EU"]
+
+# Customer-facing URL per region. Used as the `instance` group on captured events so the
+# per-region `usage_report` can filter by `$group_1 = region_url` without double-counting
+# dual-captured events.
+_REGION_TO_URL: dict[Region, str] = {
+    "US": "https://us.posthog.com",
+    "EU": "https://eu.posthog.com",
+}
 
 
 def _replace_binary_content(data: Any) -> Any:
@@ -80,8 +90,7 @@ class PostHogCallback(InstrumentedCallback):
         self,
         api_key: str,
         host: str,
-        region: str = "US",
-        region_url: str | None = None,
+        region: Region = "US",
         mirror_api_key: str | None = None,
         mirror_host: str | None = None,
     ):
@@ -89,7 +98,7 @@ class PostHogCallback(InstrumentedCallback):
         self._api_key = api_key
         self._host = host
         self._region = region
-        self._region_url = region_url
+        self._region_url = _REGION_TO_URL[region]
         self._mirror_api_key = mirror_api_key
         self._mirror_host = mirror_host
 
@@ -146,8 +155,6 @@ class PostHogCallback(InstrumentedCallback):
 
         if team_id:
             properties["team_id"] = team_id
-
-        properties["region"] = self._region
 
         response_cost = standard_logging_object.get("response_cost")
         if response_cost is not None:
@@ -227,8 +234,6 @@ class PostHogCallback(InstrumentedCallback):
         if team_id:
             properties["team_id"] = team_id
 
-        properties["region"] = self._region
-
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
             "event": "$ai_generation",
@@ -248,9 +253,7 @@ class PostHogCallback(InstrumentedCallback):
     def _build_groups(self, team_id: int | None) -> dict[str, Any]:
         # `instance` becomes $group_1 on the internal PostHog project and is how
         # usage_report.py scopes billing to its own region.
-        groups: dict[str, Any] = {}
-        if self._region_url:
-            groups["instance"] = self._region_url
+        groups: dict[str, Any] = {"instance": self._region_url}
         if team_id:
             groups["project"] = team_id
         return groups
