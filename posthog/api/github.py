@@ -1,6 +1,7 @@
 import base64
 from hashlib import sha256
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.db.models import Q
@@ -75,6 +76,7 @@ def get_github_login(user: User) -> str | None:
     social_auth_login = (
         user.social_auth.filter(provider="github")
         .exclude(extra_data__login=None)
+        .order_by("id")
         .values_list("extra_data__login", flat=True)
         .first()
     )
@@ -83,7 +85,7 @@ def get_github_login(user: User) -> str | None:
     return None
 
 
-def get_org_member_github_logins_by_user_uuid(org_id: str, user_uuids: list[str]) -> dict[str, str]:
+def get_org_member_github_logins_by_user_uuid(org_id: str | UUID, user_uuids: list[str]) -> dict[str, str]:
     """Build a mapping of PostHog user UUID string -> GitHub login for org members on the team.
 
     Resolution matches ``get_github_login``: first GitHub integration by ``id`` with a
