@@ -8212,15 +8212,21 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("posthog.api.feature_flag.get_person_and_distinct_ids_for_identifier")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
-    def test_test_evaluation_happy_path(self, mock_get_flags):
+    def test_test_evaluation_happy_path(self, mock_get_person, mock_get_flags):
         """Test successful evaluation of a feature flag."""
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
             filters={"groups": [{"properties": [{"key": "email", "type": "person", "value": "test@example.com"}]}]},
         )
-        Person.objects.create(team=self.team, distinct_ids=["test-user"])
+        person = Person.objects.create(
+            team=self.team, distinct_ids=["test-user"], properties={"email": "test@example.com"}
+        )
+
+        # Mock person lookup
+        mock_get_person.return_value = (person, ["test-user"])
 
         # Mock successful flag evaluation response
         mock_get_flags.return_value = {
