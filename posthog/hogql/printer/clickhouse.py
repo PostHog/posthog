@@ -284,9 +284,12 @@ class ClickHousePrinter(BasePrinter):
             # Build rate lookup expressions
             from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
             to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
-            # Use if() around divisor to avoid division by zero with enable_analyzer=0
-            # (old analyzer evaluates all branches regardless of condition)
-            safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
+            # Guard against division by zero under enable_analyzer=0 (old analyzer evaluates
+            # all branches eagerly). `if(from_rate = 0, 1, from_rate)` can be collapsed back
+            # to `from_rate` by the optimizer — `greatest(from_rate, epsilon)` cannot, because
+            # its value differs from `from_rate` whenever `from_rate < epsilon`. The outer
+            # `if` still returns 0 for missing rates, so the epsilon branch is never observed.
+            safe_from_rate = f"greatest({from_rate}, toDecimal64('0.0000000001', 10))"
             return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
 
         relevant_clickhouse_name = func_meta.clickhouse_name
