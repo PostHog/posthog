@@ -15,6 +15,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Comments } from 'scenes/data-management/comments/Comments'
+import { Tags } from 'scenes/data-management/tags'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { CoreEventsSettings } from 'scenes/settings/environment/CoreEventsSettings'
@@ -42,6 +43,7 @@ export enum DataManagementTab {
     SchemaManagement = 'schema',
     Annotations = 'annotations',
     Comments = 'comments',
+    Tags = 'tags',
     History = 'history',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
@@ -126,6 +128,11 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         label: 'Comments',
         buttons: undefined,
         tooltipDocLink: 'https://posthog.com/docs/data/comments',
+    },
+    [DataManagementTab.Tags]: {
+        url: urls.tags(),
+        content: <Tags />,
+        label: 'Tags',
     },
     [DataManagementTab.History]: {
         url: urls.dataManagementHistory(),

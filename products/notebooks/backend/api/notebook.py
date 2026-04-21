@@ -23,6 +23,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
 from posthog.models import User
@@ -112,7 +113,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
         extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
 
-class NotebookSerializer(NotebookMinimalSerializer):
+class NotebookSerializer(TaggedItemSerializerMixin, NotebookMinimalSerializer):
     class Meta:
         model = Notebook
         fields = [
@@ -129,6 +130,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_by",
             "user_access_level",
             "_create_in_folder",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -359,7 +361,13 @@ def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
         ],
     )
 )
-class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class NotebookViewSet(
+    TaggedItemViewSetMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
+):
     scope_object = "notebook"
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]

@@ -20,6 +20,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -74,7 +75,7 @@ class ExperimentExposureCriteriaField(serializers.JSONField):
     pass
 
 
-class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class ExperimentSerializer(TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(
         source="get_feature_flag_key",
         help_text=(
@@ -218,6 +219,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "update_feature_flag_params",
             "status",
             "user_access_level",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -446,6 +448,7 @@ class EnterpriseExperimentsViewSet(
     # responsible for exception-to-response formatting.
     ApprovalHandlingMixin,
     ForbidDestroyModel,
+    TaggedItemViewSetMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     viewsets.ModelViewSet,

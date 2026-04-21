@@ -36,6 +36,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.client import sync_execute
@@ -423,7 +424,7 @@ class CohortFiltersField(serializers.JSONField):
     pass
 
 
-class CohortSerializer(serializers.ModelSerializer):
+class CohortSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -463,6 +464,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "experiment_set",
             "_create_in_folder",
             "_create_static_person_ids",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -1094,7 +1096,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(tags=["core"])
-class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class CohortViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     scope_object = "cohort"

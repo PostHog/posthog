@@ -22,6 +22,7 @@ from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
@@ -190,7 +191,9 @@ def log_playlist_activity(
         )
 
 
-class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+class SessionRecordingPlaylistSerializer(
+    TaggedItemSerializerMixin, serializers.ModelSerializer, UserAccessControlSerializerMixin
+):
     recordings_counts = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     is_synthetic = serializers.SerializerMethodField()
@@ -244,6 +247,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             "type",
             "is_synthetic",
             "_create_in_folder",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -377,7 +381,11 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
 @extend_schema(tags=["replay"])
 class SessionRecordingPlaylistViewSet(
-    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
+    TaggedItemViewSetMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
 ):
     scope_object = "session_recording_playlist"
     scope_object_read_actions = ["list", "retrieve", "recordings"]

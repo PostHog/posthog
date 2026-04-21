@@ -18,6 +18,7 @@ from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -77,7 +78,7 @@ class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
         fields = ["id", "status", "name", "description", "first_seen", "assignee"]
 
 
-class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
+class ErrorTrackingIssueFullSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     first_seen = serializers.DateTimeField()
     assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
     external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
@@ -85,7 +86,17 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingIssue
-        fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues", "cohort"]
+        fields = [
+            "id",
+            "status",
+            "name",
+            "description",
+            "first_seen",
+            "assignee",
+            "external_issues",
+            "cohort",
+            "tags",
+        ]
 
     @extend_schema_field(
         {
@@ -192,7 +203,9 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
-class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class ErrorTrackingIssueViewSet(
+    TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
+):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.
     scope_object_read_actions = ["list", "retrieve", "values", "exists"]

@@ -13,6 +13,15 @@ RELATED_OBJECTS = (
     "feature_flag",
     "experiment_saved_metric",
     "ticket",
+    "experiment",
+    "cohort",
+    "notebook",
+    "survey",
+    "session_recording_playlist",
+    "data_warehouse_saved_query",
+    "hog_function",
+    "batch_export",
+    "error_tracking_issue",
 )
 
 
@@ -86,6 +95,69 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     )
     ticket = models.ForeignKey(
         "conversations.Ticket",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    experiment = models.ForeignKey(
+        "experiments.Experiment",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    cohort = models.ForeignKey(
+        "Cohort",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    notebook = models.ForeignKey(
+        "notebooks.Notebook",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    survey = models.ForeignKey(
+        "surveys.Survey",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    session_recording_playlist = models.ForeignKey(
+        "SessionRecordingPlaylist",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    data_warehouse_saved_query = models.ForeignKey(
+        "data_warehouse.DataWarehouseSavedQuery",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    hog_function = models.ForeignKey(
+        "HogFunction",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    batch_export = models.ForeignKey(
+        "BatchExport",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    error_tracking_issue = models.ForeignKey(
+        "error_tracking.ErrorTrackingIssue",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

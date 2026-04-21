@@ -2678,6 +2678,21 @@ export enum AnnotationScope {
     Organization = 'organization',
 }
 
+export interface TagType {
+    id: string
+    name: string
+    /** Number of entities currently tagged with this tag across all taggable entity types. */
+    usage_count: number
+}
+
+export interface TagItemType {
+    /** Entity type as defined in RELATED_OBJECTS on the backend TaggedItem model. */
+    type: string
+    /** String-serialized entity ID so UUID and integer PKs are handled uniformly. */
+    id: string
+    name?: string | null
+}
+
 export interface RawAnnotationType {
     id: number
     scope: AnnotationScope

@@ -115,6 +115,7 @@ export const urls = {
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     comments: (): string => '/data-management/comments',
     comment: (id: CommentType['id'] | ':id'): string => `/data-management/comments/${id}`,
+    tags: (): string => '/data-management/tags',
     variables: (): string => '/data-management/variables',
     variable: (id: string | ':id'): string => `/data-management/variables/${id}`,
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,

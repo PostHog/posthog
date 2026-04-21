@@ -1,11 +1,12 @@
 import dataclasses
 from typing import Any, Literal, Optional, cast
 
-from django.db.models import Prefetch, Q, QuerySet
+from django.db import transaction
+from django.db.models import Count, Prefetch, Q, QuerySet
 
 from drf_spectacular.utils import extend_schema
-from rest_framework import response, serializers, status, viewsets
-from rest_framework.viewsets import GenericViewSet
+from rest_framework import mixins, response, serializers, status, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -20,6 +21,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tag import tagify
+from posthog.models.tagged_item import RELATED_OBJECTS
 from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 
 
@@ -238,13 +240,160 @@ class TaggedItemSerializer(serializers.Serializer):
         return obj.tag.name
 
 
-class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
+class TagSerializer(serializers.ModelSerializer):
+    usage_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of entities currently tagged with this tag across all entity types.",
+    )
+
+    class Meta:
+        model = Tag
+        fields = ["id", "name", "usage_count"]
+        read_only_fields = ["id", "usage_count"]
+
+    def validate_name(self, value: str) -> str:
+        cleaned = tagify(value)
+        if not cleaned:
+            raise ValidationError("Tag name must not be empty.")
+        return cleaned
+
+    def create(self, validated_data: dict[str, Any]) -> Tag:
+        team_id = self.context["get_team"]().id
+        name = validated_data["name"]
+        tag, _ = Tag.objects.get_or_create(name=name, team_id=team_id)
+        return tag
+
+    def update(self, instance: Tag, validated_data: dict[str, Any]) -> Tag:
+        new_name = validated_data.get("name")
+        if new_name is not None and new_name != instance.name:
+            existing = Tag.objects.filter(team_id=instance.team_id, name=new_name).exclude(pk=instance.pk).first()
+            if existing is not None:
+                raise ValidationError({"name": "A tag with that name already exists. Use the merge endpoint instead."})
+            instance.name = new_name
+            instance.save(update_fields=["name"])
+        return instance
+
+
+class TagMergeRequestSerializer(serializers.Serializer):
+    target_id = serializers.UUIDField(help_text="ID of the tag to merge the source tag into.")
+
+
+class TaggedItemSummarySerializer(serializers.Serializer):
+    """Entity reference for a single `TaggedItem` row from the items endpoint."""
+
+    type = serializers.CharField(help_text="Related object type (one of RELATED_OBJECTS on TaggedItem).")
+    id = serializers.CharField(help_text="Related object ID. String-serialized to uniformly handle int and UUID PKs.")
+    name = serializers.CharField(allow_null=True, required=False, help_text="Human-readable name of the entity.")
+
+
+@extend_schema(tags=["tags"])
+class TagViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Global tag management.
+
+    - `GET /` lists tags with per-tag usage counts. Pass `?shape=names` to get
+      a flat array of tag name strings (legacy shape retained for existing
+      callers).
+    - `POST`, `PATCH`, `DELETE` manage the tag catalog.
+    - `GET /:id/items/` lists entities attached to a tag across all entity
+      types.
+    - `POST /:id/merge/` reassigns the source tag's items to a target tag and
+      then deletes the source.
+    """
+
     scope_object = "INTERNAL"
-    serializer_class = TaggedItemSerializer
+    serializer_class = TagSerializer
     queryset = Tag.objects.none()
 
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return (
+            Tag.objects.filter(team=self.team)
+            .annotate(usage_count=Count("tagged_items"))
+            .order_by("name")
+        )
+
     def list(self, request, *args, **kwargs) -> response.Response:
-        return response.Response(Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct())
+        # Legacy shape: `?shape=names` returns a flat list of tag names. This
+        # matches the pre-TagViewSet behaviour — keep it alive until every
+        # caller migrates.
+        if request.query_params.get("shape") == "names":
+            return response.Response(
+                Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct()
+            )
+        return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        responses={200: TaggedItemSummarySerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=True)
+    def items(self, request, *args, **kwargs) -> response.Response:
+        """Return every entity tagged with this tag, grouped by entity type."""
+        tag = self.get_object()
+        tagged_items = tag.tagged_items.select_related(*RELATED_OBJECTS).all()
+        results: list[dict[str, Any]] = []
+        for tagged_item in tagged_items:
+            related_type, related_id, related_name = get_tagged_item_related_object_info(tagged_item)
+            if related_type and related_id:
+                results.append({"type": related_type, "id": related_id, "name": related_name})
+        return response.Response(results)
+
+    @extend_schema(
+        request=TagMergeRequestSerializer,
+        responses={200: TagSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def merge(self, request, *args, **kwargs) -> response.Response:
+        """Merge the current tag into a target tag.
+
+        All `TaggedItem`s pointing at the source tag are reassigned to the
+        target. Rows that would collide with the target's existing items
+        (i.e. the target already tags the same entity) are dropped instead
+        of duplicated. The source tag is deleted at the end.
+        """
+        source_tag = self.get_object()
+        request_serializer = TagMergeRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        target_id = request_serializer.validated_data["target_id"]
+
+        if str(target_id) == str(source_tag.id):
+            raise ValidationError({"target_id": "Cannot merge a tag into itself."})
+
+        try:
+            target_tag = Tag.objects.get(pk=target_id, team_id=source_tag.team_id)
+        except Tag.DoesNotExist:
+            raise NotFound("Target tag not found in this team.")
+
+        with transaction.atomic():
+            for tagged_item in source_tag.tagged_items.all():
+                target_filter = {f"{field}_id": getattr(tagged_item, f"{field}_id") for field in RELATED_OBJECTS}
+                # `target_filter` has exactly one non-null key because of the
+                # exactly_one_related_object check constraint.
+                already_tagged = target_tag.tagged_items.filter(**target_filter).exists()
+                if already_tagged:
+                    tagged_item.delete()
+                else:
+                    tagged_item.tag = target_tag
+                    tagged_item.save(update_fields=["tag"])
+            source_tag.delete()
+
+        target_tag.refresh_from_db()
+        return response.Response(
+            TagSerializer(
+                Tag.objects.filter(pk=target_tag.pk).annotate(usage_count=Count("tagged_items")).first()
+            ).data
+        )
+
+
+# Kept as an alias so existing imports / URLs keep working while we migrate
+# callers over to the new `TagViewSet` name.
+TaggedItemViewSet = TagViewSet
 
 
 @dataclasses.dataclass(frozen=True)

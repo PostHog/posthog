@@ -33,6 +33,7 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
 from posthog.event_usage import groups
@@ -488,7 +489,7 @@ def resolve_and_validate_host(host: str) -> None:
             raise ValueError("Host resolved to internal IP")
 
 
-class BatchExportSerializer(serializers.ModelSerializer):
+class BatchExportSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
     destination = BatchExportDestinationSerializer()
@@ -521,6 +522,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "timezone",
             "offset_day",
             "offset_hour",
+            "tags",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
@@ -1002,7 +1004,7 @@ def recursive_dict_merge(
 
 
 @extend_schema(tags=["batch_exports"])
-class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
+class BatchExportViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer

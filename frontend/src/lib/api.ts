@@ -201,6 +201,8 @@ import {
     SubscriptionType,
     Survey,
     SurveyStatsResponse,
+    TagItemType,
+    TagType,
     TeamType,
     TwilioPhoneNumberType,
     UserBasicType,
@@ -733,6 +735,10 @@ export class ApiRequest {
 
     public tags(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('tags')
+    }
+
+    public tag(id: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.tags(projectId).addPathComponent(id)
     }
 
     // # Logs
@@ -2865,8 +2871,51 @@ const api = {
     },
 
     tags: {
+        /**
+         * Legacy shape: returns a flat list of tag name strings. Kept for existing
+         * callers (autocomplete in ObjectTags, etc.). New callers should use
+         * `listFull()` to get `{id, name, usage_count}` rows.
+         */
         async list(projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()): Promise<string[]> {
-            return new ApiRequest().tags(projectId).get()
+            return new ApiRequest().tags(projectId).withQueryString({ shape: 'names' }).get()
+        },
+        async listFull(
+            params: { limit?: number; offset?: number } = {},
+            projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()
+        ): Promise<PaginatedResponse<TagType>> {
+            return new ApiRequest().tags(projectId).withQueryString(params).get()
+        },
+        async create(name: string, projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()): Promise<TagType> {
+            return new ApiRequest().tags(projectId).create({ data: { name } })
+        },
+        async update(
+            id: TagType['id'],
+            name: string,
+            projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()
+        ): Promise<TagType> {
+            return new ApiRequest().tag(id, projectId).update({ data: { name } })
+        },
+        async delete(
+            id: TagType['id'],
+            projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()
+        ): Promise<void> {
+            return new ApiRequest().tag(id, projectId).delete()
+        },
+        async items(
+            id: TagType['id'],
+            projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()
+        ): Promise<TagItemType[]> {
+            return new ApiRequest().tag(id, projectId).withAction('items').get()
+        },
+        async merge(
+            sourceId: TagType['id'],
+            targetId: TagType['id'],
+            projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()
+        ): Promise<TagType> {
+            return new ApiRequest()
+                .tag(sourceId, projectId)
+                .withAction('merge')
+                .create({ data: { target_id: targetId } })
         },
     },
 

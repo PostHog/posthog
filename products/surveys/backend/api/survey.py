@@ -47,6 +47,7 @@ from posthog.api.feature_flag import (
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -455,7 +456,7 @@ class SurveyConditionsSchemaSerializer(serializers.Serializer):
     )
 
 
-class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class SurveySerializer(TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     linked_insight_id = serializers.IntegerField(required=False, allow_null=True, source="linked_insight.id")
@@ -529,6 +530,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "translations",
             "user_access_level",
             "form_content",
+            "tags",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -537,7 +539,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
         return get_survey_conditions_with_actions(survey)
 
 
-class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
+class SurveySerializerCreateUpdateOnly(TaggedItemSerializerMixin, serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     linked_insight_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
@@ -638,6 +640,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "translations",
             "_create_in_folder",
             "form_content",
+            "tags",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -1520,7 +1523,7 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
 )
-class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related(
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"

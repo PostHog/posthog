@@ -30,6 +30,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import (
@@ -147,7 +148,9 @@ class DataWarehouseSavedQuerySerializerMixin:
         ]
 
 
-class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+class DataWarehouseSavedQueryMinimalSerializer(
+    TaggedItemSerializerMixin, DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer
+):
     """Lightweight serializer for list views - excludes large query field to reduce memory usage."""
 
     created_by = UserBasicSerializer(read_only=True)
@@ -178,11 +181,14 @@ class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializer
             "origin",
             "is_test",
             "expires_at",
+            "tags",
         ]
         read_only_fields = fields
 
 
-class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+class DataWarehouseSavedQuerySerializer(
+    TaggedItemSerializerMixin, DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer
+):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
@@ -243,6 +249,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "origin",
             "is_test",
             "expires_at",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -667,7 +674,7 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, viewsets.Mode
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
-class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class DataWarehouseSavedQueryViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """

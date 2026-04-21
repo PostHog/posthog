@@ -27,8 +27,6 @@ class DashboardAdmin(admin.ModelAdmin):
     search_fields = ("id", "name", "team__name", "team__organization__name")
     readonly_fields = (
         "last_accessed_at",
-        "deprecated_tags",
-        "deprecated_tags_v2",
         "share_token",
     )
     autocomplete_fields = ("team", "created_by")

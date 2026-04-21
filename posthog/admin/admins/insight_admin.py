@@ -69,8 +69,6 @@ class InsightAdmin(admin.ModelAdmin):
     list_select_related = ("team", "team__organization")
     search_fields = ("id", "name", "short_id", "team__name", "team__organization__name")
     readonly_fields = (
-        "deprecated_tags",
-        "deprecated_tags_v2",
         "dive_dashboard",
         "sampling_factor_readonly",
         "created_at",
@@ -94,7 +92,7 @@ class InsightAdmin(admin.ModelAdmin):
             "Deprecated fields",
             {
                 "classes": ("collapse",),
-                "fields": ("dashboard", "dive_dashboard", "deprecated_tags", "deprecated_tags_v2"),
+                "fields": ("dashboard", "dive_dashboard"),
             },
         ),
     )
