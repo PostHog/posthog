@@ -16,9 +16,7 @@ ALERT_EVALUATE_RETRY_POLICY = RetryPolicy(
     maximum_interval=dt.timedelta(seconds=30),
     backoff_coefficient=2.0,
     maximum_attempts=5,
-    non_retryable_error_types=[
-        *list(USER_QUERY_ERROR_NAMES),
-    ],
+    non_retryable_error_types=list(USER_QUERY_ERROR_NAMES),
 )
 
 ALERT_NOTIFY_RETRY_POLICY = RetryPolicy(
