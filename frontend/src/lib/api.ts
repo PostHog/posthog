@@ -2806,12 +2806,16 @@ const api = {
     },
 
     exports: {
-        determineExportUrl(exportId: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): string {
-            return new ApiRequest()
-                .export(exportId, teamId)
-                .withAction('content')
-                .withQueryString('download=true')
-                .assembleFullUrl(true)
+        determineExportUrl(
+            exportId: number,
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId(),
+            { download = true }: { download?: boolean } = {}
+        ): string {
+            // `download=true` on the content endpoint sets Content-Disposition: attachment,
+            // which browsers will refuse to render inline via <img src>. Callers rendering inline
+            // previews pass download=false.
+            const request = new ApiRequest().export(exportId, teamId).withAction('content')
+            return (download ? request.withQueryString('download=true') : request).assembleFullUrl(true)
         },
 
         async create(

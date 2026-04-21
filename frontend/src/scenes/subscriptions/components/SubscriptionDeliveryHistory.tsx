@@ -1,6 +1,9 @@
+import { useMemo, useState } from 'react'
+
 import { IconSend } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSelect, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type {
@@ -69,18 +72,49 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
-/** URL builder for an ExportedAsset preview image. Injected so storybook can point at a static asset. */
-export type BuildAssetImageUrl = (assetId: number) => string
+const INLINE_PREVIEW_CAP = 6
+
+function AssetPreviewTile({ assetId }: { assetId: number }): JSX.Element {
+    // Failure modes in prod: authz 404, expired PNG (~6 months), S3 object gone, network timeout.
+    // Show a bordered placeholder so the expanded row does not look broken.
+    const [failed, setFailed] = useState(false)
+    const src = api.exports.determineExportUrl(assetId, undefined, { download: false })
+    const tileClass = 'aspect-video w-full rounded border border-border bg-bg-light'
+    if (failed) {
+        return (
+            <div
+                className={`${tileClass} flex items-center justify-center text-xs text-secondary text-center p-2`}
+                role="img"
+                aria-label="Preview unavailable"
+            >
+                Preview unavailable
+            </div>
+        )
+    }
+    return (
+        <img
+            src={src}
+            alt={`Delivered preview ${assetId}`}
+            loading="lazy"
+            onError={() => setFailed(true)}
+            className={`${tileClass} object-cover`}
+        />
+    )
+}
 
 function ExpandedDeliveryRow({
     summary,
     exportedAssetIds,
-    buildAssetImageUrl,
 }: {
     summary: string | null
     exportedAssetIds: readonly number[]
-    buildAssetImageUrl: BuildAssetImageUrl
 }): JSX.Element {
+    const [showAll, setShowAll] = useState(false)
+    const visibleAssetIds =
+        showAll || exportedAssetIds.length <= INLINE_PREVIEW_CAP
+            ? exportedAssetIds
+            : exportedAssetIds.slice(0, INLINE_PREVIEW_CAP)
+    const hiddenCount = exportedAssetIds.length - visibleAssetIds.length
     return (
         <div className="px-4 py-3 flex flex-col gap-3">
             {summary ? (
@@ -91,32 +125,32 @@ function ExpandedDeliveryRow({
             ) : null}
             {exportedAssetIds.length > 0 ? (
                 <div className="flex flex-col gap-1">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Delivered assets</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                        Attached previews
+                    </div>
                     <div className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-2">
-                        {exportedAssetIds.map((assetId) => (
-                            <img
-                                key={assetId}
-                                src={buildAssetImageUrl(assetId)}
-                                alt={`Delivered asset ${assetId}`}
-                                loading="lazy"
-                                className="w-full h-auto rounded border border-border bg-bg-light"
-                            />
+                        {visibleAssetIds.map((assetId) => (
+                            <AssetPreviewTile key={assetId} assetId={assetId} />
                         ))}
                     </div>
+                    {hiddenCount > 0 ? (
+                        <div className="pt-1">
+                            <LemonButton size="small" type="tertiary" onClick={() => setShowAll(true)}>
+                                Show {hiddenCount} more
+                            </LemonButton>
+                        </div>
+                    ) : null}
                 </div>
             ) : null}
         </div>
     )
 }
 
-function rowHasExpandedContent(row: SubscriptionDeliveryApi): boolean {
+export function rowHasExpandedContent(row: SubscriptionDeliveryApi): boolean {
     return Boolean(row.change_summary) || row.exported_asset_ids.length > 0
 }
 
-function buildExpandable(
-    buildAssetImageUrl: BuildAssetImageUrl,
-    initiallyExpandedDeliveryIds?: ReadonlySet<string>
-): {
+function buildExpandable(initiallyExpandedDeliveryIds?: ReadonlySet<string>): {
     rowExpandable: (row: SubscriptionDeliveryApi) => boolean
     expandedRowRender: (row: SubscriptionDeliveryApi) => JSX.Element
     isRowExpanded?: (row: SubscriptionDeliveryApi) => number
@@ -127,7 +161,6 @@ function buildExpandable(
             <ExpandedDeliveryRow
                 summary={row.change_summary?.summary ?? null}
                 exportedAssetIds={row.exported_asset_ids}
-                buildAssetImageUrl={buildAssetImageUrl}
             />
         ),
     }
@@ -288,8 +321,6 @@ export type SubscriptionDeliveryHistoryProps = {
     testDeliveryLoading?: boolean
     /** Delivery ids whose AI summary row should render pre-expanded (used by storybook visual tests). */
     initiallyExpandedDeliveryIds?: ReadonlySet<string>
-    /** Given an ExportedAsset id, return the image URL to render in the expanded row. */
-    buildAssetImageUrl: BuildAssetImageUrl
 }
 
 export function SubscriptionDeliveryHistory({
@@ -301,7 +332,6 @@ export function SubscriptionDeliveryHistory({
     onTestDelivery,
     testDeliveryLoading = false,
     initiallyExpandedDeliveryIds,
-    buildAssetImageUrl,
 }: SubscriptionDeliveryHistoryProps): JSX.Element {
     const rowCount = deliveriesPage?.results.length ?? 0
     const hasPagination = Boolean(deliveriesPage?.next || deliveriesPage?.previous)
@@ -312,7 +342,9 @@ export function SubscriptionDeliveryHistory({
         (deliveryStatusFilter != null && deliveriesPage != null)
     const showStatusFilter = Boolean(onDeliveryStatusFilterChange)
     const tableEmptyState = deliveryStatusFilter != null ? 'No deliveries match this filter' : 'No deliveries yet'
-    const expandable = buildExpandable(buildAssetImageUrl, initiallyExpandedDeliveryIds)
+    // Memo keeps the `expandable` reference stable across parent re-renders; the previous
+    // module-scope const was dropped when this became a function of props.
+    const expandable = useMemo(() => buildExpandable(initiallyExpandedDeliveryIds), [initiallyExpandedDeliveryIds])
 
     return (
         <>
