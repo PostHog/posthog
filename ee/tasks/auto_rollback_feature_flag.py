@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from celery import shared_task
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -23,6 +24,13 @@ def check_flags_to_rollback():
 @shared_task(ignore_result=True, max_retries=2)
 def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
     flag: FeatureFlag = FeatureFlag.objects.get(pk=feature_flag_id)
+
+    tag_queries(
+        product=Product.FEATURE_FLAGS,
+        feature=Feature.QUERY,
+        team_id=flag.team_id,
+        name="check_feature_flag_rollback_conditions",
+    )
 
     if any(check_condition(condition, flag) for condition in flag.rollback_conditions or []):
         flag.performed_rollback = True
