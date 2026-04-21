@@ -1,44 +1,57 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Mixin for serializers to add user access control fields",
     "properties": {
-        "account_id": {
+        "payload": {
+            "additionalProperties": {},
+            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "source_type": {
+            "description": "The type of external data source to create. Use external-data-sources-wizard to see available types and their required fields.",
+            "enum": [
+                "Postgres",
+                "MySQL",
+                "MSSQL",
+                "Snowflake",
+                "BigQuery",
+                "Redshift",
+                "MongoDB",
+                "Supabase",
+                "Stripe",
+                "Hubspot",
+                "Salesforce",
+                "Zendesk",
+                "Shopify",
+                "GoogleSheets",
+                "GoogleAds",
+                "MetaAds",
+                "LinkedinAds",
+                "TikTokAds",
+                "RedditAds",
+                "SnapchatAds",
+                "BingAds",
+                "PinterestAds",
+                "Chargebee",
+                "Klaviyo",
+                "Mailchimp",
+                "Attio",
+                "Linear",
+                "Sentry",
+                "Github",
+                "Vitally",
+                "Clerk",
+                "Convex",
+                "DoIt",
+                "BuildBetter",
+                "Typeform",
+                "TemporalIO"
+            ],
             "type": "string"
-        },
-        "client_secret": {
-            "type": "string"
-        },
-        "description": {
-            "anyOf": [
-                {
-                    "maxLength": 400,
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ]
-        },
-        "job_inputs": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
-        "prefix": {
-            "anyOf": [
-                {
-                    "maxLength": 100,
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ]
         }
     },
-    "required": ["client_secret", "account_id"],
+    "required": ["source_type", "payload"],
     "type": "object"
 }
