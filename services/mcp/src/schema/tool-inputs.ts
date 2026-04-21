@@ -52,6 +52,9 @@ export const ExternalDataSourcePayloadSchema = z
         'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
     )
 
+// Curated subset of ExternalDataSourceType — only released sources exposed to MCP.
+// When a new source is released in SourceRegistry, add its type here manually.
+// The wizard tool returns the full list; this enum gates what create accepts.
 export const ExternalDataSourceTypeSchema = z
     .enum([
         'Postgres',
