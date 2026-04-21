@@ -55,6 +55,7 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
         indexes = [
             Index(fields=["deleted", "last_counted_at"], name="deleted_n_last_count_idx"),
             Index(fields=["deleted", "-last_modified_at"], name="deleted_n_last_mod_desc_idx"),
+            Index(fields=["team", "deleted", "-last_modified_at"], name="srp_team_deleted_last_mod_idx"),
         ]
 
     @classmethod
