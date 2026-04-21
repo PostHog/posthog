@@ -20,6 +20,7 @@ from posthog.temporal.session_replay.session_summary.types.video import (
 )
 from posthog.temporal.session_replay.session_summary.utils import parse_str_timestamp_to_ms
 
+from ee.hogai.session_summaries.events import capture_session_summary_ready
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import (
     calculate_time_since_start,
@@ -50,18 +51,37 @@ async def store_video_session_summary_activity(
     try:
         from dateutil import parser as dateutil_parser
 
+        from posthog.models.team import Team
         from posthog.models.user import User
 
         from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
         from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
         # Check against duplicate writes (summary already exists). Should not happen, as we should avoid starting the workflow in the first place.
+        team_api_token = await database_sync_to_async(
+            lambda: Team.objects.only("api_token").get(id=inputs.team_id).api_token,
+            thread_sensitive=False,
+        )()
         summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
             team_id=inputs.team_id,
             session_ids=[inputs.session_id],
             extra_summary_context=inputs.extra_summary_context,
         )
         if summary_exists.get(inputs.session_id):
+            existing_summary = await database_sync_to_async(
+                SingleSessionSummary.objects.get_summary,
+                thread_sensitive=False,
+            )(
+                team_id=inputs.team_id,
+                session_id=inputs.session_id,
+                extra_summary_context=inputs.extra_summary_context,
+            )
+            if existing_summary:
+                capture_session_summary_ready(
+                    existing_summary,
+                    summary_origin="single",
+                    team_api_token=team_api_token,
+                )
             logger.exception(
                 f"Video-based summary already exists for session {inputs.session_id}, duplicate write detected, skipping storage",
                 session_id=inputs.session_id,
@@ -115,7 +135,7 @@ async def store_video_session_summary_activity(
         user = await User.objects.aget(id=inputs.user_id)
 
         # Store the summary in the database
-        await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
+        stored_summary = await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
             session_id=inputs.session_id,
             team_id=inputs.team_id,
             summary=session_summary,
@@ -129,6 +149,11 @@ async def store_video_session_summary_activity(
             session_duration=session_duration,
             distinct_id=distinct_id,
             created_by=user,
+        )
+        capture_session_summary_ready(
+            stored_summary,
+            summary_origin="single",
+            team_api_token=team_api_token,
         )
         logger.debug(
             f"Successfully stored video-based summary for session {inputs.session_id}",
