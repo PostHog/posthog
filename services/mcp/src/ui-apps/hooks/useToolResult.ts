@@ -154,11 +154,9 @@ export function useToolResult<T = unknown>({
 
             // Register tool input handler
             appInstance.ontoolinput = (params) => {
-                // Extract toolName from params if available (may be in extended params)
-                const data = params as Record<string, unknown>
                 captureToolInput({
-                    toolName: typeof data.toolName === 'string' ? data.toolName : undefined,
-                    hasArguments: !!data.arguments,
+                    toolName: 'toolName' in params && params.toolName ? (params.toolName as string) : undefined, // toolName is not defined in the type
+                    hasArguments: !!params.arguments,
                 })
             }
 
@@ -168,24 +166,21 @@ export function useToolResult<T = unknown>({
 
             // Register tool cancelled handler
             appInstance.ontoolcancelled = (params) => {
-                const data = params as Record<string, unknown>
                 setIsCancelled(true)
                 captureToolCancelled({
-                    toolName: typeof data.toolName === 'string' ? data.toolName : undefined,
-                    reason: typeof data.reason === 'string' ? data.reason : undefined,
+                    toolName: 'toolName' in params && params.toolName ? (params.toolName as string) : undefined, // toolName is not defined in the type
+                    reason: typeof params.reason === 'string' ? params.reason : undefined,
                 })
             }
 
             // Register host context changed handler
             appInstance.onhostcontextchanged = (params) => {
-                // Cast to access theme which may be in notification params directly
-                const data = params as Record<string, unknown>
                 captureHostContextChanged({
                     hasStyles: !!params.styles,
                     hasFonts: !!params.styles?.css?.fonts,
-                    theme: typeof data.theme === 'string' ? data.theme : undefined,
+                    theme: typeof params.theme === 'string' ? params.theme : undefined,
                 })
-                setContainerDimensions(extractContainerDimensions(data))
+                setContainerDimensions(extractContainerDimensions(params))
             }
 
             // Register tool result handler
