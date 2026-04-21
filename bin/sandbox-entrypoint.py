@@ -344,7 +344,7 @@ def install_geoip() -> None:
 
 def create_kafka_topics() -> None:
     info("Pre-creating Kafka topics...")
-    for topic in ("clickhouse_events_json", "exceptions_ingestion"):
+    for topic in ("clickhouse_events_json",):
         if run_quiet(["rpk", "topic", "describe", topic, "--brokers", "kafka:9092"]).returncode != 0:
             run(["rpk", "topic", "create", topic, "--brokers", "kafka:9092", "-p", "1", "-r", "1"])
 

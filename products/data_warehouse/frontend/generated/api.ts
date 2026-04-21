@@ -20,6 +20,8 @@ import type {
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
+    ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
     PaginatedDataModelingJobListApi,
@@ -35,6 +37,7 @@ import type {
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryDraftApi,
     PatchedDataWarehouseSavedQueryFolderApi,
+    PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
     PatchedQueryTabStateApi,
     ProvisionWarehouseRequestApi,
@@ -731,6 +734,47 @@ export const externalDataSourcesDestroy = async (
 /**
  * Create, Read, Update and Delete External data Sources.
  */
+export const getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/`
+}
+
+export const externalDataSourcesBulkUpdateSchemasPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedExternalDataSourceBulkUpdateSchemasApi: PatchedExternalDataSourceBulkUpdateSchemasApi,
+    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
+    options?: RequestInit
+): Promise<PaginatedExternalDataSchemaListApi> => {
+    return apiMutator<PaginatedExternalDataSchemaListApi>(
+        getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExternalDataSourceBulkUpdateSchemasApi),
+        }
+    )
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
 export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/create_webhook/`
 }
@@ -888,6 +932,29 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * Validate CDC prerequisites against a live Postgres connection.
+
+Used by the source wizard to surface ✅/❌ checks before source creation,
+and by the self-managed setup popup to verify user-created publications.
+ */
+export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/check_cdc_prerequisites/`
+}
+
+export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourcesCheckCdcPrerequisitesCreate200> => {
+    return apiMutator<ExternalDataSourcesCheckCdcPrerequisitesCreate200>(
+        getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 /**

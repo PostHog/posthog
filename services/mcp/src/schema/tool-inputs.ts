@@ -194,7 +194,20 @@ export const ExperimentCreateSchema = z.object({
             z.object({
                 key: z.string().describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
                 name: z.string().optional().describe('Human-readable variant name'),
-                rollout_percentage: z.number().min(0).max(100).describe('Percentage of users to show this variant'),
+                split_percent: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe(
+                        'Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.'
+                    ),
+                rollout_percentage: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe('Deprecated: use split_percent instead. Accepted for backward compatibility.'),
             })
         )
         .optional()
@@ -246,7 +259,7 @@ export const InsightGenerateHogQLFromQuestionSchema = z.object({
 
 export const InsightQueryInputSchema = z.object({
     insightId: z.string().describe('The insight ID or short_id to run.'),
-    format: z
+    output_format: z
         .enum(['optimized', 'json'])
         .optional()
         .default('optimized')
@@ -259,10 +272,6 @@ export const LLMAnalyticsGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
-
-export const OrganizationGetDetailsSchema = z.object({})
-
-export const OrganizationGetAllSchema = z.object({})
 
 export const OrganizationSetActiveSchema = z.object({
     orgId: z.string(),

@@ -8,85 +8,57 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
     return [
         {
-            title: 'Install the PostHog SDK',
+            title: 'Install dependencies',
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics
-                        works best with our Python and Node SDKs.
-                    </Markdown>
-
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'bash',
-                                file: 'Python',
-                                code: dedent`
-                                    pip install posthog
-                                `,
-                            },
-                            {
-                                language: 'bash',
-                                file: 'Node',
-                                code: dedent`
-                                    npm install @posthog/ai posthog-node
-                                `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Install the Google Gen AI SDK',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        Install the Google Gen AI SDK. The PostHog SDK instruments your LLM calls by wrapping the Google
-                        Gen AI client. The PostHog SDK **does not** proxy your calls.
-                    </Markdown>
-
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'bash',
-                                file: 'Python',
-                                code: dedent`
-                                    pip install google-genai
-                                `,
-                            },
-                            {
-                                language: 'bash',
-                                file: 'Node',
-                                code: dedent`
-                                    npm install @google/genai
-                                `,
-                            },
-                        ]}
-                    />
-
-                    <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
+                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
                         <Markdown>
-                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
-                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
-                            you will need to capture the data in the right format. See the schema in the [manual capture
-                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
-                            details.
+                            See the complete
+                            [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-gemini) and
+                            [Python](https://github.com/PostHog/posthog-python/tree/main/examples/example-ai-gemini)
+                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
+                            the [Node.js
+                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-gemini) and
+                            [Python
+                            wrapper](https://github.com/PostHog/posthog-python/tree/0fdbc2e9/examples/example-ai-gemini)
+                            examples.
                         </Markdown>
                     </CalloutBox>
+
+                    <Markdown>
+                        Install the OpenTelemetry SDK, the Google Gen AI instrumentation, and the Google Gen AI SDK.
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'bash',
+                                file: 'Python',
+                                code: dedent`
+                                    pip install google-genai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-google-generativeai
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'Node',
+                                code: dedent`
+                                    npm install @google/genai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-google-generativeai
+                                `,
+                            },
+                        ]}
+                    />
                 </>
             ),
         },
         {
-            title: 'Initialize PostHog and Google Gen AI client',
+            title: 'Set up OpenTelemetry tracing',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project token and host from [your project
-                        settings](https://app.posthog.com/settings/project), then pass it to our Google Gen AI wrapper.
+                        Configure OpenTelemetry to auto-instrument Google Gen AI SDK calls and export traces to PostHog.
+                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
                     </Markdown>
 
                     <CodeBlock
@@ -95,112 +67,54 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from posthog.ai.gemini import Client
-                                    from posthog import Posthog
+                                    from opentelemetry import trace
+                                    from opentelemetry.sdk.trace import TracerProvider
+                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+                                    from posthog.ai.otel import PostHogSpanProcessor
+                                    from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
 
-                                    posthog = Posthog(
-                                        "<ph_project_token>",
-                                        host="<ph_client_api_host>"
-                                    )
+                                    resource = Resource(attributes={
+                                        SERVICE_NAME: "my-app",
+                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
+                                        "foo": "bar", # custom properties are passed through
+                                    })
 
-                                    client = Client(
-                                        api_key="...", # Replace with your Gemini API key
-                                        posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
+                                    provider = TracerProvider(resource=resource)
+                                    provider.add_span_processor(
+                                        PostHogSpanProcessor(
+                                            api_key="<ph_project_token>",
+                                            host="<ph_client_api_host>",
+                                        )
                                     )
+                                    trace.set_tracer_provider(provider)
+
+                                    GoogleGenerativeAiInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { GoogleGenAI } from '@posthog/ai'
-                                    import { PostHog } from 'posthog-node'
+                                    import { NodeSDK } from '@opentelemetry/sdk-node'
+                                    import { resourceFromAttributes } from '@opentelemetry/resources'
+                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
+                                    import { GenAIInstrumentation } from '@traceloop/instrumentation-google-generativeai'
 
-                                    const phClient = new PostHog(
-                                        '<ph_project_token>',
-                                        { host: '<ph_client_api_host>' }
-                                    )
-
-                                    const client = new GoogleGenAI({
-                                        apiKey: '...', // Replace with your Gemini API key
-                                        posthog: phClient
+                                    const sdk = new NodeSDK({
+                                      resource: resourceFromAttributes({
+                                        'service.name': 'my-app',
+                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
+                                        foo: 'bar', // custom properties are passed through
+                                      }),
+                                      spanProcessors: [
+                                        new PostHogSpanProcessor({
+                                          apiKey: '<ph_project_token>',
+                                          host: '<ph_client_api_host>',
+                                        }),
+                                      ],
+                                      instrumentations: [new GenAIInstrumentation()],
                                     })
-                                `,
-                            },
-                        ]}
-                    />
-
-                    <Blockquote>
-                        <Markdown>
-                            **Note:** This integration also works with Vertex AI via Google Cloud Platform. You can use
-                            the Google Gen AI SDK's Vertex AI client with PostHog analytics.
-                        </Markdown>
-                    </Blockquote>
-
-                    <Markdown>**Vertex AI code example:**</Markdown>
-
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'python',
-                                file: 'Python',
-                                code: dedent`
-                                    from posthog import Posthog
-                                    from posthog.ai.gemini import Client
-
-                                    # Initialize PostHog
-                                    posthog = Posthog(
-                                        project_api_key="<ph_project_token>",
-                                        host="<ph_client_api_host>"
-                                    )
-
-                                    # Initialize Gemini client with Vertex AI
-                                    client = Client(
-                                        vertexai=True,
-                                        project="your-gcp-project-id",
-                                        location="us-central1",
-                                        posthog_client=posthog,
-                                        posthog_distinct_id="user-123"
-                                    )
-
-                                    # Use it
-                                    response = client.models.generate_content(
-                                        model="gemini-2.0-flash",
-                                        contents=["Hello, world!"]
-                                    )
-
-                                    print(response.text)
-                                `,
-                            },
-                            {
-                                language: 'typescript',
-                                file: 'Node',
-                                code: dedent`
-                                    import { PostHog } from 'posthog-node'
-                                    import { PostHogGoogleGenAI } from '@posthog/ai'
-
-                                    // Initialize PostHog
-                                    const posthog = new PostHog(
-                                      '<ph_project_token>',
-                                      { host: '<ph_client_api_host>' }
-                                    )
-
-                                    // Initialize Gemini client with Vertex AI
-                                    const client = new PostHogGoogleGenAI({
-                                      vertexai: true,
-                                      project: 'your-gcp-project-id',
-                                      location: 'us-central1',
-                                      posthog: posthog
-                                    })
-
-                                    // Use it
-                                    const response = await client.models.generateContent({
-                                      model: 'gemini-2.0-flash',
-                                      contents: 'Hello, world!',
-                                      posthogDistinctId: 'user-123'
-                                    })
-
-                                    console.log(response.text)
+                                    sdk.start()
                                 `,
                             },
                         ]}
@@ -214,9 +128,8 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Now, when you use the Google Gen AI SDK to call LLMs, PostHog automatically captures an
-                        `$ai_generation` event. You can enrich the event with additional data such as the trace ID,
-                        distinct ID, custom properties, groups, and privacy mode options.
+                        Now, when you use the Google Gen AI SDK to call Gemini, PostHog automatically captures
+                        `$ai_generation` events via the OpenTelemetry instrumentation.
                     </Markdown>
 
                     <CodeBlock
@@ -225,14 +138,13 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
+                                    from google import genai
+
+                                    client = genai.Client(api_key="your_gemini_api_key")
+
                                     response = client.models.generate_content(
                                         model="gemini-2.5-flash",
-                                        contents=["Tell me a fun fact about hedgehogs"],
-                                        posthog_distinct_id="user_123", # optional
-                                        posthog_trace_id="trace_123", # optional
-                                        posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
-                                        posthog_groups={"company": "company_id_in_your_db"},  # optional
-                                        posthog_privacy_mode=False # optional
+                                        contents=[{"role": "user", "parts": [{"text": "Tell me a fun fact about hedgehogs"}]}],
                                     )
 
                                     print(response.text)
@@ -242,18 +154,16 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
+                                    import { GoogleGenAI } from '@google/genai'
+
+                                    const client = new GoogleGenAI({ apiKey: 'your_gemini_api_key' })
+
                                     const response = await client.models.generateContent({
-                                      model: "gemini-2.5-flash",
-                                      contents: ["Tell me a fun fact about hedgehogs"],
-                                      posthogDistinctId: "user_123", // optional
-                                      posthogTraceId: "trace_123", // optional
-                                      posthogProperties: { conversationId: "abc123", paid: true }, // optional
-                                      posthogGroups: { company: "company_id_in_your_db" }, // optional
-                                      posthogPrivacyMode: false // optional
+                                      model: 'gemini-2.5-flash',
+                                      contents: 'Tell me a fun fact about hedgehogs',
                                     })
 
                                     console.log(response.text)
-                                    phClient.shutdown()
                                 `,
                             },
                         ]}
@@ -261,8 +171,16 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the
-                            request. See our docs on [anonymous vs identified
+                            {dedent`
+                                **Note:** This integration also works with Vertex AI via Google Cloud Platform. Initialize the Google Gen AI client with \`vertexai=True, project=..., location=...\` (Python) or \`{ vertexai: true, project: '...', location: '...' }\` (Node) and the OpenTelemetry instrumentation will capture those calls the same way.
+                            `}
+                        </Markdown>
+                    </Blockquote>
+
+                    <Blockquote>
+                        <Markdown>
+                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
+                            resource attribute. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
@@ -274,6 +192,43 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
+                </>
+            ),
+        },
+        {
+            title: 'Capture embeddings',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        PostHog can also capture embedding generations as `$ai_embedding` events. The OpenTelemetry
+                        instrumentation automatically captures these when you use the `embed_content` API:
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    response = client.models.embed_content(
+                                        model="gemini-embedding-001",
+                                        contents="The quick brown fox",
+                                    )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    const response = await client.models.embedContent({
+                                      model: 'gemini-embedding-001',
+                                      contents: 'The quick brown fox',
+                                    })
+                                `,
+                            },
+                        ]}
+                    />
                 </>
             ),
         },

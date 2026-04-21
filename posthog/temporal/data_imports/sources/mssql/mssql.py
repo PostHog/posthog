@@ -8,6 +8,7 @@ from contextlib import _GeneratorContextManager
 from typing import Any
 
 import pyarrow as pa
+import structlog
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -119,6 +120,59 @@ def _build_query(
     return query, {
         "incremental_value": db_incremental_field_last_value,
     }
+
+
+def get_primary_keys_for_schemas(
+    host: str,
+    user: str,
+    password: str,
+    database: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+) -> dict[str, list[str] | None]:
+    """Detect primary keys for all tables in a single query."""
+    import pymssql
+
+    result: dict[str, list[str] | None] = dict.fromkeys(table_names)
+
+    try:
+        with pymssql.connect(
+            server=host,
+            port=str(port),
+            database=database,
+            user=user,
+            password=password,
+            login_timeout=5,
+        ) as connection:
+            with connection.cursor(as_dict=False) as cursor:
+                cursor.execute(
+                    """
+                    SELECT t.name AS table_name, c.name AS column_name
+                    FROM sys.indexes i
+                    JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+                    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+                    JOIN sys.tables t ON i.object_id = t.object_id
+                    JOIN sys.schemas s ON t.schema_id = s.schema_id
+                    WHERE i.is_primary_key = 1
+                    AND s.name = %(schema)s
+                    AND t.name IN %(names)s
+                    ORDER BY t.name, ic.key_ordinal
+                    """,
+                    {"schema": schema, "names": tuple(table_names)},
+                )
+                rows = cursor.fetchall()
+
+                pks: dict[str, list[str]] = collections.defaultdict(list)
+                for table_name, column_name in rows or []:
+                    pks[table_name].append(column_name)
+
+                for table_name, pk_cols in pks.items():
+                    result[table_name] = pk_cols
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect primary keys for MSSQL schemas", exc_info=e)
+
+    return result
 
 
 def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str] | None:

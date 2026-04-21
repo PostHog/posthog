@@ -1,11 +1,18 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { logsAlertsDestroy, logsAlertsList, logsAlertsPartialUpdate } from 'products/logs/frontend/generated/api'
+import {
+    logsAlertsDestroy,
+    logsAlertsList,
+    logsAlertsPartialUpdate,
+    logsAlertsResetCreate,
+} from 'products/logs/frontend/generated/api'
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsAlertingLogicType } from './logsAlertingLogicType'
@@ -24,6 +31,11 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         setIsCreating: (isCreating: boolean) => ({ isCreating }),
         deleteAlert: (id: string) => ({ id }),
         toggleAlertEnabled: (alert: LogsAlertConfigurationApi) => ({ alert }),
+        resetAlert: (id: string) => ({ id }),
+        setResettingAlertId: (id: string, resetting: boolean) => ({ id, resetting }),
+        setViewingHistoryAlert: (alert: LogsAlertConfigurationApi | null) => ({ alert }),
+        snoozeAlert: (alertId: string, durationMinutes: number) => ({ alertId, durationMinutes }),
+        unsnoozeAlert: (alertId: string) => ({ alertId }),
     }),
 
     reducers({
@@ -39,6 +51,19 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
             {
                 setIsCreating: (_, { isCreating }) => isCreating,
                 setEditingAlert: () => false,
+            },
+        ],
+        resettingAlertIds: [
+            new Set<string>(),
+            {
+                setResettingAlertId: (state, { id, resetting }) =>
+                    resetting ? new Set([...state, id]) : new Set([...state].filter((x) => x !== id)),
+            },
+        ],
+        viewingHistoryAlert: [
+            null as LogsAlertConfigurationApi | null,
+            {
+                setViewingHistoryAlert: (_, { alert }) => alert,
             },
         ],
     }),
@@ -57,6 +82,18 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        loadAlertsSuccess: () => {
+            const params = router.values.searchParams
+            if (params.alertId && typeof params.alertId === 'string') {
+                const alert = values.alerts.find((a) => a.id === params.alertId)
+                if (alert) {
+                    actions.setEditingAlert(alert)
+                }
+                // Clear alertId from URL regardless of whether we found the alert
+                const { alertId: _, ...rest } = router.values.searchParams
+                router.actions.replace(router.values.location.pathname, rest, router.values.hashParams)
+            }
+        },
         deleteAlert: async ({ id }) => {
             const projectId = String(values.currentTeamId)
             try {
@@ -78,13 +115,52 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 lemonToast.error('Failed to update alert')
             }
         },
+        resetAlert: async ({ id }) => {
+            const projectId = String(values.currentTeamId)
+            actions.setResettingAlertId(id, true)
+            try {
+                const updated = await logsAlertsResetCreate(projectId, id)
+                lemonToast.success('Alert reset — next check will run shortly.')
+                // Refresh the modal's snapshot so the "broken" banner disappears without
+                // waiting for the list reload to round-trip.
+                if (values.editingAlert?.id === id) {
+                    actions.setEditingAlert(updated)
+                }
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Failed to reset alert')
+            } finally {
+                actions.setResettingAlertId(id, false)
+            }
+        },
+        snoozeAlert: async ({ alertId, durationMinutes }) => {
+            const projectId = String(values.currentTeamId)
+            const snoozeUntil = dayjs().add(durationMinutes, 'minute').toISOString()
+            try {
+                await logsAlertsPartialUpdate(projectId, alertId, { snooze_until: snoozeUntil })
+                lemonToast.success('Alert snoozed')
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Failed to snooze alert')
+            }
+        },
+        unsnoozeAlert: async ({ alertId }) => {
+            const projectId = String(values.currentTeamId)
+            try {
+                await logsAlertsPartialUpdate(projectId, alertId, { snooze_until: null })
+                lemonToast.success('Alert unsnoozed')
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Failed to unsnooze alert')
+            }
+        },
     })),
 
     afterMount(({ actions, values, cache }) => {
         actions.loadAlerts()
         cache.disposables.add(() => {
             const intervalId = window.setInterval(() => {
-                if (!values.isCreating && values.editingAlert === null) {
+                if (!values.isCreating && values.editingAlert === null && values.viewingHistoryAlert === null) {
                     actions.loadAlerts()
                 }
             }, ALERT_POLL_INTERVAL_MS)

@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
+import { ProductItemCategory } from '../../frontend/src/queries/schema/schema-general'
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -49,7 +50,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Visual review',
             intents: [ProductKey.VISUAL_REVIEW],
-            category: 'Unreleased',
+            category: ProductItemCategory.UNRELEASED,
             href: urls.visualReviewRuns(),
             iconType: 'visual_review' as FileSystemIconType,
             flag: FEATURE_FLAGS.VISUAL_REVIEW,

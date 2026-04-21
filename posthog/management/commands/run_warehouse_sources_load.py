@@ -60,6 +60,16 @@ class Command(BaseCommand):
             default=KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ,
             help="Kafka topic for dead-letter queue messages",
         )
+        parser.add_argument(
+            "--max-poll-interval-ms",
+            type=int,
+            default=900_000,
+            help=(
+                "Maximum time between consume() calls before librdkafka evicts this consumer "
+                "from the group (default: 900000 = 15 min). Post-load processing on final "
+                "batches can exceed the librdkafka default of 5 min."
+            ),
+        )
 
     def handle(self, *args, **options):
         health_port = options["health_port"]
@@ -69,6 +79,7 @@ class Command(BaseCommand):
         consumer_group = options["consumer_group"]
         health_timeout = options["health_timeout"]
         dlq_topic = options["dlq_topic"]
+        max_poll_interval_ms = options["max_poll_interval_ms"]
 
         logger.info(
             "warehouse_sources_load_starting",
@@ -79,6 +90,7 @@ class Command(BaseCommand):
             consumer_group=consumer_group,
             health_timeout=health_timeout,
             dlq_topic=dlq_topic,
+            max_poll_interval_ms=max_poll_interval_ms,
         )
 
         health_state = HealthState(timeout_seconds=health_timeout)
@@ -93,6 +105,7 @@ class Command(BaseCommand):
             batch_timeout_seconds=batch_timeout,
             health_port=health_port,
             health_timeout_seconds=health_timeout,
+            max_poll_interval_ms=max_poll_interval_ms,
         )
 
         consumer = KafkaConsumerService(

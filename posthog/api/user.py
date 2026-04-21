@@ -27,7 +27,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -54,13 +54,7 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import (
-    ClassicBehaviorBooleanFieldSerializer,
-    PublicIPOnlyHttpAdapter,
-    action,
-    raise_if_user_provided_url_unsafe,
-    unparsed_hostname_in_allowed_url_list,
-)
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
 from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -109,6 +103,16 @@ class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
         fields = ["scene", "dashboard"]
 
 
+class PendingInviteSerializer(serializers.Serializer):
+    """Shape of each item in UserSerializer.pending_invites."""
+
+    id = serializers.CharField()
+    target_email = serializers.EmailField()
+    organization_id = serializers.CharField()
+    organization_name = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
@@ -118,6 +122,7 @@ class UserSerializer(serializers.ModelSerializer):
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     has_sso_enforcement = serializers.SerializerMethodField()
+    pending_invites = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -170,6 +175,7 @@ class UserSerializer(serializers.ModelSerializer):
             "shortcut_position",
             "role_at_organization",
             "passkeys_enabled_for_2fa",
+            "pending_invites",
         ]
 
         read_only_fields = [
@@ -189,6 +195,7 @@ class UserSerializer(serializers.ModelSerializer):
             "organizations",
             "has_social_auth",
             "has_sso_enforcement",
+            "pending_invites",
         ]
 
         extra_kwargs = {
@@ -251,6 +258,49 @@ class UserSerializer(serializers.ModelSerializer):
         return bool(
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
+
+    @extend_schema_field(PendingInviteSerializer(many=True))
+    def get_pending_invites(self, instance: User) -> list[dict]:
+        """Non-expired organization invites matching the user's email for orgs they aren't already in.
+
+        Only returned when the serialized user is the requesting user — staff retrieving
+        another account should not see that user's private invites.
+        """
+        from django.utils import timezone as django_timezone
+
+        from posthog.constants import INVITE_DAYS_VALIDITY
+        from posthog.helpers.email_utils import EmailNormalizer
+        from posthog.models import OrganizationInvite, OrganizationMembership
+
+        request = self.context.get("request")
+        if not request or request.user.id != instance.id or not instance.email:
+            return []
+
+        normalized_email = EmailNormalizer.normalize(instance.email)
+        existing_org_ids = OrganizationMembership.objects.filter(user=instance).values_list(
+            "organization_id", flat=True
+        )
+
+        invites = (
+            OrganizationInvite.objects.filter(
+                target_email__iexact=normalized_email,
+                created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+            )
+            .exclude(organization_id__in=existing_org_ids)
+            .select_related("organization")
+            .order_by("-created_at")
+        )
+
+        return [
+            {
+                "id": str(invite.id),
+                "target_email": invite.target_email,
+                "organization_id": str(invite.organization_id),
+                "organization_name": invite.organization.name,
+                "created_at": invite.created_at,
+            }
+            for invite in invites
+        ]
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -1206,35 +1256,3 @@ def redirect_to_website(request):
     userData = urllib.parse.quote(json.dumps({"jwt": token}), safe="")
 
     return redirect("{}?userData={}&redirect={}".format("https://posthog.com/auth", userData, app_url))
-
-
-@require_http_methods(["POST"])
-@session_auth_required
-def test_slack_webhook(request):
-    """Test webhook."""
-    try:
-        body = json.loads(request.body)
-    except (TypeError, json.decoder.JSONDecodeError):
-        return JsonResponse({"error": "Cannot parse request body"}, status=400)
-
-    webhook = body.get("webhook")
-
-    if not webhook:
-        return JsonResponse({"error": "no webhook URL"})
-    message = {"text": "_Greetings_ from PostHog!"}
-    try:
-        session = requests.Session()
-
-        if not settings.DEBUG:
-            raise_if_user_provided_url_unsafe(webhook)
-            session.mount("https://", PublicIPOnlyHttpAdapter())
-            session.mount("http://", PublicIPOnlyHttpAdapter())
-
-        response = session.post(webhook, verify=False, json=message)
-
-        if response.ok:
-            return JsonResponse({"success": True})
-        else:
-            return JsonResponse({"error": response.text})
-    except:
-        return JsonResponse({"error": "invalid webhook URL"})

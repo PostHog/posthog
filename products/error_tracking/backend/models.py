@@ -596,3 +596,23 @@ class ErrorTrackingSpikeEvent(UUIDModel):
             models.Index(fields=["issue", "-detected_at"]),
             models.Index(fields=["-detected_at"]),
         ]
+
+
+class ErrorTrackingRecommendation(UUIDTModel):
+    """Materialized recommendation for a team, computed live on API request."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="error_tracking_recommendations")
+    # Recommendation type identifier — kept as a free-form CharField rather than a TextChoices enum
+    # so adding new recommendations doesn't require a Django migration each time
+    type = models.CharField(max_length=64)
+    meta = models.JSONField(default=dict, blank=True)
+    computed_at = models.DateTimeField(null=True, blank=True)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingrecommendation"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "type"], name="unique_error_tracking_recommendation_per_team_type"),
+        ]
