@@ -10,12 +10,8 @@ description: >
 
 # Investigating a metric change
 
-Metric investigation is a multi-step orchestration across several structured query tools.
-Each metric type (trend, funnel, retention, stickiness, lifecycle) has a different investigation shape,
-and the first decision you make — **what kind of metric is this?** — determines which tools to reach for.
-
-See [query patterns](./references/query-patterns.md) for copy-pasteable tool call payloads and a
-note on when to use `posthog:execute-sql` vs. the structured query tools.
+Metric investigation is a multi-step orchestration. This skill provides the decision tree;
+each metric type has its own playbook reference with specific tool calls and recipes.
 
 ## When to use
 
@@ -45,12 +41,19 @@ Check these sources in order:
    `posthog:insight-query` with the same identifier — `insight-get` returns only metadata.
 3. **A query JSON the user pasted directly** — read `kind` from the payload.
 
-Map `kind` → playbook: `TrendsQuery` → Trend, `FunnelsQuery` → Funnel, `RetentionQuery` → Retention,
-`StickinessQuery` → Stickiness, `LifecycleQuery` → Lifecycle.
+Map `kind` to the playbook file:
+
+| kind              | Playbook                                                      |
+| ----------------- | ------------------------------------------------------------- |
+| `TrendsQuery`     | [trend-playbook.md](./references/trend-playbook.md)           |
+| `FunnelsQuery`    | [funnel-playbook.md](./references/funnel-playbook.md)         |
+| `RetentionQuery`  | [retention-playbook.md](./references/retention-playbook.md)   |
+| `StickinessQuery` | [stickiness-playbook.md](./references/stickiness-playbook.md) |
+| `LifecycleQuery`  | [lifecycle-playbook.md](./references/lifecycle-playbook.md)   |
 
 `PathsQuery` is rarely the "metric" in a changed-metric investigation — paths describes behavior
-between events rather than a metric that moves. Treat the path's end event as the metric and run
-the Trend playbook on it.
+between events rather than a metric that moves. Treat the path's end event as the metric and use
+the Trend playbook.
 
 ### If the user hasn't pointed at anything
 
@@ -67,7 +70,7 @@ run the playbooks in sequence — do not try to fuse them.
 
 ## Step 2 — Common opening moves
 
-Apply these regardless of metric kind.
+Apply these regardless of metric kind, before entering the playbook.
 
 ### 2.1 Confirm the anomaly and pin the window
 
@@ -87,13 +90,13 @@ investigation when the user asked for one.
 
 ### 2.3 Check for known changes in the window
 
-What deployed, flagged, or experimented near the start of the anomaly? Three sources, in order
+What deployed, flagged, or experimented near the start of the anomaly? Four sources, in order
 of typical signal strength:
 
 1. **Feature flags updated in the window.** `posthog:feature-flag-get-all`, then filter the
    returned list client-side by `updated_at` falling in or just before the anomaly window.
    A flag whose rollout changed right before the movement is a strong candidate — confirm by
-   breaking the metric down on `$feature/<flag_key>` in the Trend playbook.
+   breaking the metric down on `$feature/<flag_key>` in the playbook.
 2. **Experiments started or ended in the window.** `posthog:experiment-get-all`, then check
    `start_date` / `end_date`. An experiment launching shifts metrics through its variant
    rollout; one concluding (traffic snapping back to control) can cause an apparent drop.
@@ -107,139 +110,16 @@ of typical signal strength:
 Any aligning candidate is a hypothesis, not a conclusion — confirm in the metric-specific
 playbook (typically via a breakdown on `$feature/<flag_key>`, `app_version`, or `utm_source`).
 
-## Step 3 — Metric-type-specific investigation
+## Step 3 — Run the playbook
 
-Execute only the playbook for the metric kind you classified in Step 1.
+Open the playbook file matching the `kind` from Step 1 and execute its numbered steps.
+Each playbook references [shared-patterns.md](./references/shared-patterns.md) for reusable
+recipes (property discovery, breakdown dimensions and interpretation, interval zoom, actor
+drilldown, session recordings, error cross-check, `execute-sql` escape hatch).
 
-### Trend metrics
-
-1. **Zoom in on the anomaly window.** Rerun `posthog:query-trends` with a finer `interval`
-   (typically `"hour"`, or `"minute"` for short windows) scoped tightly to the suspicious day(s).
-   Hourly resolution reveals the _shape_ of the anomaly: a narrow spike or cliff points to a
-   specific incident / deploy / cron job; a sustained shift points to broader causes (campaign,
-   cohort change, tracking regression).
-2. **Break down the trend.** Run several breakdowns to see if one segment is driving the
-   change. Rerun `posthog:query-trends` with different `breakdownFilter.breakdowns` values.
-
-   Property discovery for dimensions you don't know about up front:
-   - `posthog:properties-list` with `type: "event"` and `eventName: "<your event>"` — custom
-     properties the app sets on this specific event (e.g. `plan`, `tier`, `feature_area`,
-     `channel`). Often the most diagnostic dimension for product-specific metrics.
-   - `posthog:properties-list` with `type: "person"` — person-level properties.
-
-   Dimensions to try:
-   - **Standard event context** — `$browser`, `$browser_version`, `$os`, `$device_type`,
-     `$screen_width`, `$geoip_country_code`. Always available; a drop concentrated in one
-     platform is often a tracking or rendering bug.
-   - **Feature-flag exposure** — `$feature/<flag_key>` separates exposed vs. control users.
-     Highest-signal for post-release investigations.
-   - **User state** — authenticated vs anonymous (`is_identified` on the person), new vs
-     returning (`$is_first_session` on the event), plan / tier on the person.
-   - **Custom event properties** you discovered above — project-specific, often diagnostic.
-   - **Technical / version** — `app_version`, `$lib_version` for SDK regressions.
-
-   If one breakdown value absorbs most of the delta, that's the affected segment — but measure
-   this in **absolute** terms, not percentages. A 50% swing on a series that's 1% of volume
-   explains only 0.5% of the aggregate delta. Check each series' volume and its absolute
-   contribution to the total change before concluding it's the driver — a visually dramatic
-   movement on a small series is usually noise.
-
-   If no breakdown value isolates the delta, the cause is likely system-wide (bad deploy,
-   tracking regression, infra issue) rather than segment-specific — note the negative result
-   and move on to the next steps. Breakdowns find segment-shaped causes; they're silent on
-   system-wide ones.
-
-   If you suspect an interaction between two dimensions (e.g., a browser bug that only
-   affects one country), try a compound breakdown with up to three properties in `breakdowns`.
-   If the event fires fewer than ~100 times per interval, percentage changes are unreliable —
-   report absolute numbers alongside percentages.
-
-3. **Identify the affected users.** `posthog:query-trends-actors` on the anomalous bucket
-   (specific day/hour or specific breakdown value). Inspect returned persons' properties for
-   common threads. For a UI/UX-driven drop, also call `posthog:query-session-recordings-list`
-   filtered to the same window and segment — watching a few recordings is often the fastest
-   way to confirm what users are actually doing.
-4. **Cross-check against errors / logs.** Call `posthog:error-tracking-issues-list` and
-   `posthog:query-logs` filtered to the anomaly window. A correlated error is a candidate,
-   not a conclusion — to confirm, check that the error timing aligns with the drop, that
-   the error actually affects the metric's surface (a 500 on a submit endpoint can plausibly
-   cause failures; a console warning elsewhere usually can't), and that the users hitting
-   the error overlap with the affected segment.
-5. **Check if it's a cohort-composition change.** `posthog:query-lifecycle` on the same metric.
-   A drop concentrated in one lifecycle status (new didn't arrive, dormant didn't resurrect)
-   reframes the investigation.
-
-### Funnel metrics
-
-1. **Confirm which step regressed.** `posthog:query-funnel` with the user's steps. Identify the
-   step where conversion dropped.
-2. **Is it entries or completions?** `posthog:query-trends` on the count of the failing step
-   alone, compared to the count of the step before. If entries are steady but completions fell,
-   the problem is at that step. If entries also fell, the problem is upstream. Consider zooming
-   `interval` to `"hour"` if a specific day looks anomalous.
-3. **Who is dropping off?** `posthog:query-trends-actors` only accepts a trends source today
-   (no direct funnel-actors mode). Work around it by running a `posthog:query-trends` on the
-   last completed step filtered to users who did _not_ perform the failing step within the
-   funnel window, then pass that trend to `posthog:query-trends-actors`. For UI/UX drop-offs,
-   also pull session recordings via `posthog:query-session-recordings-list` filtered to the
-   window and the relevant events — watching a few is often faster than more queries. See
-   [query patterns](./references/query-patterns.md) for the exact shape.
-4. **Cross-check against errors.** `posthog:error-tracking-issues-list` filtered to the surface
-   where step N lives. An error is a candidate, not a confirmation — to tie it to the funnel
-   drop, verify that the error's volume timing aligns with the drop in completions, that it
-   actually blocks the step (a 500 at submit explains failures; a console warning probably
-   doesn't), and that the users hitting it overlap with those who dropped out at step N.
-5. **What are they doing instead?** `posthog:query-paths` with `endPoint` set to the failing
-   step. The paths that do not reach the end point show what users do when they bail.
-
-### Retention metrics
-
-For "week-N retention regressed", "March cohort isn't coming back".
-
-1. **Isolate the affected cohort.** `posthog:query-retention` broken out by start cohort.
-   Compare affected cohorts to baseline cohorts side-by-side.
-2. **Scope to the retained-activity event.** `posthog:query-trends` on the event that defines
-   "retained" in the user's retention metric, filtered to users in the affected cohort (create
-   or reuse a cohort via `posthog:cohorts-create` / `posthog:cohorts-list`). Is the drop in the
-   event itself, or in the users doing the event?
-3. **Split the dropout.** `posthog:query-lifecycle` on the affected cohort — distinguish new
-   users who never returned after week 0 from returning users who churned later.
-
-### Stickiness metrics
-
-For "DAU/MAU dropped", "sessions per week fell", "engagement decayed".
-
-1. **Who got less sticky?** `AssistantStickinessQuery` does not support `breakdownFilter`.
-   To compare segments, run `posthog:query-stickiness` once per segment with different property
-   filters on the series (e.g., one call with `properties: [{key: "plan", value: "pro", ...}]`,
-   another with `{value: "free"}`). Identify the segment whose stickiness fell.
-2. **Identify the affected users.** Run `posthog:query-trends` on a key engagement event filtered
-   to the low-stickiness segment, then `posthog:query-trends-actors` on that trend to get the
-   affected users. Pull a handful of session recordings via `posthog:query-session-recordings-list`
-   to see how they're actually using the product.
-3. **Compare engagement events between sticky and non-sticky segments.** Create cohorts (or
-   filters) for high-stickiness and low-stickiness users, then run `posthog:query-trends` on
-   candidate core events scoped to each cohort. The events that differ sharply between the two
-   cohorts are the ones that drive stickiness.
-
-### Lifecycle metrics
-
-For "new user acquisition fell", "returning users crashed", "resurrecting users stopped coming back".
-
-1. **`posthog:query-lifecycle` is already the primary tool.** Start with the user's metric and
-   identify which lifecycle status (new, returning, resurrecting, dormant) moved.
-2. **Segment the moved status.** `AssistantLifecycleQuery` does not support `breakdownFilter`.
-   To isolate a slice, rerun `posthog:query-lifecycle` with property filters on the series
-   (e.g., one call filtered to `plan = "pro"`, another to `plan = "free"`). Alternatively, use
-   `lifecycleFilter.toggledLifecycles` to focus on a specific status.
-3. **Diagnose based on status:**
-   - _New-user drop_ — identify the canonical first-session event in the project via
-     `posthog:event-definitions-list` (commonly `$session_start`, `$pageview`, or a product-specific
-     signup event). Then `posthog:query-paths` from that event to see where new users fall off
-     in onboarding.
-   - _Returning-user drop_ — `posthog:query-trends` on the affected cohort's key engagement events.
-     Zoom `interval` to `"hour"` if a specific day stands out.
-   - _Resurrecting drop_ — compare marketing/re-engagement campaign annotations in the window.
+Carry the record from Step 2.1 (baseline, current, delta, window) and any candidates from
+Step 2.3 (flags, experiments, annotations, commits) into the playbook so they're available
+for confirmation.
 
 ## Step 4 — Cross-check
 
@@ -258,7 +138,7 @@ Offer to save key charts as insights via `posthog:insight-create` so the user ca
 analysis. If a likely cause is identified and no annotation exists for it, offer to create one
 via `posthog:annotation-create` with the identified date so future investigations find it.
 
-See [common causes](./references/common-causes.md) for the standard cause taxonomy.
+See [common-causes.md](./references/common-causes.md) for the standard cause taxonomy.
 
 ## Output format
 
@@ -277,7 +157,7 @@ Structure the report as:
 
 - <query result 1 that supports the hypothesis>
 - <query result 2 that supports the hypothesis>
-- <annotation or external signal if applicable>
+- <annotation / flag / experiment / commit if applicable>
 
 ## Possible causes (ruled out or lower confidence)
 
@@ -301,16 +181,23 @@ Include direct links where useful: `[Insight: name](/insights/short_id)`, `[Dash
 
 ## Handling unavailable data
 
-- **Missing breakdown dimension** — if a key property (e.g., `app_version`) isn't set on events,
-  call `posthog:properties-list` to confirm what is available and note the gap.
-- **Tool call failure** — continue the investigation with the remaining tools and report which
-  steps were skipped.
-- **Variance / single-point anomalies** — covered in Step 2.2. If the change is within normal
-  variance, stop there.
+- **Missing breakdown dimension** — if a key property isn't set on events, call
+  `posthog:properties-list` to confirm what is available and note the gap.
+- **Tool call failure** — continue the investigation with the remaining tools and report
+  which steps were skipped.
+- **Variance / single-point anomalies** — covered in Step 2.2. If the change is within
+  normal variance, flag it but continue when the user asked for an investigation.
 
 ## Reference files
 
-- [Query patterns](./references/query-patterns.md) — copy-pasteable MCP tool call payloads,
-  organized by metric type, plus the `execute-sql` escape hatch.
-- [Common causes](./references/common-causes.md) — taxonomy of likely causes with the
+- **Playbooks** (one per metric kind — open the one matching your classification):
+  - [trend-playbook.md](./references/trend-playbook.md)
+  - [funnel-playbook.md](./references/funnel-playbook.md)
+  - [retention-playbook.md](./references/retention-playbook.md)
+  - [stickiness-playbook.md](./references/stickiness-playbook.md)
+  - [lifecycle-playbook.md](./references/lifecycle-playbook.md)
+- [shared-patterns.md](./references/shared-patterns.md) — reusable recipes used across
+  playbooks (property discovery, breakdown dimensions, interval zoom, actor drilldown,
+  session recordings, error cross-check, `execute-sql` escape hatch).
+- [common-causes.md](./references/common-causes.md) — taxonomy of likely causes with the
   confirming query for each.
