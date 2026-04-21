@@ -8293,7 +8293,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Cannot provide both distinct_id and person_id", response.json()["non_field_errors"][0])
+        self.assertIn("Cannot provide both distinct_id and person_id", response.json()["detail"])
 
     def test_test_evaluation_person_not_found(self):
         """Test 404 when person doesn't exist."""
@@ -8342,8 +8342,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.json()["error"], "Internal request token not configured")
 
+    @patch("posthog.api.feature_flag.person_existed_at_timestamp", return_value=True)
     @patch("posthog.api.feature_flag.build_person_properties_at_time")
-    def test_test_evaluation_build_properties_failure(self, mock_build_props):
+    def test_test_evaluation_build_properties_failure(self, mock_build_props, mock_person_existed):
         """Test 500 when build_person_properties_at_time raises exception."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
