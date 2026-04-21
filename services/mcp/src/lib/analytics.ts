@@ -5,7 +5,30 @@ let _client: PostHog | undefined
 
 export enum AnalyticsEvent {
     MCP_INIT = 'mcp init',
+    MCP_PROJECT_SWITCHED = 'mcp project switched',
+    MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
 }
+
+export type MCPAnalyticsContext = {
+    organizationId?: string
+    projectId?: string
+    projectUuid?: string
+    projectName?: string
+}
+
+/**
+ * Build PostHog `$groups` from resolved workspace context. Uses `projectUuid`
+ * (not the numeric team id) as the `project` group key to match the convention
+ * in `posthog/event_usage.py` so MCP events join with the rest of the product
+ * in group-level analytics.
+ */
+export const buildMCPAnalyticsGroups = ({
+    organizationId,
+    projectUuid,
+}: MCPAnalyticsContext): Record<string, string> => ({
+    ...(organizationId ? { organization: organizationId } : {}),
+    ...(projectUuid ? { project: projectUuid } : {}),
+})
 
 export const getPostHogClient = (): PostHog => {
     if (!_client) {

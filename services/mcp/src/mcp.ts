@@ -5,7 +5,14 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
-import { AnalyticsEvent, evaluateFeatureFlags, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
+import {
+    AnalyticsEvent,
+    buildMCPAnalyticsGroups,
+    evaluateFeatureFlags,
+    getPostHogClient,
+    isFeatureFlagEnabled,
+    type MCPAnalyticsContext,
+} from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
     CUSTOM_API_BASE_URL,
@@ -251,7 +258,11 @@ export class MCP extends McpAgent<Env> {
         return _distinctId
     }
 
-    async trackEvent(event: AnalyticsEvent, properties: Record<string, any> = {}): Promise<void> {
+    async trackEvent(
+        event: AnalyticsEvent,
+        properties: Record<string, any> = {},
+        options?: { context?: MCPAnalyticsContext }
+    ): Promise<void> {
         try {
             const distinctId = await this.getDistinctId()
 
@@ -261,9 +272,24 @@ export class MCP extends McpAgent<Env> {
 
             const clientName = await this.cache.get('clientName')
 
+            const contextProperties = options?.context
+                ? {
+                      ...(options.context.organizationId ? { organization_id: options.context.organizationId } : {}),
+                      ...(options.context.projectId ? { project_id: options.context.projectId } : {}),
+                      ...(options.context.projectUuid ? { project_uuid: options.context.projectUuid } : {}),
+                      ...(options.context.projectName ? { project_name: options.context.projectName } : {}),
+                  }
+                : {}
+            const groups = options?.context ? buildMCPAnalyticsGroups(options.context) : {}
+
+            // `groups` is translated to `$groups` server-side by posthog-node. No separate
+            // `groupIdentify` call: org/project group properties are populated by the main
+            // PostHog backend (see `posthog/event_usage.py`), and duplicating them from here
+            // with the minimal info we have would overwrite richer core-owned data.
             client.capture({
                 distinctId,
                 event,
+                ...(Object.keys(groups).length > 0 ? { groups } : {}),
                 properties: {
                     ...(this.requestProperties.sessionId
                         ? {
@@ -275,12 +301,52 @@ export class MCP extends McpAgent<Env> {
                     ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
+                    ...contextProperties,
                     ...properties,
                 },
             })
         } catch {
             // skip
         }
+    }
+
+    private async getAnalyticsContextSafe(context: Context): Promise<MCPAnalyticsContext | undefined> {
+        try {
+            return await context.stateManager.getAnalyticsContext()
+        } catch {
+            return undefined
+        }
+    }
+
+    private async trackContextSwitchEvent(
+        toolName: string,
+        context: Context,
+        previousContext: MCPAnalyticsContext | undefined
+    ): Promise<void> {
+        const resolvedContext = await this.getAnalyticsContextSafe(context)
+        if (!resolvedContext) {
+            return
+        }
+
+        const event =
+            toolName === 'switch-project'
+                ? AnalyticsEvent.MCP_PROJECT_SWITCHED
+                : toolName === 'switch-organization'
+                  ? AnalyticsEvent.MCP_ORGANIZATION_SWITCHED
+                  : undefined
+        if (!event) {
+            return
+        }
+
+        await this.trackEvent(
+            event,
+            {
+                previous_organization_id: previousContext?.organizationId,
+                previous_project_id: previousContext?.projectId,
+                previous_project_uuid: previousContext?.projectUuid,
+            },
+            { context: resolvedContext }
+        )
     }
 
     registerTool<TSchema extends z.ZodObject>(
@@ -304,11 +370,20 @@ export class MCP extends McpAgent<Env> {
             }
 
             try {
+                const isContextSwitch = tool.name === 'switch-project' || tool.name === 'switch-organization'
+                const previousContext = isContextSwitch
+                    ? await this.getAnalyticsContextSafe(await this.getContext())
+                    : undefined
                 // Handler can return a special key POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY in the result which,
                 // when present, is used as the text content instead of TOON-encoding the raw result.
                 // This is useful for tools that want to return pre-formatted text (e.g. tables)
                 // or return JSON for programmatic consumption.
                 const handlerResult = await handler(params)
+                if (isContextSwitch) {
+                    this.ctx.waitUntil(
+                        this.trackContextSwitchEvent(tool.name, await this.getContext(), previousContext)
+                    )
+                }
                 // Guard against string results: object rest on a primitive string would
                 // expand it to a character-indexed object ({"0": "f", "1": "o", ...}).
                 const isStringResult = typeof handlerResult === 'string'
@@ -500,15 +575,23 @@ export class MCP extends McpAgent<Env> {
             ? Date.now() - this.requestProperties.requestStartTime
             : undefined
 
+        // Resolve analytics context from the already-primed cache (getEnvironmentPrompt
+        // above populated `cachedProject`/`cachedOrg`), so this is effectively free here.
+        const analyticsContext = await this.getAnalyticsContextSafe(context)
+
         this.ctx.waitUntil(
-            this.trackEvent(AnalyticsEvent.MCP_INIT, {
-                tool_count: allTools.length,
-                mcp_version: version,
-                has_organization_id: !!organizationId,
-                has_project_id: !!projectId,
-                read_only: !!readOnly,
-                ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
-            })
+            this.trackEvent(
+                AnalyticsEvent.MCP_INIT,
+                {
+                    tool_count: allTools.length,
+                    mcp_version: version,
+                    has_organization_id: !!organizationId,
+                    has_project_id: !!projectId,
+                    read_only: !!readOnly,
+                    ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
+                },
+                analyticsContext ? { context: analyticsContext } : undefined
+            )
         )
     }
 
