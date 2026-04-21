@@ -693,6 +693,22 @@ export interface PatchedAlertApi {
     readonly last_value?: number | null
 }
 
+export interface AlertCheckListResponseApi {
+    /** Total checks matching the filters. */
+    count: number
+    results: AlertCheckApi[]
+}
+
+export interface AlertSnoozeApi {
+    /** Relative duration to snooze for (e.g. '2h', '1d', '1w'). Alert resumes when the duration elapses. */
+    duration: string
+}
+
+export interface AlertToggleApi {
+    /** Enable or disable the alert. */
+    enabled: boolean
+}
+
 export interface AlertSimulateApi {
     /** Insight ID to simulate the detector on. */
     insight: number
@@ -786,4 +802,27 @@ export type AlertsRetrieveParams = {
      * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
      */
     checks_offset?: number
+}
+
+export type AlertsChecksRetrieveParams = {
+    /**
+     * Relative date string for the start of the check history window (e.g. '-24h', '-7d'). Max retention is 14 days.
+     */
+    date_from?: string
+    /**
+     * Relative date string for the end of the check history window (e.g. '-1h'). Defaults to now if not specified.
+     */
+    date_to?: string
+    /**
+     * Maximum number of check results to return (default 50, max 500).
+     */
+    limit?: number
+    /**
+     * Number of newest checks to skip (0-based). Default 0.
+     */
+    offset?: number
+    /**
+     * Filter by check state: Firing, Not firing, Errored, or Snoozed.
+     */
+    state?: string
 }

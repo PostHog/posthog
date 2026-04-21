@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1958,6 +1958,70 @@ export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * List historical checks for an alert without returning the full alert record.
+ */
+export const AlertsChecksRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AlertsChecksRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe(
+            "Relative date string for the start of the check history window (e.g. '-24h', '-7d'). Max retention is 14 days."
+        ),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            "Relative date string for the end of the check history window (e.g. '-1h'). Defaults to now if not specified."
+        ),
+    limit: zod.number().optional().describe('Maximum number of check results to return (default 50, max 500).'),
+    offset: zod.number().optional().describe('Number of newest checks to skip (0-based). Default 0.'),
+    state: zod.string().optional().describe('Filter by check state: Firing, Not firing, Errored, or Snoozed.'),
+})
+
+/**
+ * Snooze an alert for a relative duration. Creates a snoozed AlertCheck record.
+ */
+export const AlertsSnoozeCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AlertsSnoozeCreateBody = /* @__PURE__ */ zod.object({
+    duration: zod
+        .string()
+        .describe("Relative duration to snooze for (e.g. '2h', '1d', '1w'). Alert resumes when the duration elapses."),
+})
+
+/**
+ * Enable or disable an alert. Re-enabling schedules a fresh check.
+ */
+export const AlertsToggleCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AlertsToggleCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Enable or disable the alert.'),
 })
 
 /**

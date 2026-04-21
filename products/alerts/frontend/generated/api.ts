@@ -10,8 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AlertApi,
+    AlertCheckListResponseApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
+    AlertSnoozeApi,
+    AlertToggleApi,
+    AlertsChecksRetrieveParams,
     AlertsListParams,
     AlertsRetrieveParams,
     PaginatedAlertListApi,
@@ -151,6 +155,79 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     return apiMutator<void>(getAlertsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * List historical checks for an alert without returning the full alert record.
+ */
+export const getAlertsChecksRetrieveUrl = (projectId: string, id: string, params?: AlertsChecksRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/alerts/${id}/checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/alerts/${id}/checks/`
+}
+
+export const alertsChecksRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AlertsChecksRetrieveParams,
+    options?: RequestInit
+): Promise<AlertCheckListResponseApi> => {
+    return apiMutator<AlertCheckListResponseApi>(getAlertsChecksRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Snooze an alert for a relative duration. Creates a snoozed AlertCheck record.
+ */
+export const getAlertsSnoozeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/snooze/`
+}
+
+export const alertsSnoozeCreate = async (
+    projectId: string,
+    id: string,
+    alertSnoozeApi: AlertSnoozeApi,
+    options?: RequestInit
+): Promise<AlertApi> => {
+    return apiMutator<AlertApi>(getAlertsSnoozeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertSnoozeApi),
+    })
+}
+
+/**
+ * Enable or disable an alert. Re-enabling schedules a fresh check.
+ */
+export const getAlertsToggleCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/toggle/`
+}
+
+export const alertsToggleCreate = async (
+    projectId: string,
+    id: string,
+    alertToggleApi: AlertToggleApi,
+    options?: RequestInit
+): Promise<AlertApi> => {
+    return apiMutator<AlertApi>(getAlertsToggleCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertToggleApi),
     })
 }
 

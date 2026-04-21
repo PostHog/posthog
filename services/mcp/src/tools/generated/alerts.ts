@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    AlertsChecksRetrieveParams,
+    AlertsChecksRetrieveQueryParams,
     AlertsCreateBody,
     AlertsDestroyParams,
     AlertsListQueryParams,
@@ -11,6 +13,10 @@ import {
     AlertsRetrieveParams,
     AlertsRetrieveQueryParams,
     AlertsSimulateCreateBody,
+    AlertsSnoozeCreateBody,
+    AlertsSnoozeCreateParams,
+    AlertsToggleCreateBody,
+    AlertsToggleCreateParams,
 } from '@/generated/alerts/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -205,6 +211,70 @@ const alertSimulate = (): ToolBase<typeof AlertSimulateSchema, Schemas.AlertSimu
     },
 })
 
+const AlertChecksListSchema = AlertsChecksRetrieveParams.omit({ project_id: true }).extend(
+    AlertsChecksRetrieveQueryParams.shape
+)
+
+const alertChecksList = (): ToolBase<typeof AlertChecksListSchema, WithPostHogUrl<Schemas.AlertCheckListResponse>> => ({
+    name: 'alert-checks-list',
+    schema: AlertChecksListSchema,
+    handler: async (context: Context, params: z.infer<typeof AlertChecksListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AlertCheckListResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/checks/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
+                state: params.state,
+            },
+        })
+        return await withPostHogUrl(context, result, '/insights?tab=alerts')
+    },
+})
+
+const AlertSnoozeSchema = AlertsSnoozeCreateParams.omit({ project_id: true }).extend(AlertsSnoozeCreateBody.shape)
+
+const alertSnooze = (): ToolBase<typeof AlertSnoozeSchema, Schemas.Alert> => ({
+    name: 'alert-snooze',
+    schema: AlertSnoozeSchema,
+    handler: async (context: Context, params: z.infer<typeof AlertSnoozeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.duration !== undefined) {
+            body['duration'] = params.duration
+        }
+        const result = await context.api.request<Schemas.Alert>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/snooze/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AlertToggleSchema = AlertsToggleCreateParams.omit({ project_id: true }).extend(AlertsToggleCreateBody.shape)
+
+const alertToggle = (): ToolBase<typeof AlertToggleSchema, Schemas.Alert> => ({
+    name: 'alert-toggle',
+    schema: AlertToggleSchema,
+    handler: async (context: Context, params: z.infer<typeof AlertToggleSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.Alert>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/toggle/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'alerts-list': alertsList,
     'alert-get': alertGet,
@@ -212,4 +282,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'alert-update': alertUpdate,
     'alert-delete': alertDelete,
     'alert-simulate': alertSimulate,
+    'alert-checks-list': alertChecksList,
+    'alert-snooze': alertSnooze,
+    'alert-toggle': alertToggle,
 }
