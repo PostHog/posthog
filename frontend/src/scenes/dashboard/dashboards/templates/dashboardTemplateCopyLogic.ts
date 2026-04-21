@@ -100,9 +100,22 @@ export const dashboardTemplateCopyLogic = kea<dashboardTemplateCopyLogicType>([
     })),
     listeners(({ values }) => ({
         submitCopySuccess: () => {
-            const destTeam = values.currentOrganization?.teams.find((t) => t.id === values.destinationTeamId)
+            const destinationTeamId = values.destinationTeamId
+            const destTeam = values.currentOrganization?.teams.find((t) => t.id === destinationTeamId)
             const destName = destTeam?.name || 'the selected project'
-            lemonToast.success(`Copied to ${destName}`)
+            lemonToast.success(
+                `Copied to ${destName}`,
+                destinationTeamId != null
+                    ? {
+                          button: {
+                              label: 'Open project',
+                              action: () => {
+                                  window.location.href = urls.project(destinationTeamId, urls.dashboards())
+                              },
+                          },
+                      }
+                    : {}
+            )
             dashboardTemplatesLogic.findMounted({ scope: 'default', templatesTabList: true })?.actions.getAllTemplates()
             router.actions.push(urls.dashboards(), { tab: DashboardsTab.Templates })
         },

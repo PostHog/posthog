@@ -113,7 +113,12 @@ describe('dashboardTemplateCopyLogic', () => {
         mounted.actions.setDestinationTeamId(destinationTeam.id)
         await expectLogic(mounted, () => mounted.actions.submitCopy()).toFinishAllListeners()
 
-        expect(lemonToast.success).toHaveBeenCalledWith('Copied to Beta project')
+        expect(lemonToast.success).toHaveBeenCalledWith('Copied to Beta project', {
+            button: expect.objectContaining({
+                label: 'Open project',
+                action: expect.any(Function),
+            }),
+        })
     })
 
     it('on successful copy refreshes templates, toasts, and navigates to the templates tab', async () => {

@@ -303,7 +303,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Dashboards
     [Scene.Dashboard]: AccessControlResourceType.Dashboard,
     [Scene.Dashboards]: AccessControlResourceType.Dashboard,
-    [Scene.DashboardTemplateCopy]: AccessControlResourceType.DashboardTemplate,
+    [Scene.DashboardTemplateCopy]: AccessControlResourceType.Dashboard,
 
     // Insights
     [Scene.Insight]: AccessControlResourceType.Insight,

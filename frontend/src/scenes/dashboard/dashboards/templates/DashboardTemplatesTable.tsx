@@ -96,10 +96,9 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
     /** Django `is_staff` (not org role). Prefer loaded API user; until then use SSR/bootstrap context so row actions are not blank. */
     const isDjangoStaffForTemplateUi =
         user != null ? Boolean(user.is_staff) : Boolean(getAppContext()?.current_user?.is_staff)
-    /** Team-scoped template row actions for non–Django-staff (matches project RBAC; backend still enforces org feature flag on writes where applicable). */
+    /** Team-scoped template row actions for non–Django-staff. `dashboard_template` inherits `dashboard` in RBAC (#54694). */
     const canCustomerManageTeamTemplates =
-        !isDjangoStaffForTemplateUi &&
-        userHasAccess(AccessControlResourceType.DashboardTemplate, AccessControlLevel.Editor)
+        !isDjangoStaffForTemplateUi && userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor)
 
     const currentTeamId = user?.team?.id ?? getAppContext()?.current_team?.id ?? null
     const organizationTeams = user?.organization?.teams ?? getAppContext()?.current_user?.organization?.teams ?? []
