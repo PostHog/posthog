@@ -5,7 +5,7 @@ One approach - we build some abstract framework where the only things we really 
 - source_product and source_identifier
 
 And then have a whole bunch of defaults around how we prompt for assignment, actionability, as well as allowing overriding
-of the priority, actionabiltiy etc functions themsselves. Extremely low effort to get started, but still provides the flexibility
+of the priority, actionability etc functions themsselves. Extremely low effort to get started, but still provides the flexibility
 to customize the behavior without needing to write a lot of boilerplate. On the other hand, requires us to be quite perscriptive about
 exactly how research works
 """
