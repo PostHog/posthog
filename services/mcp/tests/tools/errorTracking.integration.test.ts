@@ -28,6 +28,7 @@ describe('Error Tracking', { concurrent: false }, () => {
     const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
     const createdAssignmentRuleIds: string[] = []
     const createdGroupingRuleIds: string[] = []
+    const createdSuppressionRuleIds: string[] = []
     const createdResources: CreatedResources = {
         featureFlags: [],
         insights: [],
@@ -72,6 +73,17 @@ describe('Error Tracking', { concurrent: false }, () => {
             }
         }
         createdGroupingRuleIds.length = 0
+        for (const id of createdSuppressionRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/suppression_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdSuppressionRuleIds.length = 0
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
@@ -292,6 +304,39 @@ describe('Error Tracking', { concurrent: false }, () => {
             expect(result).toBeTruthy()
             expect(typeof result.count).toBe('number')
             expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('suppression-rules create tool', () => {
+        const suppressionRulesCreateTool = GENERATED_TOOLS['error-tracking-suppression-rules-create']!()
+
+        it('should create a suppression rule', async () => {
+            const result = (await suppressionRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_type',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                sampling_rate: 0.25,
+            })) as { id: string; filters: unknown; sampling_rate?: number }
+
+            createdSuppressionRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.sampling_rate).toBe(0.25)
         })
     })
 

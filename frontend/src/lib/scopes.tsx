@@ -126,6 +126,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'warehouse_view', objectName: 'Warehouse view', objectPlural: 'warehouse views' },
     { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
 ]
+API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
 
@@ -194,8 +195,10 @@ export const MCP_SERVER_OAUTH_SCOPES = [
     'email',
     'introspection',
     'user:read',
+    'user:write',
     'organization:read',
     'project:read',
+    'project:write',
     'feature_flag:read',
     'feature_flag:write',
     'experiment:read',

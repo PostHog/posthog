@@ -6,6 +6,7 @@ from typing import cast
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import (
+    BooleanField,
     Case,
     CharField,
     Count,
@@ -367,6 +368,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
+        qs = self._annotate_latest_actionability_value(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
@@ -451,16 +453,22 @@ class SignalReportViewSet(
 
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
+        # `status=ready` splits into two virtual stages (requires `latest_actionability_value`):
+        # 0 = ready + actionable (or no judgment yet), 1 = ready + not_actionable; then other stages.
         return queryset.annotate(
             pipeline_status_rank=Case(
+                When(
+                    Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable"),
+                    then=Value(1),
+                ),
                 When(status=SignalReport.Status.READY, then=Value(0)),
-                When(status=SignalReport.Status.PENDING_INPUT, then=Value(1)),
-                When(status=SignalReport.Status.IN_PROGRESS, then=Value(2)),
-                When(status=SignalReport.Status.CANDIDATE, then=Value(3)),
-                When(status=SignalReport.Status.POTENTIAL, then=Value(4)),
-                When(status=SignalReport.Status.FAILED, then=Value(5)),
-                When(status=SignalReport.Status.SUPPRESSED, then=Value(6)),
-                When(status=SignalReport.Status.DELETED, then=Value(7)),
+                When(status=SignalReport.Status.PENDING_INPUT, then=Value(2)),
+                When(status=SignalReport.Status.IN_PROGRESS, then=Value(3)),
+                When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
+                When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
+                When(status=SignalReport.Status.FAILED, then=Value(6)),
+                When(status=SignalReport.Status.SUPPRESSED, then=Value(7)),
+                When(status=SignalReport.Status.DELETED, then=Value(8)),
                 default=Value(50),
                 output_field=IntegerField(),
             )
@@ -492,6 +500,28 @@ class SignalReportViewSet(
             priority_rank=Coalesce(latest_priority, Value("~"), output_field=CharField()),
         )
 
+    def _annotate_latest_actionability_value(self, queryset):
+        # Latest actionability_judgment: json "actionability" only (no legacy "choice").
+        latest_actionability = Subquery(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                content__startswith="{",
+            )
+            .order_by("-created_at")
+            .annotate(
+                _actionability_val=Func(
+                    Cast(F("content"), output_field=JSONField()),
+                    Value("actionability"),
+                    function="jsonb_extract_path_text",
+                    output_field=CharField(),
+                ),
+            )
+            .values("_actionability_val")[:1],
+            output_field=CharField(),
+        )
+        return queryset.annotate(latest_actionability_value=latest_actionability)
+
     def _prefetch_signal_report_priority_artefacts(self, queryset):
         return queryset.prefetch_related(
             Prefetch(
@@ -514,22 +544,31 @@ class SignalReportViewSet(
         # Annotate is_suggested_reviewer by resolving the current user's GitHub login
         # and checking jsonb containment on the artefact content list. This stays fresh
         # even when a user connects their GitHub account after the report was generated.
+        # Never true for ready + not_actionable — there is nothing actionable to review.
         github_login = self._get_github_login(self.request.user)
         if not github_login:
             return queryset.annotate(is_suggested_reviewer=Value(False))
 
         # github_login comes from our own UserSocialAuth DB, not user input.
-        return queryset.annotate(
-            is_suggested_reviewer=Exists(
-                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-                SignalReportArtefact.objects.filter(
-                    report_id=OuterRef("id"),
-                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                ).extra(
-                    where=["content::jsonb @> %s::jsonb"],
-                    params=[json.dumps([{"github_login": github_login}])],
-                )
+        suggested_exists = Exists(
+            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            ).extra(
+                where=["content::jsonb @> %s::jsonb"],
+                params=[json.dumps([{"github_login": github_login}])],
             )
+        )
+        return queryset.annotate(
+            is_suggested_reviewer=Case(
+                When(
+                    Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable"),
+                    then=Value(False),
+                ),
+                default=suggested_exists,
+                output_field=BooleanField(),
+            ),
         )
 
     def filter_queryset(self, queryset):
