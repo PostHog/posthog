@@ -1696,6 +1696,7 @@ export interface UserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    readonly is_organization_first_user: boolean
     readonly pending_invites: readonly PendingInviteApi[]
 }
 
@@ -1768,6 +1769,7 @@ export interface PatchedUserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    readonly is_organization_first_user?: boolean
     readonly pending_invites?: readonly PendingInviteApi[]
 }
 
