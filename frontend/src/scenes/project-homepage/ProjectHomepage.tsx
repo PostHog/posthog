@@ -32,7 +32,7 @@ import { AiFirstHomepage } from './ai-first/AiFirstHomepage'
 /** Only mount the welcome dialog (and its kea logic) for users actually eligible to see it. */
 function MaybeWelcomeDialog(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    if (!user || user.is_organization_first_user !== false || wasWelcomeDismissed(user.uuid)) {
+    if (!user || user.is_organization_first_user !== false || wasWelcomeDismissed(user.uuid, user.organization?.id)) {
         return null
     }
     return <WelcomeDialog />

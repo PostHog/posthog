@@ -27,7 +27,7 @@ export function WelcomeDialog(): JSX.Element | null {
         popularDashboards,
         productsInUse,
     } = useValues(welcomeDialogLogic)
-    const { dismissWelcome, closeDialog } = useActions(welcomeDialogLogic)
+    const { dismissWelcome, closeDialog, loadWelcomeData } = useActions(welcomeDialogLogic)
     const { user } = useValues(userLogic)
 
     if (!shouldShowDialog) {
@@ -45,7 +45,7 @@ export function WelcomeDialog(): JSX.Element | null {
         teamMembers.length > 0 || recentActivity.length > 0 || popularDashboards.length > 0 || productsInUse.length > 0
     const introCopy = hasAnyData
         ? "Here's what your team has been working on."
-        : "You're one of the first in this workspace — start exploring."
+        : "You're one of the first in this organization — start exploring."
 
     return (
         <LemonModal
@@ -57,23 +57,34 @@ export function WelcomeDialog(): JSX.Element | null {
             data-attr="welcome-dialog"
             footer={
                 <div className="flex flex-row justify-between items-center w-full">
-                    <LemonButton type="tertiary" onClick={() => closeDialog()} data-attr="welcome-close">
-                        I'll look around
-                    </LemonButton>
-                    <LemonButton type="primary" onClick={() => dismissWelcome()} data-attr="welcome-dismiss">
+                    <LemonButton type="tertiary" onClick={() => dismissWelcome()} data-attr="welcome-dismiss">
                         Don't show again
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={() => closeDialog()} data-attr="welcome-close">
+                        Start exploring
                     </LemonButton>
                 </div>
             }
         >
             {welcomeDataLoading && !welcomeData.organization_name ? (
-                <div className="flex justify-center p-6">
+                <div
+                    className="flex justify-center p-6"
+                    role="status"
+                    aria-live="polite"
+                    aria-label="Loading welcome content"
+                >
                     <Spinner />
                 </div>
             ) : (
                 <div className="flex flex-col gap-3">
                     {welcomeDataError ? (
-                        <LemonBanner type="warning">
+                        <LemonBanner
+                            type="warning"
+                            action={{
+                                children: 'Try again',
+                                onClick: () => loadWelcomeData(),
+                            }}
+                        >
                             We couldn't load your team's activity. You can still explore PostHog from here.
                         </LemonBanner>
                     ) : (

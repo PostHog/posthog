@@ -59,7 +59,7 @@ describe('welcomeDialogLogic', () => {
         window.sessionStorage.clear()
         useMocks({
             get: {
-                '/api/organizations/@current/welcome/': mockPayload,
+                '/api/organizations/@current/welcome/current/': mockPayload,
             },
         })
         initKeaTests()
@@ -86,7 +86,10 @@ describe('welcomeDialogLogic', () => {
     })
 
     it('does not reopen for a user who has already dismissed', async () => {
-        window.localStorage.setItem(`posthog_welcome_dismissed:${INVITED_USER.uuid}`, '1')
+        window.localStorage.setItem(
+            `posthog_welcome_dismissed:${INVITED_USER.uuid}:${INVITED_USER.organization?.id}`,
+            '1'
+        )
         userLogic.actions.loadUserSuccess(INVITED_USER)
         logic = welcomeDialogLogic()
         logic.mount()
@@ -102,7 +105,11 @@ describe('welcomeDialogLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
         logic.actions.dismissWelcome()
-        expect(window.localStorage.getItem(`posthog_welcome_dismissed:${INVITED_USER.uuid}`)).toBe('1')
+        expect(
+            window.localStorage.getItem(
+                `posthog_welcome_dismissed:${INVITED_USER.uuid}:${INVITED_USER.organization?.id}`
+            )
+        ).toBe('1')
         expect(logic.values.shouldShowDialog).toBe(false)
     })
 

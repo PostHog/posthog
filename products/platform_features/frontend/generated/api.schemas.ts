@@ -541,15 +541,6 @@ export interface WelcomeResponseApi {
     is_organization_first_user: boolean
 }
 
-export interface PaginatedWelcomeResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: WelcomeResponseApi[]
-}
-
 export interface ActivityLogApi {
     readonly id: string
     user: UserBasicApi
@@ -743,17 +734,6 @@ export type RolesListParams = {
 }
 
 export type RolesRoleMembershipsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type WelcomeListParams = {
     /**
      * Number of results to return per page.
      */

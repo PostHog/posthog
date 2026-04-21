@@ -24057,7 +24057,8 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
-      readonly is_organization_first_user: boolean;
+      /** @nullable */
+      readonly is_organization_first_user: boolean | null;
       readonly pending_invites: readonly PendingInvite[];
     }
 
@@ -24199,66 +24200,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WebExperimentsAPI[];
-    }
-
-    export interface _WelcomeInviter {
-      name: string;
-      email: string;
-    }
-
-    export interface _WelcomeTeamMember {
-      name: string;
-      email: string;
-      /** @nullable */
-      avatar: string | null;
-      role: string;
-      last_active: LastActiveEnum;
-    }
-
-    export interface _WelcomeRecentActivity {
-      /** Scope.activity pair, e.g. 'Insight.created'. */
-      type: string;
-      actor_name: string;
-      entity_name: string;
-      /** @nullable */
-      entity_url: string | null;
-      timestamp: string;
-    }
-
-    export interface _WelcomePopularDashboard {
-      id: number;
-      name: string;
-      description: string;
-      team_id: number;
-      url: string;
-    }
-
-    export interface _WelcomeSuggestedStep {
-      label: string;
-      href: string;
-      reason: string;
-      docs_href?: string;
-      product_key?: string;
-    }
-
-    export interface WelcomeResponse {
-      organization_name: string;
-      inviter: _WelcomeInviter | null;
-      team_members: _WelcomeTeamMember[];
-      recent_activity: _WelcomeRecentActivity[];
-      popular_dashboards: _WelcomePopularDashboard[];
-      products_in_use: string[];
-      suggested_next_steps: _WelcomeSuggestedStep[];
-      is_organization_first_user: boolean;
-    }
-
-    export interface PaginatedWelcomeResponseList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: WelcomeResponse[];
     }
 
     /**
@@ -28519,7 +28460,8 @@ export namespace Schemas {
        * @nullable
        */
       passkeys_enabled_for_2fa?: boolean | null;
-      readonly is_organization_first_user?: boolean;
+      /** @nullable */
+      readonly is_organization_first_user?: boolean | null;
       readonly pending_invites?: readonly PendingInvite[];
     }
 
@@ -33374,6 +33316,57 @@ export namespace Schemas {
       failed_at: string | null;
     }
 
+    export interface _WelcomeInviter {
+      name: string;
+      email: string;
+    }
+
+    export interface _WelcomeTeamMember {
+      name: string;
+      email: string;
+      /** @nullable */
+      avatar: string | null;
+      role: string;
+      last_active: LastActiveEnum;
+    }
+
+    export interface _WelcomeRecentActivity {
+      /** Scope.activity pair, e.g. 'Insight.created'. */
+      type: string;
+      actor_name: string;
+      entity_name: string;
+      /** @nullable */
+      entity_url: string | null;
+      timestamp: string;
+    }
+
+    export interface _WelcomePopularDashboard {
+      id: number;
+      name: string;
+      description: string;
+      team_id: number;
+      url: string;
+    }
+
+    export interface _WelcomeSuggestedStep {
+      label: string;
+      href: string;
+      reason: string;
+      docs_href?: string;
+      product_key?: string;
+    }
+
+    export interface WelcomeResponse {
+      organization_name: string;
+      inviter: _WelcomeInviter | null;
+      team_members: _WelcomeTeamMember[];
+      recent_activity: _WelcomeRecentActivity[];
+      popular_dashboards: _WelcomePopularDashboard[];
+      products_in_use: string[];
+      suggested_next_steps: _WelcomeSuggestedStep[];
+      is_organization_first_user: boolean;
+    }
+
     export interface _DateRange {
       /**
        * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.
@@ -36721,17 +36714,6 @@ export namespace Schemas {
     };
 
     export type RolesRoleMembershipsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type WelcomeListParams = {
     /**
      * Number of results to return per page.
      */

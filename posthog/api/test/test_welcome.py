@@ -1,12 +1,8 @@
-from datetime import timedelta
-
-from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
 from django.core.cache import cache
 from django.utils import timezone
 
-from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, User
@@ -23,7 +19,7 @@ class TestWelcomeEndpoint(APIBaseTest):
         super().setUp()
 
     def test_returns_current_organization_name(self):
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["organization_name"], self.organization.name)
@@ -34,7 +30,7 @@ class TestWelcomeEndpoint(APIBaseTest):
         self.assertIn("suggested_next_steps", data)
 
     def test_empty_org_renders_empty_cards(self):
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["team_members"], [])
@@ -50,7 +46,7 @@ class TestWelcomeEndpoint(APIBaseTest):
         membership.invited_by = founder
         membership.save(update_fields=["invited_by"])
 
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
         self.assertIsNotNone(data["inviter"])
         self.assertEqual(data["inviter"]["email"], founder.email)
@@ -63,14 +59,14 @@ class TestWelcomeEndpoint(APIBaseTest):
             target_email=self.user.email,
             created_by=founder,
         )
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
         self.assertIsNotNone(data["inviter"])
         self.assertEqual(data["inviter"]["email"], founder.email)
 
     def test_returns_teammates_excluding_self(self):
         other = User.objects.create_and_join(self.organization, "teammate@example.com", None, "Teammate")
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
         emails = [m["email"] for m in data["team_members"]]
         self.assertIn(other.email, emails)
@@ -78,7 +74,7 @@ class TestWelcomeEndpoint(APIBaseTest):
 
     def test_members_never_logged_in_show_never_status(self):
         User.objects.create_and_join(self.organization, "never@example.com", None, "Never")
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
         never_member = next((m for m in data["team_members"] if m["email"] == "never@example.com"), None)
         assert never_member is not None
@@ -94,6 +90,7 @@ class TestWelcomeEndpoint(APIBaseTest):
             detail={"name": "My insight"},
             user=self.user,
             is_system=False,
+            was_impersonated=False,
         )
         ActivityLog.objects.create(
             team_id=self.team.id,
@@ -104,8 +101,9 @@ class TestWelcomeEndpoint(APIBaseTest):
             detail={"name": "My insight"},
             user=self.user,
             is_system=False,
+            was_impersonated=False,
         )
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
         self.assertEqual(len(data["recent_activity"]), 1)
         self.assertEqual(data["recent_activity"][0]["entity_name"], "My insight")
@@ -120,8 +118,9 @@ class TestWelcomeEndpoint(APIBaseTest):
             detail={"name": "x" * 5000},
             user=self.user,
             is_system=False,
+            was_impersonated=False,
         )
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
         self.assertEqual(len(data["recent_activity"][0]["entity_name"]), 200)
 
@@ -138,8 +137,9 @@ class TestWelcomeEndpoint(APIBaseTest):
             detail={"name": "Cross-org leak"},
             user=self.user,
             is_system=False,
+            was_impersonated=False,
         )
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
         entity_names = [item["entity_name"] for item in data["recent_activity"]]
         self.assertNotIn("Cross-org leak", entity_names)
@@ -148,7 +148,7 @@ class TestWelcomeEndpoint(APIBaseTest):
         dashboard = Dashboard.objects.create(team=self.team, name="Top dashboard")
         dashboard.last_accessed_at = timezone.now()
         dashboard.save()
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
         self.assertEqual(len(data["popular_dashboards"]), 1)
         self.assertEqual(data["popular_dashboards"][0]["name"], "Top dashboard")
@@ -156,32 +156,34 @@ class TestWelcomeEndpoint(APIBaseTest):
     def test_products_in_use_from_ingested_events(self):
         self.team.ingested_event = True
         self.team.save()
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
         self.assertIn("product_analytics", data["products_in_use"])
 
-    @parameterized.expand(
-        [
-            # (name, is_first_joiner, expected_is_first_user)
-            ("sole_member_is_first_user", True, True),
-            ("second_joiner_is_not_first_user", False, False),
-        ]
-    )
-    def test_is_organization_first_user(self, _name: str, is_first_joiner: bool, expected: bool):
-        org = Organization.objects.create(name=f"Org-{_name}")
-        first_member = User.objects.create_and_join(org, f"first-{_name}@example.com", "password")
-        if is_first_joiner:
-            member = first_member
-        else:
-            with freeze_time(timezone.now() + timedelta(seconds=1)):
-                member = User.objects.create_and_join(org, f"second-{_name}@example.com", "password")
-        self.client.force_login(member)
+    def test_is_organization_first_user_true_for_direct_signup(self):
+        """Users who created the org (no inviter on their membership) are first users."""
+        org = Organization.objects.create(name="Org-direct-signup")
+        member = User.objects.create_and_join(org, "creator@example.com", "password")
         member.current_organization = org
         member.save()
+        self.client.force_login(member)
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.json()["is_organization_first_user"], expected)
+        self.assertTrue(response.json()["is_organization_first_user"])
+
+    def test_is_organization_first_user_false_for_invitee(self):
+        """Users whose membership has an invited_by FK (invite acceptance) are not first users."""
+        org = Organization.objects.create(name="Org-invitee")
+        creator = User.objects.create_and_join(org, "creator-invitee@example.com", "password")
+        invitee = User.objects.create_and_join(org, "invitee@example.com", "password")
+        # Simulate that this user arrived via OrganizationInvite.use() — i.e. invited_by is populated.
+        OrganizationMembership.objects.filter(organization=org, user=invitee).update(invited_by=creator)
+        invitee.current_organization = org
+        invitee.save()
+        self.client.force_login(invitee)
+        response = self.client.get("/api/users/@me/")
+        self.assertFalse(response.json()["is_organization_first_user"])
 
     def test_unauthenticated_cannot_access_welcome(self):
         self.client.logout()
-        response = self.client.get("/api/organizations/@current/welcome/")
+        response = self.client.get("/api/organizations/@current/welcome/current/")
         self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))

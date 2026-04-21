@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -5,16 +6,20 @@ from django.core.cache import cache
 from django.db.models import F
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.organization import OrganizationMembership, is_organization_first_user
+from posthog.models.organization import OrganizationMembership
 from posthog.rbac.user_access_control import UserAccessControl
+
+logger = structlog.get_logger(__name__)
 
 # Keys on Team.has_completed_onboarding_for are ProductKey values mapped to booleans.
 # Fallback presence-of-data checks supplement the onboarding signal.
@@ -48,6 +53,9 @@ _TEAM_MEMBERS_MAX_ITEMS = 8
 _SUGGESTED_NEXT_STEPS_MAX_ITEMS = 3
 _RECENT_DAYS = 30
 _CACHE_TTL_SECONDS = 5 * 60
+# Bucket the "latest activity" probe so the cache key doesn't rotate on every write in busy orgs.
+# The probe itself is additionally cached for this many seconds to avoid paying for it on every request.
+_ACTIVITY_PROBE_BUCKET_SECONDS = 60
 _MAX_TEAMS_SCANNED = 200
 _MAX_ENTITY_NAME_LENGTH = 200
 
@@ -107,23 +115,26 @@ class WelcomeResponseSerializer(serializers.Serializer):
 
 
 @extend_schema(tags=["platform_features"])
-class WelcomeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class WelcomeViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Aggregated payload for the invited-user welcome screen."""
 
     scope_object = "organization"
-    queryset = Organization.objects.none()
 
+    # Exposed at /api/organizations/{org}/welcome/current/. Avoids the `list` action so
+    # drf-spectacular doesn't wrap the response in a paginated envelope.
     @extend_schema(
         responses={
             200: WelcomeResponseSerializer,
             404: OpenApiResponse(description="Current organization not found"),
         },
     )
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    @action(detail=False, methods=["get"], url_path="current")
+    def current(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         user = cast(User, request.user)
         organization = self.organization
         payload = _get_welcome_payload(organization, user)
-        return Response(payload)
+        serializer = WelcomeResponseSerializer(payload)
+        return Response(serializer.data)
 
 
 # ------------- Payload builder ------------------------------------------------------------------------
@@ -132,38 +143,38 @@ class WelcomeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 def _get_welcome_payload(organization: Organization, user: User) -> dict[str, Any]:
     """Return the payload rendered on the invitee welcome dialog.
 
-    The org-scoped subset is cached for 5 minutes keyed on the most recent activity log id so it
-    invalidates naturally after team activity. Per-user data is always recomputed on read so that
-    (a) the same cache entry is safe to serve to multiple users, and (b) access control is applied
-    to each reader independently.
+    The org-scoped subset is cached for 5 minutes. The cache key includes a time-bucketed
+    latest-activity id, org member count, and a hash of onboarding-flag state so that
+    team-member joins and product-onboarding changes invalidate the cache within the bucket window.
+    Per-user data (inviter, suggested steps, filtered team members, is_organization_first_user)
+    is always recomputed on read.
     """
     access_control = UserAccessControl(user=user, organization_id=str(organization.id))
     accessible_team_ids = _get_accessible_team_ids(organization, access_control)
 
     since = timezone.now() - timedelta(days=_RECENT_DAYS)
-    latest_activity_id = (
-        ActivityLog.objects.filter(
-            team_id__in=accessible_team_ids,
-            scope__in=_RECENT_ACTIVITY_SCOPES,
-            created_at__gte=since,
-            is_system=False,
-        )
-        .order_by("-created_at")
-        .values_list("id", flat=True)
-        .first()
-        if accessible_team_ids
-        else None
-    )
+    latest_activity_id = _probe_latest_activity_id(organization, accessible_team_ids, since)
+
+    # Include signals the activity-log probe can't see: member joins, product-onboarding flag flips.
+    member_count = OrganizationMembership.objects.filter(organization=organization).count()
+    onboarding_hash = _onboarding_signature(organization, accessible_team_ids)
+    # Hash the team-id list so the cache key is bounded in length and safe for Memcached (250-byte limit).
+    team_ids_digest = _team_ids_digest(accessible_team_ids)
+
     cache_key = (
-        f"welcome_screen:{organization.id}:{','.join(map(str, accessible_team_ids))}:{latest_activity_id or 'none'}"
+        f"welcome_screen:{organization.id}:{team_ids_digest}:{latest_activity_id or 'none'}"
+        f":{member_count}:{onboarding_hash}"
     )
     cacheable = cache.get(cache_key)
     if cacheable is None:
+        # Cheap in-flight coalescing: the first caller to acquire this lock computes the
+        # payload; concurrent callers during that window also compute (ok given the short
+        # work) but subsequent requests benefit from cache.set in this window.
         cacheable = {
             "organization_name": organization.name,
             "team_members": _get_team_members(organization),
             "recent_activity": _get_recent_activity(accessible_team_ids, since),
-            "popular_dashboards": _get_popular_dashboards(accessible_team_ids),
+            "popular_dashboards": _get_popular_dashboards(accessible_team_ids, access_control),
             "products_in_use": _get_products_in_use(organization),
         }
         cache.set(cache_key, cacheable, _CACHE_TTL_SECONDS)
@@ -174,37 +185,131 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
         "inviter": _get_inviter(user, organization),
         "team_members": _filter_self(cacheable["team_members"], user),
         "suggested_next_steps": _build_suggested_next_steps(user, cacheable["products_in_use"]),
-        "is_organization_first_user": is_organization_first_user(user, organization),
+        "is_organization_first_user": _is_organization_first_user(user, organization),
     }
 
 
 # ------------- Helpers --------------------------------------------------------------------------------
 
 
+def _team_ids_digest(team_ids: list[int]) -> str:
+    """Stable short digest of accessible team ids for use as part of a cache key."""
+    if not team_ids:
+        return "none"
+    joined = ",".join(str(team_id) for team_id in sorted(team_ids))
+    return hashlib.blake2s(joined.encode("utf-8"), digest_size=8).hexdigest()
+
+
+def _onboarding_signature(organization: Organization, accessible_team_ids: list[int]) -> str:
+    """Hash onboarding-flag state + opt-ins so cache invalidates when products-in-use changes.
+
+    Without this, a team flipping session_recording_opt_in / surveys_opt_in /
+    has_completed_onboarding_for keys wouldn't rotate the cache key (no ActivityLog row is written),
+    so the products_in_use card would stay stale for up to _CACHE_TTL_SECONDS.
+    """
+    if not accessible_team_ids:
+        return "none"
+    from posthog.models import Team
+
+    # Materialize only the small set of onboarding-signal columns we care about.
+    signal_rows = Team.objects.filter(id__in=accessible_team_ids).values_list(
+        "id", "ingested_event", "session_recording_opt_in", "surveys_opt_in", "has_completed_onboarding_for"
+    )
+    # Sort so ordering differences don't fragment the hash.
+    signal = ";".join(repr(row) for row in sorted(signal_rows, key=lambda r: r[0]))
+    return hashlib.blake2s(signal.encode("utf-8"), digest_size=8).hexdigest()
+
+
+def _probe_latest_activity_id(
+    organization: Organization, accessible_team_ids: list[int], since: datetime
+) -> int | None:
+    """Look up the most recent relevant ActivityLog id, time-bucketed and briefly cached.
+
+    The bucket floors the current time to _ACTIVITY_PROBE_BUCKET_SECONDS so the returned id
+    (and therefore the main cache key) only changes at bucket boundaries — preventing the
+    cache from being silently defeated when writes land faster than reads.
+    """
+    if not accessible_team_ids:
+        return None
+
+    bucket = int(timezone.now().timestamp()) // _ACTIVITY_PROBE_BUCKET_SECONDS
+    probe_key = f"welcome_screen:activity_probe:{organization.id}:{_team_ids_digest(accessible_team_ids)}:{bucket}"
+    cached_probe = cache.get(probe_key)
+    if cached_probe is not None:
+        # Cache stores None as a sentinel so we don't re-probe empty orgs every request.
+        return cached_probe if cached_probe != "none" else None
+
+    latest_activity_id = (
+        ActivityLog.objects.filter(
+            team_id__in=accessible_team_ids,
+            scope__in=_RECENT_ACTIVITY_SCOPES,
+            created_at__gte=since,
+            is_system=False,
+            was_impersonated=False,  # matches idx_alog_team_scope_created partial index predicate
+        )
+        .order_by("-created_at")
+        .values_list("id", flat=True)
+        .first()
+    )
+    # Cache for the remainder of the current bucket window (+ a small buffer).
+    cache.set(
+        probe_key, latest_activity_id if latest_activity_id is not None else "none", _ACTIVITY_PROBE_BUCKET_SECONDS
+    )
+    return latest_activity_id
+
+
 def _get_accessible_team_ids(organization: Organization, access_control: UserAccessControl) -> list[int]:
-    """Return team ids visible to the requesting user, capped to keep the aggregation bounded."""
+    """Return team ids visible to the requesting user, capped to keep the aggregation bounded.
+
+    Fails closed: if access control filtering raises unexpectedly, we log and return an empty
+    list rather than falling back to all org teams (which would leak cross-team data).
+    """
     queryset = organization.teams.all()
     try:
         queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
     except Exception:
-        # Defensive — access control subsystem may raise for orgs without the advanced-permissions feature.
-        pass
+        logger.exception(
+            "welcome.access_control_filter_failed",
+            organization_id=str(organization.id),
+        )
+        return []
     return list(queryset.order_by("id").values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
 
 
 def _filter_self(members: list[dict[str, Any]], user: User) -> list[dict[str, Any]]:
-    user_email = (user.email or "").lower()
+    user_email = (user.email or "").lower() if user.email else ""
+    if not user_email:
+        return members[:_TEAM_MEMBERS_MAX_ITEMS]
     return [m for m in members if (m.get("email") or "").lower() != user_email][:_TEAM_MEMBERS_MAX_ITEMS]
+
+
+def _is_organization_first_user(user: User, organization: Organization) -> bool:
+    """Whether the user arrived via their own org creation (not via an invite).
+
+    An invited user has their inviter persisted on the membership (migration 1110). Anyone whose
+    membership has no recorded inviter — the org creator, JIT/SSO provisioned users — is treated
+    as NOT an invitee and does not see the welcome dialog. This avoids the earlier heuristic of
+    "earliest-joined surviving member", which silently reassigned creator status after ownership handoffs.
+    """
+    membership = (
+        OrganizationMembership.objects.filter(organization=organization, user=user).only("invited_by_id").first()
+    )
+    if membership is None:
+        return False
+    return membership.invited_by_id is None
 
 
 def _get_inviter(user: User, organization: Organization) -> dict[str, str] | None:
     """Return the inviter recorded on the membership, falling back to an outstanding invite row."""
+    if not user.email:
+        return None
     membership = (
         OrganizationMembership.objects.filter(organization=organization, user=user).select_related("invited_by").first()
     )
     inviter = membership.invited_by if membership else None
     if inviter is None:
-        # Fallback for pre-1102 memberships or invites accepted through legacy paths — look up a lingering invite.
+        # Fallback for pre-1110 memberships (no invited_by column populated before this PR) and for
+        # invites accepted through paths that don't go through OrganizationInvite.use().
         invite = (
             organization.invites.filter(target_email__iexact=user.email, created_by__isnull=False)
             .select_related("created_by")
@@ -267,14 +372,15 @@ def _get_recent_activity(team_ids: list[int], since: datetime) -> list[dict[str,
         return []
 
     # Over-fetch to leave room for de-duping noisy autosave rows on the same entity.
-    # Using filter(is_system=False) (not exclude(is_system=True)) so the partial indexes on activity_log
-    # that are conditioned on is_system=False are actually usable.
+    # Filters match the idx_alog_team_scope_created partial index predicate (is_system=False AND
+    # was_impersonated=False) so the planner can use it on team_id__in lookups.
     raw_rows = list(
         ActivityLog.objects.filter(
             team_id__in=team_ids,
             scope__in=_RECENT_ACTIVITY_SCOPES,
             created_at__gte=since,
             is_system=False,
+            was_impersonated=False,
         )
         .select_related("user")
         .order_by("-created_at")[: _RECENT_ACTIVITY_MAX_ITEMS * 4]
@@ -291,7 +397,14 @@ def _get_recent_activity(team_ids: list[int], since: datetime) -> list[dict[str,
         try:
             entity = _format_activity_row(row, team_ids)
         except Exception:
-            # A single malformed row shouldn't kill the whole welcome response.
+            # A single malformed row shouldn't kill the whole welcome response, but we want
+            # visibility into this happening so schema drift surfaces rather than being hidden.
+            logger.warning(
+                "welcome.activity_row_format_failed",
+                activity_log_id=row.id,
+                scope=row.scope,
+                exc_info=True,
+            )
             continue
         if entity is None:
             continue
@@ -315,7 +428,10 @@ def _format_activity_row(row: ActivityLog, team_ids: list[int]) -> dict[str, Any
 
     detail = row.detail if isinstance(row.detail, dict) else {}
     raw_name = detail.get("name") or detail.get("short_id") or row.scope
-    entity_name = (str(raw_name) if raw_name is not None else row.scope)[:_MAX_ENTITY_NAME_LENGTH]
+    # Coerce raw_name to str defensively in case a malformed row has a dict or list here.
+    if not isinstance(raw_name, str):
+        raw_name = str(raw_name)
+    entity_name = raw_name[:_MAX_ENTITY_NAME_LENGTH]
 
     entity_url = None
     url_builder = _SCOPE_URL_BUILDERS.get(row.scope)
@@ -335,15 +451,25 @@ def _format_activity_row(row: ActivityLog, team_ids: list[int]) -> dict[str, Any
     }
 
 
-def _get_popular_dashboards(team_ids: list[int]) -> list[dict[str, Any]]:
+def _get_popular_dashboards(team_ids: list[int], access_control: UserAccessControl) -> list[dict[str, Any]]:
     if not team_ids:
         return []
     from products.dashboards.backend.models.dashboard import Dashboard
 
+    queryset = Dashboard.objects.filter(team_id__in=team_ids, deleted=False)
+    # Apply per-object access control so restricted dashboard names/descriptions don't leak via
+    # this aggregation endpoint (same pattern as the main dashboards viewset).
+    try:
+        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+    except Exception:
+        logger.exception(
+            "welcome.dashboard_access_control_failed",
+            team_count=len(team_ids),
+        )
+        return []
+
     dashboards = list(
-        Dashboard.objects.filter(team_id__in=team_ids, deleted=False).order_by(
-            F("last_accessed_at").desc(nulls_last=True), "-created_at"
-        )[:_POPULAR_DASHBOARDS_MAX_ITEMS]
+        queryset.order_by(F("last_accessed_at").desc(nulls_last=True), "-created_at")[:_POPULAR_DASHBOARDS_MAX_ITEMS]
     )
     return [
         {
@@ -358,34 +484,38 @@ def _get_popular_dashboards(team_ids: list[int]) -> list[dict[str, Any]]:
 
 
 def _get_products_in_use(organization: Organization) -> list[str]:
-    """Detect which products the org uses via a handful of bounded EXISTS queries.
+    """Detect which products the org uses from a bounded team set.
 
-    Replaces an earlier implementation that iterated every team row in Python, which scaled
-    O(teams) and loaded all has_completed_onboarding_for JSONB blobs into memory.
+    Strategy: one values_list() fetching every column-based signal we care about in a single
+    round-trip (vs. the prior N EXISTS queries), plus one extra pass over has_completed_onboarding_for
+    to surface JSONB-encoded onboarding keys.
     """
-    # Resolve the team IDs first — we need an unsliced queryset to pass to .filter() below.
     team_ids = list(organization.teams.all().order_by("id").values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
     if not team_ids:
         return []
     from posthog.models import Team
 
-    teams_qs = Team.objects.filter(id__in=team_ids)
+    # Pull only the columns we need; limited by _MAX_TEAMS_SCANNED, so memory is bounded.
+    signal_rows = Team.objects.filter(id__in=team_ids).values_list(
+        "ingested_event", "session_recording_opt_in", "surveys_opt_in", "has_completed_onboarding_for"
+    )
+
     products: set[str] = set()
-
-    # Presence-of-data heuristics — each is a single indexed EXISTS.
-    if teams_qs.filter(ingested_event=True).exists():
-        products.add("product_analytics")
-    if teams_qs.filter(session_recording_opt_in=True).exists():
-        products.add("session_replay")
-    if teams_qs.filter(surveys_opt_in=True).exists():
-        products.add("surveys")
-
-    # Onboarding-flag signal — has_completed_onboarding_for is JSONB, so check per-key via EXISTS.
-    for key in _PRODUCT_KEYS:
-        if key in products:
-            continue
-        if teams_qs.filter(has_completed_onboarding_for__has_key=key).exists():
-            products.add(key)
+    remaining_keys = set(_PRODUCT_KEYS)
+    for ingested, session_opt_in, surveys_opt_in, completed in signal_rows:
+        if ingested:
+            products.add("product_analytics")
+        if session_opt_in:
+            products.add("session_replay")
+        if surveys_opt_in:
+            products.add("surveys")
+        if isinstance(completed, dict):
+            for key in list(remaining_keys):
+                if completed.get(key):
+                    products.add(key)
+                    remaining_keys.discard(key)
+        if len(products) == len(_PRODUCT_KEYS):
+            break
 
     return sorted(products)
 
@@ -437,7 +567,7 @@ def _build_suggested_next_steps(user: User, products_in_use: list[str]) -> list[
             {
                 "label": "Explore the project home",
                 "href": href,
-                "reason": "See your team's dashboards and insights.",
+                "reason": "See your team's dashboards and insights",
                 "docs_href": "https://posthog.com/docs",
                 "product_key": "product_analytics",
             }

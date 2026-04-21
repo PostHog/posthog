@@ -31,7 +31,6 @@ import type {
     PaginatedOrganizationMemberListApi,
     PaginatedRoleListApi,
     PaginatedRoleMembershipListApi,
-    PaginatedWelcomeResponseListApi,
     PatchedApprovalPolicyApi,
     PatchedCommentApi,
     PatchedOrganizationApi,
@@ -41,7 +40,7 @@ import type {
     RoleMembershipApi,
     RolesListParams,
     RolesRoleMembershipsListParams,
-    WelcomeListParams,
+    WelcomeResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -647,28 +646,15 @@ export const rolesRoleMembershipsDestroy = async (
 /**
  * Aggregated payload for the invited-user welcome screen.
  */
-export const getWelcomeListUrl = (organizationId: string, params?: WelcomeListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/organizations/${organizationId}/welcome/?${stringifiedParams}`
-        : `/api/organizations/${organizationId}/welcome/`
+export const getWelcomeCurrentRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/welcome/current/`
 }
 
-export const welcomeList = async (
+export const welcomeCurrentRetrieve = async (
     organizationId: string,
-    params?: WelcomeListParams,
     options?: RequestInit
-): Promise<PaginatedWelcomeResponseListApi> => {
-    return apiMutator<PaginatedWelcomeResponseListApi>(getWelcomeListUrl(organizationId, params), {
+): Promise<WelcomeResponseApi> => {
+    return apiMutator<WelcomeResponseApi>(getWelcomeCurrentRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
     })

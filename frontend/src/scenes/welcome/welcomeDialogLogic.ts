@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -72,18 +72,19 @@ const EMPTY_PAYLOAD: WelcomePayload = {
 export type WelcomeCardKind = 'members' | 'activity' | 'dashboards' | 'products' | 'next_steps'
 
 // LocalStorage key used to suppress the dialog on subsequent visits after the user has dismissed it.
-// Scoped per-user so dismissal doesn't leak across accounts on a shared browser.
+// Scoped per user AND organization so a contractor/agency who works across multiple orgs gets
+// a fresh welcome in each org instead of only ever seeing it once across their lifetime.
 const LOCAL_DISMISSED_KEY_PREFIX = 'posthog_welcome_dismissed:'
 // SessionStorage key used to suppress the dialog for the remainder of a tab's session after
 // the user clicks "I'll look around" — avoids re-opening on every project-home remount.
 const SESSION_LOOKED_AROUND_KEY = 'posthog_welcome_looked_around'
 
-function dismissedKey(userUuid: string | undefined): string | null {
-    return userUuid ? `${LOCAL_DISMISSED_KEY_PREFIX}${userUuid}` : null
+function dismissedKey(userUuid: string | undefined, orgId: string | undefined): string | null {
+    return userUuid && orgId ? `${LOCAL_DISMISSED_KEY_PREFIX}${userUuid}:${orgId}` : null
 }
 
-function rememberDismissed(userUuid: string | undefined): void {
-    const key = dismissedKey(userUuid)
+function rememberDismissed(userUuid: string | undefined, orgId: string | undefined): void {
+    const key = dismissedKey(userUuid, orgId)
     if (typeof window === 'undefined' || !key) {
         return
     }
@@ -94,12 +95,12 @@ function rememberDismissed(userUuid: string | undefined): void {
     }
 }
 
-export function wasWelcomeDismissed(userUuid: string | undefined): boolean {
-    return wasDismissed(userUuid)
+export function wasWelcomeDismissed(userUuid: string | undefined, orgId: string | undefined): boolean {
+    return wasDismissed(userUuid, orgId)
 }
 
-function wasDismissed(userUuid: string | undefined): boolean {
-    const key = dismissedKey(userUuid)
+function wasDismissed(userUuid: string | undefined, orgId: string | undefined): boolean {
+    const key = dismissedKey(userUuid, orgId)
     if (typeof window === 'undefined' || !key) {
         return false
     }
@@ -147,6 +148,9 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         markCardInteracted: (card: WelcomeCardKind) => ({ card }),
         markShown: true,
         setWelcomeDataError: (error: boolean) => ({ error }),
+        // Bumped when another tab writes to localStorage (dismisses) so the current tab's
+        // shouldShowDialog selector re-evaluates without needing a full page navigation.
+        acknowledgeStorageChange: true,
     }),
 
     reducers({
@@ -188,6 +192,15 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 resetForOrgChange: () => false,
             },
         ],
+        // A monotonically-incrementing counter that shouldShowDialog depends on so cross-tab
+        // localStorage changes trigger a re-computation of the selector.
+        storageTick: [
+            0,
+            {
+                acknowledgeStorageChange: (state) => state + 1,
+                resetForOrgChange: () => 0,
+            },
+        ],
     }),
 
     loaders(({ actions }) => ({
@@ -196,10 +209,17 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             {
                 loadWelcomeData: async () => {
                     try {
-                        return await api.get<WelcomePayload>('api/organizations/@current/welcome/')
+                        return await api.get<WelcomePayload>('api/organizations/@current/welcome/current/')
                     } catch (error) {
+                        const status =
+                            typeof error === 'object' && error !== null && 'status' in error
+                                ? (error as { status?: unknown }).status
+                                : undefined
                         console.warn('Failed to load welcome data', error)
                         actions.setWelcomeDataError(true)
+                        // Surface in PostHog so fleet-level error rate is observable; console.warn
+                        // alone is invisible at scale.
+                        posthog.capture('welcome_screen_load_failed', { status })
                         return EMPTY_PAYLOAD
                     }
                 },
@@ -219,20 +239,22 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             (data, user): string => data.organization_name || user?.organization?.name || '',
         ],
         // Only open for invitees (not the org creator) who haven't already dismissed it.
+        // `storageTick` is in the dependency list so cross-tab localStorage changes re-run the selector.
         shouldShowDialog: [
-            (s) => [s.user, s.locallyClosed],
+            (s) => [s.user, s.locallyClosed, s.storageTick],
             (user, locallyClosed): boolean => {
                 if (!user || user.is_organization_first_user !== false) {
                     return false
                 }
-                if (wasDismissed(user.uuid)) {
+                const orgId = user.organization?.id
+                if (wasDismissed(user.uuid, orgId)) {
                     return false
                 }
                 if (locallyClosed) {
                     return false
                 }
                 // Also suppress if the user opted to look around earlier in this tab's session.
-                return !wasLookedAround(user.organization?.id)
+                return !wasLookedAround(orgId)
             },
         ],
     }),
@@ -262,7 +284,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         dismissWelcome: () => {
             const interactedCount = Object.keys(values.interactedCards).length
             const timeOnScreen = values.shownAt ? Date.now() - values.shownAt : null
-            rememberDismissed(values.user?.uuid)
+            rememberDismissed(values.user?.uuid, values.user?.organization?.id)
             posthog.capture('welcome_screen_dismissed', {
                 time_on_screen_ms: timeOnScreen,
                 cards_interacted_with: interactedCount,
@@ -270,6 +292,9 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         },
         trackCardClick: ({ card, targetHref }) => {
             actions.markCardInteracted(card)
+            // Clicking an in-app card link counts as engagement — persist the "looked around"
+            // marker so the dialog doesn't re-appear the next time the user lands on home.
+            rememberLookedAround(values.user?.organization?.id)
             posthog.capture('welcome_screen_card_clicked', {
                 card,
                 target_href: targetHref,
@@ -291,6 +316,31 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             if (shouldShow && !values.hasLoadedOnce && !values.welcomeDataLoading) {
                 actions.loadWelcomeData()
             }
+        },
+    })),
+
+    // Subscribe to the browser's storage event so that dismissal from another tab propagates
+    // to this one. The event only fires in *other* tabs (not the one that performed the write),
+    // so the acting tab is already in sync via its own reducers.
+    events(({ actions, cache }) => ({
+        afterMount: () => {
+            if (typeof window === 'undefined') {
+                return
+            }
+            const handler = (event: StorageEvent): void => {
+                if (event.key && event.key.startsWith(LOCAL_DISMISSED_KEY_PREFIX)) {
+                    actions.acknowledgeStorageChange()
+                }
+            }
+            window.addEventListener('storage', handler)
+            cache.storageHandler = handler
+        },
+        beforeUnmount: () => {
+            if (typeof window === 'undefined' || !cache.storageHandler) {
+                return
+            }
+            window.removeEventListener('storage', cache.storageHandler)
+            cache.storageHandler = undefined
         },
     })),
 ])

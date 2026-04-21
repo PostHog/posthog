@@ -528,21 +528,6 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
-def is_organization_first_user(user: "User", organization: "Organization") -> bool:
-    """Whether the user was the first member of the organization (i.e. the creator).
-
-    Determined by whether this user's membership is the earliest-joined in the org.
-    Anyone who joined later (invite / JIT / SAML) is an invitee and gets the welcome.
-    """
-    first_membership_user_id = (
-        OrganizationMembership.objects.filter(organization=organization)
-        .order_by("joined_at", "id")
-        .values_list("user_id", flat=True)
-        .first()
-    )
-    return first_membership_user_id == user.id
-
-
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
