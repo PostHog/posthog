@@ -2,7 +2,7 @@
 /**
  * Copies shared prompt files.
  */
-import { cpSync, existsSync, mkdirSync, unlinkSync } from 'fs'
+import { cpSync, mkdirSync } from 'fs'
 import { dirname, resolve } from 'path'
 
 const ROOT_DIR = resolve(__dirname, '..')
@@ -19,8 +19,5 @@ for (const prompt of PROMPTS) {
     const src = resolve(REPO_ROOT, prompt.src)
     const dest = resolve(ROOT_DIR, prompt.dest)
     mkdirSync(dirname(dest), { recursive: true })
-    if (existsSync(dest)) {
-        unlinkSync(dest)
-    }
     cpSync(src, dest, { recursive: true })
 }
