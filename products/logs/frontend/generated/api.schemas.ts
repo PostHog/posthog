@@ -175,7 +175,7 @@ export interface LogsAlertConfigurationApi {
 * `above` - Above
 * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
-    /** Time window in minutes over which log entries are counted. Allowed values: 1, 5, 10, 15, 30, 60. */
+    /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
     readonly check_interval_minutes: number
@@ -273,7 +273,7 @@ export interface PatchedLogsAlertConfigurationApi {
 * `above` - Above
 * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
-    /** Time window in minutes over which log entries are counted. Allowed values: 1, 5, 10, 15, 30, 60. */
+    /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
     readonly check_interval_minutes?: number

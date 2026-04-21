@@ -87,7 +87,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     )
     window_minutes = serializers.IntegerField(
         default=5,
-        help_text="Time window in minutes over which log entries are counted. Allowed values: 1, 5, 10, 15, 30, 60.",
+        help_text="Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
     )
     check_interval_minutes = serializers.IntegerField(
         read_only=True,
