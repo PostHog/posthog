@@ -984,6 +984,11 @@ class TestExports(APIBaseTest):
                 ],
                 25,
             ),
+            (
+                "enterprise_no_recordings_feature",
+                [{"key": "saml", "name": "SAML"}],
+                25,
+            ),
         ]
     )
     @patch("posthog.api.exports.async_to_sync")

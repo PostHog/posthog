@@ -134,10 +134,12 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             ).count()
 
             # Plan-tier default, with an optional per-team override in extra_settings.
+            get_organization = self.context.get("get_organization")
+            organization = get_organization() if get_organization is not None else None
+            team_limit = get_full_video_exports_limit_for_organization(organization)
+
             get_team = self.context.get("get_team")
             team = get_team() if get_team is not None else None
-            team_limit = get_full_video_exports_limit_for_organization(team.organization if team is not None else None)
-
             if team is not None and team.extra_settings and "full_video_exports_limit" in team.extra_settings:
                 limit_value = team.extra_settings["full_video_exports_limit"]
                 try:
