@@ -113,10 +113,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 secret: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
-                templating: zod
-                    .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
-                    .optional()
-                    .describe('* `True` - True\n* `False` - False\n* `hog` - hog\n* `liquid` - liquid'),
+                templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
             })
         )
         .optional()
@@ -206,15 +203,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                 .boolean()
                                 .default(hogFunctionsCreateBodyMappingsItemInputsSchemaItemHiddenDefault),
                             description: zod.string().optional(),
-                            templating: zod
-                                .union([
-                                    zod.literal(true),
-                                    zod.literal(false),
-                                    zod.literal('hog'),
-                                    zod.literal('liquid'),
-                                ])
-                                .optional()
-                                .describe('* `True` - True\n* `False` - False\n* `hog` - hog\n* `liquid` - liquid'),
+                            templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                         })
                     )
                     .optional(),
@@ -361,10 +350,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 secret: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
-                templating: zod
-                    .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
-                    .optional()
-                    .describe('* `True` - True\n* `False` - False\n* `hog` - hog\n* `liquid` - liquid'),
+                templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
             })
         )
         .optional()
@@ -454,15 +440,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .boolean()
                                 .default(hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemHiddenDefault),
                             description: zod.string().optional(),
-                            templating: zod
-                                .union([
-                                    zod.literal(true),
-                                    zod.literal(false),
-                                    zod.literal('hog'),
-                                    zod.literal('liquid'),
-                                ])
-                                .optional()
-                                .describe('* `True` - True\n* `False` - False\n* `hog` - hog\n* `liquid` - liquid'),
+                            templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                         })
                     )
                     .optional(),
@@ -694,10 +672,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         requires_field: zod.string().optional(),
                         integration_field: zod.string().optional(),
                         requiredScopes: zod.string().optional(),
-                        templating: zod
-                            .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
-                            .optional()
-                            .describe('* `True` - True\n* `False` - False\n* `hog` - hog\n* `liquid` - liquid'),
+                        templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                     })
                 )
                 .optional()
@@ -804,17 +779,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     requires_field: zod.string().optional(),
                                     integration_field: zod.string().optional(),
                                     requiredScopes: zod.string().optional(),
-                                    templating: zod
-                                        .union([
-                                            zod.literal(true),
-                                            zod.literal(false),
-                                            zod.literal('hog'),
-                                            zod.literal('liquid'),
-                                        ])
-                                        .optional()
-                                        .describe(
-                                            '* `True` - True\n* `False` - False\n* `hog` - hog\n* `liquid` - liquid'
-                                        ),
+                                    templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                                 })
                             )
                             .optional(),
