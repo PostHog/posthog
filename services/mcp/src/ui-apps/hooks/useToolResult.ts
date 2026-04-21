@@ -29,15 +29,7 @@
  * }
  * ```
  */
-import {
-    type App,
-    McpUiHostContextChangedNotificationSchema,
-    McpUiToolCancelledNotificationSchema,
-    McpUiToolInputNotificationSchema,
-    McpUiToolResultNotificationSchema,
-    useApp,
-    useHostStyles,
-} from '@modelcontextprotocol/ext-apps/react'
+import { type App, useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -161,46 +153,43 @@ export function useToolResult<T = unknown>({
             log('App created', { appInstance })
 
             // Register tool input handler
-            appInstance.setNotificationHandler(McpUiToolInputNotificationSchema, (notification) => {
+            appInstance.ontoolinput = (params) => {
                 // Extract toolName from params if available (may be in extended params)
-                const params = notification.params as Record<string, unknown>
+                const data = params as Record<string, unknown>
                 captureToolInput({
-                    toolName: typeof params.toolName === 'string' ? params.toolName : undefined,
+                    toolName: typeof data.toolName === 'string' ? data.toolName : undefined,
                     hasArguments: !!params.arguments,
                 })
-            })
-
+            }
             // Do NOT register partial tool input handler (streaming)
             // This is too noisy, happens for each chunk of input we get from the server
-            // appInstance.setNotificationHandler(McpUiToolInputPartialNotificationSchema, () => {})
 
             // Register tool cancelled handler
-            appInstance.setNotificationHandler(McpUiToolCancelledNotificationSchema, (notification) => {
-                const params = notification.params as Record<string, unknown>
+            appInstance.ontoolcancelled = (params) => {
+                const data = params as Record<string, unknown>
                 setIsCancelled(true)
                 captureToolCancelled({
-                    toolName: typeof params.toolName === 'string' ? params.toolName : undefined,
-                    reason: typeof params.reason === 'string' ? params.reason : undefined,
+                    toolName: typeof data.toolName === 'string' ? data.toolName : undefined,
+                    reason: typeof data.reason === 'string' ? data.reason : undefined,
                 })
-            })
+            }
 
             // Register host context changed handler
-            appInstance.setNotificationHandler(McpUiHostContextChangedNotificationSchema, (notification) => {
+            appInstance.onhostcontextchanged = (params) => {
                 // Cast to access theme which may be in notification params directly
-                const params = notification.params as typeof notification.params & { theme?: string }
+                const data = params as Record<string, unknown>
                 captureHostContextChanged({
-                    hasStyles: !!notification.params.styles,
-                    hasFonts: !!notification.params.styles?.css?.fonts,
-                    theme: params.theme,
+                    hasStyles: !!params.styles,
+                    hasFonts: !!params.styles?.css?.fonts,
+                    theme: typeof data.theme === 'string' ? data.theme : undefined,
                 })
-
-                setContainerDimensions(extractContainerDimensions(params as unknown as Record<string, unknown>))
-            })
+                setContainerDimensions(extractContainerDimensions(data))
+            }
 
             // Register tool result handler
-            appInstance.setNotificationHandler(McpUiToolResultNotificationSchema, (notification) => {
+            appInstance.ontoolresult = (params) => {
                 try {
-                    const parsed = parseToolResultContent<T>(notification.params.structuredContent)
+                    const parsed = parseToolResultContent<T>(params.structuredContent)
 
                     // Extract analytics metadata and identify the user
                     const analytics = extractAnalytics(parsed)
@@ -209,8 +198,8 @@ export function useToolResult<T = unknown>({
                     }
 
                     captureToolResult({
-                        hasStructuredContent: !!notification.params.structuredContent,
-                        contentLength: notification.params.content?.length,
+                        hasStructuredContent: !!params.structuredContent,
+                        contentLength: params.content?.length,
                     })
 
                     if (parsed !== null) {
@@ -226,7 +215,7 @@ export function useToolResult<T = unknown>({
                     console.error('[PostHog MCP App UI] Exception:', err)
                     setParseError(err)
                 }
-            })
+            }
         },
     })
 
