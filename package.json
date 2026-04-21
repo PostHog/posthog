@@ -95,7 +95,8 @@
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
-            "bin/hogli format:python"
+            "bin/hogli format:python",
+            "uv run ty check"
         ],
         "*.{md,mdx}": "bin/hogli format:markdown"
     },
