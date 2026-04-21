@@ -208,6 +208,174 @@ describe('schema-utils', () => {
             expect(resolveSchemaPath(schema, 'nonexistent')).toBeNull()
             expect(resolveSchemaPath(schema, 'filter.nonexistent')).toBeNull()
         })
+
+        describe('array of anyOf/oneOf items', () => {
+            const arrayUnionSchema = {
+                type: 'object',
+                properties: {
+                    series: {
+                        type: 'array',
+                        items: {
+                            anyOf: [
+                                {
+                                    type: 'object',
+                                    title: 'EventsNode',
+                                    properties: {
+                                        event: { type: 'string' },
+                                        math: { type: 'string', enum: ['total', 'dau'] },
+                                    },
+                                },
+                                {
+                                    type: 'object',
+                                    title: 'ActionsNode',
+                                    properties: {
+                                        id: { type: 'number' },
+                                        math: { type: 'string', enum: ['total'] },
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                },
+            }
+
+            it('resolves a named property that only exists on one variant', () => {
+                expect(resolveSchemaPath(arrayUnionSchema, 'series.event')).toEqual({ type: 'string' })
+            })
+
+            it('resolves a named property that exists on multiple variants (first match wins)', () => {
+                expect(resolveSchemaPath(arrayUnionSchema, 'series.math')).toEqual({
+                    type: 'string',
+                    enum: ['total', 'dau'],
+                })
+            })
+
+            it('still supports the numeric-first workaround (series.0.event)', () => {
+                expect(resolveSchemaPath(arrayUnionSchema, 'series.0.event')).toEqual({ type: 'string' })
+                expect(resolveSchemaPath(arrayUnionSchema, 'series.1.id')).toEqual({ type: 'number' })
+            })
+
+            it('returns null when the property exists on no variant', () => {
+                expect(resolveSchemaPath(arrayUnionSchema, 'series.nonexistent')).toBeNull()
+            })
+
+            it('supports oneOf in addition to anyOf', () => {
+                const oneOfSchema = {
+                    type: 'object',
+                    properties: {
+                        items: {
+                            type: 'array',
+                            items: {
+                                oneOf: [{ type: 'object', properties: { foo: { type: 'string' } } }],
+                            },
+                        },
+                    },
+                }
+                expect(resolveSchemaPath(oneOfSchema, 'items.foo')).toEqual({ type: 'string' })
+            })
+        })
+
+        describe('composition walking (allOf + nesting)', () => {
+            it('resolves a property defined via allOf (base + extension)', () => {
+                const schema = {
+                    type: 'object',
+                    properties: {
+                        filter: {
+                            allOf: [
+                                { type: 'object', properties: { base: { type: 'string' } } },
+                                { type: 'object', properties: { extra: { type: 'number' } } },
+                            ],
+                        },
+                    },
+                }
+                expect(resolveSchemaPath(schema, 'filter.base')).toEqual({ type: 'string' })
+                expect(resolveSchemaPath(schema, 'filter.extra')).toEqual({ type: 'number' })
+            })
+
+            it('resolves a property on a top-level union variant', () => {
+                const schema = {
+                    anyOf: [
+                        { type: 'object', title: 'A', properties: { foo: { type: 'string' } } },
+                        { type: 'object', title: 'B', properties: { bar: { type: 'number' } } },
+                    ],
+                }
+                expect(resolveSchemaPath(schema, 'foo')).toEqual({ type: 'string' })
+                expect(resolveSchemaPath(schema, 'bar')).toEqual({ type: 'number' })
+            })
+
+            it('walks nested unions (anyOf of anyOf)', () => {
+                const schema = {
+                    type: 'object',
+                    properties: {
+                        node: {
+                            anyOf: [
+                                {
+                                    anyOf: [
+                                        { type: 'object', properties: { deep: { type: 'boolean' } } },
+                                        { type: 'null' },
+                                    ],
+                                },
+                                { type: 'object', properties: { other: { type: 'string' } } },
+                            ],
+                        },
+                    },
+                }
+                expect(resolveSchemaPath(schema, 'node.deep')).toEqual({ type: 'boolean' })
+                expect(resolveSchemaPath(schema, 'node.other')).toEqual({ type: 'string' })
+            })
+
+            it('walks array-of-union-of-allOf (arbitrary nesting)', () => {
+                const schema = {
+                    type: 'object',
+                    properties: {
+                        rows: {
+                            type: 'array',
+                            items: {
+                                anyOf: [
+                                    {
+                                        allOf: [
+                                            { type: 'object', properties: { id: { type: 'number' } } },
+                                            { type: 'object', properties: { name: { type: 'string' } } },
+                                        ],
+                                    },
+                                    { type: 'object', properties: { other: { type: 'boolean' } } },
+                                ],
+                            },
+                        },
+                    },
+                }
+                expect(resolveSchemaPath(schema, 'rows.id')).toEqual({ type: 'number' })
+                expect(resolveSchemaPath(schema, 'rows.name')).toEqual({ type: 'string' })
+                expect(resolveSchemaPath(schema, 'rows.other')).toEqual({ type: 'boolean' })
+            })
+
+            it('ignores tuple-form items (items as array) safely', () => {
+                const schema = {
+                    type: 'object',
+                    properties: {
+                        tuple: {
+                            type: 'array',
+                            items: [{ type: 'string' }, { type: 'number' }],
+                        },
+                    },
+                }
+                expect(resolveSchemaPath(schema, 'tuple.foo')).toBeNull()
+                // Numeric index falls back to composition lookup, none exists on a tuple.
+                expect(resolveSchemaPath(schema, 'tuple.0')).toBeNull()
+            })
+
+            it('blocks cycles via the seen set', () => {
+                const schema: Record<string, unknown> = {
+                    type: 'object',
+                    properties: { foo: { type: 'string' } },
+                }
+                // self-reference through anyOf
+                schema.anyOf = [schema]
+                expect(() => resolveSchemaPath(schema, 'foo')).not.toThrow()
+                expect(resolveSchemaPath(schema, 'foo')).toEqual({ type: 'string' })
+                expect(resolveSchemaPath(schema, 'nonexistent')).toBeNull()
+            })
+        })
     })
 
     describe('listAvailablePaths', () => {
@@ -247,6 +415,53 @@ describe('schema-utils', () => {
             }
 
             expect(listAvailablePaths(schema)).toEqual(['[items].event', '[items].math'])
+        })
+
+        it('lists array-of-anyOf variant properties with deduplication', () => {
+            const schema = {
+                type: 'array',
+                items: {
+                    anyOf: [
+                        {
+                            type: 'object',
+                            title: 'EventsNode',
+                            properties: { event: { type: 'string' }, math: { type: 'string' } },
+                        },
+                        {
+                            type: 'object',
+                            title: 'ActionsNode',
+                            properties: { id: { type: 'number' }, math: { type: 'string' } },
+                        },
+                    ],
+                },
+            }
+
+            const paths = listAvailablePaths(schema)
+            expect(paths).toEqual(expect.arrayContaining(['[items].event', '[items].math', '[items].id']))
+            // math appears on both variants but should only be listed once
+            expect(paths.filter((p) => p === '[items].math')).toHaveLength(1)
+        })
+
+        it('lists properties reached through allOf composition', () => {
+            const schema = {
+                allOf: [
+                    { type: 'object', properties: { base: { type: 'string' } } },
+                    { type: 'object', properties: { extra: { type: 'number' } } },
+                ],
+            }
+            const paths = listAvailablePaths(schema)
+            expect(paths).toEqual(expect.arrayContaining(['base', 'extra']))
+        })
+
+        it('lists properties reached through top-level anyOf (with variant indices)', () => {
+            const schema = {
+                anyOf: [
+                    { type: 'object', title: 'A', properties: { foo: { type: 'string' } } },
+                    { type: 'object', title: 'B', properties: { bar: { type: 'number' } } },
+                ],
+            }
+            const paths = listAvailablePaths(schema)
+            expect(paths).toEqual(expect.arrayContaining(['foo', 'bar', '0 (A)', '1 (B)']))
         })
     })
 
