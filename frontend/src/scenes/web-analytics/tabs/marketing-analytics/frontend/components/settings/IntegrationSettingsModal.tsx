@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { CampaignFieldPreferencesConfiguration } from './CampaignFieldPreferencesConfiguration'
 import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
@@ -45,7 +45,7 @@ export function IntegrationSettingsModal({
             onClose={onClose}
             title={
                 <div className="flex items-center gap-3">
-                    <DataWarehouseSourceIcon type={integrationName} size="small" disableTooltip />
+                    <SourceIcon type={integrationName} size="small" disableTooltip />
                     <span>{integrationName} settings</span>
                 </div>
             }

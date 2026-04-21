@@ -1,4 +1,5 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { ClickHouseTimestamp } from '../../types'
 import { logger } from '../../utils/logger'
 import { ConsoleLogLevel } from '../rrweb-types'
@@ -21,19 +22,15 @@ export class SessionConsoleLogStore {
     private readonly messageLimit: number
 
     constructor(
-        private readonly producer: KafkaProducerWrapper,
-        private readonly topic: string,
+        private readonly outputs: IngestionOutputs<LogEntriesOutput>,
         options: { messageLimit: number }
     ) {
         this.messageLimit = options.messageLimit
         logger.debug('session_console_log_store_created')
-        if (!this.topic) {
-            logger.warn('session_console_log_store_no_topic_configured')
-        }
     }
 
     public async storeSessionConsoleLogs(logs: ConsoleLogEntry[]): Promise<void> {
-        if (logs.length === 0 || !this.topic) {
+        if (logs.length === 0) {
             return
         }
 
@@ -52,7 +49,6 @@ export class SessionConsoleLogStore {
     public async flush(): Promise<void> {
         logger.info(`flushing ${this.consoleLogsCount} console logs`)
         await this.sync()
-        await this.producer.flush()
         this.consoleLogsCount = 0
     }
 
@@ -64,14 +60,13 @@ export class SessionConsoleLogStore {
         logger.debug(`syncing ${this.pendingMessages.length} console log messages`)
 
         const messages = this.pendingMessages.map((log) => ({
-            value: JSON.stringify(log),
+            value: Buffer.from(JSON.stringify(log)),
             key: log.log_source_id,
         }))
         this.pendingMessages = []
 
-        await this.producer.queueMessages({
-            topic: this.topic,
-            messages,
-        })
+        // queueMessages awaits delivery acks for every message, so no separate flush is needed
+        // to guarantee messages are on Kafka before the batch offset is committed.
+        await this.outputs.queueMessages(LOG_ENTRIES_OUTPUT, messages)
     }
 }

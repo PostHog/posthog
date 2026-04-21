@@ -376,6 +376,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         pkce_verifier="",
         install_source="posthog",
         posthog_code_callback_url="",
+        *,
+        created_by=None,
     ):
         from datetime import timedelta
 
@@ -391,6 +393,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             install_source=install_source,
             posthog_code_callback_url=posthog_code_callback_url,
             expires_at=timezone.now() + timedelta(seconds=600),
+            created_by=created_by if created_by is not None else self.user,
         )
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
@@ -412,8 +415,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         state_token = "test-state-token-dcr"
         self._create_oauth_state(installation, server, state_token, pkce_verifier="test-pkce-verifier")
 
-        client = APIClient()
-        response = client.get(
+        response = self.client.get(
             "/api/mcp_store/oauth_redirect/",
             {"state": state_token, "code": "auth-code"},
         )
@@ -450,8 +452,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             posthog_code_callback_url=callback_url,
         )
 
-        client = APIClient()
-        response = client.get(
+        response = self.client.get(
             "/api/mcp_store/oauth_redirect/",
             {"state": state_token, "code": "auth-code"},
         )
@@ -480,8 +481,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             installation, server, state_token, install_source="posthog-code", posthog_code_callback_url=callback_url
         )
 
-        client = APIClient()
-        response = client.get(
+        response = self.client.get(
             "/api/mcp_store/oauth_redirect/",
             {"state": state_token, "error": "access_denied"},
         )
@@ -491,6 +491,261 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert location.startswith("posthog-code://oauth/callback?")
         assert "status=error" in location
         assert "error=cancelled" in location
+
+    def test_callback_rejects_state_for_anonymous_consumer(self):
+        """State in an unauthenticated browser must return 400.
+
+        If an OAuth state is handled by a browser where no user is logged in,
+        it must not be accepted, preventing state/token theft via phishing."""
+        server = self._create_server()
+        attacker_install = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            url="https://mcp.example.com",
+            display_name="Attacker",
+            auth_type="oauth",
+        )
+        state_token = "attacker-state-token"
+        self._create_oauth_state(attacker_install, server, state_token, pkce_verifier="v")
+
+        victim_client = APIClient()  # not logged in
+        response = victim_client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "victim-auth-code"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        row = MCPOAuthState.objects.get(token_hash=hashlib.sha256(state_token.encode("utf-8")).hexdigest())
+        assert row.consumed_at is None
+        attacker_install.refresh_from_db()
+        assert not (attacker_install.sensitive_configuration or {}).get("access_token")
+
+    def test_callback_rejects_state_for_different_authenticated_user(self):
+        """State created by user A cannot be consumed by user B in the same browser.
+
+        Covers the scenario where the victim IS logged into PostHog but as a
+        different account than the attacker who created the state row.
+        """
+        from posthog.models import User
+
+        server = self._create_server()
+        attacker_install = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            url="https://mcp.example.com",
+            display_name="Attacker",
+            auth_type="oauth",
+        )
+        state_token = "cross-user-state"
+        self._create_oauth_state(attacker_install, server, state_token, pkce_verifier="v", created_by=self.user)
+
+        victim_user = User.objects.create_and_join(self.organization, "victim@example.com", "password")
+        victim_client = APIClient()
+        victim_client.force_login(victim_user)
+        response = victim_client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "victim-auth-code"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        row = MCPOAuthState.objects.get(token_hash=hashlib.sha256(state_token.encode("utf-8")).hexdigest())
+        assert row.consumed_at is None
+
+    def test_callback_rejects_state_missing_created_by(self):
+        """Defense in depth: legacy rows with NULL created_by cannot be consumed.
+
+        Covers pre-fix state rows that might still exist in the DB at deploy
+        time, and any future code path that forgets to populate created_by.
+        """
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        server = self._create_server()
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            url="https://mcp.example.com",
+            display_name="Test",
+            auth_type="oauth",
+        )
+        state_token = "orphan-state"
+        MCPOAuthState.objects.create(
+            token_hash=hashlib.sha256(state_token.encode("utf-8")).hexdigest(),
+            installation=installation,
+            team=self.team,
+            server=server,
+            pkce_verifier="v",
+            expires_at=timezone.now() + timedelta(seconds=600),
+            created_by=None,
+        )
+
+        response = self.client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "code"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_callback_happy_path_same_user(self, mock_post, _allow):
+        """Positive control: callback authenticated as the same user -> success."""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
+
+        server = self._create_server()
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            url="https://mcp.example.com",
+            display_name="Test",
+            auth_type="oauth",
+        )
+        state_token = "happy-path"
+        self._create_oauth_state(installation, server, state_token, pkce_verifier="v")
+
+        response = self.client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "code"},
+        )
+        assert response.status_code == 302
+        installation.refresh_from_db()
+        assert installation.sensitive_configuration["access_token"] == "tok"
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_callback_happy_path_cross_client_same_user(self, mock_post, _allow):
+        """posthog-code scenario: initiate and callback happen in different HTTP clients.
+
+        The CLI calls install_custom from its own process (no browser session),
+        then opens the authorize URL in the user's default browser. The browser's
+        session is not the CLI's session — but both authenticate as the same User,
+        and user-binding passes.
+        """
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
+
+        server = self._create_server()
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            url="https://mcp.example.com",
+            display_name="Test",
+            auth_type="oauth",
+        )
+        state_token = "cross-client"
+        self._create_oauth_state(installation, server, state_token, pkce_verifier="v")
+
+        browser_client = APIClient()
+        browser_client.force_login(self.user)
+        response = browser_client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "code"},
+        )
+        assert response.status_code == 302
+        installation.refresh_from_db()
+        assert installation.sensitive_configuration["access_token"] == "tok"
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_consumed_state_rejects_replay(self, mock_post, _allow):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
+
+        server = self._create_server()
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            url="https://mcp.example.com",
+            display_name="Test",
+            auth_type="oauth",
+        )
+        state_token = "one-shot"
+        self._create_oauth_state(installation, server, state_token, pkce_verifier="v")
+
+        first = self.client.get("/api/mcp_store/oauth_redirect/", {"state": state_token, "code": "c1"})
+        assert first.status_code == 302
+
+        second = self.client.get("/api/mcp_store/oauth_redirect/", {"state": state_token, "code": "c2"})
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_session_cookie_samesite_is_compatible_with_oauth_redirect(self):
+        """Pin the deployment invariant the fix depends on.
+
+        If SESSION_COOKIE_SAMESITE is 'Strict', the session cookie will not
+        be sent on the top-level cross-site GET from the OAuth provider,
+        SessionAuthentication will see AnonymousUser on the callback, and
+        every legitimate flow will 400. 'Lax' (Django default) or 'None' work.
+        """
+        from django.conf import settings
+
+        assert settings.SESSION_COOKIE_SAMESITE in ("Lax", "None")
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value="dcr-client-id")
+    def test_authorize_endpoint_populates_created_by(self, _mock_dcr, _allow):
+        """The GET /authorize/ path must also stamp created_by, not just install_custom."""
+        server = MCPServer.objects.create(
+            name="Srv",
+            url="https://auth.example.com",
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.example.com/authorize",
+                "token_endpoint": "https://auth.example.com/token",
+                "registration_endpoint": "https://auth.example.com/register",
+                "dcr_redirect_uri": "https://old.posthog.com/callback",
+            },
+            oauth_client_id="existing-client-id",
+            created_by=self.user,
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            url="https://mcp.example.com",
+            display_name="Pre",
+            auth_type="oauth",
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {"server_id": str(server.id)},
+        )
+        assert response.status_code == 302
+
+        state_token = parse_qs(urlparse(response["Location"]).query)["state"][0]
+        row = MCPOAuthState.objects.get(token_hash=hashlib.sha256(state_token.encode("utf-8")).hexdigest())
+        assert row.created_by_id == self.user.id
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value="dcr-client-id")
+    def test_install_custom_populates_created_by(self, _mock_dcr, mock_discover, _allow):
+        """install_custom path must stamp created_by on the MCPOAuthState row."""
+        mock_discover.return_value = {
+            "issuer": "https://auth.example.com",
+            "authorization_endpoint": "https://auth.example.com/authorize",
+            "token_endpoint": "https://auth.example.com/token",
+            "registration_endpoint": "https://auth.example.com/register",
+        }
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "srv", "url": "https://mcp.example.com/mcp", "auth_type": "oauth"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK, resp.content
+
+        state_token = parse_qs(urlparse(resp.json()["redirect_url"]).query)["state"][0]
+        row = MCPOAuthState.objects.get(token_hash=hashlib.sha256(state_token.encode("utf-8")).hexdigest())
+        assert row.created_by_id == self.user.id
 
 
 class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -668,13 +923,12 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         )
         state_token = parse_qs(urlparse(authorize_response["Location"]).query)["state"][0]
 
-        public_client = APIClient()
-        first_callback = public_client.get(
+        first_callback = self.client.get(
             "/api/mcp_store/oauth_redirect/", {"state": state_token, "error": "access_denied"}
         )
         assert first_callback.status_code == 302
 
-        second_callback = public_client.get(
+        second_callback = self.client.get(
             "/api/mcp_store/oauth_redirect/", {"state": state_token, "error": "access_denied"}
         )
         assert second_callback.status_code == status.HTTP_400_BAD_REQUEST

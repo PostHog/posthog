@@ -1,34 +1,56 @@
 /*
- * Storybook acts as the first-party consumer of @posthog/quill. It imports
- * the pre-compiled stylesheet from the published package surface — no
- * @source directives pointing at primitives/components/blocks source, no
- * shadcn/tailwind.css, no tw-animate-css. This matches what a real
- * downstream app installs and proves the pre-compile pipeline works.
+ * Storybook runs as the authoring environment for @posthog/quill, NOT
+ * a downstream-consumer sanity check. That distinction drives every
+ * decision in this file:
  *
- * Storybook's own Tailwind pipeline is still active so classes used in
- * Storybook-specific stories (Tokens/Colors, Tokens/Typography, etc.) and
- * in co-located primitives/components/blocks *.stories.tsx files are
- * generated on top of the pre-compiled quill.css. Those files are NOT
- * part of the quill runtime surface, so they are deliberately kept out of
- * the library's @source scan.
+ *   - Tokens come from `@posthog/quill-tokens` directly (workspace
+ *     package), not from `@posthog/quill/tokens.css`. The tokens CSS
+ *     files are watched by vite, and `quillTokensWatcher` in main.ts
+ *     regenerates them whenever a `.ts` in packages/tokens/src edits.
+ *
+ *   - `@source` points at primitives/components/blocks *source*, not
+ *     the compiled `@posthog/quill/dist/*.js`. Editing any `.tsx` in
+ *     those packages hot-reloads instantly — no intermediate build.
+ *
+ *   - The base reset (`* { border-border outline-ring/50 }`) is
+ *     inlined rather than imported from `@posthog/quill/base.css`,
+ *     again so the tsx → render loop has zero build dependency.
+ *
+ *   - Pure Tailwind v4 (no `@config`), so native defaults like
+ *     `--leading-relaxed`, `--tracking-tight`, etc. are available
+ *     automatically. The downstream-compat shims quill ships for
+ *     consumers that still use `@config` legacy mode aren't needed
+ *     here.
+ *
+ * Downstream consumers (real apps pinning `@posthog/quill` from npm)
+ * should instead follow the README and import:
+ *     @import "@posthog/quill/tokens.css";
+ *     @import "@posthog/quill/base.css";
+ *     @import "@posthog/quill/tailwind.css";
  */
 
 @import 'tailwindcss';
-@import '@posthog/quill/styles.css';
+@import '@fontsource-variable/inter';
+
+/* Design tokens — CSS custom property values + the @theme inline block. */
+@import '@posthog/quill-tokens/color-system.css';
+@import '@posthog/quill-tokens/tailwind-lib.css';
 
 /*
- * Re-import the raw color-system.css after the pre-compiled quill bundle
- * so the :root / .dark custom property values come from the live tokens
- * package rather than the snapshot baked into dist/quill.css. Pair with
- * the `quillTokensWatcher` Vite plugin in main.ts: editing
- * packages/tokens/src/colors.ts regenerates this file and hot-reloads.
+ * Scan sources, not dist. Vite HMR forwards any .tsx change in these
+ * trees to Tailwind's scanner and we get new utilities emitted on the
+ * next tick.
  */
-@import '@posthog/quill-tokens/color-system.css';
-@import '@fontsource-variable/inter';
 @source "../stories/**/*.{ts,tsx}";
-@source "../../../packages/primitives/src/**/*.stories.{ts,tsx}";
-@source "../../../packages/components/src/**/*.stories.{ts,tsx}";
-@source "../../../packages/blocks/src/**/*.stories.{ts,tsx}";
+@source "../../../packages/primitives/src/**/*.{ts,tsx}";
+@source "../../../packages/components/src/**/*.{ts,tsx}";
+@source "../../../packages/blocks/src/**/*.{ts,tsx}";
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+}
 
 /* Disable animations during visual regression tests */
 body.storybook-test-runner *,

@@ -252,7 +252,6 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             renderItemTooltip,
             renderItemIcon,
             expandedItemIds,
-            onSetExpandedItemIds,
             defaultNodeIcon,
             showFolderActiveState,
             isItemActive,
@@ -441,110 +440,98 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
         }
 
         const content = (
-            <AccordionPrimitive.Root
-                type="multiple"
-                value={expandedItemIds}
-                onValueChange={(s) => {
-                    onSetExpandedItemIds?.(s)
-                }}
-                ref={ref}
-                key={item.id}
+            <AccordionPrimitive.Item
+                value={item.id}
                 disabled={!!item.disabledReason}
+                className="flex flex-col w-full gap-y-px"
             >
-                <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full gap-y-px">
-                    <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
-                        <ButtonGroupPrimitive
-                            fullWidth
-                            className={cn(
-                                'group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent',
-                                className
-                            )}
-                        >
-                            <TreeNodeDisplayCheckbox
-                                item={item}
-                                handleCheckedChange={(checked, shift) => {
-                                    onItemChecked?.(item.id, checked, shift)
+                <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
+                    <ButtonGroupPrimitive
+                        fullWidth
+                        className={cn(
+                            'group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent',
+                            className
+                        )}
+                    >
+                        <TreeNodeDisplayCheckbox
+                            item={item}
+                            handleCheckedChange={(checked, shift) => {
+                                onItemChecked?.(item.id, checked, shift)
+                            }}
+                            className={cn('absolute z-2', {
+                                hidden: selectMode !== 'multi',
+                            })}
+                            style={{
+                                left: `${firstColumnOffset - 20}px`,
+                            }}
+                        />
+
+                        {isItemEditing?.(item) ? (
+                            <InlineEditField
+                                value={item.name}
+                                handleSubmit={(value) => {
+                                    onItemNameChange?.(item, value)
+                                    disableKeyboardInput?.(false)
                                 }}
-                                className={cn('absolute z-2', {
-                                    hidden: selectMode !== 'multi',
-                                })}
+                                className="z-1"
                                 style={{
-                                    left: `${firstColumnOffset - 20}px`,
+                                    width:
+                                        selectMode === 'multi' && !item.disableSelect
+                                            ? `${emptySpaceOffset + 26}px`
+                                            : `${emptySpaceOffset}px`,
                                 }}
-                            />
-
-                            {isItemEditing?.(item) ? (
-                                <InlineEditField
-                                    value={item.name}
-                                    handleSubmit={(value) => {
-                                        onItemNameChange?.(item, value)
-                                        disableKeyboardInput?.(false)
-                                    }}
-                                    className="z-1"
-                                    style={{
-                                        width:
-                                            selectMode === 'multi' && !item.disableSelect
-                                                ? `${emptySpaceOffset + 26}px`
-                                                : `${emptySpaceOffset}px`,
-                                    }}
-                                >
-                                    {renderItemIcon ? (
-                                        renderItemIcon?.(item)
-                                    ) : (
-                                        <TreeNodeDisplayIcon
-                                            item={item}
-                                            expandedItemIds={expandedItemIds ?? []}
-                                            defaultNodeIcon={defaultNodeIcon}
-                                        />
-                                    )}
-                                </InlineEditField>
-                            ) : (
-                                button
-                            )}
-
-                            {itemSideAction &&
-                                itemSideAction(item) !== undefined &&
-                                !isEmptyFolder &&
-                                size === 'default' && (
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            {itemSideActionButton?.(item) ?? (
-                                                <ButtonPrimitive
-                                                    iconOnly
-                                                    isSideActionRight
-                                                    className="
-                                                        absolute right-0
-                                                        opacity-0
-                                                        group-hover/lemon-tree-button-group:opacity-100
-                                                        z-10
-                                                        data-[state=open]:opacity-100
-                                                        -outline-offset-2
-                                                        focus-visible:opacity-100
-                                                    "
-                                                >
-                                                    <IconEllipsis className="text-tertiary size-3 group-hover/lemon-tree-button-group:text-primary z-10" />
-                                                </ButtonPrimitive>
-                                            )}
-                                        </DropdownMenuTrigger>
-
-                                        {!!itemSideAction(item) && (
-                                            <DropdownMenuContent
-                                                loop
-                                                align="end"
-                                                side="bottom"
-                                                className="max-w-[250px]"
-                                            >
-                                                {itemSideAction(item)}
-                                            </DropdownMenuContent>
-                                        )}
-                                    </DropdownMenu>
+                            >
+                                {renderItemIcon ? (
+                                    renderItemIcon?.(item)
+                                ) : (
+                                    <TreeNodeDisplayIcon
+                                        item={item}
+                                        expandedItemIds={expandedItemIds ?? []}
+                                        defaultNodeIcon={defaultNodeIcon}
+                                    />
                                 )}
-                        </ButtonGroupPrimitive>
-                    </AccordionPrimitive.Trigger>
+                            </InlineEditField>
+                        ) : (
+                            button
+                        )}
 
-                    {childrenContent}
-                </AccordionPrimitive.Item>
-            </AccordionPrimitive.Root>
+                        {itemSideAction &&
+                            itemSideAction(item) !== undefined &&
+                            !isEmptyFolder &&
+                            size === 'default' && (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        {itemSideActionButton?.(item) ?? (
+                                            <ButtonPrimitive
+                                                iconOnly
+                                                isSideActionRight
+                                                className="
+                                                    absolute right-0
+                                                    opacity-0
+                                                    group-hover/lemon-tree-button-group:opacity-100
+                                                    z-10
+                                                    data-[state=open]:opacity-100
+                                                    -outline-offset-2
+                                                    focus-visible:opacity-100
+                                                "
+                                            >
+                                                <IconEllipsis className="text-tertiary size-3 group-hover/lemon-tree-button-group:text-primary z-10" />
+                                            </ButtonPrimitive>
+                                        )}
+                                    </DropdownMenuTrigger>
+
+                                    {!!itemSideAction(item) && (
+                                        <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
+                                            {itemSideAction(item)}
+                                        </DropdownMenuContent>
+                                    )}
+                                </DropdownMenu>
+                            )}
+                    </ButtonGroupPrimitive>
+                </AccordionPrimitive.Trigger>
+
+                {childrenContent}
+            </AccordionPrimitive.Item>
         )
 
         let wrappedContent = content
@@ -559,6 +546,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
 
         return (
             <div
+                ref={ref}
                 key={item.id}
                 className={cn(virtualizedRowHeight && 'overflow-hidden')}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -582,7 +570,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         const items = data instanceof Array ? data : [data]
 
         return (
-            <div className={cn('flex flex-col gap-y-px list-none m-0 p-0 h-full w-full', className)}>
+            <AccordionPrimitive.Root
+                type="multiple"
+                value={props.expandedItemIds}
+                onValueChange={(s) => {
+                    props.onSetExpandedItemIds?.(s)
+                }}
+                className={cn('flex flex-col gap-y-px list-none m-0 p-0 h-full w-full', className)}
+            >
                 {items.map((item, index) => {
                     if (item.type === 'separator') {
                         return (
@@ -623,7 +618,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         />
                     )
                 })}
-            </div>
+            </AccordionPrimitive.Root>
         )
     }
 )
@@ -1575,63 +1570,74 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} isRoot isDragging={isDragging}>
                         <div ref={virtualizationAnchorRef}>
                             {virtualized ? (
-                                <div
-                                    className={cn('relative p-1', {
-                                        'flex-1': isDragging,
-                                    })}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ height: `${flattenedVisibleItems.length * virtualizedRowHeight}px` }}
+                                <AccordionPrimitive.Root
+                                    type="multiple"
+                                    value={expandedItemIdsState}
+                                    onValueChange={(ids) => {
+                                        setExpandedItemIdsState(ids)
+                                        onSetExpandedItemIds?.(ids)
+                                    }}
                                 >
-                                    {virtualizedSegments.map((segment) => {
-                                        return (
-                                            <div
-                                                key={`segment-${segment.startIndex}`}
-                                                className="absolute inset-x-0 top-0"
-                                                // eslint-disable-next-line react/forbid-dom-props
-                                                style={{
-                                                    transform: `translateY(${segment.startIndex * virtualizedRowHeight}px)`,
-                                                }}
-                                            >
-                                                {segment.items.map(({ item, depth, ariaSetSize, ariaPosInSet }) => (
-                                                    <LemonTreeItemRow
-                                                        key={item.id}
-                                                        item={item}
-                                                        ariaSetSize={ariaSetSize}
-                                                        ariaPosInSet={ariaPosInSet}
-                                                        selectedId={selectedId}
-                                                        handleClick={handleClick}
-                                                        expandedItemIds={expandedItemIdsState}
-                                                        onSetExpandedItemIds={(ids) => {
-                                                            setExpandedItemIdsState(ids)
-                                                            onSetExpandedItemIds?.(ids)
-                                                        }}
-                                                        defaultNodeIcon={defaultNodeIcon}
-                                                        showFolderActiveState={showFolderActiveState}
-                                                        itemSideAction={itemSideAction}
-                                                        isItemEditing={isItemEditing}
-                                                        onItemNameChange={onItemNameChange}
-                                                        isItemDraggable={isItemDraggable}
-                                                        isItemDroppable={isItemDroppable}
-                                                        enableDragAndDrop={enableDragAndDrop}
-                                                        disableKeyboardInput={(disable) => {
-                                                            setDisableKeyboardInput(disable)
-                                                        }}
-                                                        itemContextMenu={itemContextMenu}
-                                                        selectMode={selectMode}
-                                                        onItemChecked={onItemChecked}
-                                                        isDragging={isDragging}
-                                                        checkedItemCount={checkedItemCount}
-                                                        setFocusToElementFromId={focusElementFromId}
-                                                        depth={depth}
-                                                        size={size}
-                                                        virtualizedRowHeight={virtualizedRowHeight}
-                                                        {...props}
-                                                    />
-                                                ))}
-                                            </div>
-                                        )
-                                    })}
-                                </div>
+                                    <div
+                                        className={cn('relative p-1', {
+                                            'flex-1': isDragging,
+                                        })}
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            height: `${flattenedVisibleItems.length * virtualizedRowHeight}px`,
+                                        }}
+                                    >
+                                        {virtualizedSegments.map((segment) => {
+                                            return (
+                                                <div
+                                                    key={`segment-${segment.startIndex}`}
+                                                    className="absolute inset-x-0 top-0"
+                                                    // eslint-disable-next-line react/forbid-dom-props
+                                                    style={{
+                                                        transform: `translateY(${segment.startIndex * virtualizedRowHeight}px)`,
+                                                    }}
+                                                >
+                                                    {segment.items.map(({ item, depth, ariaSetSize, ariaPosInSet }) => (
+                                                        <LemonTreeItemRow
+                                                            key={item.id}
+                                                            item={item}
+                                                            ariaSetSize={ariaSetSize}
+                                                            ariaPosInSet={ariaPosInSet}
+                                                            selectedId={selectedId}
+                                                            handleClick={handleClick}
+                                                            expandedItemIds={expandedItemIdsState}
+                                                            onSetExpandedItemIds={(ids) => {
+                                                                setExpandedItemIdsState(ids)
+                                                                onSetExpandedItemIds?.(ids)
+                                                            }}
+                                                            defaultNodeIcon={defaultNodeIcon}
+                                                            showFolderActiveState={showFolderActiveState}
+                                                            itemSideAction={itemSideAction}
+                                                            isItemEditing={isItemEditing}
+                                                            onItemNameChange={onItemNameChange}
+                                                            isItemDraggable={isItemDraggable}
+                                                            isItemDroppable={isItemDroppable}
+                                                            enableDragAndDrop={enableDragAndDrop}
+                                                            disableKeyboardInput={(disable) => {
+                                                                setDisableKeyboardInput(disable)
+                                                            }}
+                                                            itemContextMenu={itemContextMenu}
+                                                            selectMode={selectMode}
+                                                            onItemChecked={onItemChecked}
+                                                            isDragging={isDragging}
+                                                            checkedItemCount={checkedItemCount}
+                                                            setFocusToElementFromId={focusElementFromId}
+                                                            depth={depth}
+                                                            size={size}
+                                                            virtualizedRowHeight={virtualizedRowHeight}
+                                                            {...props}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </AccordionPrimitive.Root>
                             ) : (
                                 <LemonTreeNode
                                     data={data}

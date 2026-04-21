@@ -63,6 +63,7 @@ import { DataColorThemes } from './environment/DataColorThemes'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
 import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
+import { ErrorTrackingConfigurationMovedBanner } from './environment/ErrorTrackingConfigurationMovedBanner'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import {
@@ -81,7 +82,12 @@ import { GithubIntegration, LinearIntegration } from './environment/Integrations
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { JsSnippetVersionPin } from './environment/JsSnippetVersionPin'
-import { LogsCaptureSettings, LogsJsonParseSettings, LogsRetentionSettings } from './environment/LogsCaptureSettings'
+import {
+    LogsCaptureSettings,
+    LogsJsonParseSettings,
+    LogsPiiScrubSettings,
+    LogsRetentionSettings,
+} from './environment/LogsCaptureSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import MCPServerSettings from './environment/MCPServerSettings'
@@ -115,7 +121,6 @@ import {
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
-import { WebhookIntegration } from './environment/WebhookIntegration'
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
@@ -508,6 +513,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         group: 'Products',
         settings: [
             {
+                id: 'banner',
+                title: null,
+                component: <ErrorTrackingConfigurationMovedBanner />,
+            },
+            {
                 id: 'error-tracking-exception-autocapture',
                 title: 'Exception autocapture',
                 description:
@@ -754,10 +764,24 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['json', 'parse', 'structured', 'format'],
             },
             {
+                id: 'logs-pii-scrub',
+                title: 'PII scrubbing',
+                description:
+                    'Remove or mask common personally identifiable information from log payloads during ingestion.',
+                component: <LogsPiiScrubSettings />,
+                flag: 'LOGS_SETTINGS_PII_SCRUB',
+                keywords: ['pii', 'privacy', 'gdpr', 'redact', 'mask', 'scrub', 'sensitive'],
+            },
+            {
                 id: 'logs-retention',
                 title: 'Retention',
-                description:
-                    'How long to retain logs before they are automatically deleted. You can only change this setting at most once per 24 hours.',
+                description: (
+                    <span>
+                        How long to retain logs before they are automatically deleted.{' '}
+                        <strong>Changes only affect the retention for new logs</strong>. You can only change this
+                        setting at most once per 24 hours.
+                    </span>
+                ),
                 component: <LogsRetentionSettings />,
                 flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
@@ -1286,15 +1310,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Integrations',
         settings: [
             {
-                id: 'integration-webhooks',
-                title: 'Webhook integration',
-                description:
-                    'Send notifications when selected actions are performed by users. Supports Slack, Microsoft Teams, and Discord.',
-                docsUrl: 'https://posthog.com/docs/webhooks',
-                component: <WebhookIntegration />,
-                keywords: ['notification', 'alert', 'http', 'callback', 'slack', 'teams', 'discord'],
-            },
-            {
                 id: 'integration-slack',
                 title: 'Slack integration',
                 description:
@@ -1425,6 +1440,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                         below.
                         <br />
                         <strong>Your data will not be used for training models.</strong>
+                        <br />
+                        <br />
+                        This feature is not HIPAA-compliant and is not intended for the processing of Protected Health
+                        Information ("PHI"). Any Business Associate Agreement ("BAA") you may have entered into with
+                        PostHog does not apply to this functionality. You are responsible for ensuring your use complies
+                        with applicable laws and regulations.
                     </>
                 ),
                 component: <OrganizationAI />,

@@ -3,10 +3,11 @@ import os
 import json
 import tempfile
 import textwrap
+import subprocess
 from pathlib import Path
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -17,6 +18,7 @@ from bin.find_affected_tests import (
     _ast_get_imports,
     _build_ast_reverse_map,
     build_reverse_map,
+    changed_files_from_git,
     estimate_duration,
     is_test_module,
     load_durations,
@@ -68,7 +70,7 @@ class TestRequiresFullRun(unittest.TestCase):
             ("ci_backend", ".github/workflows/ci-backend.yml", True),
             ("docker_compose", "docker-compose.dev.yml", True),
             ("docker_ch", "docker/clickhouse/config.xml", True),
-            ("schema_json", "frontend/src/queries/schema.json", True),
+            ("schema_json_not_full", "frontend/src/queries/schema.json", False),
             ("email_templates", "frontend/public/email/template.html", True),
             ("rust_property_models", "rust/feature-flags/src/properties/property_models.rs", True),
             ("plugin_transpiler", "common/plugin_transpiler/src/index.ts", True),
@@ -399,6 +401,41 @@ class TestFullRunPatternsCompleteness(unittest.TestCase):
         self.assertTrue(requires_full_run("docker-compose.yml"))
         self.assertTrue(requires_full_run("docker-compose.dev.yml"))
         self.assertTrue(requires_full_run("docker-compose.base.yml"))
+
+
+class TestChangedFilesFromGit(unittest.TestCase):
+    @patch("bin.find_affected_tests.subprocess.run")
+    def test_passes_triple_dot_range_to_git(self, mock_run):
+        # `...` is the load-bearing detail — it resolves against the merge-base
+        # so files pulled in via a merge of base_ref into the branch are excluded.
+        mock_run.return_value = MagicMock(stdout="")
+        changed_files_from_git("origin/master")
+        args = mock_run.call_args.args[0]
+        self.assertEqual(args, ["git", "diff", "--name-only", "origin/master...HEAD"])
+
+    @parameterized.expand(
+        [
+            (
+                "normal_lines",
+                "posthog/api/user.py\nposthog/models/team.py\n",
+                ["posthog/api/user.py", "posthog/models/team.py"],
+            ),
+            ("drops_blank_lines", "a.py\n\n  \nb.py\n", ["a.py", "b.py"]),
+            ("empty_diff", "", []),
+        ]
+    )
+    @patch("bin.find_affected_tests.subprocess.run")
+    def test_parses_stdout(self, _name, stdout, expected, mock_run):
+        mock_run.return_value = MagicMock(stdout=stdout)
+        self.assertEqual(changed_files_from_git("origin/master"), expected)
+
+    @patch("bin.find_affected_tests.subprocess.run")
+    def test_propagates_git_failure(self, mock_run):
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=128, cmd=["git", "diff"], stderr="fatal: bad revision"
+        )
+        with self.assertRaises(subprocess.CalledProcessError):
+            changed_files_from_git("does/not/exist")
 
 
 class TestLocalPackagesExist(unittest.TestCase):

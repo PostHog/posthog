@@ -133,7 +133,9 @@ class TestSessionSummaryTemporalModuleIntegrity:
             "upload_video_to_gemini_activity",
             "analyze_video_segment_activity",
             "embed_and_store_segments_activity",
+            "emit_session_problem_signals_activity",
             "store_video_session_summary_activity",
+            "tag_and_highlight_session_activity",
             "cleanup_gemini_file_activity",
             "consolidate_video_segments_activity",
             "capture_timing_activity",
@@ -170,10 +172,7 @@ class TestVideoSegmentClusteringModuleIntegrity:
         """Ensure all expected video segment clustering activities are present."""
         expected_activities = [
             "get_sessions_to_prime_activity",
-            "fetch_segments_activity",
-            "cluster_segments_activity",
-            "emit_signals_from_clusters_activity",
-            "get_proactive_tasks_enabled_team_ids_activity",
+            "list_teams_with_session_analysis_signals_activity",
         ]
         actual_activity_names = [a.__name__ for a in VIDEO_SEGMENT_CLUSTERING_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

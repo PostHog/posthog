@@ -8,6 +8,7 @@ import pytest
 from clickhouse_driver import Client
 from dagster import build_op_context
 
+from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
@@ -15,11 +16,11 @@ from posthog.dags.data_deletion_requests import (
     data_deletion_request_event_removal,
     data_deletion_request_property_removal,
     execute_event_deletion,
+    finalize_deletion_request,
     load_deletion_request,
     load_property_removal_request,
-    mark_deletion_complete,
 )
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType
+from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 
 TEAM_ID = 99999
 
@@ -45,6 +46,18 @@ def _count_events_by_name(team_id: int, event_name: str, client: Client) -> int:
         {"team_id": team_id, "event": event_name},
     )
     return result[0][0]
+
+
+def _truncate_adhoc_events_deletion(client: Client) -> None:
+    client.execute(f"TRUNCATE TABLE IF EXISTS {ADHOC_EVENTS_DELETION_TABLE}")
+
+
+def _adhoc_pending_uuids(team_id: int, client: Client) -> set:
+    result = client.execute(
+        f"SELECT uuid FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL WHERE team_id = %(team_id)s AND is_deleted = 0",
+        {"team_id": team_id},
+    )
+    return {row[0] for row in result}
 
 
 @pytest.mark.django_db
@@ -110,7 +123,14 @@ def test_load_deletion_request_rejects_property_removal():
 
 
 @pytest.mark.django_db
-def test_mark_deletion_complete_transitions_status():
+@pytest.mark.parametrize(
+    "execution_mode, expected_status",
+    [
+        (ExecutionMode.IMMEDIATE, RequestStatus.COMPLETED),
+        (ExecutionMode.DEFERRED, RequestStatus.QUEUED),
+    ],
+)
+def test_finalize_deletion_request_transitions_status(execution_mode, expected_status):
     request = DataDeletionRequest.objects.create(
         team_id=TEAM_ID,
         request_type=RequestType.EVENT_REMOVAL,
@@ -118,6 +138,7 @@ def test_mark_deletion_complete_transitions_status():
         start_time=datetime.now() - timedelta(days=7),
         end_time=datetime.now(),
         status=RequestStatus.IN_PROGRESS,
+        execution_mode=execution_mode,
     )
 
     deletion_ctx = DeletionRequestContext(
@@ -126,12 +147,13 @@ def test_mark_deletion_complete_transitions_status():
         start_time=request.start_time,
         end_time=request.end_time,
         events=["$pageview"],
+        execution_mode=execution_mode.value,
     )
     context = build_op_context()
-    mark_deletion_complete(context, deletion_ctx)
+    finalize_deletion_request(context, deletion_ctx)
 
     request.refresh_from_db()
-    assert request.status == RequestStatus.COMPLETED
+    assert request.status == expected_status
 
 
 @pytest.mark.django_db
@@ -238,6 +260,122 @@ def test_full_job_event_deletion(cluster: ClickhouseCluster):
 
 
 # ---------------------------------------------------------------------------
+# Deferred event-removal tests
+# ---------------------------------------------------------------------------
+
+DEFERRED_TEAM_ID = 77777
+
+
+@pytest.mark.django_db
+def test_execute_event_deletion_deferred_queues_into_adhoc_table(cluster: ClickhouseCluster):
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
+
+    matching_uuids = [uuid4() for _ in range(25)]
+    matching_events = [
+        (DEFERRED_TEAM_ID, "$pageview", u, now - timedelta(hours=i)) for i, u in enumerate(matching_uuids)
+    ]
+    other_events = [(DEFERRED_TEAM_ID, "$identify", uuid4(), now - timedelta(hours=i)) for i in range(10)]
+
+    cluster.any_host(partial(_insert_events, matching_events + other_events)).result()
+
+    deletion_ctx = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=DEFERRED_TEAM_ID,
+        start_time=start_time,
+        end_time=end_time,
+        events=["$pageview"],
+        execution_mode=ExecutionMode.DEFERRED.value,
+    )
+    context = build_op_context()
+    execute_event_deletion(context, cluster, deletion_ctx)
+
+    # Events NOT deleted.
+    assert cluster.any_host(partial(_count_events_by_name, DEFERRED_TEAM_ID, "$pageview")).result() == 25
+    # UUIDs queued.
+    queued = cluster.any_host(partial(_adhoc_pending_uuids, DEFERRED_TEAM_ID)).result()
+    assert queued == set(matching_uuids)
+
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
+
+
+@pytest.mark.django_db
+def test_full_job_event_deletion_deferred(cluster: ClickhouseCluster):
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
+
+    target_uuids = [uuid4() for _ in range(15)]
+    target_events = [(DEFERRED_TEAM_ID, "$pageview", u, now - timedelta(hours=i)) for i, u in enumerate(target_uuids)]
+    keep_events = [(DEFERRED_TEAM_ID, "$identify", uuid4(), now - timedelta(hours=i)) for i in range(10)]
+
+    cluster.any_host(partial(_insert_events, target_events + keep_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=DEFERRED_TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+        execution_mode=ExecutionMode.DEFERRED,
+    )
+
+    result = data_deletion_request_event_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_deletion_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    assert cluster.any_host(partial(_count_events_by_name, DEFERRED_TEAM_ID, "$pageview")).result() == 15
+    queued = cluster.any_host(partial(_adhoc_pending_uuids, DEFERRED_TEAM_ID)).result()
+    assert queued == set(target_uuids)
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.QUEUED
+
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
+
+
+@pytest.mark.django_db
+def test_verify_queued_promotes_when_events_gone():
+    from posthog.dags.data_deletion_requests import _count_remaining_matching_events
+
+    now = datetime.now()
+    request = DataDeletionRequest.objects.create(
+        team_id=DEFERRED_TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.QUEUED,
+        execution_mode=ExecutionMode.DEFERRED,
+    )
+
+    assert _count_remaining_matching_events(request) == 0
+
+    from django.utils import timezone
+
+    DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.QUEUED).update(
+        status=RequestStatus.COMPLETED, updated_at=timezone.now()
+    )
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+
+# ---------------------------------------------------------------------------
 # Property removal tests
 # ---------------------------------------------------------------------------
 
@@ -258,6 +396,14 @@ def _get_properties(team_id: int, event_name: str, client: Client) -> list[dict]
         {"team_id": team_id, "event": event_name},
     )
     return [json.loads(row[0]) for row in result]
+
+
+def _get_mat_column_values(team_id: int, event_name: str, column: str, client: Client) -> list[str]:
+    result = client.execute(
+        f"SELECT `{column}` FROM events WHERE team_id = %(team_id)s AND event = %(event)s",
+        {"team_id": team_id, "event": event_name},
+    )
+    return [row[0] for row in result]
 
 
 @pytest.mark.django_db
@@ -537,3 +683,127 @@ def test_full_job_property_removal_subfield_only(
 
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
+
+
+def _add_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:
+    """Add DEFAULT materialized columns to events tables for testing.
+
+    Each entry is (col_name, prop_name, col_type).
+    """
+    from django.conf import settings
+
+    db = settings.CLICKHOUSE_DATABASE
+    for col_name, prop_name, col_type in col_defs:
+        comment = f"column_materializer::properties::{prop_name}"
+        for table in ("sharded_events", "events"):
+            kw = f"COMMENT '{comment}'" if table == "events" else ""
+            client.execute(
+                f"ALTER TABLE {db}.{table} "
+                f"ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} "
+                f"DEFAULT JSONExtractRaw(properties, '{prop_name}') "
+                f"{kw}"
+            )
+
+
+def _drop_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:
+    from django.conf import settings
+
+    db = settings.CLICKHOUSE_DATABASE
+    for col_name, _prop, _typ in col_defs:
+        for table in ("sharded_events", "events"):
+            client.execute(f"ALTER TABLE {db}.{table} DROP COLUMN IF EXISTS `{col_name}`")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "col_defs, properties_to_delete, expected_empty_cols",
+    [
+        pytest.param(
+            [("mat_test_single", "test_single", "String")],
+            ["test_single"],
+            ["mat_test_single"],
+            id="single_property",
+        ),
+        pytest.param(
+            [
+                ("mat_test_a", "test_a", "String"),
+                ("mat_test_b", "test_b", "Nullable(String)"),
+            ],
+            ["test_a", "test_b"],
+            ["mat_test_a", "mat_test_b"],
+            id="multiple_properties_mixed_nullable",
+        ),
+    ],
+)
+def test_full_job_property_removal_clears_materialized_columns(
+    cluster: ClickhouseCluster,
+    col_defs: list[tuple[str, str, str]],
+    properties_to_delete: list[str],
+    expected_empty_cols: list[str],
+):
+    cluster.any_host(partial(_add_default_mat_columns, col_defs)).result()
+
+    try:
+        now = datetime.now()
+        start_time = now - timedelta(days=7)
+        end_time = now + timedelta(minutes=1)
+
+        target_props = {prop: "secret" for _, prop, _ in col_defs}
+        target_props["keep"] = "yes"
+        props_with_target = json.dumps(target_props)
+        props_without_target = json.dumps({"keep": "yes", "other": "value"})
+
+        target_events = [
+            (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), props_with_target) for i in range(20)
+        ]
+        control_events = [
+            (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), props_without_target) for i in range(10)
+        ]
+
+        cluster.any_host(partial(_insert_events_with_properties, target_events + control_events)).result()
+
+        # Precondition: DEFAULT mat columns have values
+        for col_name in expected_empty_cols:
+            mat_values = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", col_name)).result()
+            assert any(v and "secret" in v for v in mat_values), f"expected secret in {col_name}, got {set(mat_values)}"
+
+        request = DataDeletionRequest.objects.create(
+            team_id=PROP_TEAM_ID,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=properties_to_delete,
+            start_time=start_time,
+            end_time=end_time,
+            status=RequestStatus.APPROVED,
+        )
+
+        result = data_deletion_request_property_removal.execute_in_process(
+            run_config={
+                "ops": {
+                    "load_property_removal_request": {
+                        "config": {"request_id": str(request.pk)},
+                    },
+                },
+            },
+            resources={"cluster": cluster},
+        )
+        assert result.success
+
+        assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 30
+
+        all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+        for props in all_props:
+            for prop in properties_to_delete:
+                assert prop not in props, f"{prop} should be removed, got {props}"
+            assert "keep" in props, f"keep should be preserved, got {props}"
+
+        # DEFAULT materialized columns cleared
+        for col_name in expected_empty_cols:
+            mat_values = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", col_name)).result()
+            non_empty = [v for v in mat_values if v and v not in ("", None)]
+            assert not non_empty, f"{col_name} should be empty, got non-empty values: {set(non_empty)}"
+
+        request.refresh_from_db()
+        assert request.status == RequestStatus.COMPLETED
+    finally:
+        cluster.any_host(partial(_drop_default_mat_columns, col_defs)).result()

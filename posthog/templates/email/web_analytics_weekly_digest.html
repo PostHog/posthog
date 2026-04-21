@@ -78,16 +78,16 @@
             <thead>
                 <tr style="border-bottom: 1px solid #e1e5e9;">
                     <th align="left" style="padding: 8px 8px 8px 0; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Page</th>
-                    <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 80px;">Visitors</th>
-                    <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 80px;">Pageviews</th>
+                    <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Visitors</th>
+                    <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">vs prev week</th>
                 </tr>
             </thead>
             <tbody>
                 {% for page in section.top_pages %}
                 <tr style="border-bottom: 1px solid #f3f4f6;">
                     <td align="left" style="padding: 10px 8px 10px 0; vertical-align: middle; text-align: left; font-size: 0.9em; color: #111827;">{% if page.host %}<span style="color: #6b7280;">{{ page.host }}</span>{% endif %}{{ page.path|truncatechars:50 }}</td>
-                    <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 80px;">{{ page.visitors|compact_number }}</td>
-                    <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 80px;">{{ page.pageviews|compact_number }}</td>
+                    <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px;">{{ page.visitors|compact_number }}</td>
+                    {% include "email/_weekly_digest_change_cell.html" with change=page.change %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -105,6 +105,7 @@
                 <tr style="border-bottom: 1px solid #e1e5e9;">
                     <th align="left" style="padding: 8px 8px 8px 0; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Source</th>
                     <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Visitors</th>
+                    <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">vs prev week</th>
                 </tr>
             </thead>
             <tbody>
@@ -112,6 +113,7 @@
                 <tr style="border-bottom: 1px solid #f3f4f6;">
                     <td align="left" style="padding: 10px 8px 10px 0; vertical-align: middle; text-align: left; font-size: 0.9em; color: #111827;">{{ source.source|truncatechars:60 }}</td>
                     <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px;">{{ source.visitors|compact_number }}</td>
+                    {% include "email/_weekly_digest_change_cell.html" with change=source.change %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -137,7 +139,7 @@
                 <tr style="border-bottom: 1px solid #f3f4f6;">
                     <td align="left" style="padding: 10px 8px 10px 0; vertical-align: middle; text-align: left; font-size: 0.9em; color: #111827;">{{ goal.name|truncatechars:40 }}</td>
                     <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px;">{{ goal.conversions|compact_number }}</td>
-                    <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; white-space: nowrap; width: 90px;">{% if goal.change %}<span style="color: {{ goal.change.color }};">{{ goal.change.text }}</span>{% else %}<span style="color: #9ca3af;">&mdash;</span>{% endif %}</td>
+                    {% include "email/_weekly_digest_change_cell.html" with change=goal.change %}
                 </tr>
                 {% endfor %}
             </tbody>

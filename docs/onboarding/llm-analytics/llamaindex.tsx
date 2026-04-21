@@ -3,94 +3,76 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 
 export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, CalloutBox, Markdown, dedent, snippets } = ctx
+    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
     return [
         {
-            title: 'Install the PostHog SDK',
+            title: 'Install dependencies',
             badge: 'required',
             content: (
                 <>
+                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
+                        <Markdown>
+                            See the complete [Python
+                            example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-llamaindex)
+                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
+                            wrapper
+                            example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-llamaindex).
+                        </Markdown>
+                    </CalloutBox>
+
                     <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK. The LlamaIndex integration uses
-                        PostHog's OpenAI wrapper.
+                        Install LlamaIndex, OpenAI, and the OpenTelemetry SDK with the LlamaIndex instrumentation.
                     </Markdown>
 
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install posthog
+                            pip install llama-index llama-index-llms-openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-llamaindex
                         `}
                     />
                 </>
             ),
         },
         {
-            title: 'Install LlamaIndex',
+            title: 'Set up OpenTelemetry tracing',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Install LlamaIndex with the OpenAI integration. PostHog instruments your LLM calls by wrapping
-                        the OpenAI client that LlamaIndex uses.
-                    </Markdown>
-
-                    <CodeBlock
-                        language="bash"
-                        code={dedent`
-                            pip install llama-index llama-index-llms-openai
-                        `}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Initialize PostHog and LlamaIndex',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        Initialize PostHog with your project token and host from [your project
-                        settings](https://app.posthog.com/settings/project), then create a PostHog OpenAI wrapper and
-                        pass it to LlamaIndex's `OpenAI` LLM class.
+                        Configure OpenTelemetry to auto-instrument LlamaIndex calls and export traces to PostHog.
+                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
                     </Markdown>
 
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            from llama_index.llms.openai import OpenAI as LlamaOpenAI
-                            from posthog.ai.openai import OpenAI
-                            from posthog import Posthog
+                            from opentelemetry import trace
+                            from opentelemetry.sdk.trace import TracerProvider
+                            from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+                            from posthog.ai.otel import PostHogSpanProcessor
+                            from opentelemetry.instrumentation.llamaindex import LlamaIndexInstrumentor
 
-                            posthog = Posthog(
-                                "<ph_project_token>",
-                                host="<ph_client_api_host>"
-                            )
+                            resource = Resource(attributes={
+                                SERVICE_NAME: "my-app",
+                                "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
+                                        "foo": "bar", # custom properties are passed through
+                            })
 
-                            openai_client = OpenAI(
-                                api_key="your_openai_api_key",
-                                posthog_client=posthog
+                            provider = TracerProvider(resource=resource)
+                            provider.add_span_processor(
+                                PostHogSpanProcessor(
+                                    api_key="<ph_project_token>",
+                                    host="<ph_client_api_host>",
+                                )
                             )
+                            trace.set_tracer_provider(provider)
 
-                            llm = LlamaOpenAI(
-                                model="gpt-5-mini",
-                                api_key="your_openai_api_key",
-                            )
-                            llm._client = openai_client
+                            LlamaIndexInstrumentor().instrument()
                         `}
                     />
-
-                    <CalloutBox type="fyi" icon="IconInfo" title="How this works">
-                        <Markdown>
-                            PostHog's `OpenAI` wrapper is a proper subclass of `openai.OpenAI`, so it can replace the
-                            internal client used by LlamaIndex's OpenAI LLM. PostHog captures `$ai_generation` events
-                            automatically without proxying your calls. **Note:** This approach accesses an internal
-                            attribute (`_client`) which may change in future LlamaIndex versions. Check for updates if
-                            you encounter issues after upgrading LlamaIndex.
-                        </Markdown>
-                    </CalloutBox>
                 </>
             ),
         },
@@ -100,14 +82,17 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
             content: (
                 <>
                     <Markdown>
-                        Use LlamaIndex as normal. PostHog automatically captures an `$ai_generation` event for each LLM
-                        call made through the wrapped client.
+                        Use LlamaIndex as normal. The OpenTelemetry instrumentation automatically captures
+                        `$ai_generation` events for each LLM call.
                     </Markdown>
 
                     <CodeBlock
                         language="python"
                         code={dedent`
+                            from llama_index.llms.openai import OpenAI
                             from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
+
+                            llm = OpenAI(model="gpt-4o-mini", api_key="your_openai_api_key")
 
                             # Load your documents
                             documents = SimpleDirectoryReader("data").load_data()
@@ -122,6 +107,14 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                             print(response)
                         `}
                     />
+
+                    <Blockquote>
+                        <Markdown>
+                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
+                            resource attribute. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                        </Markdown>
+                    </Blockquote>
 
                     <Markdown>
                         {dedent`

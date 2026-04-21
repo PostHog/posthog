@@ -534,5 +534,4 @@ class TestFunnelDWValidationIntegration(BaseTest):
         with self.assertRaises(NotImplementedError) as context:
             runner.calculate()
 
-        assert "UNION ALL pattern" in str(context.exception)
-        assert "not yet fully implemented" in str(context.exception)
+        assert "ExperimentDataWarehouseNode is not yet supported" in str(context.exception)

@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import structlog
+import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -188,6 +189,37 @@ class ExperimentQueryRunner(QueryRunner):
             ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
+            sentinel_placeholders={"experiment_date_to"},
+        )
+
+    def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
+        """
+        Ensures lazy-computed funnel metric event data exists for this experiment.
+
+        Stores one row per matching event with step indicators in the
+        experiment_metric_events_preaggregated table.
+        """
+        query_string, placeholders = builder.get_funnel_metric_events_query_for_precomputation()
+
+        if not self.experiment.start_date:
+            raise ValidationError("Experiment must have a start date for lazy computation")
+
+        date_from = self.experiment.start_date
+        date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+
+        # Extend time range by conversion window — funnel step events can occur after experiment end
+        conversion_window_seconds = builder._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            date_to = date_to + timedelta(seconds=conversion_window_seconds)
+
+        return ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=date_from,
+            time_range_end=date_to,
+            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
+            placeholders=placeholders,
         )
 
     def _should_precompute(self) -> bool:
@@ -248,6 +280,21 @@ class ExperimentQueryRunner(QueryRunner):
             except Exception:
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
+            # Precompute metric events for ordered funnel metrics
+            if (
+                isinstance(self.metric, ExperimentFunnelMetric)
+                and (self.metric.funnel_order_type or "ordered") == "ordered"
+                and not self._get_breakdowns_for_builder()
+            ):
+                try:
+                    metric_result = self._ensure_metric_events_precomputed(builder)
+                    if metric_result.ready:
+                        builder.metric_events_preaggregation_job_ids = [str(job_id) for job_id in metric_result.job_ids]
+                    else:
+                        logger.warning("metric_events_lazy_computation_not_ready", experiment_id=self.experiment.id)
+                except Exception:
+                    logger.exception("metric_events_lazy_computation_failed", experiment_id=self.experiment.id)
+
         return builder.build_query()
 
     def _evaluate_experiment_query(
@@ -264,6 +311,7 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
             experiment_metric_uuid=self.metric.uuid,
             experiment_metric_name=metric_name,
+            experiment_metric_type=self.metric.metric_type,
         )
 
         experiment_query_ast = self._get_experiment_query()
@@ -276,12 +324,23 @@ class ExperimentQueryRunner(QueryRunner):
         self.hogql = experiment_query_debug[0]
         self.clickhouse_sql = experiment_query_debug[1]
 
+        modifiers = create_default_modifiers_for_team(self.team)
+        if posthoganalytics.feature_enabled(
+            "hogql-session-id-pushdown",
+            str(self.team.id),
+            groups={"project": str(self.team.id)},
+            group_properties={"project": {"id": str(self.team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            modifiers.sessionIdPushdown = True
+
         response = execute_hogql_query(
             query_type="ExperimentQuery",
             query=experiment_query_ast,
             team=self.team,
             timings=self.timings,
-            modifiers=create_default_modifiers_for_team(self.team),
+            modifiers=modifiers,
             settings=HogQLGlobalSettings(
                 max_execution_time=self.max_execution_time,
                 enable_analyzer=True,
