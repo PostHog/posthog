@@ -10,6 +10,7 @@ import {
     IconDashboard,
     IconGear,
     IconInfo,
+    IconLive,
     IconStethoscope,
     IconTerminal,
 } from '@posthog/icons'
@@ -267,6 +268,31 @@ function CommentsFilterSettingsButton(): JSX.Element {
     )
 }
 
+function LogsFilterSettingsButton(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { allItemsByItemType, logsLoading, logsLoadError } = useValues(playerInspectorLogic(logicProps))
+
+    const hasLogItems = allItemsByItemType['logs']?.length > 0
+
+    const disabledReason = logsLoading
+        ? 'Loading logs...'
+        : logsLoadError
+          ? 'Failed to load logs for this session'
+          : !hasLogItems
+            ? 'No logs found for this session'
+            : undefined
+
+    return (
+        <FilterSettingsButton
+            data-attr="player-inspector-logs-toggle-all"
+            type="logs"
+            icon={<IconLive />}
+            disabledReason={disabledReason}
+            label="Logs"
+        />
+    )
+}
+
 export function PlayerInspectorControls(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { searchQuery, miniFiltersByKey } = useValues(miniFiltersLogic)
@@ -289,6 +315,8 @@ export function PlayerInspectorControls(): JSX.Element {
                 {mode !== SessionRecordingPlayerMode.Sharing && <EventsFilterSettingsButton />}
                 <ConsoleFilterSettingsButton />
                 <NetworkFilterSettingsButton />
+                {featureFlags[FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS] &&
+                    mode !== SessionRecordingPlayerMode.Sharing && <LogsFilterSettingsButton />}
                 {mode !== SessionRecordingPlayerMode.Sharing && <CommentsFilterSettingsButton />}
                 {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                     mode !== SessionRecordingPlayerMode.Sharing && (

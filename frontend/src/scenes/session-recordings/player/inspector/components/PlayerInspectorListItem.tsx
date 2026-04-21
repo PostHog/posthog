@@ -15,6 +15,7 @@ import {
     IconExpand,
     IconEye,
     IconLeave,
+    IconLive,
     IconLogomark,
     IconRedux,
     IconTerminal,
@@ -43,11 +44,13 @@ import {
     InspectorListItem,
     InspectorListItemConsole,
     InspectorListItemEvent,
+    InspectorListItemLog,
     playerInspectorLogic,
 } from '../playerInspectorLogic'
 import { ItemAppState, ItemAppStateDetail, ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
+import { ItemLog, ItemLogDetail } from './ItemLog'
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
@@ -100,6 +103,10 @@ const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescrip
     inactivity: {
         Icon: undefined,
         tooltip: undefined,
+    },
+    logs: {
+        Icon: IconLive,
+        tooltip: 'Log entry',
     },
 }
 
@@ -193,6 +200,8 @@ function RowItemTitle({
                 <ItemInactivity item={item} />
             ) : item.type === 'session-change' ? (
                 <ItemSessionChange item={item} />
+            ) : item.type === 'logs' ? (
+                <ItemLog item={item} groupCount={groupCount} />
             ) : null}
         </div>
     )
@@ -210,10 +219,12 @@ function RowItemDetail({
     item,
     finalTimestamp,
     groupedItems,
+    sessionId,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
     groupedItems?: InspectorListItem[]
+    sessionId?: string
 }): JSX.Element | null {
     return (
         <div>
@@ -233,6 +244,12 @@ function RowItemDetail({
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemAnyCommentDetail item={item} />
+            ) : item.type === 'logs' ? (
+                <ItemLogDetail
+                    item={item}
+                    groupedItems={groupedItems as InspectorListItemLog[] | undefined}
+                    sessionId={sessionId}
+                />
             ) : null}
         </div>
     )
@@ -362,7 +379,12 @@ const ListItemDetail = memo(function ListItemDetail({
             )}
         >
             <div className="text-xs">
-                <RowItemDetail item={item} finalTimestamp={end} groupedItems={groupedItems} />
+                <RowItemDetail
+                    item={item}
+                    finalTimestamp={end}
+                    groupedItems={groupedItems}
+                    sessionId={logicProps.sessionRecordingId}
+                />
                 <LemonDivider dashed />
 
                 <div
