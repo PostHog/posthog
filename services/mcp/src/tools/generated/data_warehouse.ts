@@ -30,7 +30,7 @@ import {
     WarehouseSavedQueriesRunCreateParams,
     WarehouseSavedQueriesRunHistoryRetrieveParams,
 } from '@/generated/data_warehouse/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ExternalDataSchemasListSchema = ExternalDataSchemasListQueryParams
@@ -280,7 +280,15 @@ const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardS
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/wizard/`,
         })
-        return result
+        const filtered = pickResponseFields(result, [
+            '*.name',
+            '*.caption',
+            '*.docsUrl',
+            '*.featured',
+            '*.unreleasedSource',
+            '*.fields',
+        ]) as typeof result
+        return filtered
     },
 })
 
