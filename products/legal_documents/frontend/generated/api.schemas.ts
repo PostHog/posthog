@@ -7,9 +7,38 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface LegalDocumentCreatorApi {
+    first_name: string
+    email: string
+}
+
 /**
- * * `BAA` - Business Associate Agreement
- * `DPA` - Data Processing Agreement
+ * Output serializer — what the API returns for every row.
+ */
+export interface LegalDocumentDTOApi {
+    id: string
+    document_type: string
+    company_name: string
+    representative_name: string
+    representative_email: string
+    status: string
+    signed_document_url: string
+    created_by: LegalDocumentCreatorApi | null
+    created_at: string
+}
+
+export interface PaginatedLegalDocumentDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LegalDocumentDTOApi[]
+}
+
+/**
+ * * `BAA` - BAA
+ * `DPA` - DPA
  */
 export type DocumentTypeEnumApi = (typeof DocumentTypeEnumApi)[keyof typeof DocumentTypeEnumApi]
 
@@ -19,43 +48,15 @@ export const DocumentTypeEnumApi = {
 } as const
 
 /**
- * * `pretty` - A perfectly legal doc, but with some pizazz
- * `lawyer` - Drab and dull — preferred by lawyers
- * `fairytale` - A fairy tale story
- * `tswift` - Taylor Swift's version
+ * Input serializer for POST. Mirrors the submittable fields on the model plus
+cross-field rules (BAA addon, DPA mode, uniqueness). The view supplies the
+organization and submitting user.
  */
-export type DpaModeEnumApi = (typeof DpaModeEnumApi)[keyof typeof DpaModeEnumApi]
-
-export const DpaModeEnumApi = {
-    Pretty: 'pretty',
-    Lawyer: 'lawyer',
-    Fairytale: 'fairytale',
-    Tswift: 'tswift',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * * `submitted_for_signature` - Submitted for signature
- * `signed` - Signed
- */
-export type LegalDocumentStatusEnumApi = (typeof LegalDocumentStatusEnumApi)[keyof typeof LegalDocumentStatusEnumApi]
-
-export const LegalDocumentStatusEnumApi = {
-    SubmittedForSignature: 'submitted_for_signature',
-    Signed: 'signed',
-} as const
-
-export interface LegalDocumentApi {
-    readonly id: string
+export interface CreateLegalDocumentApi {
     /** Either 'BAA' or 'DPA'.
 
-* `BAA` - Business Associate Agreement
-* `DPA` - Data Processing Agreement */
+* `BAA` - BAA
+* `DPA` - DPA */
     document_type: DocumentTypeEnumApi
     /**
      * The customer legal entity entering the agreement.
@@ -77,39 +78,13 @@ export interface LegalDocumentApi {
      * @maxLength 255
      */
     representative_title: string
-    /**
-     * Email the signed PandaDoc envelope is sent to.
-     * @maxLength 254
-     */
+    /** Email the signed PandaDoc envelope is sent to. */
     representative_email: string
-    /** DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
-
-* `pretty` - A perfectly legal doc, but with some pizazz
-* `lawyer` - Drab and dull — preferred by lawyers
-* `fairytale` - A fairy tale story
-* `tswift` - Taylor Swift's version */
-    dpa_mode?: DpaModeEnumApi | BlankEnumApi
-    /** Lifecycle: 'submitted_for_signature' until the PandaDoc signed-URL webhook flips it to 'signed'.
-
-* `submitted_for_signature` - Submitted for signature
-* `signed` - Signed */
-    readonly status: LegalDocumentStatusEnumApi
-    /** Download URL for the fully-signed PDF. Populated by PandaDoc via the public webhook. */
-    readonly signed_document_url: string
-    /** @nullable */
-    readonly created_by: number | null
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedLegalDocumentListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: LegalDocumentApi[]
+    /**
+     * DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
+     * @maxLength 16
+     */
+    dpa_mode?: string
 }
 
 export type LegalDocumentsListParams = {

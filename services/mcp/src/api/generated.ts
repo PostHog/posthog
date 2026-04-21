@@ -8715,6 +8715,58 @@ export namespace Schemas {
     }
 
     /**
+     * * `BAA` - BAA
+    * `DPA` - DPA
+     */
+    export type DocumentTypeEnum = typeof DocumentTypeEnum[keyof typeof DocumentTypeEnum];
+
+
+    export const DocumentTypeEnum = {
+      Baa: 'BAA',
+      Dpa: 'DPA',
+    } as const;
+
+    /**
+     * Input serializer for POST. Mirrors the submittable fields on the model plus
+    cross-field rules (BAA addon, DPA mode, uniqueness). The view supplies the
+    organization and submitting user.
+     */
+    export interface CreateLegalDocument {
+      /** Either 'BAA' or 'DPA'.
+
+    * `BAA` - BAA
+    * `DPA` - DPA */
+      document_type: DocumentTypeEnum;
+      /**
+       * The customer legal entity entering the agreement.
+       * @maxLength 255
+       */
+      company_name: string;
+      /**
+       * Customer address. Required for DPAs; ignored for BAAs.
+       * @maxLength 512
+       */
+      company_address?: string;
+      /**
+       * Name of the signer at the customer.
+       * @maxLength 255
+       */
+      representative_name: string;
+      /**
+       * Title of the signer at the customer.
+       * @maxLength 255
+       */
+      representative_title: string;
+      /** Email the signed PandaDoc envelope is sent to. */
+      representative_email: string;
+      /**
+       * DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
+       * @maxLength 16
+       */
+      dpa_mode?: string;
+    }
+
+    /**
      * * `zoom` - zoom
     * `teams` - teams
     * `meet` - meet
@@ -13626,34 +13678,6 @@ export namespace Schemas {
        */
       version?: number | null;
     }
-
-    /**
-     * * `BAA` - Business Associate Agreement
-    * `DPA` - Data Processing Agreement
-     */
-    export type DocumentTypeEnum = typeof DocumentTypeEnum[keyof typeof DocumentTypeEnum];
-
-
-    export const DocumentTypeEnum = {
-      Baa: 'BAA',
-      Dpa: 'DPA',
-    } as const;
-
-    /**
-     * * `pretty` - A perfectly legal doc, but with some pizazz
-    * `lawyer` - Drab and dull — preferred by lawyers
-    * `fairytale` - A fairy tale story
-    * `tswift` - Taylor Swift's version
-     */
-    export type DpaModeEnum = typeof DpaModeEnum[keyof typeof DpaModeEnum];
-
-
-    export const DpaModeEnum = {
-      Pretty: 'pretty',
-      Lawyer: 'lawyer',
-      Fairytale: 'fairytale',
-      Tswift: 'tswift',
-    } as const;
 
     export interface DraftStatusResponse {
       updated_at: string;
@@ -20014,69 +20038,24 @@ export namespace Schemas {
       Never: 'never',
     } as const;
 
+    export interface LegalDocumentCreator {
+      first_name: string;
+      email: string;
+    }
+
     /**
-     * * `submitted_for_signature` - Submitted for signature
-    * `signed` - Signed
+     * Output serializer — what the API returns for every row.
      */
-    export type LegalDocumentStatusEnum = typeof LegalDocumentStatusEnum[keyof typeof LegalDocumentStatusEnum];
-
-
-    export const LegalDocumentStatusEnum = {
-      SubmittedForSignature: 'submitted_for_signature',
-      Signed: 'signed',
-    } as const;
-
-    export interface LegalDocument {
-      readonly id: string;
-      /** Either 'BAA' or 'DPA'.
-
-    * `BAA` - Business Associate Agreement
-    * `DPA` - Data Processing Agreement */
-      document_type: DocumentTypeEnum;
-      /**
-       * The customer legal entity entering the agreement.
-       * @maxLength 255
-       */
+    export interface LegalDocumentDTO {
+      id: string;
+      document_type: string;
       company_name: string;
-      /**
-       * Customer address. Required for DPAs; ignored for BAAs.
-       * @maxLength 512
-       */
-      company_address?: string;
-      /**
-       * Name of the signer at the customer.
-       * @maxLength 255
-       */
       representative_name: string;
-      /**
-       * Title of the signer at the customer.
-       * @maxLength 255
-       */
-      representative_title: string;
-      /**
-       * Email the signed PandaDoc envelope is sent to.
-       * @maxLength 254
-       */
       representative_email: string;
-      /** DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
-
-    * `pretty` - A perfectly legal doc, but with some pizazz
-    * `lawyer` - Drab and dull — preferred by lawyers
-    * `fairytale` - A fairy tale story
-    * `tswift` - Taylor Swift's version */
-      dpa_mode?: DpaModeEnum | BlankEnum;
-      /** Lifecycle: 'submitted_for_signature' until the PandaDoc signed-URL webhook flips it to 'signed'.
-
-    * `submitted_for_signature` - Submitted for signature
-    * `signed` - Signed */
-      readonly status: LegalDocumentStatusEnum;
-      /** Download URL for the fully-signed PDF. Populated by PandaDoc via the public webhook. */
-      readonly signed_document_url: string;
-      /** @nullable */
-      readonly created_by: number | null;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
+      status: string;
+      signed_document_url: string;
+      created_by: LegalDocumentCreator | null;
+      created_at: string;
     }
 
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
@@ -22052,13 +22031,13 @@ export namespace Schemas {
       results: LLMSkillList[];
     }
 
-    export interface PaginatedLegalDocumentList {
+    export interface PaginatedLegalDocumentDTOList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: LegalDocument[];
+      results: LegalDocumentDTO[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
