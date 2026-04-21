@@ -86,6 +86,8 @@ class CheckContext:
 class CheckResult:
     lines: list[str] = field(default_factory=list)  # lines printed to stdout
     issues: list[str] = field(default_factory=list)  # blocking issues returned to caller
+    warnings: list[str] = field(default_factory=list)  # non-blocking warnings
+    file: str | None = None  # file path for GitHub annotations
     skip: bool = False  # silently skip this check
 
 
@@ -257,6 +259,7 @@ class PackageJsonScriptsCheck(ProductCheck):
 
         if not result.issues:
             result.lines.append("✓ ok")
+        result.file = f"products/{ctx.name}/package.json"
         return result
 
 
@@ -469,8 +472,18 @@ class IsolationChainCheck(ProductCheck):
                 "Django suite even though the facade boundary isn't real"
             )
 
+        if not has_script and facade_api.exists() and not has_real_facade:
+            result.warnings.append(
+                "facade/api.py exists but has no function definitions — "
+                "a real facade should convert models to contracts, not just re-export"
+            )
+
+        if result.issues or result.warnings:
+            result.file = f"products/{ctx.name}/backend/facade/api.py"
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        elif result.warnings:
+            result.lines = [f"⚠ {len(result.warnings)} warning(s)"] + [f"  → {w}" for w in result.warnings]
         else:
             result.lines = ["✓ ok"]
 
