@@ -1,5 +1,4 @@
 import re
-from contextlib import nullcontext
 from datetime import datetime
 from typing import Any
 
@@ -253,21 +252,20 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("no_mat_column", "select JSONExtractString(properties, 'some_random_prop_xyz') from events", False),
-            ("wrong_function", "select JSONExtractInt(properties, '$browser') from events", True),
-            ("three_args", "select JSONExtractString(properties, '$browser', 'nested') from events", False),
-            ("non_json_field", "select JSONExtractString(event, '$browser') from events", False),
+            ("no_mat_column", "select JSONExtractString(properties, 'some_random_prop_xyz') from events"),
+            ("three_args", "select JSONExtractString(properties, '$browser', 'nested') from events"),
+            ("non_json_field", "select JSONExtractString(event, '$browser') from events"),
         ]
     )
-    def test_jsonextract_not_rewritten(self, _name: str, query: str, needs_mat_column: bool):
+    def test_jsonextract_not_rewritten(self, _name: str, query: str):
+        printed = self._print_select(query)
+        assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
+
+    def test_jsonextractint_not_rewritten_even_with_mat_column(self):
         from posthog.test.base import materialized
 
-        if needs_mat_column:
-            ctx = materialized("events", "$browser")
-        else:
-            ctx = nullcontext()
-        with ctx:
-            printed = self._print_select(query)
+        with materialized("events", "$browser"):
+            printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
             assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
 
 
