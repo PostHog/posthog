@@ -1,0 +1,88 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cooldown_minutes": {
+            "description": "Minimum minutes between reports in every_n mode to prevent spam. Min 60.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "daily_run_cap": {
+            "description": "Max reports generated per day. Defaults to 3.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "deleted": {
+            "description": "Set to true to soft-delete this report config.",
+            "type": "boolean"
+        },
+        "delivery_targets": {
+            "description": "List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}."
+        },
+        "enabled": {
+            "description": "Whether report delivery is active.",
+            "type": "boolean"
+        },
+        "evaluation": {
+            "description": "UUID of the evaluation this report config belongs to.",
+            "type": "string"
+        },
+        "frequency": {
+            "description": "'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N",
+            "enum": ["scheduled", "every_n"],
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this evaluation report.",
+            "type": "string"
+        },
+        "max_sample_size": {
+            "description": "Max number of evaluation runs included in each report. Defaults to 100.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "report_prompt_guidance": {
+            "description": "Optional custom instructions injected into the AI report prompt to focus analysis.",
+            "type": "string"
+        },
+        "rrule": {
+            "description": "RFC 5545 recurrence rule string. Required when frequency is 'scheduled'.",
+            "type": "string"
+        },
+        "starts_at": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'."
+        },
+        "timezone_name": {
+            "description": "IANA timezone name for scheduled delivery (e.g. 'America/New_York').",
+            "maxLength": 64,
+            "type": "string"
+        },
+        "trigger_threshold": {
+            "anyOf": [
+                {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000."
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

@@ -1,6 +1,6 @@
 {
     "name": "@posthog/stripe",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "PostHog Stripe app",
     "license": "MIT",
     "scripts": {
@@ -9,8 +9,8 @@
         "test": "jest --passWithNoTests"
     },
     "dependencies": {
-        "@stripe/ui-extension-sdk": "9.2.0-alpha.4",
-        "stripe": "^21.0.1"
+        "@stripe/ui-extension-sdk": "9.2.0-alpha.6",
+        "stripe": "^20.4.1"
     },
     "devDependencies": {
         "@stripe/ui-extension-tools": "^0.0.1",

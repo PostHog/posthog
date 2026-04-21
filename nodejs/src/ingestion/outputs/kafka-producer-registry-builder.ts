@@ -76,7 +76,11 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
 
                 const resolvedConfig = parseProducerConfig(values)
                 logger.info('📝', `Creating producer "${name}"`, { config: redactConfig(resolvedConfig) })
-                producers[name] = await KafkaProducerWrapper.createWithConfig(this.kafkaClientRack, resolvedConfig)
+                producers[name] = await KafkaProducerWrapper.createWithConfig(
+                    this.kafkaClientRack,
+                    resolvedConfig,
+                    name
+                )
             })
         )
 

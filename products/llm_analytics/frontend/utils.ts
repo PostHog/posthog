@@ -51,6 +51,27 @@ export interface PagedSearchOrderFilters {
     order_by: string
 }
 
+// Runs an async worker across `items` with at most `limit` promises in flight.
+// Intended for lazy loaders that otherwise fan out enough parallel requests to
+// starve the browser's per-origin connection pool.
+export async function runWithConcurrency<T>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<void>
+): Promise<void> {
+    if (items.length === 0) {
+        return
+    }
+    let cursor = 0
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (cursor < items.length) {
+            const index = cursor++
+            await worker(items[index])
+        }
+    })
+    await Promise.all(runners)
+}
+
 export interface SanitizeTraceUrlSearchParamsOptions {
     removeSearch?: boolean
 }
@@ -1285,6 +1306,17 @@ export function parsePartialJSON(json: string): unknown {
 export function parseJSONPreview(raw: unknown): unknown {
     const truncated = simulateNaiveTruncation(raw)
     return parsePartialJSON(truncated)
+}
+
+// `JSON.stringify` throws on circular references and BigInt values. When rendering LLM trace data
+// in the UI we don't want a malformed payload to crash the component, so wrap it in try/catch with
+// a `String(value)` fallback that always produces something.
+export function safeStringify(value: unknown, indent: number = 2): string {
+    try {
+        return JSON.stringify(value, null, indent) ?? String(value)
+    } catch {
+        return String(value)
+    }
 }
 
 export function removeMilliseconds(timestamp: string): string {

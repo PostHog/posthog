@@ -27,6 +27,7 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
             file_bytes,
             password=password if passphrase is not None else None,
         )
+        encryption_algorithm: crypto_serialization.KeySerializationEncryption
         if passphrase:
             encryption_algorithm = crypto_serialization.BestAvailableEncryption(password)
         else:

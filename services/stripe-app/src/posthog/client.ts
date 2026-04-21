@@ -1,25 +1,123 @@
 import Stripe from 'stripe'
 
+import { logger } from '../logger'
 import { saveCredentials } from './auth'
+import type {
+    ListResponse,
+    PostHogCustomerJourney,
+    PostHogExperiment,
+    PostHogFeatureFlag,
+    PostHogInsight,
+    WebOverviewItem,
+} from './types'
+
+const IGNORED_EVENTS = ['$feature_flag_called', '$pageleave', '$groupidentify', '$set', '$opt_in']
+const IGNORED_EVENTS_SQL = IGNORED_EVENTS.map((e) => `'${e}'`).join(', ')
+
+export interface PostHogClientOptions {
+    baseUrl: string
+    accessToken: string
+    refreshToken: string
+    stripe: Stripe
+    clientId: string
+}
 
 export class PostHogClient {
-    private baseUrl: string
+    readonly baseUrl: string
     private clientId: string
     private accessToken: string
     private refreshToken: string
     private stripe: Stripe
 
-    constructor(baseUrl: string, clientId: string, accessToken: string, refreshToken: string, stripe: Stripe) {
+    constructor({ baseUrl, accessToken, refreshToken, stripe, clientId }: PostHogClientOptions) {
         this.baseUrl = baseUrl
-
         this.clientId = clientId
         this.accessToken = accessToken
         this.refreshToken = refreshToken
-
         this.stripe = stripe
     }
 
+    async fetchFeatureFlags(projectId: string): Promise<PostHogFeatureFlag[]> {
+        const path = `/api/projects/${encodeURIComponent(projectId)}/feature_flags/?limit=25&order=-updated_at`
+        logger.debug('Fetching feature flags', path)
+        const body = await this.getJson<ListResponse<PostHogFeatureFlag>>(path)
+        return body.results.filter((f: PostHogFeatureFlag) => !f.deleted)
+    }
+
+    async fetchExperiments(projectId: string): Promise<PostHogExperiment[]> {
+        const path = `/api/projects/${encodeURIComponent(projectId)}/experiments/?limit=25&order=-updated_at`
+        logger.debug('Fetching experiments', path)
+        const body = await this.getJson<ListResponse<PostHogExperiment>>(path)
+        return body.results.filter((e: PostHogExperiment) => !e.archived)
+    }
+
+    async fetchCustomerJourneys(projectId: string): Promise<PostHogCustomerJourney[]> {
+        const path = `/api/environments/${encodeURIComponent(projectId)}/customer_journeys/`
+        logger.debug('Fetching customer journeys', path)
+        const body = await this.getJson<ListResponse<PostHogCustomerJourney>>(path)
+        return body.results
+    }
+
+    async fetchInsight(projectId: string, insightId: number): Promise<PostHogInsight> {
+        const path = `/api/projects/${encodeURIComponent(projectId)}/insights/${insightId}/`
+        logger.debug('Fetching insight', path)
+        return this.getJson<PostHogInsight>(path)
+    }
+
+    async fetchEventTrends(projectId: string): Promise<{ date: string; count: number }[]> {
+        const path = `/api/projects/${encodeURIComponent(projectId)}/query/`
+        logger.debug('Fetching event trends', path)
+        const body = await this.postJson<{ results: [number, string][] }>(path, {
+            query: {
+                kind: 'HogQLQuery',
+                query: `SELECT count() AS count, toStartOfWeek(timestamp) AS week
+                         FROM events
+                         WHERE timestamp >= today() - INTERVAL 8 WEEK
+                         GROUP BY week
+                         ORDER BY week`,
+            },
+        })
+        return body.results.map(([count, week]: [number, string]) => ({ date: week, count }))
+    }
+
+    async fetchTopEvents(projectId: string, limit = 5): Promise<{ event: string; count: number }[]> {
+        const path = `/api/projects/${encodeURIComponent(projectId)}/query/`
+        logger.debug('Fetching top events', path)
+        const body = await this.postJson<{ results: [number, string][] }>(path, {
+            query: {
+                kind: 'HogQLQuery',
+                query: `SELECT count() AS count, event
+                         FROM events
+                         WHERE timestamp >= today() - INTERVAL 8 WEEK
+                           AND event NOT IN (${IGNORED_EVENTS_SQL})
+                         GROUP BY event
+                         ORDER BY count DESC
+                         LIMIT ${limit}`,
+            },
+        })
+        return body.results.map(([count, event]: [number, string]) => ({ event, count }))
+    }
+
+    async fetchWebOverview(projectId: string): Promise<WebOverviewItem[]> {
+        const path = `/api/projects/${encodeURIComponent(projectId)}/query/`
+        logger.debug('Fetching web overview', path)
+        const body = await this.postJson<{ results: WebOverviewItem[] }>(path, {
+            query: {
+                kind: 'WebOverviewQuery',
+                properties: [],
+                dateRange: { date_from: '-30d' },
+                compareFilter: { compare: true },
+                filterTestAccounts: true,
+            },
+        })
+        return body.results
+    }
+
     async refreshAccessToken(): Promise<void> {
+        if (!this.clientId) {
+            throw new Error('Cannot refresh PostHog token without a client_id')
+        }
+
         let response: Response
         try {
             response = await fetch(`${this.baseUrl}/oauth/token/`, {
@@ -61,17 +159,39 @@ export class PostHogClient {
         })
     }
 
-    async request(path: string, options?: RequestInit): Promise<Response> {
+    private async getJson<T>(path: string): Promise<T> {
+        const response = await this.request(path)
+        if (!response.ok) {
+            const body = await response.text().catch(() => '<unreadable>')
+            throw new Error(`PostHog API ${response.status} on ${path}: ${body}`)
+        }
+        return (await response.json()) as T
+    }
+
+    private async postJson<T>(path: string, payload: unknown): Promise<T> {
+        const response = await this.request(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        })
+        if (!response.ok) {
+            const body = await response.text().catch(() => '<unreadable>')
+            throw new Error(`PostHog API ${response.status} on ${path}: ${body}`)
+        }
+        return (await response.json()) as T
+    }
+
+    private async request(path: string, options?: RequestInit): Promise<Response> {
         const url = `${this.baseUrl}${path}`
-        const headers = {
+        const headers: Record<string, string> = {
             Authorization: `Bearer ${this.accessToken}`,
-            ...options?.headers,
+            ...(options?.headers as Record<string, string> | undefined),
         }
 
         let response = await fetch(url, { ...options, headers })
 
-        // If we get a 401, try refreshing the token and retrying once
-        if (response.status === 401) {
+        // If we get a 401 and we have a client_id, try refreshing the token and retrying once.
+        if (response.status === 401 && this.clientId) {
             await this.refreshAccessToken()
             headers.Authorization = `Bearer ${this.accessToken}`
             response = await fetch(url, { ...options, headers })

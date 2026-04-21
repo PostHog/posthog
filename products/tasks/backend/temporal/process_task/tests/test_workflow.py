@@ -29,6 +29,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     create_sandbox_for_repository,
     forward_pending_user_message,
     get_task_processing_context,
+    inject_fresh_tokens_on_resume,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
     start_agent_server,
@@ -98,6 +99,7 @@ class TestProcessTaskWorkflow:
                     get_task_processing_context,
                     prepare_sandbox_for_repository,
                     create_sandbox_for_repository,
+                    inject_fresh_tokens_on_resume,
                     clone_repository_in_sandbox,
                     checkout_branch_in_sandbox,
                     start_agent_server,
@@ -215,6 +217,7 @@ class TestProcessTaskWorkflow:
                     get_task_processing_context,
                     prepare_sandbox_for_repository,
                     create_sandbox_for_repository,
+                    inject_fresh_tokens_on_resume,
                     clone_repository_in_sandbox,
                     checkout_branch_in_sandbox,
                     start_agent_server,
@@ -341,3 +344,98 @@ class TestProcessTaskWorkflowUnit:
         assert workflow._sandbox_id_for_cleanup == "sandbox-123"
         assert clone_repository_in_sandbox not in activity_calls
         assert checkout_branch_in_sandbox not in activity_calls
+
+    async def test_get_sandbox_for_repository_injects_fresh_tokens_on_resume(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            state={"snapshot_external_id": "im-abc123", "resume_from_run_id": "previous-run-id"},
+        )
+
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog-js",
+            github_token="ghs_fresh",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id="im-abc123",
+            used_snapshot=True,
+            should_create_snapshot=False,
+            shallow_clone=True,
+            image_source="resume_snapshot",
+            image_source_label="resume snapshot im-abc123",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        activity_calls: list[object] = []
+        inject_call_args: dict = {}
+
+        async def fake_execute_activity(activity_fn, *args, **kwargs):
+            activity_calls.append(activity_fn)
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            if activity_fn is inject_fresh_tokens_on_resume:
+                inject_call_args["input"] = args[0]
+                return None
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        result = await workflow._get_sandbox_for_repository()
+
+        assert result.sandbox_id == "sandbox-123"
+        assert inject_fresh_tokens_on_resume in activity_calls
+        # Should run after create, before any clone/checkout
+        assert (
+            activity_calls.index(inject_fresh_tokens_on_resume)
+            == activity_calls.index(create_sandbox_for_repository) + 1
+        )
+        assert clone_repository_in_sandbox not in activity_calls
+        assert checkout_branch_in_sandbox not in activity_calls
+        assert inject_call_args["input"].sandbox_id == "sandbox-123"
+        assert inject_call_args["input"].repository == "posthog/posthog-js"
+
+    async def test_get_sandbox_for_repository_skips_token_injection_when_not_resuming(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog-js",
+            github_token="ghs_fresh",
+            branch=None,
+            environment_variables={},
+            snapshot_id="repo-snapshot-id",
+            snapshot_external_id=None,
+            used_snapshot=True,
+            should_create_snapshot=False,
+            shallow_clone=True,
+            image_source="repository_snapshot",
+            image_source_label="repository snapshot x",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        activity_calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn, *args, **kwargs):
+            activity_calls.append(activity_fn)
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._get_sandbox_for_repository()
+
+        assert inject_fresh_tokens_on_resume not in activity_calls
