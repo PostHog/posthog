@@ -64,7 +64,7 @@ export const scene: SceneExport = {
 export function LegalDocumentsScene(): JSX.Element {
     const { legalDocuments, legalDocumentsLoading, existingDocumentTypes } = useValues(legalDocumentsLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
-    const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS')
+    const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS') || true
 
     if (!isEnabled) {
         return (

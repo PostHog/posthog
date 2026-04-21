@@ -6,6 +6,8 @@ from django.db import migrations, models
 
 import posthog.models.utils
 
+import products.legal_documents.backend.models
+
 
 class Migration(migrations.Migration):
     initial = True
@@ -59,6 +61,25 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("submitted_for_signature", "Submitted for signature"),
+                            ("signed", "Signed"),
+                        ],
+                        default="submitted_for_signature",
+                        max_length=32,
+                    ),
+                ),
+                ("signed_document_url", models.URLField(blank=True, max_length=2048)),
+                (
+                    "webhook_secret",
+                    models.CharField(
+                        default=products.legal_documents.backend.models._generate_webhook_secret,
+                        max_length=64,
+                    ),
+                ),
+                (
                     "created_by",
                     models.ForeignKey(
                         blank=True,
@@ -79,5 +100,12 @@ class Migration(migrations.Migration):
             options={
                 "ordering": ["-created_at"],
             },
+        ),
+        migrations.AddConstraint(
+            model_name="legaldocument",
+            constraint=models.UniqueConstraint(
+                fields=("organization", "document_type"),
+                name="unique_legal_document_per_org_and_type",
+            ),
         ),
     ]
