@@ -100,7 +100,9 @@ class TestProcessTeamsEvent(BaseTest):
         tickets = Ticket.objects.filter(team=self.team, channel_source="teams")
         assert tickets.count() == expected_tickets
         if expected_tickets and expected_channel_detail is not None:
-            assert tickets.first().channel_detail == expected_channel_detail
+            ticket = tickets.first()
+            assert ticket is not None
+            assert ticket.channel_detail == expected_channel_detail
 
     @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "U", "email": None})
     @patch("products.conversations.backend.teams._send_confirmation_card")
