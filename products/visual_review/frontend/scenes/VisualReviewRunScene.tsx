@@ -67,7 +67,15 @@ function SnapshotThumbnail({
             )}
             <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000">
                 {snapshot.current_artifact?.download_url ? (
-                    <img src={snapshot.current_artifact.download_url} alt="" className="w-full h-full object-contain" />
+                    <img
+                        src={snapshot.current_artifact.download_url}
+                        alt=""
+                        width={104}
+                        height={72}
+                        loading="lazy"
+                        decoding="async"
+                        className="w-full h-full object-contain"
+                    />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
                         <span className="text-[10px] text-muted">No image</span>
