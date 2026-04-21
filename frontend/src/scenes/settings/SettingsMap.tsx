@@ -18,6 +18,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { CookielessGeoIPEnrichmentSetting } from 'scenes/settings/environment/CookielessGeoIPEnrichment'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
@@ -1149,6 +1150,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/tutorials/cookieless-tracking',
                 component: <CookielessServerHashModeSetting />,
                 keywords: ['cookie', 'privacy', 'gdpr', 'tracking', 'consent'],
+            },
+            {
+                id: 'cookieless-geoip-enrichment',
+                title: 'Cookieless GeoIP enrichment',
+                description:
+                    'When enabled, events in cookieless mode will be enriched with geographic location data (country, city, etc.) derived from the IP address before the IP is discarded. The IP address itself is never stored.',
+                component: <CookielessGeoIPEnrichmentSetting />,
+                keywords: ['cookie', 'privacy', 'geoip', 'location', 'country', 'city'],
             },
             {
                 id: 'bounce-rate-duration',

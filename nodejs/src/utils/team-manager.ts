@@ -117,6 +117,7 @@ export class TeamManager {
                 t.ingested_event,
                 t.person_display_name_properties,
                 t.cookieless_server_hash_mode,
+                t.cookieless_geoip_enrichment_enabled,
                 t.timezone,
                 t.logs_settings,
                 t.extra_settings,

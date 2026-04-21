@@ -712,6 +712,7 @@ export interface TeamType extends TeamBasicType {
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
+    cookieless_geoip_enrichment_enabled?: boolean
     human_friendly_comparison_periods: boolean
     revenue_analytics_config: RevenueAnalyticsConfig
     onboarding_tasks?: {

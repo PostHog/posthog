@@ -112,9 +112,9 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
 
     const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
-    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
-    await geoipService.get()
+    const geoip = await geoipService.get()
+    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, geoip)
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
     const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)

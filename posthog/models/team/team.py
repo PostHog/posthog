@@ -532,6 +532,11 @@ class Team(UUIDTClassicModel):
         "project",
         "admin",
     )
+    cookieless_geoip_enrichment_enabled = field_access_control(
+        models.BooleanField(default=False),
+        "project",
+        "admin",
+    )
 
     primary_dashboard = models.ForeignKey(
         "dashboards.Dashboard",

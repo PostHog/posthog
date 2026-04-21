@@ -295,6 +295,7 @@ export interface Team {
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
     cookieless_server_hash_mode: CookielessServerHashMode | null
+    cookieless_geoip_enrichment_enabled: boolean
     timezone: string
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]

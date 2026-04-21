@@ -152,7 +152,7 @@ export class IngestionGeneralServer implements NodeServer {
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
-        await geoipService.get()
+        const geoip = await geoipService.get()
 
         const personhogClient = createPersonHogClient(this.config)
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
@@ -190,7 +190,7 @@ export class IngestionGeneralServer implements NodeServer {
         })
         logger.info('👍', 'Cookieless Redis ready')
 
-        this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
+        this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool, geoip)
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []

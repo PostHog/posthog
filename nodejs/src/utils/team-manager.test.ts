@@ -52,6 +52,7 @@ describe('TeamManager()', () => {
                   "available_features": [
                     "data_pipelines",
                   ],
+                  "cookieless_geoip_enrichment_enabled": false,
                   "cookieless_server_hash_mode": 2,
                   "drop_events_older_than_seconds": null,
                   "extra_settings": null,

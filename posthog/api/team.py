@@ -179,6 +179,7 @@ TEAM_CONFIG_FIELDS = (
     "live_events_columns",
     "recording_domains",
     "cookieless_server_hash_mode",
+    "cookieless_geoip_enrichment_enabled",
     "human_friendly_comparison_periods",
     "inject_web_apps",
     "extra_settings",

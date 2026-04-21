@@ -15,6 +15,8 @@ import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { cookielessRedisErrorCounter } from '../../common/metrics'
 import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, Team } from '../../types'
+import { GeoIp } from '../../utils/geoip'
+import { enrichGeoIPProperties } from './cookieless-geoip'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
@@ -94,6 +96,7 @@ interface CookielessConfig {
 export class CookielessManager {
     public readonly redisHelpers: RedisHelpers
     public readonly config: CookielessConfig
+    private readonly geoip: GeoIp | null
 
     private readonly localSaltMap: Record<string, Buffer> = {}
     private readonly mutex = new ConcurrencyController(1)
@@ -110,8 +113,10 @@ export class CookielessManager {
             | 'COOKIELESS_SESSION_INACTIVITY_MS'
             | 'COOKIELESS_IDENTIFIES_TTL_SECONDS'
         >,
-        redis: GenericPool<Redis.Redis>
+        redis: GenericPool<Redis.Redis>,
+        geoip?: GeoIp | null
     ) {
+        this.geoip = geoip ?? null
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
             forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
@@ -643,6 +648,9 @@ export class CookielessManager {
                 newEvent.distinct_id = distinctId
             }
 
+            if (eventWithProcessing.team.cookieless_geoip_enrichment_enabled && this.geoip) {
+                enrichGeoIPProperties(newEvent, this.geoip)
+            }
             eventWithProcessing.event = stripPIIProperties(newEvent)
         }
 

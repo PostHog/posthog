@@ -54,6 +54,7 @@ const DEFAULT_TEAM: Team = {
     person_display_name_properties: null,
     test_account_filters: null,
     cookieless_server_hash_mode: null,
+    cookieless_geoip_enrichment_enabled: false,
     timezone: 'UTC',
     available_features: [],
     drop_events_older_than_seconds: null,
