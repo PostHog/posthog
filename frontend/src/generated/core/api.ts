@@ -434,7 +434,7 @@ export const create2 = async (
 }
 
 /**
- * Retrieve a project and its settings — ingestion, autocapture, session replay, heatmap, survey, access control, and analytics configuration associated with the project's primary environment.
+ * Retrieve a project and its settings.
  */
 export const getRetrieve2Url = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
@@ -1701,7 +1701,7 @@ export const usersUpdate = async (
 }
 
 /**
- * Update one or more of the authenticated user's profile fields or settings. Pass `@me` as the UUID; non-staff callers may only update their own account. Only the fields included in the request body are changed. `notification_settings` merges key-by-key. Changing `password` also requires `current_password`; changing `email` triggers a verification flow.
+ * Update one or more of the authenticated user's profile fields or settings.
  */
 export const getUsersPartialUpdateUrl = (uuid: string) => {
     return `/api/users/${uuid}/`

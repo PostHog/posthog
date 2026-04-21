@@ -44,7 +44,7 @@ export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Retrieve a project and its settings — ingestion, autocapture, session replay, heatmap, survey, access control, and analytics configuration associated with the project's primary environment.
+ * Retrieve a project and its settings.
  */
 export const retrieve2PathIdMin = -9223372036854776000
 export const retrieve2PathIdMax = 9223372036854776000
@@ -96,13 +96,10 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .string()
             .max(partialUpdate2BodyProductDescriptionMax)
             .nullish()
-            .describe('Short description of what the project tracks.'),
-        app_urls: zod
-            .array(zod.string().max(partialUpdate2BodyAppUrlsItemMax).nullable())
-            .optional()
             .describe(
-                'Allowed origins for posthog-js (toolbar, local evaluation, etc.). List of fully-qualified URLs.'
+                'Short description of what the project is about. This is helpful to give our AI agents context about your project.'
             ),
+        app_urls: zod.array(zod.string().max(partialUpdate2BodyAppUrlsItemMax).nullable()).optional(),
         anonymize_ips: zod
             .boolean()
             .optional()
@@ -804,12 +801,7 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             ),
         session_replay_config: zod.unknown().nullish(),
         survey_config: zod.unknown().nullish(),
-        access_control: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Legacy project-wide access control toggle. Prefer per-resource access controls for new configurations.'
-            ),
+        access_control: zod.boolean().optional(),
         week_start_day: zod
             .union([
                 zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
@@ -828,10 +820,7 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .array(zod.string().max(partialUpdate2BodyRecordingDomainsItemMax).nullable())
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
-        inject_web_apps: zod
-            .boolean()
-            .nullish()
-            .describe('Allow web app plugins to inject content onto pages that load posthog-js.'),
+        inject_web_apps: zod.boolean().nullish(),
         extra_settings: zod.unknown().nullish(),
         modifiers: zod.unknown().nullish(),
         has_completed_onboarding_for: zod.unknown().nullish(),
@@ -861,10 +850,7 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .describe('Enables the customer conversations / live chat product for this project.'),
         conversations_settings: zod.unknown().nullish(),
         logs_settings: zod.unknown().nullish(),
-        proactive_tasks_enabled: zod
-            .boolean()
-            .nullish()
-            .describe('Enables PostHog-generated proactive tasks surfaced on the project homepage.'),
+        proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
         'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
@@ -1142,7 +1128,7 @@ export const UsersRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Update one or more of the authenticated user's profile fields or settings. Pass `@me` as the UUID; non-staff callers may only update their own account. Only the fields included in the request body are changed. `notification_settings` merges key-by-key. Changing `password` also requires `current_password`; changing `email` triggers a verification flow.
+ * Update one or more of the authenticated user's profile fields or settings.
  */
 export const UsersPartialUpdateParams = /* @__PURE__ */ zod.object({
     uuid: zod.string(),
@@ -1178,18 +1164,8 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod.literal(null),
         ])
         .nullish(),
-    set_current_organization: zod
-        .string()
-        .optional()
-        .describe(
-            'ID of the organization to switch to for this user. The user must already be a member of the organization. When provided without `set_current_team`, the first available team in the organization becomes the active team.'
-        ),
-    set_current_team: zod
-        .string()
-        .optional()
-        .describe(
-            "ID of the team (project environment) to switch to for this user. The team must belong to the user's current organization (or the organization specified in `set_current_organization`)."
-        ),
+    set_current_organization: zod.string().optional(),
+    set_current_team: zod.string().optional(),
     password: zod.string().max(usersPartialUpdateBodyPasswordMax).optional(),
     current_password: zod
         .string()
@@ -1219,12 +1195,9 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-        .describe(
-            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-        )
         .optional()
         .describe(
-            "The user's self-reported role within their organization (used for onboarding segmentation).\n\n* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other"
+            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
         ),
     passkeys_enabled_for_2fa: zod
         .boolean()

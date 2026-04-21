@@ -264,11 +264,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         # Prioritized for the fields agents most commonly update via the settings endpoint.
         extra_kwargs = {
             "name": {"help_text": "Human-readable project name."},
-            "product_description": {"help_text": "Short description of what the project tracks."},
-            "app_urls": {
-                "help_text": (
-                    "Allowed origins for posthog-js (toolbar, local evaluation, etc.). List of fully-qualified URLs."
-                )
+            "product_description": {
+                "help_text": "Short description of what the project is about. This is helpful to give our AI agents context about your project."
             },
             "recording_domains": {
                 "help_text": (
@@ -333,22 +330,11 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
                 "help_text": "Default value for the `persist` option on newly created feature flags."
             },
             "primary_dashboard": {"help_text": "ID of the dashboard shown as the project's default landing dashboard."},
-            "access_control": {
-                "help_text": (
-                    "Legacy project-wide access control toggle. Prefer per-resource access controls for new configurations."
-                )
-            },
             "business_model": {
                 "help_text": "Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.",
             },
-            "inject_web_apps": {
-                "help_text": "Allow web app plugins to inject content onto pages that load posthog-js."
-            },
             "conversations_enabled": {
                 "help_text": "Enables the customer conversations / live chat product for this project."
-            },
-            "proactive_tasks_enabled": {
-                "help_text": "Enables PostHog-generated proactive tasks surfaced on the project homepage."
             },
         }
 
@@ -651,10 +637,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 @extend_schema(tags=["core"])
 @extend_schema_view(
     retrieve=extend_schema(
-        description=(
-            "Retrieve a project and its settings — ingestion, autocapture, session replay, heatmap, survey, access "
-            "control, and analytics configuration associated with the project's primary environment."
-        ),
+        description=("Retrieve a project and its settings."),
     ),
     update=extend_schema(
         description=(

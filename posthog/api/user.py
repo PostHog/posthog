@@ -125,22 +125,8 @@ class UserSerializer(serializers.ModelSerializer):
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
-    set_current_organization = serializers.CharField(
-        write_only=True,
-        required=False,
-        help_text=(
-            "ID of the organization to switch to for this user. The user must already be a member of the organization. "
-            "When provided without `set_current_team`, the first available team in the organization becomes the active team."
-        ),
-    )
-    set_current_team = serializers.CharField(
-        write_only=True,
-        required=False,
-        help_text=(
-            "ID of the team (project environment) to switch to for this user. The team must belong to the user's current "
-            "organization (or the organization specified in `set_current_organization`)."
-        ),
-    )
+    set_current_organization = serializers.CharField(write_only=True, required=False)
+    set_current_team = serializers.CharField(write_only=True, required=False)
     current_password = serializers.CharField(
         write_only=True,
         required=False,
@@ -163,11 +149,7 @@ class UserSerializer(serializers.ModelSerializer):
     anonymize_data = ClassicBehaviorBooleanFieldSerializer(
         help_text="Whether PostHog should anonymize events captured for this user when identified."
     )
-    role_at_organization = serializers.ChoiceField(
-        choices=ROLE_CHOICES,
-        required=False,
-        help_text="The user's self-reported role within their organization (used for onboarding segmentation).",
-    )
+    role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
 
     class Meta:
         model = User
@@ -578,12 +560,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         ),
     ),
     partial_update=extend_schema(
-        description=(
-            "Update one or more of the authenticated user's profile fields or settings. Pass `@me` as the UUID; "
-            "non-staff callers may only update their own account. Only the fields included in the request body are "
-            "changed. `notification_settings` merges key-by-key. Changing `password` also requires `current_password`; "
-            "changing `email` triggers a verification flow."
-        ),
+        description=("Update one or more of the authenticated user's profile fields or settings."),
     ),
 )
 class UserViewSet(

@@ -530,7 +530,7 @@ export interface ProjectBackwardCompatApi {
      */
     name?: string
     /**
-     * Short description of what the project tracks.
+     * Short description of what the project is about. This is helpful to give our AI agents context about your project.
      * @maxLength 1000
      * @nullable
      */
@@ -544,7 +544,6 @@ export interface ProjectBackwardCompatApi {
     readonly updated_at: string
     readonly uuid: string
     readonly api_token: string
-    /** Allowed origins for posthog-js (toolbar, local evaluation, etc.). List of fully-qualified URLs. */
     app_urls?: (string | null)[]
     /** When true, PostHog drops the IP address from every ingested event. */
     anonymize_ips?: boolean
@@ -1234,7 +1233,6 @@ export interface ProjectBackwardCompatApi {
     session_recording_retention_period?: SessionRecordingRetentionPeriodEnumApi
     session_replay_config?: unknown | null
     survey_config?: unknown | null
-    /** Legacy project-wide access control toggle. Prefer per-resource access controls for new configurations. */
     access_control?: boolean
     /**
    * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
@@ -1258,10 +1256,7 @@ export interface ProjectBackwardCompatApi {
      */
     recording_domains?: (string | null)[] | null
     readonly person_on_events_querying_enabled: string
-    /**
-     * Allow web app plugins to inject content onto pages that load posthog-js.
-     * @nullable
-     */
+    /** @nullable */
     inject_web_apps?: boolean | null
     extra_settings?: unknown | null
     modifiers?: unknown | null
@@ -1302,10 +1297,7 @@ export interface ProjectBackwardCompatApi {
     conversations_enabled?: boolean | null
     conversations_settings?: unknown | null
     logs_settings?: unknown | null
-    /**
-     * Enables PostHog-generated proactive tasks surfaced on the project homepage.
-     * @nullable
-     */
+    /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
 }
@@ -1336,7 +1328,7 @@ export interface PatchedProjectBackwardCompatApi {
      */
     name?: string
     /**
-     * Short description of what the project tracks.
+     * Short description of what the project is about. This is helpful to give our AI agents context about your project.
      * @maxLength 1000
      * @nullable
      */
@@ -1350,7 +1342,6 @@ export interface PatchedProjectBackwardCompatApi {
     readonly updated_at?: string
     readonly uuid?: string
     readonly api_token?: string
-    /** Allowed origins for posthog-js (toolbar, local evaluation, etc.). List of fully-qualified URLs. */
     app_urls?: (string | null)[]
     /** When true, PostHog drops the IP address from every ingested event. */
     anonymize_ips?: boolean
@@ -2040,7 +2031,6 @@ export interface PatchedProjectBackwardCompatApi {
     session_recording_retention_period?: SessionRecordingRetentionPeriodEnumApi
     session_replay_config?: unknown | null
     survey_config?: unknown | null
-    /** Legacy project-wide access control toggle. Prefer per-resource access controls for new configurations. */
     access_control?: boolean
     /**
    * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
@@ -2064,10 +2054,7 @@ export interface PatchedProjectBackwardCompatApi {
      */
     recording_domains?: (string | null)[] | null
     readonly person_on_events_querying_enabled?: string
-    /**
-     * Allow web app plugins to inject content onto pages that load posthog-js.
-     * @nullable
-     */
+    /** @nullable */
     inject_web_apps?: boolean | null
     extra_settings?: unknown | null
     modifiers?: unknown | null
@@ -2108,10 +2095,7 @@ export interface PatchedProjectBackwardCompatApi {
     conversations_enabled?: boolean | null
     conversations_settings?: unknown | null
     logs_settings?: unknown | null
-    /**
-     * Enables PostHog-generated proactive tasks surfaced on the project homepage.
-     * @nullable
-     */
+    /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
@@ -3009,9 +2993,7 @@ export interface UserApi {
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
     readonly organizations: readonly OrganizationBasicApi[]
-    /** ID of the organization to switch to for this user. The user must already be a member of the organization. When provided without `set_current_team`, the first available team in the organization becomes the active team. */
     set_current_organization?: string
-    /** ID of the team (project environment) to switch to for this user. The team must belong to the user's current organization (or the organization specified in `set_current_organization`). */
     set_current_team?: string
     /** @maxLength 128 */
     password: string
@@ -3028,16 +3010,6 @@ export interface UserApi {
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi | null
-    /** The user's self-reported role within their organization (used for onboarding segmentation).
-
-* `engineering` - Engineering
-* `data` - Data
-* `product` - Product Management
-* `founder` - Founder
-* `leadership` - Leadership
-* `marketing` - Marketing
-* `sales` - Sales / Success
-* `other` - Other */
     role_at_organization?: RoleAtOrganizationEnumApi
     /**
      * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
@@ -3101,9 +3073,7 @@ export interface PatchedUserApi {
     readonly team?: TeamBasicApi
     readonly organization?: OrganizationApi
     readonly organizations?: readonly OrganizationBasicApi[]
-    /** ID of the organization to switch to for this user. The user must already be a member of the organization. When provided without `set_current_team`, the first available team in the organization becomes the active team. */
     set_current_organization?: string
-    /** ID of the team (project environment) to switch to for this user. The team must belong to the user's current organization (or the organization specified in `set_current_organization`). */
     set_current_team?: string
     /** @maxLength 128 */
     password?: string
@@ -3120,16 +3090,6 @@ export interface PatchedUserApi {
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi | null
-    /** The user's self-reported role within their organization (used for onboarding segmentation).
-
-* `engineering` - Engineering
-* `data` - Data
-* `product` - Product Management
-* `founder` - Founder
-* `leadership` - Leadership
-* `marketing` - Marketing
-* `sales` - Sales / Success
-* `other` - Other */
     role_at_organization?: RoleAtOrganizationEnumApi
     /**
      * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
