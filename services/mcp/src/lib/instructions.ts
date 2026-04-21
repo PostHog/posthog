@@ -25,8 +25,12 @@ export function buildActiveEnvironmentContextPrompt(
     const lines: string[] = []
     if (org || project) {
         const projectName = project?.name ?? 'Unknown'
+        const projectId = project?.id ?? 'unknown'
         const orgName = org?.name ?? 'Unknown'
-        lines.push(`You are currently in project "${projectName}" (organization: "${orgName}").`)
+        const orgId = org?.id ?? 'unknown'
+        lines.push(
+            `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
+        )
     }
     if (project) {
         lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)
