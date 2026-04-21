@@ -1021,13 +1021,13 @@ class TestRateLimitPoisoningPrevention:
 
 class TestPlanAwareThrottling:
     @pytest.mark.asyncio
-    async def test_free_user_gets_burst_limit_of_10(self) -> None:
+    async def test_free_user_gets_limit_of_50(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="posthog_code", plan_key=None, seat_created_at="2026-01-01T00:00:00+00:00")
 
-        await throttle.record_cost(context, 10.0)
+        await throttle.record_cost(context, 50.0)
         result = await throttle.allow_request(context)
         assert result.allowed is False
 
