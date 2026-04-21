@@ -1,18 +1,3 @@
-/**
- * @deprecated Legacy experiment logic for read-only legacy experiments.
- *
- * This logic handles ONLY metrics results loading for experiments that use
- * ExperimentTrendsQuery and ExperimentFunnelsQuery (legacy format).
- *
- * Key principles:
- * - Receives experiment as prop (no duplicate loading)
- * - Mostly read-only: legacy experiments can be archived, ended or finished, but not edited
- * - Loads and metrics results
- * - Legacy experiments are frozen/read-only, so no auto-refresh or notifications
- *
- * New experiments should use the modern experimentLogic.tsx instead.
- */
-
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -376,9 +361,26 @@ const loadLegacyMetrics = async ({
     return { successfulCount, erroredCount, cachedCount }
 }
 
+/**
+ * @deprecated Legacy experiment logic for read-only legacy experiments.
+ *
+ * This logic handles ONLY metrics results loading for experiments that use
+ * ExperimentTrendsQuery and ExperimentFunnelsQuery (legacy format).
+ *
+ * Key principles:
+ * - Receives experiment as prop (no duplicate loading)
+ * - Mostly read-only: legacy experiments can be archived, ended or finished, but not edited
+ * - Loads and metrics results
+ * - Legacy experiments are frozen/read-only, so no auto-refresh or notifications
+ *
+ * New experiments should use the modern experimentLogic.tsx instead.
+ */
 export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
     props({} as LegacyExperimentLogicProps),
-    key((props) => props.tabId),
+    key((props) => {
+        const baseKey = props.experiment.id ?? 'new'
+        return `${baseKey}${props.tabId ? `-${props.tabId}` : ''}-legacy`
+    }),
     path((key) => ['scenes', 'experiments', 'legacy', 'legacyExperimentLogic', key]),
     connect(() => ({
         values: [teamLogic, ['currentTeamId', 'currentProjectId']],

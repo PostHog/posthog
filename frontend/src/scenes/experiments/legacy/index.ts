@@ -32,9 +32,11 @@ export { LegacyFunnelAggregationSelect } from './components/LegacyFunnelAggregat
 // Calculations
 export * from './calculations/legacyExperimentCalculations'
 
+// Modals
+export { LegacyChartModal } from './metricsView/LegacyChartModal'
+
 // Metrics View
 export { LegacyMetricsView } from './metricsView/LegacyMetricsView'
-export { LegacyChartModal } from './metricsView/LegacyChartModal'
 export { LegacyDeltaChart } from './metricsView/LegacyDeltaChart'
 export { LegacyChartEmptyState } from './metricsView/LegacyChartEmptyState'
 export { LegacyErrorChecklist } from './metricsView/LegacyErrorChecklist'

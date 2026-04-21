@@ -18,6 +18,7 @@ import type { legacyExperimentModalsLogicType } from './legacyExperimentModalsLo
  *
  * Does NOT include (modern experiment only):
  * - Collection goal modal
+ * - Conclusion editing modal
  * - Exposure criteria modal
  * - Distribution modal
  * - Release conditions modal
@@ -32,10 +33,6 @@ export const legacyExperimentModalsLogic = kea<legacyExperimentModalsLogicType>(
         // Description editing
         openDescriptionModal: true,
         closeDescriptionModal: true,
-
-        // Conclusion editing
-        openEditConclusionModal: true,
-        closeEditConclusionModal: true,
 
         // Shared metrics - Primary
         openPrimarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => ({ sharedMetricId }),
@@ -68,15 +65,6 @@ export const legacyExperimentModalsLogic = kea<legacyExperimentModalsLogicType>(
             {
                 openDescriptionModal: () => true,
                 closeDescriptionModal: () => false,
-            },
-        ],
-
-        // Conclusion modal state
-        isEditConclusionModalOpen: [
-            false,
-            {
-                openEditConclusionModal: () => true,
-                closeEditConclusionModal: () => false,
             },
         ],
 

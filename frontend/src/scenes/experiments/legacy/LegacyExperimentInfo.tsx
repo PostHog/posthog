@@ -82,8 +82,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
         shippedVariantKey,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
-    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal } =
-        useActions(legacyExperimentModalsLogic)
+    const { openDescriptionModal, closeDescriptionModal } = useActions(legacyExperimentModalsLogic)
     const { isDescriptionModalOpen } = useValues(legacyExperimentModalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
@@ -241,12 +240,6 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                         <div className="w-[500px]">
                             <div className="flex items-center gap-2">
                                 <Label intent="menu">Conclusion</Label>
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={<IconPencil />}
-                                    onClick={openEditConclusionModal}
-                                />
                             </div>
                             <div className={cn('py-0')}>
                                 <div className="font-semibold flex items-center gap-2">
