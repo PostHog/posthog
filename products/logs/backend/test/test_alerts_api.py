@@ -905,6 +905,131 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert not LogsAlertEvent.objects.filter(alert_id=created["id"]).exists()
 
+    # --- Event history ---
+
+    def _events_url(self, alert_id: str) -> str:
+        return f"{self.base_url}{alert_id}/events/"
+
+    def test_events_returns_rows_newest_first(self):
+        created = self._create_via_api()
+        older_transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="firing",
+            state_after="not_firing",
+        )
+        newer_transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+
+        response = self.client.get(self._events_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        ids = [row["id"] for row in results]
+        assert ids.index(str(newer_transition.id)) < ids.index(str(older_transition.id))
+
+    def test_events_filters_out_quiet_check_rows(self):
+        # "Quiet" CHECK rows (state didn't change, no error) carry no forensic value and
+        # are kept inline at a cap of 10 per alert — surfacing them in the event history
+        # would bury the interesting transitions. Backend filter pins this contract.
+        created = self._create_via_api()
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+        )
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="firing",
+            state_after="firing",
+        )
+        transition = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=True,
+            state_before="not_firing",
+            state_after="firing",
+        )
+        errored = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=LogsAlertEvent.Kind.CHECK,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after="not_firing",
+            error_message="CH timeout",
+        )
+
+        response = self.client.get(self._events_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        returned_ids = {row["id"] for row in results}
+        assert returned_ids == {str(transition.id), str(errored.id)}
+
+    @parameterized.expand([(kind,) for kind in LogsAlertEvent.Kind.values])
+    def test_events_filter_by_kind(self, kind):
+        created = self._create_via_api()
+        # CHECK rows need a real transition to survive the quiet-row filter; control-plane
+        # kinds are never quiet-filtered so any state pair is fine.
+        kept_before, kept_after = (
+            ("not_firing", "firing") if kind == LogsAlertEvent.Kind.CHECK else ("not_firing", "not_firing")
+        )
+        kept = LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=kind,
+            threshold_breached=False,
+            state_before=kept_before,
+            state_after=kept_after,
+        )
+        # Noise row of a different kind with a state transition so it survives the quiet
+        # filter and would show up absent the ?kind= narrowing.
+        other_kind = next(k for k in LogsAlertEvent.Kind.values if k != kind)
+        LogsAlertEvent.objects.create(
+            alert_id=created["id"],
+            kind=other_kind,
+            threshold_breached=False,
+            state_before="firing",
+            state_after="not_firing",
+        )
+
+        response = self.client.get(self._events_url(created["id"]), {"kind": kind})
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json().get("results", response.json())
+        returned_ids = {row["id"] for row in results}
+        assert returned_ids == {str(kept.id)}
+
+    def test_events_rejects_unknown_kind(self):
+        created = self._create_via_api()
+
+        response = self.client.get(self._events_url(created["id"]), {"kind": "not_a_real_kind"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "kind"
+
+    def test_events_scoped_to_alert_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team,
+            name="Other team alert",
+            threshold_count=10,
+            filters={"severityLevels": ["error"]},
+        )
+
+        response = self.client.get(self._events_url(str(other_alert.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     # --- Simulate ---
 
     def _simulate_url(self) -> str:

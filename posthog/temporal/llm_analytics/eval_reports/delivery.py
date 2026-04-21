@@ -383,20 +383,20 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     all_errors: list[str] = []
 
     email_targets = [t for t in targets if t.get("type") == "email"]
+    email_errors: list[str] = []
     if email_targets:
-        all_errors.extend(
-            deliver_email_report(
-                report_run, email_targets, evaluation_name, evaluation_id, project_id, period_start, period_end
-            )
+        email_errors = deliver_email_report(
+            report_run, email_targets, evaluation_name, evaluation_id, project_id, period_start, period_end
         )
+        all_errors.extend(email_errors)
 
     slack_targets = [t for t in targets if t.get("type") == "slack"]
+    slack_errors: list[str] = []
     if slack_targets:
-        all_errors.extend(
-            deliver_slack_report(
-                report_run, slack_targets, evaluation_name, team_id, project_id, period_start, period_end
-            )
+        slack_errors = deliver_slack_report(
+            report_run, slack_targets, evaluation_name, team_id, project_id, period_start, period_end
         )
+        all_errors.extend(slack_errors)
 
     had_any_target = bool(email_targets or slack_targets)
     # Each email target may contain multiple comma-separated addresses, and deliver_email_report
@@ -407,6 +407,17 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     slack_attempts = len(slack_targets)
     total_attempts = email_attempts + slack_attempts
     all_failed = had_any_target and total_attempts > 0 and len(all_errors) >= total_attempts
+
+    from posthog.temporal.llm_analytics.eval_reports.metrics import increment_delivery
+
+    for _ in range(email_attempts - len(email_errors)):
+        increment_delivery("email", "delivered")
+    for _ in range(len(email_errors)):
+        increment_delivery("email", "failed")
+    for _ in range(slack_attempts - len(slack_errors)):
+        increment_delivery("slack", "delivered")
+    for _ in range(len(slack_errors)):
+        increment_delivery("slack", "failed")
 
     if not had_any_target:
         report_run.delivery_status = EvaluationReportRun.DeliveryStatus.PENDING
@@ -419,6 +430,16 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
 
     report_run.delivery_errors = all_errors
     report_run.save(update_fields=["delivery_status", "delivery_errors"])
+
+    logger.info(
+        "llma_eval_reports_delivery_completed",
+        report_id=report_id,
+        report_run_id=report_run_id,
+        delivery_status=report_run.delivery_status,
+        email_targets=len(email_targets),
+        slack_targets=len(slack_targets),
+        error_count=len(all_errors),
+    )
 
     if all_failed:
         # Raise so the Temporal activity fails and retries fire per DELIVER_RETRY_POLICY.
