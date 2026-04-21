@@ -23,7 +23,6 @@ hogli devbox:task "fix CI on PR #1234"
 cat prompt.txt | hogli devbox:task       # or pipe the prompt via stdin
 ```
 
-This shells out to `coder task create --template posthog-linux`.
 See the upstream [Coder Tasks docs](https://coder.com/docs/ai-coder/tasks) for the execution model.
 
 **Sharing a workspace** —
