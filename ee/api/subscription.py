@@ -283,6 +283,28 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             )
         )
 
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_created",
+            properties={
+                "subscription_id": instance.id,
+                "team_id": instance.team_id,
+                "target_type": instance.target_type,
+                "frequency": instance.frequency,
+                "interval": instance.interval,
+                "byweekday": instance.byweekday,
+                "bysetpos": instance.bysetpos,
+                "count": instance.count,
+                "resource_type": "dashboard" if instance.dashboard_id else "insight" if instance.insight_id else None,
+                "dashboard_export_insights_count": len(dashboard_export_insight_ids),
+                "summary_enabled": instance.summary_enabled,
+                "has_summary_prompt_guide": bool(instance.summary_prompt_guide),
+                "has_until_date": instance.until_date is not None,
+                "has_invite_message": bool(invite_message),
+            },
+            groups=groups(None, instance.team),
+        )
+
         return instance
 
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
