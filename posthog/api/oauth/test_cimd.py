@@ -18,7 +18,6 @@ from rest_framework.test import APIClient
 
 from posthog.api.oauth.cimd import (
     CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
-    CIMDBurstThrottle,
     CIMDFetchError,
     CIMDValidationError,
     _fetch_lock_key,
@@ -629,12 +628,14 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
         metadata = _make_metadata()
         mock_get.return_value = _mock_response(metadata)
 
-        throttle = CIMDBurstThrottle()
-        with patch("posthog.api.oauth.views.CIMD_THROTTLES", new=[throttle]):
-            with patch.object(throttle, "allow_request", return_value=False):
-                with patch.object(throttle, "wait", return_value=30):
-                    url = self._authorize_url("https://new-client.example.com/.well-known/oauth-client-metadata.json")
-                    response = self.client.get(url)
+        mock_throttle = MagicMock()
+        mock_throttle.allow_request.return_value = False
+        mock_throttle.wait.return_value = 30
+        mock_throttle.scope = "cimd_burst"
+        mock_throttle_cls = MagicMock(return_value=mock_throttle)
+        with patch("posthog.api.oauth.views.CIMD_THROTTLE_CLASSES", new=[mock_throttle_cls]):
+            url = self._authorize_url("https://new-client.example.com/.well-known/oauth-client-metadata.json")
+            response = self.client.get(url)
 
         self.assertEqual(response.status_code, 400)
         mock_get.assert_not_called()

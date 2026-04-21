@@ -85,7 +85,7 @@ class CIMDGlobalThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": "global"}
 
 
-CIMD_THROTTLES = [CIMDBurstThrottle(), CIMDSustainedThrottle(), CIMDGlobalThrottle()]
+CIMD_THROTTLE_CLASSES: list[type[SimpleRateThrottle]] = [CIMDBurstThrottle, CIMDSustainedThrottle, CIMDGlobalThrottle]
 
 
 class CIMDMetadataDocument(TypedDict, total=False):

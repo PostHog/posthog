@@ -798,7 +798,7 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         assert res.status_code == 429
         assert res.json()["error"]["code"] == "rate_limited"
 
-    @patch("posthog.api.oauth.cimd.CIMD_THROTTLES", new=[])
+    @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_cimd_domain_rate_limit_blocks_excessive_registrations(self, mock_get, _url_mock):
         from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
@@ -841,7 +841,7 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         assert res.status_code == 429
         assert res.json()["error"]["code"] == "rate_limited"
 
-    @patch("posthog.api.oauth.cimd.CIMD_THROTTLES", new=[])
+    @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_cimd_domain_rate_limit_does_not_block_different_domains(self, mock_get, _url_mock):
         from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
@@ -865,7 +865,7 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
             )
             assert res.status_code == 200, f"Request {i} for domain-{i} failed: {res.json()}"
 
-    @patch("posthog.api.oauth.cimd.CIMD_THROTTLES", new=[])
+    @patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[])
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_cimd_domain_rate_limit_skipped_for_existing_apps(self, mock_get, _url_mock):
         from ee.api.agentic_provisioning.views import CIMD_DOMAIN_RATE_LIMIT_MAX
