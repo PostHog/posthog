@@ -205,6 +205,7 @@ function ScrollArea({
     }
     return (
         <ScrollAreaPrimitive.Root
+            data-quill
             data-slot="scroll-area"
             // Just to keep around so we know it's a scroll area in case we merge props with another component
             data-component="scroll-area"

@@ -29,6 +29,9 @@
         "./base.css": "./dist/base.css",
         "./tokens.css": "./dist/tokens.css",
         "./color-system.css": "./dist/color-system.css",
+        "./tokens.scoped.css": "./dist/tokens.scoped.css",
+        "./base.scoped.css": "./dist/base.scoped.css",
+        "./color-system.scoped.css": "./dist/color-system.scoped.css",
         "./package.json": "./package.json"
     },
     "publishConfig": {
