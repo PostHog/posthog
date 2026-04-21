@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
@@ -1100,6 +1101,79 @@ class TestExperimentService(APIBaseTest):
         metrics = getattr(updated, field)
         assert metrics[0]["uuid"] == "explicit-uuid"
         assert "explicit-uuid" in (getattr(updated, ordering_attr) or [])
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_create_experiment_does_not_mutate_input_metrics(self, _name, field):
+        self._create_flag(key=f"no-mutate-create-flag-{_name}")
+        service = self._service()
+
+        input_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            }
+        ]
+        snapshot = deepcopy(input_metrics)
+
+        service.create_experiment(
+            name=f"No Mutate Create {_name}",
+            feature_flag_key=f"no-mutate-create-flag-{_name}",
+            allow_unknown_events=True,
+            **{field: input_metrics},
+        )
+
+        assert input_metrics == snapshot
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_update_experiment_does_not_mutate_input_metrics(self, _name, field):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        input_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            }
+        ]
+        snapshot = deepcopy(input_metrics)
+
+        service.update_experiment(experiment, {field: input_metrics}, allow_unknown_events=True)
+
+        assert input_metrics == snapshot
+
+    def test_update_experiment_does_not_mutate_flag_filters_in_place(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        original_filters = experiment.feature_flag.filters
+        snapshot = deepcopy(original_filters)
+
+        service.update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 75,
+                }
+            },
+        )
+
+        assert original_filters == snapshot
 
     def test_update_experiment_replaces_saved_metrics(self):
         experiment = self._create_draft_experiment()
