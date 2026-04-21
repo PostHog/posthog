@@ -6,6 +6,7 @@ from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -744,12 +745,35 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+    @extend_schema(
+        summary="List insight alerts",
+        parameters=[
+            OpenApiParameter(
+                "insight_id",
+                OpenApiTypes.INT,
+                description="Only return alerts attached to this insight ID.",
+                required=False,
+            ),
+            OpenApiParameter(
+                "name",
+                OpenApiTypes.STR,
+                description="Case-insensitive substring match on alert name.",
+                required=False,
+            ),
+        ],
+    )
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
 
         insight_id = request.GET.get("insight_id")
         if insight_id is not None:
             queryset = queryset.filter(insight=insight_id)
+
+        name_substring = request.GET.get("name")
+        if name_substring is not None:
+            stripped = name_substring.strip()
+            if stripped:
+                queryset = queryset.filter(name__icontains=stripped)
 
         # Paginate first, then prefetch checks only for the page
         page = self.paginate_queryset(queryset)

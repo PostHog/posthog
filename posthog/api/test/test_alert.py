@@ -146,6 +146,29 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert list_for_another_insight.status_code == status.HTTP_200_OK
         assert len(list_for_another_insight.json()["results"]) == 0
 
+    def test_list_alerts_filter_by_name_and_insight_id(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "Revenue spike monitor",
+        }
+        self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        creation_request["name"] = "User churn alert"
+        self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+
+        by_name = self.client.get(f"/api/projects/{self.team.id}/alerts?name=revenue")
+        assert by_name.status_code == status.HTTP_200_OK
+        results = by_name.json()["results"]
+        assert len(results) == 1
+        assert results[0]["name"] == "Revenue spike monitor"
+
+        by_insight_id = self.client.get(f"/api/projects/{self.team.id}/alerts?insight_id={self.insight['id']}")
+        assert by_insight_id.status_code == status.HTTP_200_OK
+        assert len(by_insight_id.json()["results"]) == 2
+
     @parameterized.expand(
         [
             ("default_limit", 8, "", 5),

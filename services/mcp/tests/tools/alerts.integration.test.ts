@@ -103,6 +103,51 @@ describe('Alerts', { concurrent: false }, () => {
             expect(Array.isArray(data.results)).toBe(true)
             expect(data.results.length).toBeLessThanOrEqual(1)
         })
+
+        it('should filter by case-insensitive name substring', async () => {
+            const unique = generateUniqueKey('name-filter')
+            const a = parseToolResponse(
+                await createTool.handler(context, makeAlertParams({ name: `alpha-unicorn-${unique}`, enabled: false }))
+            )
+            const b = parseToolResponse(
+                await createTool.handler(context, makeAlertParams({ name: `beta-zebra-${unique}`, enabled: false }))
+            )
+            createdAlertIds.push(a.id, b.id)
+
+            const result = await listTool.handler(context, { name: `unicorn-${unique}` })
+            const data = parseToolResponse(result)
+            const ids = data.results.map((x: { id: string }) => x.id)
+
+            expect(ids).toContain(a.id)
+            expect(ids).not.toContain(b.id)
+        })
+
+        it('should filter by insight_id', async () => {
+            const otherInsight = await context.api.request<{ id: number }>({
+                method: 'POST',
+                path: `/api/projects/${TEST_PROJECT_ID}/insights/`,
+                body: {
+                    name: generateUniqueKey('alert-test-insight-b'),
+                    query: SAMPLE_TREND_QUERIES.basicPageviews,
+                },
+            })
+
+            const onDefault = parseToolResponse(await createTool.handler(context, makeAlertParams({ enabled: false })))
+            const onOther = parseToolResponse(
+                await createTool.handler(context, makeAlertParams({ insight: otherInsight.id, enabled: false }))
+            )
+            createdAlertIds.push(onDefault.id, onOther.id)
+
+            const forDefaultInsight = await listTool.handler(context, { insight_id: insightId })
+            const idsDefault = parseToolResponse(forDefaultInsight).results.map((x: { id: string }) => x.id)
+            expect(idsDefault).toContain(onDefault.id)
+            expect(idsDefault).not.toContain(onOther.id)
+
+            const forOtherInsight = await listTool.handler(context, { insight_id: otherInsight.id })
+            const idsOther = parseToolResponse(forOtherInsight).results.map((x: { id: string }) => x.id)
+            expect(idsOther).toContain(onOther.id)
+            expect(idsOther).not.toContain(onDefault.id)
+        })
     })
 
     describe('alert-create tool', () => {

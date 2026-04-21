@@ -17,7 +17,9 @@ export const AlertsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
+    insight_id: zod.number().optional().describe('Only return alerts attached to this insight ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    name: zod.string().optional().describe('Case-insensitive substring match on alert name.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

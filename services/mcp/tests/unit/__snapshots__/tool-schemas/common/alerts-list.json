@@ -1,9 +1,17 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "insight_id": {
+            "description": "Only return alerts attached to this insight ID.",
+            "type": "number"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
+        },
+        "name": {
+            "description": "Case-insensitive substring match on alert name.",
+            "type": "string"
         },
         "offset": {
             "description": "The initial index from which to return the results.",
