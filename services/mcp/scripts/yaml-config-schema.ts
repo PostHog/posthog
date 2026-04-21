@@ -316,8 +316,17 @@ export const QueryWrapperToolConfigSchema = z
         ui_resource_uri: z.string().optional(),
         /** Properties to exclude from the generated Zod schema */
         exclude_properties: z.array(z.string()).optional(),
-        /** Return JSON instead of TOON-encoded text. */
-        response_format: z.enum(['json']).optional(),
+        /**
+         * Set to `true` when the wrapper's `schema_ref` has a matching formatter in
+         * `ee/hogai/context/insight/format/`. Enabling this:
+         *   - surfaces the formatter's LLM-friendly text output (via the backend's `formatted_results`)
+         *     as the default response text;
+         *   - adds an `output_format: 'optimized' | 'json'` per-call input to the generated tool schema,
+         *     so the caller can opt into raw JSON when they want structured data instead of prose.
+         * Omit (or set to `false`) when the query kind has no formatter; the tool then always returns
+         * JSON-encoded results.
+         */
+        use_optimized_output: z.boolean().optional(),
         /**
          * Default values for properties that are required in the schema but should
          * be optional for the agent. The Zod schema gets `.default(value).optional()`.

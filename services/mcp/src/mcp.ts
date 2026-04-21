@@ -6,8 +6,8 @@ import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
 import { AnalyticsEvent, evaluateFeatureFlags, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
+import { buildToolResultPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
-import { isCodingAgentClient } from '@/lib/coding-clients'
 import {
     CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
@@ -18,7 +18,6 @@ import {
 import { handleToolError, wrapError } from '@/lib/errors'
 import { buildInstructionsV1, buildInstructionsV2 } from '@/lib/instructions'
 import { initMcpCatObservability } from '@/lib/mcpcat'
-import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -27,15 +26,7 @@ import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
-import {
-    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
-    POSTHOG_META_KEY,
-    type CloudRegion,
-    type Context,
-    type State,
-    type Tool,
-} from '@/tools/types'
-import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
+import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
 export type RequestProperties = {
     userHash: string
@@ -305,65 +296,21 @@ export class MCP extends McpAgent<Env> {
             }
 
             try {
-                // Handler can return a special key POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY in the result which,
-                // when present, is used as the text content instead of TOON-encoding the raw result.
-                // This is useful for tools that want to return pre-formatted text (e.g. tables)
-                // or return JSON for programmatic consumption.
                 const handlerResult = await handler(params)
-                // Guard against string results: object rest on a primitive string would
-                // expand it to a character-indexed object ({"0": "f", "1": "o", ...}).
-                const isStringResult = typeof handlerResult === 'string'
-                const formattedResults: string | undefined = isStringResult
-                    ? undefined
-                    : handlerResult?.[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
-                let rawResult: any
-                if (isStringResult) {
-                    rawResult = handlerResult
-                } else {
-                    const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: _ignored, ...rest } = handlerResult
-                    rawResult = rest
-                }
+                // Fetch distinctId only when a UI-resource tool with a non-string result might
+                // actually use it in structuredContent; avoids an extra round-trip otherwise.
+                const hasUiResource = !!tool._meta?.ui?.resourceUri
+                const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
+                const distinctId = needsDistinctId ? await this.getDistinctId() : undefined
 
-                // For tools with UI resources, include structuredContent for better UI rendering
-                // structuredContent is not added to model context, only used by UI apps
-                const hasUiResource = tool._meta?.ui?.resourceUri
-
-                // If there's a UI resource, include analytics metadata for the UI app
-                let structuredContent: WithAnalytics<typeof rawResult> | typeof rawResult = rawResult
-                if (hasUiResource && !isStringResult) {
-                    const distinctId = await this.getDistinctId()
-                    const analyticsMetadata: AnalyticsMetadata = {
-                        distinctId,
-                        toolName: tool.name,
-                    }
-                    structuredContent = {
-                        ...rawResult,
-                        _analytics: analyticsMetadata,
-                    }
-                }
-
-                const useJson = tool._meta?.[POSTHOG_META_KEY]?.responseFormat === 'json'
-                const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
-
-                // Coding-agent clients (e.g. Claude Code) surface structuredContent
-                // to the model in preference to content[].text. When we have a formattedResults
-                // override, emitting structuredContent would hide the formatted view behind the
-                // raw JSON. Drop structuredContent in that case so `text` wins — unless the
-                // caller explicitly asked for JSON via `output_format=json`.
-                const callerWantsJson = (params as { output_format?: unknown } | undefined)?.output_format === 'json'
-                const suppressStructuredContent =
-                    formattedResults !== undefined && !callerWantsJson && isCodingAgentClient(this._mcpClientName)
-
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text,
-                        },
-                    ],
-                    // Include raw result as structuredContent for UI apps to consume only in case there is a UI resource
-                    ...(hasUiResource && !suppressStructuredContent ? { structuredContent } : {}),
-                }
+                return buildToolResultPayload({
+                    handlerResult,
+                    toolMeta: tool._meta,
+                    toolName: tool.name,
+                    params,
+                    clientName: this._mcpClientName,
+                    distinctId,
+                })
             } catch (error: any) {
                 const distinctId = await this.getDistinctId()
                 return handleToolError(

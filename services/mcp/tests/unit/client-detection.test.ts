@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { CODING_AGENT_CLIENT_NAME_FRAGMENTS, isCodingAgentClient } from '@/lib/coding-clients'
+import {
+    CLAUDE_CLIENT_NAME_FRAGMENTS,
+    CODING_AGENT_CLIENT_NAME_FRAGMENTS,
+    isClaudeLike,
+    isCodingAgentClient,
+} from '@/lib/client-detection'
 
 describe('isCodingAgentClient', () => {
     describe('detects known coding-agent clients', () => {
@@ -77,10 +82,74 @@ describe('isCodingAgentClient', () => {
     })
 
     it('keeps the fragment list non-empty and lowercased', () => {
-        // The substring matcher lowercases the input, so every fragment must already
-        // be lowercase or it will never match.
         expect(CODING_AGENT_CLIENT_NAME_FRAGMENTS.length).toBeGreaterThan(0)
         for (const fragment of CODING_AGENT_CLIENT_NAME_FRAGMENTS) {
+            expect(fragment).toBe(fragment.toLowerCase())
+            expect(fragment.length).toBeGreaterThan(0)
+        }
+    })
+})
+
+describe('isClaudeLike', () => {
+    describe('detects Anthropic/Claude clients', () => {
+        it.each([
+            // Exact and near-exact variants users actually see.
+            ['claude-code'],
+            ['Claude Code'],
+            ['CLAUDE-CODE'],
+            ['claude-code-cli'],
+            ['claude-code/1.2.3'],
+            ['claude-desktop'],
+            ['Claude Desktop'],
+            ['claude-ai'],
+            ['Claude.ai'],
+            // Future/hypothetical clients — the bare 'claude' fragment catches them.
+            ['claude-mobile'],
+            ['claude-web'],
+            ['Claude for iOS'],
+            // Anthropic-branded clients that don't carry the Claude name.
+            ['Anthropic/Cowork'],
+            ['anthropic-cowork'],
+            ['Anthropic Workbench'],
+        ])('returns true for %s', (clientName) => {
+            expect(isClaudeLike(clientName)).toBe(true)
+        })
+    })
+
+    describe('does not match non-Anthropic clients', () => {
+        it.each([
+            ['cursor'],
+            ['Cursor'],
+            ['cline'],
+            ['continue'],
+            ['codex'],
+            ['github.copilot'],
+            ['mcp-inspector'],
+            ['Slack'],
+            ['PostHog'],
+            [''],
+        ])('returns false for %s', (clientName) => {
+            expect(isClaudeLike(clientName)).toBe(false)
+        })
+    })
+
+    describe('edge cases', () => {
+        it('returns false for undefined', () => {
+            expect(isClaudeLike(undefined)).toBe(false)
+        })
+
+        it('returns false for empty string', () => {
+            expect(isClaudeLike('')).toBe(false)
+        })
+
+        it('treats whitespace-only as non-match', () => {
+            expect(isClaudeLike('   ')).toBe(false)
+        })
+    })
+
+    it('keeps the fragment list non-empty and lowercased', () => {
+        expect(CLAUDE_CLIENT_NAME_FRAGMENTS.length).toBeGreaterThan(0)
+        for (const fragment of CLAUDE_CLIENT_NAME_FRAGMENTS) {
             expect(fragment).toBe(fragment.toLowerCase())
             expect(fragment.length).toBeGreaterThan(0)
         }
