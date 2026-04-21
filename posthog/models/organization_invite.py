@@ -43,6 +43,35 @@ def validate_private_project_access(value):
             raise exceptions.ValidationError('The "level" field must be a valid access level.')
 
 
+VALID_GUEST_RESOURCE_TYPES = ("dashboard", "insight", "notebook")
+
+
+def validate_guest_resources(value):
+    """Structural validation for OrganizationInvite.guest_resources.
+
+    Deeper checks (team membership, resource existence, feature availability) live in
+    the invite serializer; this validator only enforces shape and enumerated values so
+    malformed items are rejected even on direct ORM writes.
+    """
+    if not isinstance(value, list):
+        raise exceptions.ValidationError("The field must be a list of dictionaries.")
+    for item in value:
+        if not isinstance(item, dict):
+            raise exceptions.ValidationError("Each item in the list must be a dictionary.")
+        if "team_id" not in item or "resource" not in item or "resource_id" not in item:
+            raise exceptions.ValidationError(
+                'Each dictionary must contain "team_id", "resource", and "resource_id" keys.'
+            )
+        if not isinstance(item["team_id"], int):
+            raise exceptions.ValidationError('The "team_id" field must be an integer.')
+        if item["resource"] not in VALID_GUEST_RESOURCE_TYPES:
+            raise exceptions.ValidationError(
+                f'The "resource" field must be one of: {", ".join(VALID_GUEST_RESOURCE_TYPES)}.'
+            )
+        if not isinstance(item["resource_id"], (str, int)) or item["resource_id"] == "":
+            raise exceptions.ValidationError('The "resource_id" field must be a non-empty string or integer.')
+
+
 class InviteExpiredException(exceptions.ValidationError):
     def __init__(self, message="This invite has expired. Please ask your admin for a new one."):
         super().__init__(message, code="expired")
@@ -84,6 +113,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             "List of {team_id, resource, resource_id} dicts describing resource grants the invitee "
             "should receive on acceptance. A non-empty list marks the invite as a guest invite."
         ),
+        validators=[validate_guest_resources],
     )
     bypass_sso = models.BooleanField(
         default=False,

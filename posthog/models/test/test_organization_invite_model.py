@@ -5,8 +5,12 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+from rest_framework import exceptions
+
 from posthog.models import OrganizationInvite
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_invite import validate_guest_resources
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -210,3 +214,27 @@ class TestOrganizationInvite(BaseTest):
 
         # Clean up
         second_org.delete()
+
+
+class TestValidateGuestResources(BaseTest):
+    def test_accepts_empty_list(self):
+        validate_guest_resources([])
+
+    def test_accepts_well_formed_entry(self):
+        validate_guest_resources([{"team_id": self.team.id, "resource": "dashboard", "resource_id": "1"}])
+
+    @parameterized.expand(
+        [
+            ("not_a_list", "nope"),
+            ("item_not_a_dict", ["nope"]),
+            ("missing_team_id", [{"resource": "dashboard", "resource_id": "1"}]),
+            ("missing_resource", [{"team_id": 1, "resource_id": "1"}]),
+            ("missing_resource_id", [{"team_id": 1, "resource": "dashboard"}]),
+            ("team_id_not_int", [{"team_id": "1", "resource": "dashboard", "resource_id": "1"}]),
+            ("invalid_resource", [{"team_id": 1, "resource": "feature_flag", "resource_id": "1"}]),
+            ("empty_resource_id", [{"team_id": 1, "resource": "dashboard", "resource_id": ""}]),
+        ]
+    )
+    def test_rejects_malformed_input(self, _name, value):
+        with self.assertRaises(exceptions.ValidationError):
+            validate_guest_resources(value)
