@@ -22,6 +22,7 @@ from products.data_warehouse.backend.data_load.saved_query_service import get_sa
 from products.data_warehouse.backend.models import DataWarehouseModelPath, DataWarehouseTable
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.api import EndpointViewSet
+from products.endpoints.backend.materialization import RejectionCode
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 pytestmark = [pytest.mark.django_db]
@@ -406,9 +407,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
         version = endpoint.versions.first()
-        can_materialize, reason = version.can_materialize()
+        can_materialize, rejection = version.can_materialize()
         self.assertFalse(can_materialize)
-        self.assertIn(query["kind"], reason)
+        assert rejection is not None
+        self.assertEqual(rejection.code, RejectionCode.QUERY_TYPE_NOT_MATERIALIZABLE)
+        self.assertIn(query["kind"], rejection.message)
 
     def test_can_materialize_retention_query(self):
         _create_event(

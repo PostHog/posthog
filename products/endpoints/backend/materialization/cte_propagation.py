@@ -15,6 +15,8 @@ from posthog.hogql import ast
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS
 from posthog.hogql.visitor import TraversingVisitor
 
+from products.endpoints.backend.materialization.types import Rejection
+
 # MULTI_JOIN propagation adds `a.var = b.var` to WHERE. Outer joins emit
 # unmatched rows with NULL variable columns, which that predicate then drops
 # — so only INNER/CROSS joins are safe.
@@ -38,7 +40,7 @@ class DownstreamCTEPlan:
     # (alias_or_cte_name, cte_name) pairs; empty for UNION_ALL where each leg has its own plan.
     propagating_sources: list[tuple[str, str]] = field(default_factory=list)
     leg_plans: list["DownstreamCTEPlan"] = field(default_factory=list)
-    reject_reason: Optional[str] = None
+    rejection: Optional[Rejection] = None
 
 
 def _has_joins(node: ast.SelectQuery) -> bool:
@@ -140,10 +142,10 @@ def _select_column_name(expr: ast.Expr) -> Optional[str]:
 def _collect_propagating_sources_top_level(
     select_from: Optional[ast.JoinExpr],
     propagating: set[str],
-) -> tuple[list[tuple[str, str]], Optional[str]]:
+) -> tuple[list[tuple[str, str]], Optional[Rejection]]:
     """Walk the top-level ``select_from`` chain, collecting propagating CTE refs.
 
-    Returns ``(sources, reject_reason)``. ``reject_reason`` is non-None if any
+    Returns ``(sources, rejection)``. ``rejection`` is non-None if any
     JoinExpr in the chain references a propagating CTE via an unsupported join type.
     """
     sources: list[tuple[str, str]] = []
@@ -159,11 +161,7 @@ def _collect_propagating_sources_top_level(
         if is_prop and cte_name is not None:
             join_type = _normalize_join_type(cur.join_type)
             if join_type not in _SAFE_PROPAGATION_JOIN_TYPES:
-                return (
-                    [],
-                    f"CTE variable propagation requires CROSS/INNER joins between propagating CTEs; "
-                    f"{cur.join_type} not supported",
-                )
+                return [], Rejection.downstream_unsafe_join(cur.join_type)
             alias = cur.alias or cte_name
             sources.append((alias, cte_name))
         cur = cur.next_join
@@ -248,43 +246,40 @@ def _select_has_aggregate(node: ast.SelectQuery) -> bool:
     return False
 
 
+def _reject(cte_name: str, shape: DownstreamCTEShape, rejection: Rejection) -> DownstreamCTEPlan:
+    """Build a rejection DownstreamCTEPlan for a given shape."""
+    return DownstreamCTEPlan(cte_name=cte_name, shape=shape, rejection=rejection)
+
+
 def _classify_downstream_cte(
     cte_name: str,
     cte_expr: ast.Expr,
     propagating: set[str],
     code_names: list[str],
 ) -> DownstreamCTEPlan:
-    """Classify a downstream CTE's shape; produce a plan or a rejection reason."""
+    """Classify a downstream CTE's shape; produce a plan or a Rejection."""
 
     if isinstance(cte_expr, ast.SelectSetQuery):
         non_union_legs = [node.set_operator for node in cte_expr.subsequent_select_queries]
         if any(op != "UNION ALL" for op in non_union_legs):
-            return DownstreamCTEPlan(
-                cte_name=cte_name,
-                shape=DownstreamCTEShape.UNION_ALL,
-                reject_reason="Only UNION ALL is supported for propagation across set operations",
-            )
+            return _reject(cte_name, DownstreamCTEShape.UNION_ALL, Rejection.union_not_all())
 
         leg_plans: list[DownstreamCTEPlan] = []
         for i, leg in enumerate(cte_expr.select_queries()):
             if not isinstance(leg, ast.SelectQuery):
-                return DownstreamCTEPlan(
-                    cte_name=cte_name,
-                    shape=DownstreamCTEShape.UNION_ALL,
-                    reject_reason=("Variable propagation failed on UNION leg: nested set queries are not supported"),
-                )
+                return _reject(cte_name, DownstreamCTEShape.UNION_ALL, Rejection.union_leg_nested_set_query())
             leg_plan = _classify_downstream_cte(f"{cte_name}#leg{i}", leg, propagating, code_names)
-            if leg_plan.reject_reason:
-                return DownstreamCTEPlan(
-                    cte_name=cte_name,
-                    shape=DownstreamCTEShape.UNION_ALL,
-                    reject_reason=f"Variable propagation failed on UNION leg: {leg_plan.reject_reason}",
+            if leg_plan.rejection is not None:
+                return _reject(
+                    cte_name,
+                    DownstreamCTEShape.UNION_ALL,
+                    Rejection.union_leg_failed(leg_plan.rejection),
                 )
             if not leg_plan.propagating_sources and leg_plan.shape != DownstreamCTEShape.UNION_ALL:
-                return DownstreamCTEPlan(
-                    cte_name=cte_name,
-                    shape=DownstreamCTEShape.UNION_ALL,
-                    reject_reason=("Variable propagation failed on UNION leg: leg has no propagating CTE source"),
+                return _reject(
+                    cte_name,
+                    DownstreamCTEShape.UNION_ALL,
+                    Rejection.union_leg_no_propagating_source(),
                 )
             leg_plans.append(leg_plan)
 
@@ -295,47 +290,43 @@ def _classify_downstream_cte(
         )
 
     if not isinstance(cte_expr, ast.SelectQuery):
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason=f"Unsupported CTE body type: {type(cte_expr).__name__}",
+        return _reject(
+            cte_name,
+            DownstreamCTEShape.PROJECTION,
+            Rejection.downstream_unsupported_body(type(cte_expr).__name__),
         )
 
     if cte_expr.window_exprs:
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason="Window functions in downstream CTEs of a variable CTE are not yet supported for materialization",
+        return _reject(
+            cte_name,
+            DownstreamCTEShape.PROJECTION,
+            Rejection.downstream_window_function(),
         )
 
-    sources, reject = _collect_propagating_sources_top_level(cte_expr.select_from, propagating)
-    if reject:
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason=reject,
-        )
+    sources, rejection = _collect_propagating_sources_top_level(cte_expr.select_from, propagating)
+    if rejection is not None:
+        return _reject(cte_name, DownstreamCTEShape.PROJECTION, rejection)
 
     if _select_from_has_nested_reference(cte_expr.select_from, propagating):
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason="CTE variable propagation requires top-level FROM references; nested subquery reference not supported",
+        return _reject(
+            cte_name,
+            DownstreamCTEShape.PROJECTION,
+            Rejection.downstream_nested_subquery_ref(),
         )
 
     if not sources:
-        return DownstreamCTEPlan(
-            cte_name=cte_name,
-            shape=DownstreamCTEShape.PROJECTION,
-            reject_reason="Downstream CTE does not read from any propagating CTE",
+        return _reject(
+            cte_name,
+            DownstreamCTEShape.PROJECTION,
+            Rejection.downstream_no_propagating_source(),
         )
 
     for code_name in code_names:
         if _emits_column(cte_expr, code_name):
-            return DownstreamCTEPlan(
-                cte_name=cte_name,
-                shape=DownstreamCTEShape.PROJECTION,
-                reject_reason=f"Variable code_name '{code_name}' collides with existing column in downstream CTE {cte_name}",
+            return _reject(
+                cte_name,
+                DownstreamCTEShape.PROJECTION,
+                Rejection.downstream_code_name_collision(code_name, cte_name),
             )
 
     if len(sources) >= 2:

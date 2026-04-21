@@ -10,6 +10,7 @@ from posthog.hogql.parser import parse_select
 
 from products.endpoints.backend.materialization import (
     DownstreamCTEShape,
+    RejectionCode,
     analyze_variables_for_materialization,
     transform_query_for_materialization,
 )
@@ -39,10 +40,10 @@ class TestVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 1
         assert var_infos[0].code_name == "event_name"
         assert var_infos[0].column_chain == ["event"]
@@ -61,10 +62,10 @@ class TestVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 1
         assert var_infos[0].code_name == "os_name"
         assert var_infos[0].column_chain == ["properties", "os"]
@@ -83,10 +84,10 @@ class TestVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 1
         assert var_infos[0].code_name == "city"
         assert var_infos[0].column_chain == ["person", "properties", "city"]
@@ -101,10 +102,10 @@ class TestVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 2
         code_names = {v.code_name for v in var_infos}
         assert code_names == {"event_name", "os"}
@@ -118,7 +119,7 @@ class TestVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert len(var_infos) == 1, f"Expected 1 variable, got {len(var_infos)} (duplicates not deduplicated)"
@@ -133,10 +134,11 @@ class TestVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "Unsupported operator" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.UNSUPPORTED_OPERATOR
         assert var_infos == []
 
     def test_variable_in_select_blocked(self):
@@ -146,10 +148,11 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "metric_name", "value": "total"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "not used in WHERE" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.VARIABLE_NOT_IN_WHERE
 
     def test_no_variables(self):
         query = {
@@ -157,10 +160,11 @@ class TestVariableAnalysis(APIBaseTest):
             "query": "SELECT count() FROM events WHERE event = '$pageview'",
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "No variables found" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.NO_VARIABLES
 
     def test_like_operator_supported(self):
         query = {
@@ -169,7 +173,7 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "pattern", "value": "%page%"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert len(var_infos) == 1
@@ -182,10 +186,10 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 1
         assert var_infos[0].column_chain == ["event"]
 
@@ -196,10 +200,10 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 1
         assert var_infos[0].column_chain == ["event"]
 
@@ -210,7 +214,7 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
         assert var_infos == []
@@ -222,10 +226,10 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 1
         assert var_infos[0].column_chain == ["event"]
 
@@ -236,7 +240,7 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "event_name", "value": "$identify"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         if can_materialize and var_infos:
             with pytest.raises(ValueError, match="OR conditions not supported"):
@@ -249,10 +253,10 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 1
 
     def test_malformed_variable_placeholder(self):
@@ -262,7 +266,7 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
         assert var_infos == []
@@ -274,10 +278,11 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "metadata not found" in reason.lower()
+        assert rejection is not None
+        assert rejection.code == RejectionCode.VARIABLE_METADATA_NOT_FOUND
         assert var_infos == []
 
     def test_variable_on_uuid_field(self):
@@ -287,17 +292,17 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "user_id", "value": "user123"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 1
         assert var_infos[0].column_chain == ["distinct_id"]
 
     def test_empty_query_string(self):
         query = {"kind": "HogQLQuery", "query": "", "variables": {}}
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
         assert var_infos == []
@@ -305,10 +310,11 @@ class TestVariableAnalysis(APIBaseTest):
     def test_missing_query_field(self):
         query = {"kind": "HogQLQuery", "variables": {"var-1": {"code_name": "foo", "value": "bar"}}}
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "No query string found" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.NO_QUERY_STRING
         assert var_infos == []
 
     def test_invalid_query_string_parsing(self):
@@ -318,10 +324,11 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "foo", "value": "bar"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "parse" in reason.lower()
+        assert rejection is not None
+        assert rejection.code == RejectionCode.PARSE_FAILED
         assert var_infos == []
 
     def test_variable_in_having_clause_blocked(self):
@@ -331,10 +338,11 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "threshold", "value": "100"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "HAVING" in reason or "having" in reason.lower()
+        assert rejection is not None
+        assert rejection.code == RejectionCode.VARIABLE_IN_HAVING
         assert var_infos == []
 
     def test_variable_wrapped_in_function_call(self):
@@ -347,10 +355,10 @@ class TestVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 2
         by_name = {v.code_name: v for v in var_infos}
         assert by_name["from_date"].operator == ast.CompareOperationOp.GtEq
@@ -364,7 +372,7 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "event_name", "value": "$PageView"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert len(var_infos) == 1
@@ -381,7 +389,7 @@ class TestVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert len(var_infos) == 2
@@ -396,7 +404,7 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "from_date", "value": "2024-01-15"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert len(var_infos) == 1
@@ -409,7 +417,7 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "start", "value": "10"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert len(var_infos) == 1
@@ -422,7 +430,7 @@ class TestVariableAnalysis(APIBaseTest):
             "variables": {"var-1": {"code_name": "end", "value": "20"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert len(var_infos) == 1
@@ -438,7 +446,7 @@ class TestVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert len(var_infos) == 2
@@ -458,7 +466,7 @@ class TestVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert len(var_infos) == 2
@@ -481,7 +489,7 @@ class TestRangePairDetection(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
         assert can_materialize is True
         assert len(var_infos) == 3
 
@@ -503,7 +511,7 @@ class TestRangePairDetection(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
         assert can_materialize is True
         assert len(var_infos) == 1
         # Single range op gets bucket_fn (default toStartOfDay)
@@ -519,10 +527,11 @@ class TestRangePairDetection(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
         assert can_materialize is False
-        assert "avg" in reason
-        assert "re-aggregated" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.AGGREGATE_NOT_REAGGREGATABLE
+        assert "avg" in rejection.message
 
     @parameterized.expand(
         [
@@ -546,9 +555,10 @@ class TestRangePairDetection(APIBaseTest):
             },
         }
 
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
         assert can_materialize is False
-        assert "re-aggregated" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.AGGREGATE_NOT_REAGGREGATABLE
 
     def test_range_pair_bucketed_in_transform(self):
         query = {
@@ -637,7 +647,7 @@ class TestSingleBoundRange(APIBaseTest):
             "variables": {"var-1": {"code_name": "start", "value": "2024-01-01"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
         assert can_materialize is True
         assert var_infos[0].bucket_fn == "toStartOfDay"
 
@@ -648,7 +658,7 @@ class TestSingleBoundRange(APIBaseTest):
             "variables": {"var-1": {"code_name": "end", "value": "2024-02-01"}},
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
         assert can_materialize is True
         assert var_infos[0].bucket_fn == "toStartOfDay"
 
@@ -682,10 +692,11 @@ class TestSingleBoundRange(APIBaseTest):
             "variables": {"var-1": {"code_name": "start", "value": "2024-01-01"}},
         }
 
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
         assert can_materialize is False
-        assert "avg" in reason
-        assert "re-aggregated" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.AGGREGATE_NOT_REAGGREGATABLE
+        assert "avg" in rejection.message
 
 
 class TestMinuteBuckets(APIBaseTest):
@@ -784,8 +795,8 @@ class TestCombinatorReaggregation(APIBaseTest):
             },
         }
 
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
-        assert can_materialize is True, f"sumIf should be allowed: {reason}"
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is True, f"sumIf should be allowed: {rejection}"
 
     def test_uniqIf_query_rejected(self):
         query = {
@@ -797,9 +808,10 @@ class TestCombinatorReaggregation(APIBaseTest):
             },
         }
 
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
         assert can_materialize is False
-        assert "re-aggregated" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.AGGREGATE_NOT_REAGGREGATABLE
 
 
 class TestStripCombinators(APIBaseTest):
@@ -1395,8 +1407,8 @@ class TestTransformQuerySnapshots(APIBaseTest):
 
     def _transform(self, query_str: str, variables: dict) -> str:
         hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables}
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(hogql_query)
-        assert can_materialize, f"Expected materializable, got: {reason}"
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(hogql_query)
+        assert can_materialize, f"Expected materializable, got: {rejection}"
         transformed = transform_query_for_materialization(hogql_query, var_infos, self.team)
         assert transformed["variables"] == {}
         assert "{variables" not in transformed["query"]
@@ -1748,10 +1760,10 @@ class TestCTEVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 1
         assert var_infos[0].code_name == "event_name"
         assert var_infos[0].cte_name == "cte"
@@ -1768,7 +1780,7 @@ class TestCTEVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         if can_materialize and var_infos:
             with pytest.raises(ValueError, match="OR conditions not supported"):
@@ -1788,11 +1800,11 @@ class TestCTEVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         # Each variable is in its own single CTE — this should be allowed
         assert can_materialize is True
-        assert reason == "OK"
+        assert rejection is None
         assert len(var_infos) == 2
         code_names = {v.code_name for v in var_infos}
         assert code_names == {"event_name", "user_id"}
@@ -1806,10 +1818,11 @@ class TestCTEVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "both CTE and top-level" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.VARIABLE_IN_CTE_AND_TOP_LEVEL
 
     def test_variable_in_two_different_ctes_rejected(self):
         query = {
@@ -1824,10 +1837,11 @@ class TestCTEVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "multiple CTEs" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.VARIABLE_IN_MULTIPLE_CTES
 
     def test_variable_in_cte_having_rejected(self):
         query = {
@@ -1838,10 +1852,11 @@ class TestCTEVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "HAVING" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.VARIABLE_IN_HAVING
 
     def test_cte_variable_with_top_level_join_rejected(self):
         query = {
@@ -1855,10 +1870,11 @@ class TestCTEVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "JOINs" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.CTE_VARIABLE_WITH_TOP_LEVEL_JOIN
 
     def test_top_level_variable_with_join_still_allowed(self):
         query = {
@@ -1872,7 +1888,7 @@ class TestCTEVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert var_infos[0].cte_name is None
@@ -1886,7 +1902,7 @@ class TestCTEVariableAnalysis(APIBaseTest):
             },
         }
 
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is True
         assert len(var_infos) == 1
@@ -1904,8 +1920,8 @@ class TestCTETransformSnapshots(APIBaseTest):
 
     def _transform(self, query_str: str, variables: dict) -> str:
         hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables}
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(hogql_query)
-        assert can_materialize, f"Expected materializable, got: {reason}"
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(hogql_query)
+        assert can_materialize, f"Expected materializable, got: {rejection}"
         transformed = transform_query_for_materialization(hogql_query, var_infos, self.team)
         assert transformed["variables"] == {}
         assert "{variables" not in transformed["query"]
@@ -2042,8 +2058,8 @@ class TestMaterializationEquivalence(ClickhouseTestMixin, APIBaseTest):
 
         # 2. Transform for materialization
         hogql_query = {"kind": "HogQLQuery", "query": original_query, "variables": variables}
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(hogql_query)
-        assert can_materialize, f"Expected materializable: {reason}"
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(hogql_query)
+        assert can_materialize, f"Expected materializable: {rejection}"
         transformed = transform_query_for_materialization(hogql_query, var_infos, self.team)
 
         # 3. Run the materialized query (returns all permutations) and get column names
@@ -2361,7 +2377,7 @@ class TestDownstreamCTEClassifier(APIBaseTest):
             "proj",
         )
         plan = _classify_downstream_cte("proj", expr, {"base", "proj"}, ["event_name"])
-        assert plan.reject_reason is None
+        assert plan.rejection is None
         assert plan.shape == DownstreamCTEShape.PROJECTION
         assert plan.propagating_sources == [("base", "base")]
 
@@ -2371,7 +2387,7 @@ class TestDownstreamCTEClassifier(APIBaseTest):
             "agg",
         )
         plan = _classify_downstream_cte("agg", expr, {"base", "agg"}, ["event_name"])
-        assert plan.reject_reason is None
+        assert plan.rejection is None
         assert plan.shape == DownstreamCTEShape.AGGREGATION
 
     def test_distinct_shape(self):
@@ -2380,7 +2396,7 @@ class TestDownstreamCTEClassifier(APIBaseTest):
             "u",
         )
         plan = _classify_downstream_cte("u", expr, {"base", "u"}, ["event_name"])
-        assert plan.reject_reason is None
+        assert plan.rejection is None
         assert plan.shape == DownstreamCTEShape.DISTINCT
 
     def test_multi_join_shape(self):
@@ -2391,7 +2407,7 @@ class TestDownstreamCTEClassifier(APIBaseTest):
             "combined",
         )
         plan = _classify_downstream_cte("combined", expr, {"base", "base2", "combined"}, ["event_name"])
-        assert plan.reject_reason is None
+        assert plan.rejection is None
         assert plan.shape == DownstreamCTEShape.MULTI_JOIN
         assert len(plan.propagating_sources) == 2
 
@@ -2401,7 +2417,7 @@ class TestDownstreamCTEClassifier(APIBaseTest):
             "u",
         )
         plan = _classify_downstream_cte("u", expr, {"base", "u"}, ["event_name"])
-        assert plan.reject_reason is None
+        assert plan.rejection is None
         assert plan.shape == DownstreamCTEShape.UNION_ALL
         assert len(plan.leg_plans) == 2
 
@@ -2413,8 +2429,8 @@ class TestDownstreamCTEClassifier(APIBaseTest):
             "combined",
         )
         plan = _classify_downstream_cte("combined", expr, {"base", "base2", "combined"}, ["event_name"])
-        assert plan.reject_reason is not None
-        assert "LEFT JOIN" in plan.reject_reason
+        assert plan.rejection is not None
+        assert plan.rejection.code == RejectionCode.DOWNSTREAM_UNSAFE_JOIN
 
     def test_full_outer_join_rejected(self):
         expr = self._get_cte(
@@ -2424,8 +2440,8 @@ class TestDownstreamCTEClassifier(APIBaseTest):
             "combined",
         )
         plan = _classify_downstream_cte("combined", expr, {"base", "base2", "combined"}, ["event_name"])
-        assert plan.reject_reason is not None
-        assert "FULL OUTER JOIN" in plan.reject_reason
+        assert plan.rejection is not None
+        assert plan.rejection.code == RejectionCode.DOWNSTREAM_UNSAFE_JOIN
 
     def test_nested_subquery_reference_rejected(self):
         expr = self._get_cte(
@@ -2433,8 +2449,8 @@ class TestDownstreamCTEClassifier(APIBaseTest):
             "nested",
         )
         plan = _classify_downstream_cte("nested", expr, {"base", "nested"}, ["event_name"])
-        assert plan.reject_reason is not None
-        assert "nested subquery" in plan.reject_reason
+        assert plan.rejection is not None
+        assert plan.rejection.code == RejectionCode.DOWNSTREAM_NESTED_SUBQUERY_REF
 
     def test_column_name_collision_rejected(self):
         expr = self._get_cte(
@@ -2442,8 +2458,8 @@ class TestDownstreamCTEClassifier(APIBaseTest):
             "clash",
         )
         plan = _classify_downstream_cte("clash", expr, {"base", "clash"}, ["event_name"])
-        assert plan.reject_reason is not None
-        assert "collides with existing column" in plan.reject_reason
+        assert plan.rejection is not None
+        assert plan.rejection.code == RejectionCode.DOWNSTREAM_CODE_NAME_COLLISION
 
     def test_union_leg_unable_to_propagate_rejected(self):
         expr = self._get_cte(
@@ -2451,8 +2467,10 @@ class TestDownstreamCTEClassifier(APIBaseTest):
             "u",
         )
         plan = _classify_downstream_cte("u", expr, {"base", "u"}, ["event_name"])
-        assert plan.reject_reason is not None
-        assert "UNION leg" in plan.reject_reason
+        assert plan.rejection is not None
+        assert plan.rejection.code == RejectionCode.UNION_LEG_FAILED
+        assert plan.rejection.caused_by is not None
+        assert plan.rejection.caused_by.code == RejectionCode.DOWNSTREAM_NO_PROPAGATING_SOURCE
 
 
 class TestDownstreamAnalysisRejections(APIBaseTest):
@@ -2469,9 +2487,10 @@ class TestDownstreamAnalysisRejections(APIBaseTest):
             ),
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
         assert can_materialize is False
-        assert "LEFT JOIN" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.DOWNSTREAM_UNSAFE_JOIN
 
     def test_downstream_full_join_rejected(self):
         query = {
@@ -2484,9 +2503,10 @@ class TestDownstreamAnalysisRejections(APIBaseTest):
             ),
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
         assert can_materialize is False
-        assert "FULL OUTER JOIN" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.DOWNSTREAM_UNSAFE_JOIN
 
     def test_downstream_nested_subquery_reference_rejected(self):
         query = {
@@ -2498,9 +2518,10 @@ class TestDownstreamAnalysisRejections(APIBaseTest):
             ),
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
         assert can_materialize is False
-        assert "nested subquery" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.DOWNSTREAM_NESTED_SUBQUERY_REF
 
     def test_downstream_union_leg_unable_to_propagate_rejected(self):
         query = {
@@ -2512,9 +2533,12 @@ class TestDownstreamAnalysisRejections(APIBaseTest):
             ),
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
         assert can_materialize is False
-        assert "UNION leg" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.UNION_LEG_FAILED
+        assert rejection.caused_by is not None
+        assert rejection.caused_by.code == RejectionCode.DOWNSTREAM_NO_PROPAGATING_SOURCE
 
     def test_downstream_column_name_collision_rejected(self):
         query = {
@@ -2526,9 +2550,10 @@ class TestDownstreamAnalysisRejections(APIBaseTest):
             ),
             "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
         }
-        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        can_materialize, rejection, _ = analyze_variables_for_materialization(query)
         assert can_materialize is False
-        assert "collides with existing column" in reason
+        assert rejection is not None
+        assert rejection.code == RejectionCode.DOWNSTREAM_CODE_NAME_COLLISION
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -2539,8 +2564,8 @@ class TestDownstreamTransformSnapshots(APIBaseTest):
 
     def _transform(self, query_str: str, variables: dict) -> str:
         hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables}
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(hogql_query)
-        assert can_materialize, f"Expected materializable, got: {reason}"
+        can_materialize, rejection, var_infos = analyze_variables_for_materialization(hogql_query)
+        assert can_materialize, f"Expected materializable, got: {rejection}"
         transformed = transform_query_for_materialization(hogql_query, var_infos, self.team)
         return transformed["query"]
 
@@ -2597,3 +2622,38 @@ class TestDownstreamTransformSnapshots(APIBaseTest):
             )
             == self.snapshot
         )
+
+
+class TestRejectionFactories(APIBaseTest):
+    """Guardrail: every RejectionCode must have a matching factory on Rejection."""
+
+    def test_every_code_has_a_factory(self):
+        from products.endpoints.backend.materialization import Rejection
+
+        # Probe arguments for factories that take parameters. Any factory not listed here is
+        # assumed to take zero arguments.
+        args_by_code: dict[RejectionCode, tuple] = {
+            RejectionCode.QUERY_TYPE_NOT_MATERIALIZABLE: ("HogQLQuery", ["HogQLQuery"]),
+            RejectionCode.UNSUPPORTED_OPERATOR: (ast.CompareOperationOp.NotEq,),
+            RejectionCode.AGGREGATE_NOT_REAGGREGATABLE: ("avg",),
+            RejectionCode.DOWNSTREAM_UNSUPPORTED_BODY: ("ValuesQuery",),
+            RejectionCode.DOWNSTREAM_UNSAFE_JOIN: ("LEFT JOIN",),
+            RejectionCode.DOWNSTREAM_CODE_NAME_COLLISION: ("event_name", "downstream"),
+            RejectionCode.VARIABLES_NOT_SUPPORTED: (Rejection.no_variables(),),
+            RejectionCode.UNION_LEG_FAILED: (Rejection.downstream_window_function(),),
+        }
+
+        missing: list[str] = []
+        for code in RejectionCode:
+            factory_name = code.value  # code.value matches the factory method name by convention
+            factory = getattr(Rejection, factory_name, None)
+            if factory is None or not callable(factory):
+                missing.append(code.value)
+                continue
+
+            args = args_by_code.get(code, ())
+            rejection = factory(*args)
+            assert rejection.code == code, f"factory for {code.value} returned wrong code {rejection.code.value}"
+            assert rejection.message, f"factory for {code.value} produced empty message"
+
+        assert not missing, f"RejectionCode values without a factory: {missing}"

@@ -25,6 +25,8 @@ from products.endpoints.backend.materialization.transformer import (
 from products.endpoints.backend.materialization.types import (
     SUPPORTED_MATERIALIZATION_OPS,
     MaterializableVariable,
+    Rejection,
+    RejectionCode,
     VariableInHavingClauseError,
     VariableUsageInWhere,
 )
@@ -60,6 +62,8 @@ __all__ = [
     # types
     "SUPPORTED_MATERIALIZATION_OPS",
     "MaterializableVariable",
+    "Rejection",
+    "RejectionCode",
     "VariableInHavingClauseError",
     "VariableUsageInWhere",
     # variables

@@ -92,6 +92,7 @@ from products.endpoints.backend.insight_transformers import (
 )
 from products.endpoints.backend.materialization import (
     SUPPORTED_BUCKET_FUNCTIONS,
+    Rejection,
     VariablePlaceholderFinder,
     analyze_variables_for_materialization,
     convert_insight_query_to_hogql,
@@ -262,11 +263,12 @@ class _PlaceholderPreservingPrinter(HogQLPrinter):
         return f"{{{node.field}}}"
 
 
-def _cant_materialize_response(reason: str) -> Response:
+def _cant_materialize_response(rejection: Rejection) -> Response:
     return Response(
         {
             "can_materialize": False,
-            "reason": reason,
+            "reason": rejection.message,
+            "reason_code": rejection.code.value,
             "transformed_query": None,
             "execution_query": None,
             "range_pairs": [],
@@ -376,10 +378,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 ),
             }
         else:
-            can_mat, reason = version.can_materialize()
+            can_mat, rejection = version.can_materialize()
             result = {
                 "can_materialize": can_mat,
-                "reason": reason if not can_mat else None,
+                "reason": rejection.message if rejection else None,
+                "reason_code": rejection.code.value if rejection else None,
             }
 
         if endpoint_name is not None:
@@ -1040,9 +1043,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     ) -> None:
         version = version or endpoint.get_version()
 
-        can_mat, reason = version.can_materialize()
+        can_mat, rejection = version.can_materialize()
         if not can_mat:
-            raise ValidationError(f"Cannot materialize endpoint. Reason: {reason}")
+            assert rejection is not None
+            raise ValidationError(f"Cannot materialize endpoint. Reason: {rejection.message}")
 
         # Per-version naming allows independent materialization for each version
         saved_query_name = f"{endpoint.name}_v{version.version}"
@@ -1061,7 +1065,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         variable_infos: list = []
         if version.query.get("variables"):
-            can_materialize, reason, variable_infos = analyze_variables_for_materialization(
+            can_materialize, _rejection, variable_infos = analyze_variables_for_materialization(
                 version.query, bucket_overrides=bucket_overrides
             )
 
@@ -2385,9 +2389,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         else:
             version = endpoint.get_version()
 
-        can_mat, reason = version.can_materialize()
+        can_mat, rejection = version.can_materialize()
         if not can_mat:
-            return _cant_materialize_response(reason)
+            assert rejection is not None
+            return _cant_materialize_response(rejection)
 
         bucket_overrides = request.validated_data.get("bucket_overrides")
         if bucket_overrides:
@@ -2401,12 +2406,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         variable_infos: list = []
 
         if version.query.get("variables"):
-            can_materialize_vars, var_reason, variable_infos = analyze_variables_for_materialization(
+            can_materialize_vars, var_rejection, variable_infos = analyze_variables_for_materialization(
                 version.query, bucket_overrides=bucket_overrides
             )
 
             if not can_materialize_vars:
-                return _cant_materialize_response(var_reason)
+                assert var_rejection is not None
+                return _cant_materialize_response(var_rejection)
 
             if variable_infos:
                 transformed = transform_query_for_materialization(

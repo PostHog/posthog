@@ -2,7 +2,7 @@ import re
 import json
 import uuid
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models
@@ -20,6 +20,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
+
+if TYPE_CHECKING:
+    from products.endpoints.backend.materialization import Rejection
 
 logger = logging.getLogger(__name__)
 
@@ -199,55 +202,55 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         except ObjectDoesNotExist:
             return False
 
-    def can_materialize(self) -> tuple[bool, str]:
+    def can_materialize(self) -> tuple[bool, "Optional[Rejection]"]:
         """Check if this version can be materialized.
 
-        Returns: (can_materialize: bool, reason: str)
+        Returns ``(can_materialize, rejection)``. ``rejection`` is ``None`` on success
+        and a :class:`Rejection` (with stable ``code``) on failure.
         """
+        from products.endpoints.backend.materialization import Rejection
+
         query_kind = self.query.get("kind") if self.query else None
 
-        MATERIALIZABLE_QUERY_TYPES = {
+        MATERIALIZABLE_QUERY_TYPES = [
             "HogQLQuery",
             "TrendsQuery",
             "LifecycleQuery",
             "RetentionQuery",
-        }
+        ]
 
         if query_kind not in MATERIALIZABLE_QUERY_TYPES:
-            supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
-            return (
-                False,
-                f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
-            )
+            return False, Rejection.query_type_not_materializable(query_kind, MATERIALIZABLE_QUERY_TYPES)
 
         # Block compare mode — materialization can't reconstruct doubled series
         compare_filter = self.query.get("compareFilter") or {}
         if compare_filter.get("compare"):
-            return False, "Compare mode is not supported for materialized endpoints."
+            return False, Rejection.compare_mode_not_supported()
 
         # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
         # inject_series_index tags as separate series, causing a mismatch at read time.
         breakdown_filter = self.query.get("breakdownFilter") or {}
         if breakdown_filter.get("breakdown_type") == "cohort":
-            return False, "Cohort breakdowns are not supported for materialized endpoints."
+            return False, Rejection.cohort_breakdown_not_supported()
         for breakdown in breakdown_filter.get("breakdowns") or []:
             if isinstance(breakdown, dict) and breakdown.get("type") == "cohort":
-                return False, "Cohort breakdowns are not supported for materialized endpoints."
+                return False, Rejection.cohort_breakdown_not_supported()
 
         if self.query.get("variables"):
             from products.endpoints.backend.materialization import analyze_variables_for_materialization
 
-            can_materialize, reason, _ = analyze_variables_for_materialization(self.query)
+            can_materialize, variable_rejection, _ = analyze_variables_for_materialization(self.query)
 
             if not can_materialize:
-                return False, f"Variables not supported: {reason}"
+                assert variable_rejection is not None  # failure implies a rejection is present
+                return False, Rejection.variables_not_supported(variable_rejection)
 
         if query_kind == "HogQLQuery":
             hogql_query = self.query.get("query")
             if not hogql_query or not isinstance(hogql_query, str):
-                return False, "Query is empty or invalid."
+                return False, Rejection.empty_or_invalid_query()
 
-        return True, ""
+        return True, None
 
     @staticmethod
     def extract_columns(query: dict, team_id: int) -> list[dict]:
