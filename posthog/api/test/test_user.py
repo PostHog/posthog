@@ -2312,3 +2312,134 @@ class TestUserTwoFactor(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["uuid"], str(self.user.uuid))
+
+    def test_team_scoped_personal_api_key_cannot_modify_user_profile(self):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Team-scoped key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+            scoped_teams=[self.team.id],
+        )
+
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+
+        original_email = self.user.email
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"email": "attacker@example.com", "first_name": "Attacker"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, original_email)
+        self.assertIsNone(self.user.pending_email)
+        self.assertNotEqual(self.user.first_name, "Attacker")
+
+    def test_org_scoped_personal_api_key_cannot_modify_user_profile(self):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Org-scoped key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+            scoped_organizations=[str(self.organization.id)],
+        )
+
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+
+        original_email = self.user.email
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"email": "attacker@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, original_email)
+        self.assertIsNone(self.user.pending_email)
+
+    def test_team_scoped_personal_api_key_can_still_read_me_endpoint(self):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Team-scoped key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+            scoped_teams=[self.team.id],
+        )
+
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+
+        response = self.client.get("/api/users/@me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["uuid"], str(self.user.uuid))
+
+    def test_unscoped_personal_api_key_can_still_modify_user_profile(self):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Unscoped key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"first_name": "Newname"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "Newname")
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_team_scoped_oauth_token_cannot_modify_user_profile(self):
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="pha_test_oauth_token_write",
+            scope="user:write",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+
+        self.client.logout()
+        original_email = self.user.email
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"email": "attacker@example.com"},
+            format="json",
+            headers={"authorization": f"Bearer {access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, original_email)
+        self.assertIsNone(self.user.pending_email)

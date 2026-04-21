@@ -512,7 +512,28 @@ class APIScopePermission(ScopeBasePermission):
     def check_team_and_org_permissions(self, request, view) -> None:
         scope_object = self._get_scope_object(request, view)
         if scope_object == "user":
-            return  # The /api/users/@me/ endpoint is exempt from team and org scoping
+            # The /api/users/@me/ endpoint is exempt from team and org scoping because
+            # it targets the authenticated user rather than a specific project/org.
+            # For unsafe methods, reject credentials whose reach was explicitly
+            # narrowed to a subset of teams/orgs — allowing them to write to the
+            # global user profile would let a narrow key perform account takeover
+            # (e.g. by changing the email).
+            if request.method not in SAFE_METHODS:
+                auth = request.successful_authenticator
+                if isinstance(auth, PersonalAPIKeyAuthentication):
+                    scoped_teams = auth.personal_api_key.scoped_teams
+                    scoped_organizations = auth.personal_api_key.scoped_organizations
+                elif isinstance(auth, OAuthAccessTokenAuthentication):
+                    scoped_teams = auth.access_token.scoped_teams
+                    scoped_organizations = auth.access_token.scoped_organizations
+                else:
+                    scoped_teams = None
+                    scoped_organizations = None
+                if scoped_teams or scoped_organizations:
+                    raise PermissionDenied(
+                        "API keys scoped to specific projects or organizations cannot modify user account settings."
+                    )
+            return
 
         self._check_organization_personal_api_key_restrictions(request, view)
 
