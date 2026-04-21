@@ -38,6 +38,24 @@ def _make_manager(can_resume: bool = False, resume_state: ShopifyResumeConfig | 
     return manager
 
 
+def _record_post_vars(sess: MagicMock, responses: list[MagicMock]) -> list[dict[str, Any]]:
+    """Capture the `variables` dict by value at call time.
+
+    The production code passes the `variables` dict by reference and mutates it
+    between pages, so reading it off `call_args_list` after the fact reflects
+    only the final state, not per-call state.
+    """
+    captured: list[dict[str, Any]] = []
+    iter_responses = iter(responses)
+
+    def _post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> MagicMock:
+        captured.append(dict((json or {}).get("variables", {})))
+        return next(iter_responses)
+
+    sess.post.side_effect = _post
+    return captured
+
+
 class TestMakePaginatedShopifyRequest:
     def test_saves_state_after_each_page_except_final(self) -> None:
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS]
@@ -73,9 +91,9 @@ class TestMakePaginatedShopifyRequest:
         logger = MagicMock()
         manager = _make_manager()
         sess = MagicMock()
-        sess.post.side_effect = [
-            _build_response(ABANDONED_CHECKOUTS, [{"id": "5"}], has_next_page=False, end_cursor=None),
-        ]
+        captured = _record_post_vars(
+            sess, [_build_response(ABANDONED_CHECKOUTS, [{"id": "5"}], has_next_page=False, end_cursor=None)]
+        )
 
         list(
             _make_paginated_shopify_request(
@@ -90,8 +108,7 @@ class TestMakePaginatedShopifyRequest:
         )
 
         assert sess.post.call_count == 1
-        first_vars = sess.post.call_args_list[0].kwargs["json"]["variables"]
-        assert first_vars["cursor"] == "resume-cursor"
+        assert captured[0]["cursor"] == "resume-cursor"
 
     def test_tags_saved_state_with_phase_and_query(self) -> None:
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS]
@@ -157,10 +174,13 @@ class TestShopifySourceResume:
 
         with patch("posthog.temporal.data_imports.sources.shopify.shopify.requests.Session") as session_cls:
             sess = session_cls.return_value
-            sess.post.side_effect = [
-                _build_response(ORDERS, [{"id": "1"}], has_next_page=True, end_cursor="cursor-1"),
-                _build_response(ORDERS, [{"id": "2"}], has_next_page=False, end_cursor=None),
-            ]
+            captured = _record_post_vars(
+                sess,
+                [
+                    _build_response(ORDERS, [{"id": "1"}], has_next_page=True, end_cursor="cursor-1"),
+                    _build_response(ORDERS, [{"id": "2"}], has_next_page=False, end_cursor=None),
+                ],
+            )
 
             source = shopify_source(
                 shopify_store_id="store",
@@ -182,8 +202,7 @@ class TestShopifySourceResume:
         saved = manager.save_state.call_args_list[0].args[0]
         assert saved == ShopifyResumeConfig(phase=PHASE_ALL, cursor="cursor-1", query=None)
 
-        first_vars = sess.post.call_args_list[0].kwargs["json"]["variables"]
-        assert "cursor" not in first_vars
+        assert "cursor" not in captured[0]
 
     def test_resume_full_refresh_seeds_cursor_and_skips_initial_request(self) -> None:
         logger = MagicMock()
@@ -192,9 +211,10 @@ class TestShopifySourceResume:
 
         with patch("posthog.temporal.data_imports.sources.shopify.shopify.requests.Session") as session_cls:
             sess = session_cls.return_value
-            sess.post.side_effect = [
-                _build_response(ORDERS, [{"id": "3"}], has_next_page=False, end_cursor=None),
-            ]
+            captured = _record_post_vars(
+                sess,
+                [_build_response(ORDERS, [{"id": "3"}], has_next_page=False, end_cursor=None)],
+            )
 
             source = shopify_source(
                 shopify_store_id="store",
@@ -213,23 +233,24 @@ class TestShopifySourceResume:
         manager.load_state.assert_called_once()
         # Exactly one request: the resumed page. The initial (cursor-less) request is skipped.
         assert sess.post.call_count == 1
-        first_vars = sess.post.call_args_list[0].kwargs["json"]["variables"]
-        assert first_vars["cursor"] == "resume-here"
+        assert captured[0]["cursor"] == "resume-here"
 
     def test_resume_latest_phase_skips_earliest_sweep(self) -> None:
         logger = MagicMock()
+        # ORDERS uses updated_at as its incremental query filter.
         resume_state = ShopifyResumeConfig(
             phase=PHASE_LATEST,
             cursor="latest-cursor",
-            query="created_at:>'2026-01-10'",
+            query="updated_at:>'2026-01-10'",
         )
         manager = _make_manager(can_resume=True, resume_state=resume_state)
 
         with patch("posthog.temporal.data_imports.sources.shopify.shopify.requests.Session") as session_cls:
             sess = session_cls.return_value
-            sess.post.side_effect = [
-                _build_response(ORDERS, [{"id": "9"}], has_next_page=False, end_cursor=None),
-            ]
+            captured = _record_post_vars(
+                sess,
+                [_build_response(ORDERS, [{"id": "9"}], has_next_page=False, end_cursor=None)],
+            )
 
             source = shopify_source(
                 shopify_store_id="store",
@@ -247,27 +268,30 @@ class TestShopifySourceResume:
         assert len(batches) == 1
         # Only the latest sweep runs, seeded with the resume cursor.
         assert sess.post.call_count == 1
-        first_vars = sess.post.call_args_list[0].kwargs["json"]["variables"]
-        assert first_vars["cursor"] == "latest-cursor"
-        assert first_vars["query"] == "created_at:>'2026-01-10'"
+        assert captured[0]["cursor"] == "latest-cursor"
+        assert captured[0]["query"] == "updated_at:>'2026-01-10'"
 
     def test_resume_earliest_phase_runs_remaining_earliest_then_latest(self) -> None:
         logger = MagicMock()
+        # ORDERS uses updated_at as its incremental query filter.
         resume_state = ShopifyResumeConfig(
             phase=PHASE_EARLIEST,
             cursor="earliest-cursor",
-            query="created_at:<'2026-01-01'",
+            query="updated_at:<'2026-01-01'",
         )
         manager = _make_manager(can_resume=True, resume_state=resume_state)
 
         with patch("posthog.temporal.data_imports.sources.shopify.shopify.requests.Session") as session_cls:
             sess = session_cls.return_value
-            sess.post.side_effect = [
-                # remaining earliest page (final)
-                _build_response(ORDERS, [{"id": "e1"}], has_next_page=False, end_cursor=None),
-                # latest sweep starts fresh (no cursor)
-                _build_response(ORDERS, [{"id": "l1"}], has_next_page=False, end_cursor=None),
-            ]
+            captured = _record_post_vars(
+                sess,
+                [
+                    # remaining earliest page (final)
+                    _build_response(ORDERS, [{"id": "e1"}], has_next_page=False, end_cursor=None),
+                    # latest sweep starts fresh (no cursor)
+                    _build_response(ORDERS, [{"id": "l1"}], has_next_page=False, end_cursor=None),
+                ],
+            )
 
             source = shopify_source(
                 shopify_store_id="store",
@@ -285,10 +309,8 @@ class TestShopifySourceResume:
         assert len(batches) == 2
         assert sess.post.call_count == 2
 
-        first_vars = sess.post.call_args_list[0].kwargs["json"]["variables"]
-        assert first_vars["cursor"] == "earliest-cursor"
-        assert first_vars["query"] == "created_at:<'2026-01-01'"
+        assert captured[0]["cursor"] == "earliest-cursor"
+        assert captured[0]["query"] == "updated_at:<'2026-01-01'"
 
-        second_vars = sess.post.call_args_list[1].kwargs["json"]["variables"]
-        assert "cursor" not in second_vars
-        assert second_vars["query"] == "created_at:>'2026-01-10'"
+        assert "cursor" not in captured[1]
+        assert captured[1]["query"] == "updated_at:>'2026-01-10'"
