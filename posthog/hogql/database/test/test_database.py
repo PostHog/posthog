@@ -1038,8 +1038,31 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             parse_select("SELECT id, timestamp, distinct_id FROM stripe.table"), context, dialect="clickhouse"
         )
 
-    def test_data_warehouse_events_modifiers_when_view_and_table_share_a_name(self):
+    @parameterized.expand(
+        [
+            ("self_managed", False),
+            ("external_source", True),
+        ]
+    )
+    def test_data_warehouse_events_modifiers_when_view_and_table_share_a_name(
+        self, _name: str, use_external_source: bool
+    ):
         shared_name = "analytics_search_history"
+
+        warehouse_table_kwargs: dict[str, Any] = {}
+        if use_external_source:
+            credentials = DataWarehouseCredential.objects.create(
+                access_key="test_key", access_secret="test_secret", team=self.team
+            )
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="source_id",
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+            warehouse_table_kwargs = {
+                "credential": credentials,
+                "external_data_source": source,
+            }
 
         DataWarehouseTable.objects.create(
             name=shared_name,
@@ -1054,6 +1077,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 "search_count": "Nullable(Float64)",
                 "search_source": "Nullable(String)",
             },
+            **warehouse_table_kwargs,
         )
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
