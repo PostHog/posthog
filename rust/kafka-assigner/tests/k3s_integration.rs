@@ -41,7 +41,7 @@ use common::{
 
 const NAMESPACE: &str = "default";
 const NUM_PARTITIONS: u32 = 8;
-const E2E_TIMEOUT: Duration = Duration::from_secs(60);
+const E2E_TIMEOUT: Duration = Duration::from_secs(180);
 
 // ── K3s helpers ──────────────────────────────────────────
 

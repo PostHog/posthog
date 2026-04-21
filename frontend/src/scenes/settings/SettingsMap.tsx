@@ -769,7 +769,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Remove or mask common personally identifiable information from log payloads during ingestion.',
                 component: <LogsPiiScrubSettings />,
-                flag: 'LOGS_SETTINGS',
+                flag: 'LOGS_SETTINGS_PII_SCRUB',
                 keywords: ['pii', 'privacy', 'gdpr', 'redact', 'mask', 'scrub', 'sensitive'],
             },
             {
@@ -1440,6 +1440,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                         below.
                         <br />
                         <strong>Your data will not be used for training models.</strong>
+                        <br />
+                        <br />
+                        This feature is not HIPAA-compliant and is not intended for the processing of Protected Health
+                        Information ("PHI"). Any Business Associate Agreement ("BAA") you may have entered into with
+                        PostHog does not apply to this functionality. You are responsible for ensuring your use complies
+                        with applicable laws and regulations.
                     </>
                 ),
                 component: <OrganizationAI />,

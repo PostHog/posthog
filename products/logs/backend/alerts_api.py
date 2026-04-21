@@ -1,10 +1,10 @@
 import datetime as dt
 from datetime import UTC, datetime
-from typing import Final, cast
+from typing import Final, TypedDict, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -33,15 +33,24 @@ from products.logs.backend.alert_state_machine import (
     AlertSnapshot,
     AlertState,
     CheckResult,
+    InvalidTransition,
     NotificationAction,
+    apply_disable,
+    apply_enable,
+    apply_outcome,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+    apply_user_reset,
     evaluate_alert_check,
 )
-from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertCheck, LogsAlertConfiguration
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
-ALLOWED_WINDOW_MINUTES = {1, 5, 10, 15, 30, 60}
+ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
+SPARKLINE_LOOKBACK_HOURS = 24
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 
@@ -50,17 +59,62 @@ def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, f
     return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
 
 
+class LogsAlertSparklineBucketSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(help_text="Bucket start timestamp (UTC, hourly).")
+    breached = serializers.IntegerField(help_text="Count of breached checks in this hour.")
+    errored = serializers.IntegerField(help_text="Count of errored checks in this hour.")
+
+
+class SparklineBucket(TypedDict):
+    timestamp: datetime
+    breached: int
+    errored: int
+
+
+def _sparkline_window_start() -> datetime:
+    current_hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    return current_hour - dt.timedelta(hours=SPARKLINE_LOOKBACK_HOURS - 1)
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="Unique identifier for this alert.",
+    )
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Human-readable name for this alert.",
+    )
+    enabled = serializers.BooleanField(
+        default=True,
+        help_text="Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+    )
     filters = serializers.JSONField(
         help_text="Filter criteria — subset of LogsViewerFilters. Must contain at least one of: "
         "severityLevels (list of severity strings), serviceNames (list of service name strings), "
         "or filterGroup (property filter group object)."
     )
+    threshold_count = serializers.IntegerField(
+        min_value=1,
+        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window.",
+    )
     threshold_operator = serializers.ChoiceField(
         choices=LogsAlertConfiguration.ThresholdOperator.choices,
         default=LogsAlertConfiguration.ThresholdOperator.ABOVE,
         help_text="Whether the alert fires when the count is above or below the threshold.",
+    )
+    window_minutes = serializers.IntegerField(
+        default=5,
+        help_text="Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+    )
+    check_interval_minutes = serializers.IntegerField(
+        read_only=True,
+        help_text="How often the alert is evaluated, in minutes. Server-managed.",
+    )
+    state = serializers.ChoiceField(
+        choices=LogsAlertConfiguration.State.choices,
+        read_only=True,
+        help_text="Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.",
     )
     evaluation_periods = serializers.IntegerField(
         default=1,
@@ -74,13 +128,93 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         max_value=MAX_EVALUATION_PERIODS,
         help_text="How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
     )
+    cooldown_minutes = serializers.IntegerField(
+        default=0,
+        min_value=0,
+        help_text="Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+    )
+    snooze_until = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.",
+    )
+    next_check_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the next evaluation is scheduled. Server-managed.",
+    )
+    last_notified_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the last notification was sent. Server-managed.",
+    )
+    last_checked_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the alert was last evaluated. Server-managed.",
+    )
+    consecutive_failures = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of consecutive evaluation failures. Resets on success. Server-managed.",
+    )
     last_error_message = serializers.SerializerMethodField(
         help_text=(
             "Error message from the most recent errored check, or null if the alert's "
-            "most recent check was successful. Sourced from LogsAlertCheck without "
+            "most recent check was successful. Sourced from LogsAlertEvent without "
             "denormalization so retention-aware cleanup rules stay the only source of truth."
         ),
     )
+    created_at = serializers.DateTimeField(
+        read_only=True,
+        help_text="When the alert was created.",
+    )
+    created_by = UserBasicSerializer(read_only=True)
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the alert was last modified.",
+    )
+    sparkline = serializers.SerializerMethodField(
+        help_text=(
+            f"{SPARKLINE_LOOKBACK_HOURS} hourly buckets of breached + errored check counts "
+            "for the last 24h, ordered oldest-first. Drives the activity column on the "
+            "alert list — empty sparkline = healthy alert. Ok checks are not included: "
+            "retention caps OK rows at MAX_EVALUATION_PERIODS (~50min at 5-min cadence), "
+            "so only events that survive the prune (breached + errored) are meaningful "
+            "over a 24h window."
+        ),
+    )
+
+    @extend_schema_field(LogsAlertSparklineBucketSerializer(many=True))
+    def get_sparkline(self, obj: LogsAlertConfiguration) -> list[SparklineBucket]:
+        start = self.context.get("sparkline_start") or _sparkline_window_start()
+
+        buckets: list[SparklineBucket] = [
+            {
+                "timestamp": start + dt.timedelta(hours=i),
+                "breached": 0,
+                "errored": 0,
+            }
+            for i in range(SPARKLINE_LOOKBACK_HOURS)
+        ]
+
+        events = getattr(obj, "recent_checks", None)
+        if events is None:
+            events = LogsAlertEvent.objects.filter(
+                alert=obj,
+                kind=LogsAlertEvent.Kind.CHECK,
+                created_at__gte=start,
+            )
+
+        for event in events:
+            hour_offset = int((event.created_at - start).total_seconds() // 3600)
+            if 0 <= hour_offset < SPARKLINE_LOOKBACK_HOURS:
+                if event.error_message:
+                    buckets[hour_offset]["errored"] += 1
+                elif event.threshold_breached:
+                    buckets[hour_offset]["breached"] += 1
+
+        return buckets
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
@@ -92,7 +226,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # Subquery annotation yields either the error_message string or None.
             return cast(str | None, annotated)
         return (
-            LogsAlertCheck.objects.filter(alert=obj, error_message__isnull=False)
+            LogsAlertEvent.objects.filter(
+                alert=obj,
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=False,
+            )
             .order_by("-created_at")
             .values_list("error_message", flat=True)
             .first()
@@ -119,6 +257,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "consecutive_failures",
             "last_error_message",
+            "sparkline",
             "created_at",
             "created_by",
             "updated_at",
@@ -132,6 +271,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_checked_at",
             "consecutive_failures",
             "last_error_message",
+            "sparkline",
             "created_at",
             "created_by",
             "updated_at",
@@ -174,23 +314,40 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         threshold_changed = _any_field_changed(instance, validated_data, threshold_or_filter_fields)
         window_changed = _any_field_changed(instance, validated_data, {"window_minutes"})
 
-        already_snoozed = snooze_data is _SENTINEL and instance.state == LogsAlertConfiguration.State.SNOOZED
+        enabled_change: bool | None = None
+        if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
+            enabled_change = validated_data["enabled"]
 
-        if threshold_changed:
-            instance.mark_for_recheck(reset_state=not already_snoozed)
-        elif window_changed:
-            instance.mark_for_recheck(reset_state=False)
+        # Wrap the state-machine transition + LogsAlertEvent insert + super().save in one
+        # transaction so a save failure can't orphan an audit row (or vice versa). Matches
+        # the atomic guarantee the reset viewset action already provides.
+        with transaction.atomic():
+            # Resolve the state-machine transition in priority order: enable/disable wins over
+            # snooze, which wins over threshold/filter changes. Window-only edits don't touch
+            # state at all. All transitions return an Outcome; apply_outcome is the single
+            # place that actually writes to `state`/`consecutive_failures`.
+            snapshot = instance.to_snapshot()
+            if enabled_change is True:
+                apply_outcome(instance, apply_enable(snapshot), kind=LogsAlertEvent.Kind.ENABLE)
+            elif enabled_change is False:
+                apply_outcome(instance, apply_disable(snapshot), kind=LogsAlertEvent.Kind.DISABLE)
+            elif snooze_data is not _SENTINEL:
+                if snooze_data is None:
+                    apply_outcome(instance, apply_unsnooze(snapshot), kind=LogsAlertEvent.Kind.UNSNOOZE)
+                else:
+                    apply_outcome(instance, apply_snooze(snapshot), kind=LogsAlertEvent.Kind.SNOOZE)
+            elif threshold_changed:
+                apply_outcome(instance, apply_threshold_change(snapshot), kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE)
 
-        # Apply snooze last so it takes priority over the recheck state reset
-        if snooze_data is not _SENTINEL:
-            if snooze_data is None:
-                instance.state = LogsAlertConfiguration.State.NOT_FIRING
-                instance.snooze_until = None
-            else:
-                instance.state = LogsAlertConfiguration.State.SNOOZED
+            # snooze_until is a timestamp column, not a state — carry it alongside the state
+            # transition so the serializer's single save persists both.
+            if snooze_data is not _SENTINEL:
                 instance.snooze_until = snooze_data
 
-        return super().update(instance, validated_data)
+            if threshold_changed or window_changed:
+                instance.clear_next_check()
+
+            return super().update(instance, validated_data)
 
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
@@ -218,6 +375,23 @@ def _validate_filters(filters: dict) -> None:
         raise ValidationError(
             {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
         )
+
+
+class LogsAlertEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LogsAlertEvent
+        fields = [
+            "id",
+            "created_at",
+            "kind",
+            "state_before",
+            "state_after",
+            "threshold_breached",
+            "result_count",
+            "error_message",
+            "query_duration_ms",
+        ]
+        read_only_fields = fields
 
 
 class LogsAlertSimulateBucketSerializer(serializers.Serializer):
@@ -443,11 +617,31 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Correlated subquery so list/retrieve can surface `last_error_message` in a
         # single round-trip instead of one extra query per alert.
         latest_error = (
-            LogsAlertCheck.objects.filter(alert=OuterRef("pk"), error_message__isnull=False)
+            LogsAlertEvent.objects.filter(
+                alert=OuterRef("pk"),
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=False,
+            )
             .order_by("-created_at")
             .values("error_message")[:1]
         )
-        return queryset.filter(team_id=self.team_id).annotate(_latest_error_message=Subquery(latest_error))
+        # Anchor the prefetch window and the serializer's bucket grid to the same
+        # instant so they can't drift across an hour-boundary rollover mid-request.
+        self._sparkline_start = _sparkline_window_start()
+        sparkline_events = LogsAlertEvent.objects.filter(
+            kind=LogsAlertEvent.Kind.CHECK,
+            created_at__gte=self._sparkline_start,
+        ).order_by("created_at")
+        return (
+            queryset.filter(team_id=self.team_id)
+            .annotate(_latest_error_message=Subquery(latest_error))
+            .prefetch_related(Prefetch("events", queryset=sparkline_events, to_attr="recent_checks"))
+        )
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        context["sparkline_start"] = getattr(self, "_sparkline_start", None) or _sparkline_window_start()
+        return context
 
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,
@@ -530,18 +724,58 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
+        responses={200: LogsAlertEventSerializer(many=True)},
+        description=(
+            "Paginated event history for this alert, newest first. Returns state transitions, "
+            "errored checks, and user-initiated control-plane rows (reset, enable/disable, "
+            "snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't "
+            "change and there was no error) are filtered out since only the last 10 are kept "
+            "and they carry no forensic value. Optional `?kind=...` narrows to a single kind."
+        ),
+    )
+    @action(detail=True, methods=["GET"], url_path="events")
+    def events(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        queryset = (
+            LogsAlertEvent.objects.filter(alert=alert)
+            .filter(
+                ~Q(kind=LogsAlertEvent.Kind.CHECK) | Q(error_message__isnull=False) | ~Q(state_before=F("state_after"))
+            )
+            .order_by("-created_at")
+        )
+
+        kind = request.query_params.get("kind")
+        if kind is not None:
+            valid_kinds = LogsAlertEvent.Kind.values
+            if kind not in valid_kinds:
+                raise ValidationError({"kind": f"Must be one of {sorted(valid_kinds)}."})
+            queryset = queryset.filter(kind=kind)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = LogsAlertEventSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = LogsAlertEventSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
         responses={200: LogsAlertConfigurationSerializer},
         description="Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.",
     )
     @action(detail=True, methods=["POST"], url_path="reset")
     def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
-        if alert.state != LogsAlertConfiguration.State.BROKEN:
-            raise ValidationError({"state": "Only broken alerts can be reset."})
         previous_failures = alert.consecutive_failures
+        try:
+            outcome = apply_user_reset(alert.to_snapshot())
+        except InvalidTransition:
+            raise ValidationError({"state": "Only broken alerts can be reset."})
         with transaction.atomic():
-            updated = alert.mark_for_recheck(reset_state=True)
-            alert.save(update_fields=updated)
+            update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
+            update_fields.extend(alert.clear_next_check())
+            alert.save(update_fields=update_fields)
             # The model's auto-signal skips these fields (signal_exclusions silences
             # engine-driven churn) so we log the user-initiated reset explicitly.
             log_activity(
@@ -610,7 +844,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         minute_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, 1)
 
         # Compute rolling window sum: for each minute, sum the preceding window_minutes of counts.
-        # This matches the real alerting cadence: check every minute, count logs in the last N minutes.
+        # Simulate samples at minute granularity for a dense preview chart; real alerts evaluate
+        # less frequently (see LogsAlertConfiguration.check_interval_minutes, currently 5m).
         counts = [b.count for b in minute_buckets]
         rolling_counts: list[int] = []
         for i in range(len(counts)):
@@ -632,7 +867,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             last_notified_at=None,
             snooze_until=None,
             consecutive_failures=0,
-            recent_checks_breached=(),
+            recent_events_breached=(),
         )
 
         result_buckets = []
@@ -652,7 +887,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 resolve_count += 1
 
             # Build the recent window including this check (same as what the state machine saw)
-            recent = (breached, *snapshot.recent_checks_breached)[:evaluation_periods]
+            recent = (breached, *snapshot.recent_events_breached)[:evaluation_periods]
 
             # Detect cooldown suppression: state changed but notification was suppressed
             cooldown_suppressed = (
@@ -696,7 +931,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 last_notified_at=bucket.timestamp if outcome.update_last_notified_at else snapshot.last_notified_at,
                 snooze_until=None,
                 consecutive_failures=outcome.consecutive_failures,
-                recent_checks_breached=recent,
+                recent_events_breached=recent,
             )
 
         response_data = {

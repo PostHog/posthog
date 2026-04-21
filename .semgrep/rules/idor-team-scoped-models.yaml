@@ -143,6 +143,7 @@ rules:
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
+                              |LLMSkill
                               |LLMTraceSummary
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
@@ -184,8 +185,10 @@ rules:
                               |SurveyResponseArchive
                               |Tag
                               |Task
+                              |TaskAutomation
                               |TaskRun
                               |EmailChannel
+                              |EvaluationReport
                               |Text
                               |Threshold
                               |Ticket
@@ -336,6 +339,7 @@ rules:
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMProviderKey
+                        |LLMSkill
                         |LLMTraceSummary
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
@@ -376,8 +380,10 @@ rules:
                         |SurveyResponseArchive
                         |Tag
                         |Task
+                        |TaskAutomation
                         |TaskRun
                         |EmailChannel
+                        |EvaluationReport
                         |Text
                         |Threshold
                         |Ticket

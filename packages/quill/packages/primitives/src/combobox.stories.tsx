@@ -40,8 +40,8 @@ export const Default: Story = {
             <div className="max-w-xs">
                 <Combobox items={frameworks}>
                     <ComboboxInput placeholder="Select a framework" />
-                    <ComboboxContent>
-                        <ComboboxEmpty>No items found.</ComboboxEmpty>
+                    <ComboboxContent className="w-[218px]">
+                        <ComboboxEmpty>No items found</ComboboxEmpty>
                         <ComboboxList>
                             {(item: (typeof frameworks)[number]) => (
                                 <ComboboxItem key={item} value={item}>
@@ -72,8 +72,8 @@ function MultipleComboboxInner(): React.ReactElement {
                     )}
                 </ComboboxValue>
             </ComboboxChips>
-            <ComboboxContent anchor={anchor}>
-                <ComboboxEmpty>No items found.</ComboboxEmpty>
+            <ComboboxContent anchor={anchor} className="w-[218px]">
+                <ComboboxEmpty>No items found</ComboboxEmpty>
                 <ComboboxList>
                     {(item) => (
                         <ComboboxItem key={item} value={item}>
@@ -103,7 +103,7 @@ export const Clearable: Story = {
                 <Combobox items={frameworks} defaultValue={frameworks[0]}>
                     <ComboboxInput placeholder="Select a framework" showClear className="max-w-xs" />
                     <ComboboxContent>
-                        <ComboboxEmpty>No items found.</ComboboxEmpty>
+                        <ComboboxEmpty>No items found</ComboboxEmpty>
                         <ComboboxList>
                             {(item) => (
                                 <ComboboxItem key={item} value={item}>
@@ -297,7 +297,7 @@ export const InputInsidePopup: Story = {
                     </Button>
                     <ComboboxContent anchor={triggerRef}>
                         <ComboboxInput placeholder="Search..." showTrigger={false} />
-                        <ComboboxEmpty>No items found.</ComboboxEmpty>
+                        <ComboboxEmpty>No items found</ComboboxEmpty>
                         <ComboboxList>
                             {(item: (typeof frameworks)[number]) => (
                                 <ComboboxItem key={item} value={item}>
@@ -359,7 +359,7 @@ export const InputInsidePopupOverflow: Story = {
                     </Button>
                     <ComboboxContent anchor={triggerRef}>
                         <ComboboxInput placeholder="Search..." showTrigger={false} />
-                        <ComboboxEmpty>No items found.</ComboboxEmpty>
+                        <ComboboxEmpty>No items found</ComboboxEmpty>
                         <ComboboxList>
                             {(item: (typeof manyItems)[number]) => (
                                 <ComboboxItem key={item} value={item}>
@@ -413,7 +413,7 @@ export const InputInsidePopupWithFooter: Story = {
                     </Button>
                     <ComboboxContent anchor={triggerRef}>
                         <ComboboxInput placeholder="Search..." showTrigger={false} />
-                        <ComboboxEmpty>No items found.</ComboboxEmpty>
+                        <ComboboxEmpty>No items found</ComboboxEmpty>
                         <ComboboxList>
                             {(item: string) =>
                                 item === CREATE_ACTION ? (
@@ -443,7 +443,27 @@ export const Invalid: Story = {
             <Combobox items={frameworks}>
                 <ComboboxInput placeholder="Select a framework" aria-invalid="true" className="max-w-xs" />
                 <ComboboxContent>
-                    <ComboboxEmpty>No items found.</ComboboxEmpty>
+                    <ComboboxEmpty>No items found</ComboboxEmpty>
+                    <ComboboxList>
+                        {(item) => (
+                            <ComboboxItem key={item} value={item}>
+                                {item}
+                            </ComboboxItem>
+                        )}
+                    </ComboboxList>
+                </ComboboxContent>
+            </Combobox>
+        )
+    },
+} satisfies Story
+
+export const Empty: Story = {
+    render: () => {
+        return (
+            <Combobox>
+                <ComboboxInput placeholder="Search..." className="max-w-xs" />
+                <ComboboxContent>
+                    <ComboboxEmpty>No items found</ComboboxEmpty>
                     <ComboboxList>
                         {(item) => (
                             <ComboboxItem key={item} value={item}>
