@@ -703,9 +703,13 @@ export class MCP extends McpAgent<Env> {
                         if (!clientSupportsListChanged(this._mcpClientName)) {
                             const enabled = ((await context.cache.get(ENABLED_TOOLSETS_KEY as any)) ?? []) as string[]
                             const reconnectQuery = `?progressive=true${enabled.length ? `&toolsets=${enabled.join(',')}` : ''}`
+                            const symptom =
+                                params.action === 'enable'
+                                    ? "newly enabled tools aren't visible"
+                                    : 'disabled tools are still visible'
                             return {
                                 ...result,
-                                _reconnectHint: `Your MCP client may not auto-refresh the tool list. If new tools aren't visible next turn, ask the user to reconnect with: ${reconnectQuery}`,
+                                _reconnectHint: `Your MCP client may not auto-refresh the tool list. If ${symptom} next turn, ask the user to reconnect with: ${reconnectQuery}`,
                             }
                         }
                     }
