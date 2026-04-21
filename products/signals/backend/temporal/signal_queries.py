@@ -536,3 +536,45 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
     )
 
     return {row[0] for row in (result.results or []) if row[0]}
+
+
+# ---------------------------------------------------------------------------
+# fetch_source_products_for_reports — synchronous, for the serializer list view
+# ---------------------------------------------------------------------------
+
+
+def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, list[str]]:
+    """Return a mapping of report_id -> distinct source_products for those reports.
+
+    Only includes non-deleted signals. Source products are returned as an unordered distinct set.
+    """
+    if not report_ids:
+        return {}
+
+    ch_query = f"""
+        SELECT report_id, groupUniqArray(source_product) as source_products
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted,
+                JSONExtractString(metadata, 'source_product') as source_product
+            FROM ({_DEDUPED_SIGNALS_SUBQUERY})
+        )
+        WHERE NOT is_deleted
+          AND report_id IN ({{report_ids}})
+          AND source_product != ''
+        GROUP BY report_id
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
+    result = execute_hogql_query(
+        query_type="SignalsFetchSourceProductsForReports",
+        query=ch_query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "report_ids": ast.Tuple(exprs=[ast.Constant(value=rid) for rid in report_ids]),
+        },
+    )
+
+    return {row[0]: row[1] for row in (result.results or []) if row[0]}

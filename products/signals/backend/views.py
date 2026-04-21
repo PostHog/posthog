@@ -82,6 +82,7 @@ from products.signals.backend.temporal.reingestion import SignalReportReingestio
 from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
+    fetch_source_products_for_reports,
 )
 from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
@@ -348,6 +349,9 @@ class SignalReportViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReport.objects.all()
+    # Shared Q for "ready but not actionable" — used in status ranking and suggested-reviewer suppression.
+    # Requires `latest_actionability_value` annotation to be applied first.
+    _Q_READY_NOT_ACTIONABLE = Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable")
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
@@ -373,6 +377,7 @@ class SignalReportViewSet(
         qs = self._annotate_signal_report_priority(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
+        qs = self._annotate_implementation_pr_url(qs)
         return qs
 
     def _scope_signal_report_queryset(self, queryset):
@@ -457,10 +462,7 @@ class SignalReportViewSet(
         # 0 = ready + actionable (or no judgment yet), 1 = ready + not_actionable; then other stages.
         return queryset.annotate(
             pipeline_status_rank=Case(
-                When(
-                    Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable"),
-                    then=Value(1),
-                ),
+                When(self._Q_READY_NOT_ACTIONABLE, then=Value(1)),
                 When(status=SignalReport.Status.READY, then=Value(0)),
                 When(status=SignalReport.Status.PENDING_INPUT, then=Value(2)),
                 When(status=SignalReport.Status.IN_PROGRESS, then=Value(3)),
@@ -501,7 +503,7 @@ class SignalReportViewSet(
         )
 
     def _annotate_latest_actionability_value(self, queryset):
-        # Latest actionability_judgment: json "actionability" only (no legacy "choice").
+        # Extract the "actionability" value from the latest actionability_judgment artefact.
         latest_actionability = Subquery(
             SignalReportArtefact.objects.filter(
                 report_id=OuterRef("id"),
@@ -562,14 +564,37 @@ class SignalReportViewSet(
         )
         return queryset.annotate(
             is_suggested_reviewer=Case(
-                When(
-                    Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable"),
-                    then=Value(False),
-                ),
+                When(self._Q_READY_NOT_ACTIONABLE, then=Value(False)),
                 default=suggested_exists,
                 output_field=BooleanField(),
             ),
         )
+
+    def _annotate_implementation_pr_url(self, queryset):
+        from products.tasks.backend.models import TaskRun
+
+        # Find the latest TaskRun output->pr_url for the implementation task linked to each report.
+        # Path: SignalReportTask(relationship=implementation) -> Task -> TaskRun(latest) -> output->'pr_url'
+        latest_impl_pr_url = Subquery(
+            TaskRun.objects.filter(
+                task__signal_report_tasks__report_id=OuterRef("id"),
+                task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+                output__pr_url__isnull=False,
+            )
+            .exclude(output__pr_url="")
+            .order_by("-created_at")
+            .annotate(
+                _pr_url=Func(
+                    Cast(F("output"), output_field=JSONField()),
+                    Value("pr_url"),
+                    function="jsonb_extract_path_text",
+                    output_field=CharField(),
+                ),
+            )
+            .values("_pr_url")[:1],
+            output_field=CharField(),
+        )
+        return queryset.annotate(implementation_pr_url=latest_impl_pr_url)
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
@@ -613,6 +638,22 @@ class SignalReportViewSet(
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
+
+    @extend_schema(exclude=True)
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        reports = list(page if page is not None else queryset)
+
+        report_ids = [str(r.id) for r in reports]
+        source_products_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+
+        context = {**self.get_serializer_context(), "source_products_map": source_products_map}
+        serializer = self.get_serializer(reports, many=True, context=context)
+
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     @extend_schema(exclude=True)
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
