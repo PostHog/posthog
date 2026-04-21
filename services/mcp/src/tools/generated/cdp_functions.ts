@@ -279,7 +279,7 @@ const cdpFunctionsLogsRetrieve = (): ToolBase<typeof CdpFunctionsLogsRetrieveSch
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/logs/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/logs/`,
             query: {
                 after: params.after,
                 before: params.before,
@@ -307,7 +307,7 @@ const cdpFunctionsMetricsRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AppMetricsResponse>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_functions/${params.id}/metrics/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/metrics/`,
             query: {
                 after: params.after,
                 before: params.before,
