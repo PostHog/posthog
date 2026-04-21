@@ -32231,8 +32231,16 @@
                 "custom_name": {
                     "type": "string"
                 },
+                "distinct_id_field": {
+                    "description": "Data warehouse field used as the actor identifier",
+                    "type": "string"
+                },
                 "id": {
                     "type": ["string", "number"]
+                },
+                "id_field": {
+                    "description": "Data warehouse row identifier field",
+                    "type": "string"
                 },
                 "kind": {
                     "$ref": "#/definitions/RetentionEntityKind"
@@ -32250,6 +32258,14 @@
                     },
                     "type": "array"
                 },
+                "table_name": {
+                    "description": "Data warehouse table name",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "description": "Data warehouse timestamp field",
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/EntityType"
                 },
@@ -32260,7 +32276,7 @@
             "type": "object"
         },
         "RetentionEntityKind": {
-            "enum": ["ActionsNode", "EventsNode"],
+            "enum": ["ActionsNode", "EventsNode", "DataWarehouseNode"],
             "type": "string"
         },
         "RetentionFilter": {

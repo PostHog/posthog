@@ -4026,6 +4026,7 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+    DATA_WAREHOUSE_NODE = "DataWarehouseNode"
 
 
 class RetentionPeriod(StrEnum):
@@ -17191,7 +17192,9 @@ class RetentionEntity(BaseModel):
         extra="forbid",
     )
     custom_name: str | None = None
+    distinct_id_field: str | None = Field(default=None, description="Data warehouse field used as the actor identifier")
     id: str | float | None = None
+    id_field: str | None = Field(default=None, description="Data warehouse row identifier field")
     kind: RetentionEntityKind | None = None
     name: str | None = None
     order: int | None = None
@@ -17220,6 +17223,8 @@ class RetentionEntity(BaseModel):
         ]
         | None
     ) = Field(default=None, description="filters on the event")
+    table_name: str | None = Field(default=None, description="Data warehouse table name")
+    timestamp_field: str | None = Field(default=None, description="Data warehouse timestamp field")
     type: EntityType | None = None
     uuid: str | None = None
 
