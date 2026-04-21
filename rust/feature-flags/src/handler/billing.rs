@@ -46,13 +46,14 @@ pub async fn record_usage(
     filtered_flags: &FeatureFlagList,
     team_id: i32,
     library: Library,
+    is_internal: bool,
 ) {
     if *context.state.config.skip_writes {
         return;
     }
 
-    // Check if this is an internal request (non-billable)
-    if super::authentication::is_internal_request(context) {
+    // Skip billing for internal requests
+    if is_internal {
         return;
     }
 

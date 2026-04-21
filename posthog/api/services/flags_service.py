@@ -42,7 +42,7 @@ def get_flags_from_service(
 
     Returns:
         The full response from the flags service as a dict, typically containing:
-        - "flags": dict of flag key -> value/boolean
+        - "flags": dict of flag key -> flag data (enabled, variant, etc.)
         - "featureFlagPayloads": dict of flag key -> payload (if requested)
         - Other metadata depending on API version
 
