@@ -531,6 +531,7 @@ export interface SessionRecordingPlaylistLogicProps {
     updateSearchParams?: boolean
     autoPlay?: boolean
     onlyPinned?: boolean
+    type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
     pinnedFilters?: UniversalFiltersGroup
@@ -545,7 +546,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     props({} as SessionRecordingPlaylistLogicProps),
     key(
         (props: SessionRecordingPlaylistLogicProps) =>
-            `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
+            `${props.logicKey ?? ''}-${props.personUUID ?? ''}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
     connect(() => ({
         actions: [
@@ -1403,6 +1404,29 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         ? 0
                         : 1)
                 )
+            },
+        ],
+
+        summarizeDisabledReason: [
+            (s) => [
+                s.totalFiltersCount,
+                s.recordings,
+                s.sessionRecordingsResponseLoading,
+                (_, props) => props.type,
+                (_, props) => props.personUUID,
+                (_, props) => props.pinnedFilters,
+            ],
+            (totalFiltersCount, recordings, loading, type, personUUID, pinnedFilters): string | undefined => {
+                if (loading) {
+                    return 'Loading…'
+                }
+                if (recordings.length === 0) {
+                    return 'No recordings in the list'
+                }
+                if (!type && !personUUID && !pinnedFilters && totalFiltersCount === 0) {
+                    return 'Add filters to summarize recordings'
+                }
+                return undefined
             },
         ],
 

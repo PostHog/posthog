@@ -2,7 +2,7 @@ import './Tooltip.scss'
 
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { Placement } from '@floating-ui/react'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useState } from 'react'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { cn } from 'lib/utils/css-classes'
@@ -77,9 +77,23 @@ export function Tooltip({
     onOpen,
 }: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+    const [shouldRenderPortal, setShouldRenderPortal] = useState(false)
     const floatingContainer = useFloatingContainer()
 
     const open = controlledOpen ?? uncontrolledOpen
+
+    useLayoutEffect(() => {
+        if (open) {
+            setShouldRenderPortal(true)
+        }
+    }, [open])
+
+    useEffect(() => {
+        if (!open && shouldRenderPortal) {
+            const timer = setTimeout(() => setShouldRenderPortal(false), 150)
+            return () => clearTimeout(timer)
+        }
+    }, [open, shouldRenderPortal])
 
     useEffect(() => {
         if (open && onOpen) {
@@ -117,39 +131,41 @@ export function Tooltip({
     return (
         <BaseTooltip.Root open={open} onOpenChange={handleOpenChange} disableHoverablePopup={!isInteractive}>
             <BaseTooltip.Trigger delay={delayMs} closeDelay={closeDelayMs} render={child} />
-            <BaseTooltip.Portal container={floatingContainer ?? undefined}>
-                <BaseTooltip.Positioner
-                    side={side}
-                    align={align}
-                    sideOffset={offset}
-                    arrowPadding={typeof arrowOffset === 'number' ? arrowOffset : 5}
-                    collisionAvoidance={collisionAvoidance}
-                    className={cn('Tooltip max-w-sm', containerClassName)}
-                >
-                    <BaseTooltip.Popup
-                        className={cn(
-                            'Tooltip__popup bg-surface-tooltip py-1.5 px-2 break-words rounded text-start',
-                            className
-                        )}
+            {shouldRenderPortal && (
+                <BaseTooltip.Portal container={floatingContainer ?? undefined}>
+                    <BaseTooltip.Positioner
+                        side={side}
+                        align={align}
+                        sideOffset={offset}
+                        arrowPadding={typeof arrowOffset === 'number' ? arrowOffset : 5}
+                        collisionAvoidance={collisionAvoidance}
+                        className={cn('Tooltip max-w-sm', containerClassName)}
                     >
-                        {typeof title === 'function' ? title() : title}
-                        {docLink && (
-                            <p className={`mb-0 ${title ? 'mt-1' : ''}`}>
-                                <Link
-                                    to={docLink}
-                                    target="_blank"
-                                    className="text-xs"
-                                    data-ph-capture-attribute-autocapture-event-name="clicked tooltip doc link"
-                                    data-ph-capture-attribute-doclink={docLink}
-                                >
-                                    Read the docs
-                                </Link>
-                            </p>
-                        )}
-                        <BaseTooltip.Arrow className="Tooltip__arrow" />
-                    </BaseTooltip.Popup>
-                </BaseTooltip.Positioner>
-            </BaseTooltip.Portal>
+                        <BaseTooltip.Popup
+                            className={cn(
+                                'Tooltip__popup bg-surface-tooltip py-1.5 px-2 break-words rounded text-start',
+                                className
+                            )}
+                        >
+                            {typeof title === 'function' ? title() : title}
+                            {docLink && (
+                                <p className={`mb-0 ${title ? 'mt-1' : ''}`}>
+                                    <Link
+                                        to={docLink}
+                                        target="_blank"
+                                        className="text-xs"
+                                        data-ph-capture-attribute-autocapture-event-name="clicked tooltip doc link"
+                                        data-ph-capture-attribute-doclink={docLink}
+                                    >
+                                        Read the docs
+                                    </Link>
+                                </p>
+                            )}
+                            <BaseTooltip.Arrow className="Tooltip__arrow" />
+                        </BaseTooltip.Popup>
+                    </BaseTooltip.Positioner>
+                </BaseTooltip.Portal>
+            )}
         </BaseTooltip.Root>
     )
 }

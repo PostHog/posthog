@@ -59,21 +59,23 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     // TODO: Sort out title offset
     return (
         <>
-            <div className="flex justify-between items-center">
-                <LemonLabel>Query Steps</LemonLabel>
+            {!editorPanelsEnabled && (
+                <div className="flex justify-between items-center">
+                    <LemonLabel>Query Steps</LemonLabel>
 
-                {(querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow && (
-                    <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
-                        <div className="flex items-center gap-2">
-                            <span className="text-secondary">Graph type</span>
-                            <FunnelVizType insightProps={insightProps} />
-                        </div>
-                    </Tooltip>
-                )}
-            </div>
+                    {(querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow && (
+                        <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
+                            <div className="flex items-center gap-2">
+                                <span className="text-secondary">Graph type</span>
+                                <FunnelVizType insightProps={insightProps} />
+                            </div>
+                        </Tooltip>
+                    )}
+                </div>
+            )}
             <div className="FunnelsQuerySteps">
                 <ActionFilter
-                    bordered
+                    bordered={!editorPanelsEnabled}
                     filters={actionFilters}
                     setFilters={setActionFilters}
                     typeKey={keyForInsightLogicProps('new')(insightProps)}

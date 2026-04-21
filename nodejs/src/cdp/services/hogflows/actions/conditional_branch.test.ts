@@ -141,5 +141,21 @@ describe('action.conditional_branch', () => {
                 nextAction: findActionById(invocation.hogFlow, 'condition_2'),
             })
         })
+
+        it('should execute the first matching branch when multiple conditions match', async () => {
+            action.config.conditions = [
+                {
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, // Match
+                },
+                {
+                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters, // Also matches (always true)
+                },
+            ]
+
+            const result = await checkConditions(invocation, action)
+            expect(result).toEqual({
+                nextAction: findActionById(invocation.hogFlow, 'condition_1'),
+            })
+        })
     })
 })

@@ -15,6 +15,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Actions](./references/models-actions.md)
 - [Alerts](./references/models-alerts.md)
 - [Annotations](./references/models-annotations.md)
+- [Batch exports](./references/models-batch-exports.md)
 - [Early Access Features](./references/models-early-access-features.md)
 - [Cohorts & Persons](./references/models-cohorts.md)
 - [Dashboards, Tiles & Insights](./references/models-dashboards-insights.md)
@@ -24,7 +25,12 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Flags & Experiments](./references/models-flags-experiments.md)
 - [Hog Flows](./references/models-hog-flows.md)
 - [Hog Functions](./references/models-hog-functions.md)
+- [Integrations](./references/models-integrations.md)
+- [Logs](./references/models-logs.md)
 - [Notebooks](./references/models-notebooks.md)
+- [Session Recording Playlists](./references/models-session-recording-playlists.md)
+- [Session Recordings](./references/models-session-recordings.md)
+- [Support Tickets](./references/models-support-tickets.md)
 - [Surveys](./references/models-surveys.md)
 - [SQL Variables](./references/models-variables.md)
 - [Skipped events in the read-data-schema tool](./references/taxonomy-skipped-events.md)
@@ -32,6 +38,7 @@ Schema reference for PostHog's core system models, organized by domain:
 
 ## HogQL References
 
+- [Person property modes (event-time vs query-time)](./references/person-property-modes.md). Read when working with `person.properties.*` to understand if values are historical or current.
 - [Sparkline, SemVer, Session replays, Actions, Translation, HTML tags and links, Text effects, and more](./references/hogql-extensions.md)
 - [SQL variables](./references/models-variables.md).
 - [Available functions in HogQL](./references/available-functions.md). IMPORTANT: the list is long, so read data using bash commands like grep.

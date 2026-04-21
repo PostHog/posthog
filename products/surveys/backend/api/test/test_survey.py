@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from freezegun.api import freeze_time
@@ -131,13 +131,15 @@ class TestSurvey(APIBaseTest):
         survey = Survey.objects.get(id=response.json()["id"])
 
         # Verify survey-level translations
+        assert survey.translations is not None
         assert survey.translations["es"]["name"] == "Encuesta de comentarios"
         assert survey.translations["fr"]["name"] == "Enquête de satisfaction"
 
         # Verify inline question translations
-        assert survey.questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
-        assert survey.questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
-        assert survey.questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
+        questions = cast(list[dict[str, Any]], survey.questions)
+        assert questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
+        assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
+        assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
 
     def test_can_create_survey_without_translations(self):
         response = self.client.post(
@@ -153,7 +155,8 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         survey = Survey.objects.get(id=response.json()["id"])
         assert survey.translations is None
-        assert "translations" not in survey.questions[0]
+        questions = cast(list[dict[str, Any]], survey.questions)
+        assert "translations" not in questions[0]
 
     def test_can_remove_survey_translations(self):
         create_response = self.client.post(
@@ -316,6 +319,42 @@ class TestSurvey(APIBaseTest):
         assert "<b>Opción A</b>" in q2_es["choices"][0]
         assert "<script>" not in q2_es["choices"][1]
         assert "Opción B" in q2_es["choices"][1]
+
+    def test_question_fields_sanitize_all_top_level_translatable_fields(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "rating",
+                        "question": "<i>Rate us</i><script>xss()</script>",
+                        "description": "<b>Please rate</b><script>bad()</script>",
+                        "buttonText": "<strong>Submit</strong><script>evil()</script>",
+                        "lowerBoundLabel": "<em>Bad</em><script>x()</script>",
+                        "upperBoundLabel": "<u>Good</u><script>y()</script>",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        survey = Survey.objects.get(id=response.json()["id"])
+        assert survey.questions is not None
+
+        question = survey.questions[0]
+        assert "<i>Rate us</i>" in question["question"]
+        assert "<script>" not in question["question"]
+        assert "<b>Please rate</b>" in question["description"]
+        assert "<script>" not in question["description"]
+        assert "<strong>Submit</strong>" in question["buttonText"]
+        assert "<script>" not in question["buttonText"]
+        assert "<em>Bad</em>" in question["lowerBoundLabel"]
+        assert "<script>" not in question["lowerBoundLabel"]
+        assert "<u>Good</u>" in question["upperBoundLabel"]
+        assert "<script>" not in question["upperBoundLabel"]
 
     def test_translated_link_validation(self):
         # Test invalid URL scheme in translated link
@@ -520,6 +559,7 @@ class TestSurvey(APIBaseTest):
             },
         )
         survey = Survey.objects.get(id=response_data["id"])
+        assert survey.internal_targeting_flag is not None
         assert survey.internal_targeting_flag.active is True
 
     def test_adding_iterations_to_existing_survey_updates_internal_targeting_flag(self):
@@ -2034,9 +2074,14 @@ class TestSurvey(APIBaseTest):
     def test_options_unauthenticated(self):
         unauthenticated_client = Client(enforce_csrf_checks=True)
         unauthenticated_client.logout()
-        request_headers = {"HTTP_ACCESS_CONTROL_REQUEST_METHOD": "GET", "HTTP_ORIGIN": "*", "USER_AGENT": "Agent 008"}
         response = unauthenticated_client.options(
-            "/api/surveys", data={}, follow=False, secure=False, headers={}, **request_headers
+            "/api/surveys",
+            data={},
+            follow=False,
+            secure=False,
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="GET",
+            HTTP_ORIGIN="*",
+            USER_AGENT="Agent 008",
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
@@ -4875,6 +4920,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             name="Partial Response Survey",
             type="popover",
             questions=[{"type": "open", "question": "How are you?"}],
+            start_date=datetime(2024, 6, 10, 8, 0, 0, tzinfo=UTC),
             enable_partial_responses=True,  # Enable partial responses
         )
         sub_id_1 = str(uuid.uuid4())
@@ -4991,6 +5037,40 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         # (Unique persons dismissed / Unique persons shown) * 100 = (1 / 3) * 100 = 33.33
         self.assertEqual(rates_reassigned["dismissal_rate"], 33.33)
 
+    @freeze_time("2024-06-10 10:00:00")
+    def test_survey_stats_uses_created_at_when_start_date_is_missing(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Created At Fallback Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "How are you?"}],
+        )
+        user = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id=user.distinct_ids[0],
+            timestamp="2024-06-09 23:59:00",
+            properties={"$survey_id": str(survey.id)},
+        )
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id=user.distinct_ids[0],
+            timestamp="2024-06-10 10:01:00",
+            properties={"$survey_id": str(survey.id)},
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data["stats"]["survey sent"]["total_count"], 1)
+        self.assertEqual(data["stats"]["survey sent"]["unique_persons"], 1)
+
     @freeze_time("2024-05-01 12:00:00")
     def test_survey_stats_excludes_archived_responses(self):
         survey = Survey.objects.create(
@@ -4998,6 +5078,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             name="Archive Test Survey",
             type="popover",
             questions=[{"type": "open", "question": "What?"}],
+            start_date=datetime(2024, 5, 1, 9, 0, 0, tzinfo=UTC),
         )
 
         response_uuid = str(uuid.uuid4())

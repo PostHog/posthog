@@ -27,6 +27,17 @@ tools:
         exclude_params:
             - format
             - properties
+        response:
+            include:
+                - id
+                - uuid
+                - name
+                - distinct_ids
+                - properties.email
+                - properties.$email
+                - properties.$geoip_country_code
+                - created_at
+                - last_seen_at
     persons-retrieve:
         operation: persons_retrieve
         enabled: true
@@ -42,6 +53,15 @@ tools:
             Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.
         exclude_params:
             - format
+        response:
+            include:
+                - id
+                - uuid
+                - name
+                - properties
+                - distinct_ids
+                - created_at
+                - last_seen_at
     persons-update:
         operation: persons_update
         enabled: false
@@ -144,9 +164,6 @@ tools:
     persons-reset-person-distinct-id-create:
         operation: persons_reset_person_distinct_id_create
         enabled: false
-    persons-stickiness-retrieve:
-        operation: persons_stickiness_retrieve
-        enabled: false
     persons-trends-retrieve:
         operation: persons_trends_retrieve
         enabled: false
@@ -171,4 +188,7 @@ tools:
         enabled: false
     persons-batch-by-uuids-create:
         operation: persons_batch_by_uuids_create
+        enabled: false
+    persons-deletion-status-list:
+        operation: persons_deletion_status_list
         enabled: false

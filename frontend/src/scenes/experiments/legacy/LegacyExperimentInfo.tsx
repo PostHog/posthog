@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
+import { IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -21,9 +21,8 @@ import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { StatusTag } from '../ExperimentView/components'
-import { StatsMethodModal } from '../ExperimentView/StatsMethodModal'
-import { modalsLogic } from '../modalsLogic'
 import { LegacyExperimentDates } from './LegacyExperimentDates'
+import { legacyExperimentModalsLogic } from './legacyExperimentModalsLogic'
 
 export const ExperimentLastRefresh = ({
     isRefreshing,
@@ -79,14 +78,13 @@ export function LegacyExperimentInfo(): JSX.Element | null {
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
         statsMethod,
-        usesNewQueryRunner,
         isSingleVariantShipped,
         shippedVariantKey,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
-    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
-        useActions(modalsLogic)
-    const { isDescriptionModalOpen } = useValues(modalsLogic)
+    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal } =
+        useActions(legacyExperimentModalsLogic)
+    const { isDescriptionModalOpen } = useValues(legacyExperimentModalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
@@ -169,20 +167,6 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                         <Label intent="menu">Stats Engine</Label>
                         <div className="inline-flex deprecated-space-x-2">
                             <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
-                            {usesNewQueryRunner && (
-                                <>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        onClick={() => {
-                                            openStatsEngineModal()
-                                        }}
-                                        icon={<IconGear />}
-                                        tooltip="Change stats engine"
-                                    />
-                                    <StatsMethodModal />
-                                </>
-                            )}
                         </div>
                     </div>
                 </div>

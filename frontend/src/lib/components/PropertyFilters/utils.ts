@@ -44,6 +44,7 @@ import {
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SpanPropertyFilter,
+    WorkflowVariablePropertyFilter,
 } from '~/types'
 
 export function isPropertyGroup(
@@ -308,6 +309,11 @@ export function isFlagPropertyFilter(filter?: AnyFilterLike | null): filter is F
 export function isHogQLPropertyFilter(filter?: AnyFilterLike | null): filter is HogQLPropertyFilter {
     return filter?.type === PropertyFilterType.HogQL
 }
+export function isWorkflowVariablePropertyFilter(
+    filter?: AnyFilterLike | null
+): filter is WorkflowVariablePropertyFilter {
+    return filter?.type === PropertyFilterType.WorkflowVariable
+}
 
 export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is AnyPropertyFilter {
     return (
@@ -345,7 +351,8 @@ export function isPropertyFilterWithOperator(
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | LogPropertyFilter
-    | SpanPropertyFilter {
+    | SpanPropertyFilter
+    | WorkflowVariablePropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
@@ -364,7 +371,8 @@ export function isPropertyFilterWithOperator(
             isDataWarehousePersonPropertyFilter(filter) ||
             isErrorTrackingIssuePropertyFilter(filter) ||
             isLogPropertyFilter(filter) ||
-            isSpanPropertyFilter(filter))
+            isSpanPropertyFilter(filter) ||
+            isWorkflowVariablePropertyFilter(filter))
     )
 }
 

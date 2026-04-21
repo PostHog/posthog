@@ -1,5 +1,5 @@
 #!/usr/bin/env ts-node
-;['.scss', '.css', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.lottie'].forEach((ext) => {
+;['.scss', '.css', '.svg', '.png', '.jpg', '.jpeg', '.gif'].forEach((ext) => {
     require.extensions[ext] = () => {}
 })
 

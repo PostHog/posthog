@@ -2,11 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
 
+import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 
 import { SubscriptionType } from '~/types'
@@ -18,9 +20,17 @@ interface SubscriptionListItemProps {
     subscription: SubscriptionType
     onClick: () => void
     onDelete?: () => void
+    onDeliver?: () => void
+    isDelivering?: boolean
 }
 
-export function SubscriptionListItem({ subscription, onClick, onDelete }: SubscriptionListItemProps): JSX.Element {
+export function SubscriptionListItem({
+    subscription,
+    onClick,
+    onDelete,
+    onDeliver,
+    isDelivering,
+}: SubscriptionListItemProps): JSX.Element {
     const selectedInsightsCount = subscription.dashboard_export_insights?.length
 
     return (
@@ -30,11 +40,21 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
             data-attr="subscription-list-item"
             fullWidth
             sideAction={{
-                icon: <IconEllipsis />,
-
+                icon: isDelivering ? <Spinner /> : <IconEllipsis />,
+                disabled: isDelivering,
                 dropdown: {
                     overlay: (
                         <>
+                            {onDeliver && (
+                                <LemonButton
+                                    onClick={onDeliver}
+                                    data-attr="subscription-list-item-manual-deliver"
+                                    fullWidth
+                                    disabled={isDelivering}
+                                >
+                                    Test delivery
+                                </LemonButton>
+                            )}
                             {onDelete && (
                                 <LemonButton
                                     onClick={onDelete}
@@ -42,7 +62,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                                     status="danger"
                                     fullWidth
                                 >
-                                    Delete Subscription
+                                    Delete subscription
                                 </LemonButton>
                             )}
                         </>
@@ -59,6 +79,11 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                             ? ` · ${pluralize(selectedInsightsCount, 'insight', 'insights', true)}`
                             : null}
                     </div>
+                    {subscription.next_delivery_date ? (
+                        <div className="text-xs text-secondary">
+                            Next delivery: {dayjs(subscription.next_delivery_date).format('ddd, MMM D [at] HH:mm')}
+                        </div>
+                    ) : null}
                 </div>
                 {subscription.target_type === 'email' ? (
                     <ProfileBubbles
@@ -88,8 +113,8 @@ export function ManageSubscriptions({
         dashboardId,
     })
 
-    const { subscriptions, subscriptionsLoading } = useValues(logic)
-    const { deleteSubscription } = useActions(logic)
+    const { subscriptions, subscriptionsLoading, deliveringSubscriptionId } = useValues(logic)
+    const { deleteSubscription, deliverSubscription } = useActions(logic)
 
     const subscriptionResourceNoun = !insightShortId && dashboardId ? 'dashboard' : 'insight'
 
@@ -119,6 +144,8 @@ export function ManageSubscriptions({
                                     subscription={sub}
                                     onClick={() => onSelect(sub.id)}
                                     onDelete={() => deleteSubscription(sub.id)}
+                                    onDeliver={() => deliverSubscription(sub.id)}
+                                    isDelivering={deliveringSubscriptionId === sub.id}
                                 />
                             ))}
                         </div>

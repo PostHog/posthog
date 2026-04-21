@@ -80,7 +80,16 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         "source": {
                             "kind": "TrendsQuery",
                             "series": [
-                                {"kind": "EventsNode", "math": "dau", "name": "$pageview", "event": "$pageview"}
+                                {
+                                    "kind": "GroupNode",
+                                    "operator": "OR",
+                                    "nodes": [
+                                        {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"},
+                                        {"kind": "EventsNode", "event": "$screen", "name": "$screen"},
+                                    ],
+                                    "math": "dau",
+                                    "name": "Pageview or screen",
+                                }
                             ],
                             "interval": "day",
                             "dateRange": {"date_from": "-30d", "explicitDate": False},
@@ -103,7 +112,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3},
                     },
-                    "description": "Shows the number of unique users that use your app every day.",
+                    "description": "Shows the number of unique users that view a page or screen in your app every day.",
                 },
                 {
                     "name": "Weekly active users (WAUs)",
@@ -114,7 +123,16 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         "source": {
                             "kind": "TrendsQuery",
                             "series": [
-                                {"kind": "EventsNode", "math": "dau", "name": "$pageview", "event": "$pageview"}
+                                {
+                                    "kind": "GroupNode",
+                                    "operator": "OR",
+                                    "nodes": [
+                                        {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"},
+                                        {"kind": "EventsNode", "event": "$screen", "name": "$screen"},
+                                    ],
+                                    "math": "dau",
+                                    "name": "Pageview or screen",
+                                }
                             ],
                             "interval": "week",
                             "dateRange": {"date_from": "-90d", "explicitDate": False},
@@ -137,7 +155,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3},
                     },
-                    "description": "Shows the number of unique users that use your app every week.",
+                    "description": "Shows the number of unique users that view a page or screen in your app every week.",
                 },
                 {
                     "name": "Retention",
@@ -163,7 +181,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3},
                     },
-                    "description": "Weekly retention of your users.",
+                    "description": "Weekly retention of your users based on pageviews.",
                 },
                 {
                     "name": "Growth accounting",
@@ -185,7 +203,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3},
                     },
-                    "description": "How many of your users are new, returning, resurrecting, or dormant each week.",
+                    "description": "How many of your users are new, returning, resurrecting, or dormant each week based on pageviews.",
                 },
                 {
                     "name": "Referring domain (last 14 days)",
@@ -219,7 +237,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 20, "minH": 5, "minW": 3},
                     },
-                    "description": "Shows the most common referring domains for your users over the past 14 days.",
+                    "description": "Shows the most common referring domains for your users over the past 14 days. Pageviews only.",
                 },
                 {
                     "name": "Pageview funnel, by browser",
@@ -270,7 +288,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
                         "xs": {"h": 5, "w": 1, "x": 0, "y": 25, "minH": 5, "minW": 3},
                     },
-                    "description": "This example funnel shows how many of your users have completed 3 page views, broken down by browser.",
+                    "description": "This example funnel shows how many of your users have completed 3 page views, broken down by browser. Pageviews only.",
                 },
             ],
             tags=[],

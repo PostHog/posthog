@@ -110,6 +110,72 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["actions"] == [trigger_action_expectation]
         assert response.json()["trigger"] == trigger_action_expectation["config"]
 
+    def _make_delay_flow(self, delay_config: dict, status: Optional[str] = "active") -> dict:
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        delay_action = {"id": "d1", "name": "d1", "type": "delay", "config": delay_config}
+        flow: dict = {"name": "Test Flow", "actions": [trigger_action, delay_action]}
+        if status is not None:
+            flow["status"] = status
+        return flow
+
+    @parameterized.expand(
+        [
+            ("missing_delay_duration", {}),
+            ("null_delay_duration", {"delay_duration": None}),
+            ("numeric_delay_duration", {"delay_duration": 1800}),
+            ("seconds_as_input_shape", {"inputs": {"duration": {"value": 1800}}}),
+            ("iso_8601_duration", {"delay_duration": "P30D"}),
+            ("unit_and_duration_shape", {"unit": "days", "duration": 3}),
+            ("unsupported_unit", {"delay_duration": "30s"}),
+            ("empty_string", {"delay_duration": ""}),
+        ]
+    )
+    def test_hog_flow_delay_validation_rejects_malformed_config(self, _name, bad_config):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_delay_flow(bad_config))
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": (
+                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
+                "(e.g. '30m', '2h', '1d'). Seconds and ISO-8601 formats are not supported."
+            ),
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("minutes", "30m"),
+            ("hours", "2h"),
+            ("days", "1d"),
+            ("fractional", "1.5h"),
+        ]
+    )
+    def test_hog_flow_delay_validation_accepts_canonical_config(self, _name, delay_duration):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"delay_duration": delay_duration}),
+        )
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_delay_validation_lenient_for_drafts(self):
+        # status omitted defaults to draft; draft mode lets users save WIP with invalid configs
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_delay_flow({"inputs": {"duration": {"value": 1800}}}, status=None),
+        )
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_function_validation(self):
         hog_flow, action = self._create_hog_flow_with_action(
             {
@@ -636,7 +702,9 @@ class TestHogFlowAPI(APIBaseTest):
 
     def test_hog_flow_user_blast_radius_returns_counts(self):
         with patch("posthog.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
-            mock_get_user_blast_radius.return_value = (4, 10)
+            from posthog.models.feature_flag.user_blast_radius import BlastRadiusResult
+
+            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=4, total=10)
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
@@ -644,7 +712,7 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 200, response.json()
-        assert response.json() == {"users_affected": 4, "total_users": 10}
+        assert response.json() == {"affected": 4, "total": 10}
 
     def test_billable_action_types_computed_correctly(self):
         """Test that billable_action_types is computed correctly and cannot be overridden by clients"""
@@ -1391,3 +1459,56 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["deleted"] == 0
         assert HogFlow.objects.filter(id=flow_id).exists()
+
+    def _base_hog_flow_with_variables(self, variables):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        return {
+            "name": "Test Flow",
+            "actions": [trigger_action],
+            "variables": variables,
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "unique_keys_accepted",
+                [{"key": "name", "value": ""}, {"key": "email", "value": ""}],
+                201,
+                None,
+            ),
+            (
+                "duplicate_keys_rejected",
+                [{"key": "name", "value": ""}, {"key": "name", "value": "other"}],
+                400,
+                "Variable keys must be unique",
+            ),
+            (
+                "exceeding_5kb_rejected",
+                [{"key": f"var_{i}", "value": "x" * 1000} for i in range(6)],
+                400,
+                "Total size of variables definition must be less than 5KB",
+            ),
+            (
+                "just_under_5kb_accepted",
+                [{"key": f"v_{i:02d}", "value": "x" * 1200} for i in range(4)],
+                201,
+                None,
+            ),
+        ]
+    )
+    def test_variables_validation(self, _name, variables, expected_status, expected_error):
+        hog_flow = self._base_hog_flow_with_variables(variables)
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == expected_status, response.json()
+        if expected_error:
+            assert response.json()["detail"] == expected_error

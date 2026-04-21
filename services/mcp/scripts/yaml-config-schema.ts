@@ -21,6 +21,8 @@ export const ToolConfigSchema = z
             .strict()
             .optional(),
         input_schema: z.string().optional(),
+        /** Optional TypeScript type expression used for the generated handler return type and request generic. */
+        response_type: z.string().optional(),
         enrich_url: z.string().optional(),
         list: z.boolean().optional(),
         title: z.string().optional(),
@@ -35,9 +37,32 @@ export const ToolConfigSchema = z
                 z
                     .object({
                         description: z.string().optional(),
+                        /** Override the default value for this parameter. The field becomes optional with `.default(value)`. */
+                        default: z.unknown().optional(),
                         input_schema: z.string().optional(),
+                        /** Reference to a schema.json definition. Generates a Zod schema from JSON Schema at build time. */
+                        schema_ref: z.string().optional(),
+                        /** Properties to exclude when generating from schema_ref. */
+                        exclude_properties: z.array(z.string()).optional(),
+                        /**
+                         * When true, the param becomes optional in the tool schema.
+                         * Must be paired with `fallback` to specify the state key used
+                         * to resolve the value when the caller omits it.
+                         */
+                        optional: z.boolean().optional(),
+                        /**
+                         * State manager key to resolve the param from when omitted.
+                         * Supported keys: 'orgId' (→ getOrgID()), 'projectId' (→ getProjectId()).
+                         */
+                        fallback: z.enum(['orgId', 'projectId']).optional(),
                     })
                     .strict()
+                    .refine((data) => !(data.input_schema && data.schema_ref), {
+                        message: 'input_schema and schema_ref are mutually exclusive',
+                    })
+                    .refine((data) => !(data.optional && !data.fallback), {
+                        message: 'optional requires a fallback key to resolve the value from state',
+                    })
             )
             .optional(),
         mcp_version: z.number().int().positive().optional(),
@@ -62,6 +87,43 @@ export const ToolConfigSchema = z
          * the request body still sends the original field name.
          */
         rename_params: z.record(z.string(), z.string()).optional(),
+        /**
+         * PostHog feature flag key that controls whether this tool is exposed.
+         * When set, the tool is only included (or excluded) based on the flag's
+         * evaluation for the current user.
+         *
+         * By default (`feature_flag_behavior: 'enable'`), the tool is only shown
+         * when the flag is **on**. Set `feature_flag_behavior: 'disable'` to hide
+         * the tool when the flag is on (useful for sunsetting old tools).
+         */
+        feature_flag: z.string().optional(),
+        /**
+         * Controls how `feature_flag` gates the tool:
+         * - `'enable'` (default): tool is shown only when the flag is on.
+         * - `'disable'`: tool is hidden when the flag is on.
+         */
+        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        /**
+         * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
+         * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
+         */
+        /**
+         * Override the category-level URL prefix for `_posthogUrl` enrichment.
+         * Useful when a single category YAML covers tools that link to different frontend pages.
+         */
+        url_prefix: z.string().optional(),
+        response: z
+            .object({
+                /** Dot-path patterns of response fields to keep. Only matched fields are preserved. */
+                include: z.array(z.string()).optional(),
+                /** Dot-path patterns of response fields to remove. */
+                exclude: z.array(z.string()).optional(),
+            })
+            .strict()
+            .refine((data) => !(data.include?.length && data.exclude?.length), {
+                message: 'response.include and response.exclude are mutually exclusive',
+            })
+            .optional(),
     })
     .strict()
     .refine(
@@ -227,28 +289,9 @@ export const TOOL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 /** Feature identifiers must be lowercase snake_case: letters, digits, underscores. */
 export const FEATURE_NAME_PATTERN = /^[a-z][a-z0-9_]*$/
 
-export const CategoryConfigSchema = z
-    .object({
-        category: z.string(),
-        feature: z.string().regex(FEATURE_NAME_PATTERN, 'Feature must be lowercase snake_case: [a-z0-9_]'),
-        url_prefix: z.string(),
-        tools: z.record(
-            z
-                .string()
-                .regex(
-                    TOOL_NAME_PATTERN,
-                    'Tool name must be lowercase kebab-case: [a-z0-9-], no leading/trailing hyphens'
-                ),
-            ToolConfigSchema
-        ),
-        ui_apps: z.record(z.string(), UiAppConfigSchema).optional(),
-    })
-    .strict()
-
-export type CategoryConfig = z.infer<typeof CategoryConfigSchema>
-
 // ------------------------------------------------------------------
 // Query wrapper config — tools generated from frontend/src/queries/schema.json
+// Defined before CategoryConfigSchema so it can be referenced there.
 // ------------------------------------------------------------------
 
 export const QueryWrapperToolConfigSchema = z
@@ -275,6 +318,27 @@ export const QueryWrapperToolConfigSchema = z
         exclude_properties: z.array(z.string()).optional(),
         /** Return JSON instead of TOON-encoded text. */
         response_format: z.enum(['json']).optional(),
+        /**
+         * Default values for properties that are required in the schema but should
+         * be optional for the agent. The Zod schema gets `.default(value).optional()`.
+         */
+        property_defaults: z.record(z.string(), z.unknown()).optional(),
+        /**
+         * Override the URL enrichment prefix. When set, `_posthogUrl` uses
+         * `{baseUrl}{url_prefix}` instead of the default `/insights/new#q=...`.
+         */
+        url_prefix: z.string().optional(),
+        /**
+         * PostHog feature flag key that controls whether this tool is exposed.
+         * See ToolConfigSchema.feature_flag for full documentation.
+         */
+        feature_flag: z.string().optional(),
+        /**
+         * Controls how `feature_flag` gates the tool:
+         * - `'enable'` (default): tool is shown only when the flag is on.
+         * - `'disable'`: tool is hidden when the flag is on.
+         */
+        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {
@@ -297,3 +361,30 @@ export const QueryWrappersConfigSchema = z
     .strict()
 
 export type QueryWrappersConfig = z.infer<typeof QueryWrappersConfigSchema>
+
+// ------------------------------------------------------------------
+// Category config — the top-level schema for product tools.yaml files.
+// Supports both REST tools (via OpenAPI) and query wrappers (via schema.json).
+// ------------------------------------------------------------------
+
+export const CategoryConfigSchema = z
+    .object({
+        category: z.string(),
+        feature: z.string().regex(FEATURE_NAME_PATTERN, 'Feature must be lowercase snake_case: [a-z0-9_]'),
+        url_prefix: z.string(),
+        tools: z.record(
+            z
+                .string()
+                .regex(
+                    TOOL_NAME_PATTERN,
+                    'Tool name must be lowercase kebab-case: [a-z0-9-], no leading/trailing hyphens'
+                ),
+            ToolConfigSchema
+        ),
+        ui_apps: z.record(z.string(), UiAppConfigSchema).optional(),
+        /** Query wrapper tools generated from schema.json, co-located with REST tools in the same file. */
+        wrappers: z.record(z.string(), QueryWrapperToolConfigSchema).optional(),
+    })
+    .strict()
+
+export type CategoryConfig = z.infer<typeof CategoryConfigSchema>

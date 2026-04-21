@@ -15,11 +15,15 @@ import type { actionLogicType } from './actionLogicType'
 
 export interface ActionLogicProps {
     id: ActionType['id']
+    tabId?: string
 }
 
 export const actionLogic = kea<actionLogicType>([
     props({} as ActionLogicProps),
-    key((props) => props.id || 'new'),
+    // Key by tabId AND id so each tab preserves its own mounted scene-logic instance across
+    // tab switches. The scene-logic cache keeps this instance alive while another tab is
+    // active, which in turn keeps the held actionEditLogic alive (and its form state intact).
+    key((props) => `${props.tabId || 'notab'}:${props.id || 'new'}`),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
@@ -76,6 +80,7 @@ export const actionLogic = kea<actionLogicType>([
         ],
     })),
     selectors({
+        tabId: [() => [(_, p: ActionLogicProps) => p.tabId], (tabId): string | undefined => tabId],
         projectTreeRef: [(_, p) => [p.id], (id): ProjectTreeRef => ({ type: 'action', ref: String(id) })],
         hasCohortFilters: [
             (s) => [s.action],
@@ -88,7 +93,8 @@ export const actionLogic = kea<actionLogicType>([
             (s) => [
                 s.action,
                 (state, props) =>
-                    actionEditLogic.findMounted(String(props?.id || 'new'))?.selectors.action(state).name || null,
+                    actionEditLogic.findMounted({ tabId: props?.tabId, id: props?.id })?.selectors.action(state).name ||
+                    null,
             ],
             (action, inProgressName): Breadcrumb[] => [
                 {

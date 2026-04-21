@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
@@ -31,7 +32,13 @@ func testManager(t *testing.T, names ...string) *process.Manager {
 // cleaned up via t.Cleanup. Returns the socket path.
 func startServe(t *testing.T, mgr *process.Manager) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "test.sock")
+	// Use /tmp directly to keep socket paths under macOS's 104-byte limit
+	dir, err := os.MkdirTemp("/tmp", "phrocs-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "t.sock")
 	ln, err := Listen(path)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
@@ -286,6 +293,171 @@ func TestServe_invalidJSON(t *testing.T) {
 	const wantSubstr = "invalid JSON"
 	if !containsSubstr(errMsg, wantSubstr) {
 		t.Errorf("error %q does not contain %q", errMsg, wantSubstr)
+	}
+}
+
+func TestServe_sendKeys_unknownProcess(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "send-keys", "process": "nope", "keys": "y\n"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+	errMsg, _ := resp["error"].(string)
+	if !containsSubstr(errMsg, "process not found") {
+		t.Errorf("error %q does not contain 'process not found'", errMsg)
+	}
+}
+
+func TestServe_sendKeys_missingKeys(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "send-keys", "process": "web"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+	errMsg, _ := resp["error"].(string)
+	if !containsSubstr(errMsg, "missing keys") {
+		t.Errorf("error %q does not contain 'missing keys'", errMsg)
+	}
+}
+
+func TestServe_addProc(t *testing.T) {
+	mgr := testManager(t, "web")
+	// Set a no-op send so add-proc can notify the TUI
+	mgr.SetSend(func(tea.Msg) {})
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "add-proc", "process": "worker", "shell": "echo worker"})
+
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
+	}
+	// Verify the process was added
+	_, ok := mgr.Get("worker")
+	if !ok {
+		t.Error("process 'worker' should exist after add-proc")
+	}
+}
+
+func TestServe_addProc_duplicate(t *testing.T) {
+	mgr := testManager(t, "web")
+	mgr.SetSend(func(tea.Msg) {})
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "add-proc", "process": "web", "shell": "echo web"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+	errMsg, _ := resp["error"].(string)
+	if !containsSubstr(errMsg, "already exists") {
+		t.Errorf("error %q does not contain 'already exists'", errMsg)
+	}
+}
+
+func TestServe_addProc_missingFields(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "add-proc"})
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false for missing name", resp["ok"])
+	}
+
+	resp = send(t, path, map[string]any{"cmd": "add-proc", "process": "worker"})
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false for missing shell", resp["ok"])
+	}
+}
+
+func TestServe_removeProc(t *testing.T) {
+	mgr := testManager(t, "web", "worker")
+	mgr.SetSend(func(tea.Msg) {})
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "remove-proc", "process": "worker"})
+
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
+	}
+	_, ok := mgr.Get("worker")
+	if ok {
+		t.Error("process 'worker' should be removed after remove-proc")
+	}
+}
+
+func TestServe_removeProc_unknown(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "remove-proc", "process": "nope"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+	errMsg, _ := resp["error"].(string)
+	if !containsSubstr(errMsg, "process not found") {
+		t.Errorf("error %q does not contain 'process not found'", errMsg)
+	}
+}
+
+func TestServe_focus(t *testing.T) {
+	mgr := testManager(t, "web", "worker")
+	var focused string
+	mgr.SetSend(func(msg tea.Msg) {
+		if fm, ok := msg.(process.FocusMsg); ok {
+			focused = fm.Name
+		}
+	})
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "focus", "process": "worker"})
+
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
+	}
+	if focused != "worker" {
+		t.Errorf("FocusMsg name: got %q, want %q", focused, "worker")
+	}
+}
+
+func TestServe_focus_unknown(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "focus", "process": "nope"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+}
+
+func TestServe_toggleProc_unknown(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "toggle-proc", "process": "nope"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+}
+
+func TestServe_toggleProc_stoppedProcess(t *testing.T) {
+	mgr := testManager(t, "web")
+	mgr.SetSend(func(tea.Msg) {})
+	path := startServe(t, mgr)
+
+	// Process starts as stopped; toggle should succeed (attempts to start it)
+	resp := send(t, path, map[string]any{"cmd": "toggle-proc", "process": "web"})
+
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
 	}
 }
 

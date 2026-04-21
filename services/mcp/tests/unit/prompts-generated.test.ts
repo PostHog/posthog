@@ -24,8 +24,16 @@ describe('Generated prompt tools', () => {
         const tool = getToolByName(GENERATED_TOOLS, 'prompt-get')
 
         const parsed = tool.schema.parse({ prompt_name: 'checkout_prompt', version: 2 })
-        expect(parsed).toEqual({ prompt_name: 'checkout_prompt', version: 2 })
+        expect(parsed).toEqual({ prompt_name: 'checkout_prompt', version: 2, content: 'full' })
         expect(() => tool.schema.parse({ name: 'checkout_prompt' })).toThrow()
+    })
+
+    it('exposes content mode on the prompt-get schema so agents can fetch outline-only', () => {
+        const tool = getToolByName(GENERATED_TOOLS, 'prompt-get')
+
+        const parsed = tool.schema.parse({ prompt_name: 'checkout_prompt', content: 'none' })
+        expect(parsed).toEqual({ prompt_name: 'checkout_prompt', content: 'none' })
+        expect(() => tool.schema.parse({ prompt_name: 'checkout_prompt', content: 'bogus' })).toThrow()
     })
 
     it('uses prompt_name (not name) in generated prompt-update schema', () => {
@@ -46,6 +54,7 @@ describe('Generated prompt tools', () => {
                     id: '2f53a52a-06f5-4025-9ea7-f763f74f17f5',
                     name: 'checkout_prompt',
                     version: 3,
+                    prompt_size_bytes: 123,
                 },
             ],
         }
@@ -57,9 +66,22 @@ describe('Generated prompt tools', () => {
         expect(requestMock).toHaveBeenCalledWith({
             method: 'GET',
             path: '/api/environments/17/llm_prompts/',
-            query: { search: 'checkout' },
+            query: { search: 'checkout', content: 'none' },
         })
         expect(result).toEqual(paginated)
+    })
+
+    it('allows overriding prompt-list content mode', async () => {
+        const { context, requestMock } = createContext({ count: 0, next: null, previous: null, results: [] })
+        const tool = getToolByName(GENERATED_TOOLS, 'prompt-list')
+
+        await tool.handler(context, { search: 'checkout', content: 'preview' })
+
+        expect(requestMock).toHaveBeenCalledWith({
+            method: 'GET',
+            path: '/api/environments/17/llm_prompts/',
+            query: { search: 'checkout', content: 'preview' },
+        })
     })
 
     it('wires prompt-get to GET /name/{prompt_name}/ with version query', async () => {

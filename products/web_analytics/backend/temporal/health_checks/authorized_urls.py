@@ -13,6 +13,8 @@ class AuthorizedUrlsCheck(HealthCheck):
     kind = "authorized_urls"
     owner = JobOwners.TEAM_WEB_ANALYTICS
     policy = DEFAULT_EXECUTION_POLICY
+    schedule = "15 8 * * *"
+    active_since_days = 30
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         teams_missing_urls = (

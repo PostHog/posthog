@@ -115,7 +115,7 @@ function isErrorMessage(message: ThreadMessage): boolean {
 }
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
-    const { conversationLoading, conversationId } = useValues(maxLogic)
+    const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
@@ -137,7 +137,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
-            {conversationLoading && threadGrouped.length === 0 ? (
+            {(conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />

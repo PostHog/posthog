@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
 import { urls } from 'scenes/urls'
@@ -21,6 +22,7 @@ export interface InsightSceneHeaderProps {
 export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProps): JSX.Element {
     const { insightMode, hasOverrides, freshQuery } = useValues(insightSceneLogic)
     const { showDebugPanel } = useValues(insightDataLogic(insightLogicProps))
+    const { insight } = useValues(insightLogic(insightLogicProps))
     const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
     const insightId = insightLogicProps.dashboardItemId
 
@@ -52,9 +54,9 @@ export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProp
                     <InsightsNav />
                 ))}
 
-            {showDebugPanel && (
+            {showDebugPanel && insight?.id && (
                 <div className="mb-4">
-                    <DebugCHQueries insightId={insightLogicProps.cachedInsight?.id} />
+                    <DebugCHQueries insightId={insight.id} />
                 </div>
             )}
 

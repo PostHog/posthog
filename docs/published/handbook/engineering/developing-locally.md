@@ -136,6 +136,12 @@ To get PostHog running in a dev environment:
 
 3. After successful environment activation, run `hogli start`. This launches the Docker infrastructure and all PostHog processes together via phrocs, a terminal UI that aggregates logs from all processes in one place.
 
+   > Note on connection errors: If you see connection errors on `hogli start`, ensure the following entry exists in `/etc/hosts`:
+   >
+   > ```text
+   > 127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal
+   > ```
+
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
 You can now change PostHog in any way you want. See [Project structure](./project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
@@ -203,32 +209,9 @@ If you get `Configuration property "enable.ssl.certificate.verification" not sup
 **pyproject.toml parse warnings**
 When running `uv sync`, you may see a `Failed to parse` warning related to `pyproject.toml`. This is usually harmless – if you see the `Activate with:` line at the end, your environment was created successfully.
 
-## Option 2: Developing with Codespaces
+## Option 2: Developing with Coder workspaces (PostHog employees only)
 
-This is a faster option to get up and running if you can't or don't want to set up locally.
-GitHub Codespaces gives you a cloud-hosted dev environment with all dependencies pre-installed.
-
-### Creating a codespace
-
-1. Go to the [PostHog repository](https://github.com/PostHog/posthog) and click **Code > Codespaces > New codespace**.
-2. Select at least the **8-core** machine type — smaller sizes don't have enough resources.
-3. Wait for the codespace to build. The devcontainer installs all system dependencies, Python/Node packages, Docker infrastructure, and runs database migrations automatically. This takes a while on first creation but is cached for subsequent starts.
-4. Once the codespace is ready, open a terminal and run `hogli start`.
-5. Open your browser to the forwarded port for **PostHog (proxy)** (port 8010).
-
-### How it works
-
-The devcontainer lifecycle scripts handle everything automatically:
-
-- **on-create** (`on-create.sh`) — installs Python/Node dependencies, pulls Docker images, starts infrastructure, runs migrations. This only runs once when the codespace is first created.
-- **update-content** (`update-content.sh`) — re-syncs dependencies and rebuilds if the branch changes (e.g. during a prebuild update).
-- **post-create** (`post-create.sh`) — final setup after creation (hogli symlink, demo data generation).
-- **post-start** (`post-start.sh`) — restarts Docker services if they stopped during idle suspension. Runs on every codespace start/resume.
-- **post-attach** (`post-attach.sh`) — prints a welcome message on each client attach.
-
-### Generating test data
-
-To get practical test data, run `hogli dev:demo-data`.
+If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md).
 
 ## Testing
 
@@ -239,25 +222,19 @@ For a PostHog PR to be merged, all tests must be green, and ideally you should b
 For frontend unit tests, run:
 
 ```bash
-pnpm --filter=@posthog/frontend test
+hogli test frontend/src/
 ```
 
 You can narrow the run down to only files under matching paths:
 
 ```bash
-pnpm jest --testPathPattern=frontend/src/lib/components/DateFilter/DateFilter.test.tsx
+hogli test frontend/src/lib/components/DateFilter/DateFilter.test.tsx
 ```
 
-To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `pnpm storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
+To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `hogli storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
 
 ```bash
-pnpm test:visual
-```
-
-To only update snapshots for stories under a specific path, run:
-
-```bash
-pnpm test:visual:update frontend/src/lib/Example.stories.tsx
+hogli storybook:test
 ```
 
 ### Backend
@@ -265,26 +242,32 @@ pnpm test:visual:update frontend/src/lib/Example.stories.tsx
 For backend tests, run:
 
 ```bash
-pytest
+hogli test posthog/test/
 ```
 
 You can narrow the run down to only files under matching paths:
 
 ```bash
-pytest posthog/test/test_example.py
+hogli test posthog/test/test_example.py
 ```
 
 Or to only test cases with matching function names:
 
 ```bash
-pytest posthog/test/test_example.py -k test_something
+hogli test posthog/test/test_example.py -k test_something
 ```
 
 To see debug logs (such as ClickHouse queries), add argument `--log-cli-level=DEBUG`.
 
+You can also run tests for all files changed on the current branch:
+
+```bash
+hogli test --changed
+```
+
 ### End-to-end
 
-For Playwright end-to-end tests, run `bin/e2e-test-runner`. This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.
+For Playwright end-to-end tests, run `hogli test:e2e` (which wraps `bin/e2e-test-runner`). This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.
 
 ## Django migrations
 

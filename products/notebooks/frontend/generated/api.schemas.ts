@@ -175,6 +175,21 @@ export interface PatchedNotebookApi {
     _create_in_folder?: string
 }
 
+export interface NotebookCollabSaveApi {
+    /** Unique identifier for the client session. */
+    client_id: string
+    /** The collab version the client's steps are based on. */
+    version: number
+    /** List of ProseMirror step JSON objects to apply. */
+    steps: unknown[]
+    /** The resulting ProseMirror document after applying the steps locally. */
+    content: unknown
+    /** Plain text for search indexing. */
+    text_content?: string
+    /** Updated notebook title. */
+    title?: string
+}
+
 export type NotebooksListParams = {
     /**
  * Filter for notebooks that match a provided filter.

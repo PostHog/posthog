@@ -14,10 +14,11 @@ from dateutil.parser import isoparse
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import DateRange, EventPropertyFilter, EventsNode, PropertyOperator, TrendsQuery
+
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
@@ -329,8 +330,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Now the dashboard has data without having to refresh
         response = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": False, "use_cache": True})
+        last_accessed_at = Dashboard.objects.get().last_accessed_at
+        assert last_accessed_at is not None
         self.assertAlmostEqual(
-            Dashboard.objects.get().last_accessed_at,
+            last_accessed_at,
             now(),
             delta=datetime.timedelta(seconds=5),
         )
@@ -1362,25 +1365,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["quick_filter_ids"], [str(qf1.id), str(qf2.id)])
 
     def test_return_cached_results_dashboard_has_filters(self):
-        # create a dashboard with no filters
+        # create a dashboard with two 7-day insights
+        query_7d = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="$browser", value="Mac OS X", operator=PropertyOperator.EXACT)],
+            dateRange=DateRange(date_from="-7d"),
+        ).model_dump()
         dashboard: Dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        self.dashboard_api.create_insight({"query": query_7d, "dashboards": [dashboard.pk]})
+        self.dashboard_api.create_insight({"query": query_7d, "dashboards": [dashboard.pk]})
 
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-            "date_from": "-7d",
-            "insight": "TRENDS",
-        }
-
-        # create two insights with a -7d date from filter
-        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-
-        query = filter_to_query(filter_dict).model_dump()
-
-        # cache insight results for trends with a -7d date from
-        response = self.client.post(f"/api/projects/{self.team.id}/query/", data={"query": query})
+        # warms the query cache for these 7-day insights
+        response = self.client.post(f"/api/projects/{self.team.pk}/query/", data={"query": query_7d})
         self.assertEqual(response.status_code, 200)
+
+        # confirm that the dashboard returns the cached result (8 days)
         dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
         self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 8)
 
@@ -1390,20 +1389,22 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"filters": {"date_from": "-24h"}},
         )
 
+        # check that the immediate dashboard response clears the old cached result (result is None),
+        # confirming stale 7-day data is not reused
         self.assertEqual(patch_response_json["tiles"][0]["insight"]["result"], None)
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {"date_from": "-24h"})
 
-        # cache results
-        filter_dict["date_from"] = "-24h"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            data={"query": filter_to_query(filter_dict).model_dump()},
-        )
-
+        # warms the query cache for these 24-hour insights
+        query_24h = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="$browser", value="Mac OS X", operator=PropertyOperator.EXACT)],
+            dateRange=DateRange(date_from="-24h"),
+        ).model_dump()
+        response = self.client.post(f"/api/projects/{self.team.pk}/query/", data={"query": query_24h})
         self.assertEqual(response.status_code, 200)
 
-        # Expecting this to only have one day as per the dashboard filter
+        # confirm that the dashboard returns the cached result (2 days)
         dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
         self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 2)
 
@@ -1898,10 +1899,54 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "pinned": False,
                 "tags_count": 0,
                 "template_key": valid_template["template_name"],
+                "template_scope": None,
             },
             team=ANY,
             request=ANY,
         )
+
+    @parameterized.expand(
+        [
+            (None, None),
+            ("team", "team"),
+            ("global", "global"),
+            ("feature_flag", "feature_flag"),
+        ]
+    )
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_create_from_template_json_analytics_template_scope(
+        self, scope_in_body: str | None, expected_template_scope: str | None, mock_report_user_action: MagicMock
+    ) -> None:
+        template = valid_template if scope_in_body is None else {**valid_template, "scope": scope_in_body}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200, response.content
+        props = mock_report_user_action.call_args[0][2]
+        assert props["template_scope"] == expected_template_scope
+
+    def test_create_from_template_json_accepts_api_shaped_created_by_nested_object(self) -> None:
+        """Regression: frontend may POST the template list payload including read-only nested created_by."""
+        template = {
+            **valid_template,
+            "created_by": {
+                "id": self.user.id,
+                "uuid": str(self.user.uuid),
+                "distinct_id": self.user.distinct_id,
+                "first_name": "ad",
+                "last_name": "",
+                "email": "test1@posthog.com",
+                "is_email_verified": True,
+                "hedgehog_config": None,
+                "role_at_organization": "engineering",
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200, response.content
 
     def test_create_from_template_json_must_provide_at_least_one_tile(self) -> None:
         template: dict = {**valid_template, "tiles": []}

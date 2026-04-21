@@ -97,8 +97,12 @@ pub fn upload(args: &Args) -> Result<()> {
     );
 
     let started_at = Instant::now();
-    let upload_result =
-        symbol_sets::upload_with_retry(uploads, args.batch_size, args.release.skip_release_on_fail);
+    let upload_result = symbol_sets::upload_with_retry(
+        uploads,
+        args.batch_size,
+        args.release.skip_release_on_fail,
+        false,
+    );
     let duration_ms = started_at.elapsed().as_millis();
 
     let mut props = vec![

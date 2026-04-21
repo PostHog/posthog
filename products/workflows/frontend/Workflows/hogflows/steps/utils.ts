@@ -1,6 +1,35 @@
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
+import { HogFlow } from '../types'
+
+type HogFlowEdge = HogFlow['edges'][number]
+
+/**
+ * Check whether removing a branch edge at the given condition index would
+ * orphan its target node (i.e. the target has no other incoming edges).
+ * Returns a disabledReason string when removal should be blocked, or
+ * undefined when removal is safe.
+ */
+export function getBranchRemovalDisabledReason(
+    branchEdges: HogFlowEdge[],
+    conditionIndex: number,
+    edgesByActionId: Record<string, HogFlowEdge[]>
+): string | undefined {
+    const branchEdge = branchEdges.find((e) => e.index === conditionIndex)
+    if (!branchEdge) {
+        return undefined
+    }
+    const targetEdges = edgesByActionId[branchEdge.to] ?? []
+    const hasOtherIncomingEdges = targetEdges.some((e) => e.to === branchEdge.to && e !== branchEdge)
+    return hasOtherIncomingEdges ? undefined : 'Clean up branching steps first'
+}
+
+/** Filter out a branch edge by its index property and reindex the remaining edges. */
+export function removeBranchEdge(branchEdges: HogFlowEdge[], conditionIndex: number): HogFlowEdge[] {
+    return branchEdges.filter((e) => e.index !== conditionIndex).map((edge, i) => ({ ...edge, index: i }))
+}
+
 export function updateOptionalName<T>(obj: T & { name?: string }, name: string | undefined): T & { name?: string } {
     const updated = { ...obj }
     if (name) {
