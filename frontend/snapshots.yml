@@ -2977,15 +2977,15 @@ snapshots:
     mcp-apps-error-tracking--with-external-links--light:
         hash: v1.k794b7964.0c775f7ec50ebee84ae295ad7d2399cd35074bab7145a38daca1d5bd2a4cff93.mv9TIthC3KkFaeIfVpI0BZj9ggw5tP_Wm9irrxcPwpg
     mcp-apps-experiments--completed--light:
-        hash: v1.k794b7964.267c944336cfbb9bc74db34d8e9880f7203382567d55269d2fd99f7714210ebd.wZQCXBpVeusWgx7KILhiJCWen9igQBhqbO4jG0XSG-s
+        hash: v1.k794b7964.bf0d6acd905a6a5a1bd1099a5faa3a6913ab9dd2ee8b132b6fb9e3147fe225e2.u1ZzjeU596RqUzIT5rogY-eEJz4-2tUL5zCjMlX5_-U
     mcp-apps-experiments--draft--light:
-        hash: v1.k794b7964.4f2138129a8fc568d16c0b9f0fd94f0e05f89bf116c73394b32d3775e4dab86b.uqquDkgjfepwLt9zemeh5V1gK4B4cOUZ_-rH4xO9HJg
+        hash: v1.k794b7964.9e5c276cd568ef1dc4d6907d31b292da0ee3175c50811710413b1f043319fd9e.Vlc3tvfVs1NWsF2gHZXPt9coXiqgTlwxOPY9zR4LK_8
     mcp-apps-experiments--list--light:
         hash: v1.k794b7964.3d52439825189f2e93eaae4bf6f3837dee931a45f27fc57f7a17c53a245eb55a.JJr2yqga2ta-5kVB5POaOM5S3lRGpUkPKUxDLdk7V_U
     mcp-apps-experiments--results--light:
         hash: v1.k794b7964.369efe275cc0243c2c6131a9d19e31941764aee030e8296e188e2ad3f5b072ae.pMS2T6lIyVxFJhwWepVAopGMyZuxhqU_OgXWcxnsH8k
     mcp-apps-experiments--running--light:
-        hash: v1.k794b7964.a36e31a09862a0ceb8ff26991d31b983913c2e7b1a87d6db68ff1bb14cdacce7.oigjzUlBHxQSnJfjW8-isCHa_8dJEK7CFi76k169DOQ
+        hash: v1.k794b7964.d8e1be138d2137b5b1324c22dbe38ea26848506658576f64708a24124d1dce3b.NXTrrjZaVNbtVFAuZanfnC6VLmobcNvhZ1QjH_1dd5I
     mcp-apps-feature-flags--boolean-flag--light:
         hash: v1.k794b7964.c0924f9d13e6e5033eaf8dc5297e644f8a5767d67a4a9316c234d26a32a59e7d.dAFmKgcdxcd2OEhwGLm4DZk6l2C9kSrRToQeTF7BDDA
     mcp-apps-feature-flags--flag-list--light:

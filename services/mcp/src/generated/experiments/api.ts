@@ -82,10 +82,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         zod.object({
                             key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
                             name: zod.string().nullish().describe('Human-readable variant name.'),
-                            rollout_percentage: zod
+                            rollout_percentage: zod.number().nullish(),
+                            split_percent: zod
                                 .number()
+                                .nullish()
                                 .describe(
-                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100.'
+                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
                                 ),
                         })
                     )
@@ -100,7 +102,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                'Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power.'
+                "Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
             ),
         secondary_metrics: zod.unknown().nullish(),
         saved_metrics_ids: zod
@@ -1190,10 +1192,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         zod.object({
                             key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
                             name: zod.string().nullish().describe('Human-readable variant name.'),
-                            rollout_percentage: zod
+                            rollout_percentage: zod.number().nullish(),
+                            split_percent: zod
                                 .number()
+                                .nullish()
                                 .describe(
-                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100.'
+                                    'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
                                 ),
                         })
                     )
@@ -1208,7 +1212,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                'Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and rollout_percentage; percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power.'
+                "Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
             ),
         secondary_metrics: zod.unknown().nullish(),
         saved_metrics_ids: zod
