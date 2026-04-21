@@ -31,11 +31,11 @@ SessionFactory = Callable[[], requests.Session]
 
 def _iter_campaign_pages(session: requests.Session) -> Iterator[dict[str, Any]]:
     """Yield raw campaign dicts across every page of the v2 campaigns endpoint."""
-    page = 1
+    page: int = 1
     while True:
         response = session.get(
             LEMLIST_CAMPAIGNS_URL,
-            params={"version": "v2", "page": page},
+            params={"version": "v2", "page": str(page)},
             timeout=_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
@@ -44,10 +44,12 @@ def _iter_campaign_pages(session: requests.Session) -> Iterator[dict[str, Any]]:
 
         pagination = body.get("pagination") or {}
         next_page = pagination.get("nextPage")
-        total_pages = pagination.get("totalPage", 1)
+        total_pages = pagination.get("totalPage")
         # Lemlist sets ``nextPage`` equal to the current page on the last page,
         # so we must also guard against it not advancing to avoid an infinite loop.
-        if not next_page or next_page <= page or page >= total_pages:
+        if not next_page or next_page <= page:
+            break
+        if total_pages is not None and page >= total_pages:
             break
         page = next_page
 
@@ -55,7 +57,7 @@ def _iter_campaign_pages(session: requests.Session) -> Iterator[dict[str, Any]]:
 def normalize_campaign(raw: dict[str, Any]) -> dict[str, Any]:
     """Promote ``_id`` to ``campaign_id``."""
     normalized = {k: v for k, v in raw.items() if k != "_id"}
-    normalized["campaign_id"] = raw.get("_id")
+    normalized["campaign_id"] = raw["_id"]
     return normalized
 
 
@@ -96,7 +98,7 @@ def _fetch_stats_batch(
 def build_stats_row(raw: dict[str, Any], snapshot_date: date) -> dict[str, Any]:
     """Project a single batch-stats result into a flat snapshot row."""
     row = dict(raw)
-    row["campaign_id"] = row.pop("campaignId", None)
+    row["campaign_id"] = row.pop("campaignId")
     row["snapshot_date"] = datetime(snapshot_date.year, snapshot_date.month, snapshot_date.day, tzinfo=UTC)
     return row
 
@@ -108,6 +110,14 @@ def lemlist_source(
     stats_batch_size: int = DEFAULT_STATS_BATCH_SIZE,
 ) -> list[DltResource]:
     """Build a dlt source that emits campaigns and a daily stats snapshot."""
+    raw_campaigns_cache: list[dict[str, Any]] | None = None
+
+    def load_raw_campaigns() -> list[dict[str, Any]]:
+        nonlocal raw_campaigns_cache
+        if raw_campaigns_cache is None:
+            with session_factory() as session:
+                raw_campaigns_cache = list(_iter_campaign_pages(session))
+        return raw_campaigns_cache
 
     @dlt.resource(
         name="campaigns",
@@ -115,9 +125,8 @@ def lemlist_source(
         write_disposition="merge",
     )
     def campaigns() -> Iterator[dict[str, Any]]:
-        with session_factory() as session:
-            for raw in _iter_campaign_pages(session):
-                yield normalize_campaign(raw)
+        for raw in load_raw_campaigns():
+            yield normalize_campaign(raw)
 
     @dlt.resource(
         name="campaign_stats_daily",
@@ -125,8 +134,10 @@ def lemlist_source(
         write_disposition="append",
     )
     def campaign_stats_daily() -> Iterator[dict[str, Any]]:
+        campaign_ids = [raw["_id"] for raw in load_raw_campaigns()]
+        if not campaign_ids:
+            return
         with session_factory() as session:
-            campaign_ids = [raw["_id"] for raw in _iter_campaign_pages(session) if raw.get("_id")]
             for chunk in chunk_ids(campaign_ids, stats_batch_size):
                 for raw in _fetch_stats_batch(session, chunk, LEMLIST_STATS_HISTORY_START, snapshot_date):
                     yield build_stats_row(raw, snapshot_date)

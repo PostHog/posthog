@@ -14,8 +14,15 @@ import dagster
 from posthog.dags.common import JobOwners
 
 from .auth import LemlistAuthResource
-from .destination import LEMLIST_DATASET_NAME, build_pipeline
+from .destination import LEMLIST_DATASET_NAME, build_pipeline, scoped_snake_case_naming
 from .source import DEFAULT_STATS_BATCH_SIZE, lemlist_source
+
+LEMLIST_RETRY_POLICY = dagster.RetryPolicy(
+    max_retries=2,
+    delay=60,
+    backoff=dagster.Backoff.EXPONENTIAL,
+    jitter=dagster.Jitter.PLUS_MINUS,
+)
 
 
 class LemlistConfig(dagster.Config):
@@ -35,6 +42,7 @@ def _resolve_snapshot_date(override: str | None) -> date:
     name="lemlist_campaigns_and_stats",
     group_name="billing",
     tags={"owner": JobOwners.TEAM_BILLING.value},
+    retry_policy=LEMLIST_RETRY_POLICY,
 )
 def lemlist_campaigns_and_stats(
     context: dagster.AssetExecutionContext,
@@ -55,16 +63,23 @@ def lemlist_campaigns_and_stats(
         snapshot_date=snapshot_date,
         stats_batch_size=config.stats_batch_size,
     )
-    info = pipeline.run(source)
+    with scoped_snake_case_naming():
+        info = pipeline.run(source)
 
     context.log.info("Pipeline load info:\n%s", info)
     context.add_output_metadata(
         {
             "dataset": dagster.MetadataValue.text(LEMLIST_DATASET_NAME),
             "snapshot_date": dagster.MetadataValue.text(snapshot_date.isoformat()),
-            "load_info": dagster.MetadataValue.text(str(info)),
+            "load_info": dagster.MetadataValue.json(info.asdict()),
         }
     )
+
+    if info.has_failed_jobs:
+        raise dagster.Failure(
+            description="dlt pipeline reported failed load jobs",
+            metadata={"load_info": dagster.MetadataValue.json(info.asdict())},
+        )
 
 
 lemlist_job = dagster.define_asset_job(

@@ -7,6 +7,8 @@ of the warehouse.
 """
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from django.conf import settings
 
@@ -18,17 +20,33 @@ LEMLIST_DATASET_NAME = "lemlist"
 LEMLIST_PIPELINE_NAME = "lemlist"
 
 
+@contextmanager
+def scoped_snake_case_naming() -> Iterator[None]:
+    """Pin ``SCHEMA__NAMING=snake_case`` for the duration of the caller's block.
+
+    ``posthog/temporal/data_modeling/run_workflow.py`` sets ``SCHEMA__NAMING=direct``
+    at module import time so HogQL-derived models preserve casing. dlt reads that
+    env globally and would otherwise apply the ``direct`` convention to our schema
+    too — which uses ``▶`` as the nested-table separator. Scoping the override to
+    the pipeline.run call prevents us from flipping behavior for other dags
+    (customer_archetype, temporal data-modeling) sharing the process.
+    """
+    previous = os.environ.get("SCHEMA__NAMING")
+    os.environ["SCHEMA__NAMING"] = "snake_case"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("SCHEMA__NAMING", None)
+        else:
+            os.environ["SCHEMA__NAMING"] = previous
+
+
 def build_pipeline(pipeline_name: str = LEMLIST_PIPELINE_NAME) -> dlt.Pipeline:
     """Return a dlt pipeline writing the Lemlist dataset into Duckgres."""
     if not settings.DUCKGRES_PG_URL:
         raise DuckgresNotConfiguredError("DUCKGRES_PG_URL is not set")
 
-    # ``posthog/temporal/data_modeling/run_workflow.py`` sets
-    # ``SCHEMA__NAMING=direct`` at module import time so HogQL-derived models
-    # preserve casing. dlt reads that env globally and would otherwise apply
-    # the ``direct`` convention to our schema too — which uses ``▶`` as the
-    # nested-table separator.
-    os.environ["SCHEMA__NAMING"] = "snake_case"
     dlt.config[f"sources.{LEMLIST_PIPELINE_NAME}.schema.naming"] = "snake_case"
 
     pipeline = dlt.pipeline(

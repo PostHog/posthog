@@ -1,3 +1,4 @@
+import os
 import base64
 from datetime import UTC, date, datetime
 from typing import Any
@@ -14,8 +15,8 @@ from parameterized import parameterized
 
 from ee.billing.dags.lemlist import dag as lemlist_dag
 from ee.billing.dags.lemlist.auth import LemlistAuthResource, LemlistNotConfiguredError
-from ee.billing.dags.lemlist.dag import lemlist_campaigns_and_stats
-from ee.billing.dags.lemlist.destination import build_pipeline
+from ee.billing.dags.lemlist.dag import LEMLIST_RETRY_POLICY, lemlist_campaigns_and_stats
+from ee.billing.dags.lemlist.destination import build_pipeline, scoped_snake_case_naming
 from ee.billing.dags.lemlist.source import (
     _fetch_stats_batch,
     _iter_campaign_pages,
@@ -93,11 +94,11 @@ class TestNormalizeCampaign:
         assert result["errors"] == ["Your campaign does not have sender."]
         assert result["sequenceId"] == "seq_1"
 
-    # Defensive: server should always send ``_id``, but don't crash if not.
-    def test_handles_missing_id(self):
-        result = normalize_campaign({"name": "x"})
-        assert result["campaign_id"] is None
-        assert result["name"] == "x"
+    # ``campaign_id`` is the ``campaigns`` resource primary key, so a missing
+    # ``_id`` must raise rather than silently produce a NULL-keyed row.
+    def test_missing_id_raises(self):
+        with pytest.raises(KeyError):
+            normalize_campaign({"name": "x"})
 
 
 # --------------------------------------------------------------------------- #
@@ -286,6 +287,26 @@ class TestIterCampaignPages:
         assert [c["_id"] for c in result] == ["cam_a", "cam_b"]
         assert session.get.call_count == 1
 
+    # ``totalPage`` being absent must not short-circuit when ``nextPage`` still
+    # advances — otherwise a schema variation on Lemlist's side would silently
+    # truncate the campaign list.
+    def test_missing_total_page_continues_while_next_page_advances(self):
+        session = self._mock_session_with_pages(
+            [
+                {
+                    "campaigns": [{"_id": "cam_a"}],
+                    "pagination": {"currentPage": 1, "nextPage": 2},
+                },
+                {
+                    "campaigns": [{"_id": "cam_b"}],
+                    "pagination": {"currentPage": 2, "nextPage": 2},
+                },
+            ]
+        )
+        result = list(_iter_campaign_pages(session))
+        assert [c["_id"] for c in result] == ["cam_a", "cam_b"]
+        assert session.get.call_count == 2
+
 
 # --------------------------------------------------------------------------- #
 # source._fetch_stats_batch
@@ -360,6 +381,23 @@ def lemlist_snake_case_naming(monkeypatch):
     monkeypatch.setenv("SCHEMA__NAMING", "snake_case")
 
 
+@pytest.fixture
+def lemlist_disable_asset_retries(monkeypatch):
+    """Disable ``LEMLIST_RETRY_POLICY`` for the duration of a single test.
+
+    Failure-path tests assert that the asset fails; letting the real retry
+    policy run multiplies the wall-clock cost by ``max_retries + 1`` and adds
+    minutes per test. Replacing the policy with ``max_retries=0`` keeps the
+    behaviour under test (Dagster still records the failure) while cutting
+    each run to a single attempt.
+    """
+    monkeypatch.setattr(
+        lemlist_campaigns_and_stats.node_def,
+        "_retry_policy",
+        dagster.RetryPolicy(max_retries=0),
+    )
+
+
 class TestLemlistSourceIntegration:
     def test_end_to_end_materializes_campaigns_stats_and_steps(self, tmp_path, lemlist_snake_case_naming):
         campaigns_page = {
@@ -389,11 +427,18 @@ class TestLemlistSourceIntegration:
             "errors": [],
         }
 
+        # Track every GET across all sessions so we can assert the campaigns
+        # endpoint is hit exactly once — the refactor caches the campaign list
+        # so both resources can share it without duplicate API calls.
+        sessions: list[MagicMock] = []
+
         def session_factory():
-            return _stub_session(
+            session = _stub_session(
                 get_responses=[_mock_json_response(campaigns_page)],
                 post_responses=[_mock_json_response(stats_response)],
             )
+            sessions.append(session)
+            return session
 
         pipeline = dlt.pipeline(
             pipeline_name="lemlist_e2e_test",
@@ -402,6 +447,9 @@ class TestLemlistSourceIntegration:
         )
         info = pipeline.run(lemlist_source(session_factory=session_factory, snapshot_date=date(2026, 4, 17)))
         assert not info.has_failed_jobs
+
+        total_get_calls = sum(session.get.call_count for session in sessions)
+        assert total_get_calls == 1, "campaigns endpoint should be fetched exactly once across both resources"
 
         with pipeline.sql_client() as client:
             with client.execute_query("SELECT campaign_id FROM campaigns ORDER BY campaign_id") as cursor:
@@ -422,7 +470,9 @@ class TestLemlistSourceIntegration:
 
 
 class TestLemlistAssetFailures:
-    def test_empty_api_key_surfaces_as_asset_failure(self, tmp_path, monkeypatch, lemlist_snake_case_naming):
+    def test_empty_api_key_surfaces_as_asset_failure(
+        self, tmp_path, monkeypatch, lemlist_snake_case_naming, lemlist_disable_asset_retries
+    ):
         stub_pipeline = dlt.pipeline(
             pipeline_name="lemlist_failure_test",
             destination=dlt.destinations.duckdb(str(tmp_path / "lemlist_failure.duckdb")),
@@ -447,6 +497,84 @@ class TestLemlistAssetFailures:
         assert step_failures, "expected a STEP_FAILURE event"
         failure_message = str(step_failures[0])
         assert "Lemlist API key" in failure_message
+
+    def test_has_failed_jobs_surfaces_as_asset_failure(self, monkeypatch, lemlist_disable_asset_retries):
+        fake_info = MagicMock()
+        fake_info.has_failed_jobs = True
+        fake_info.asdict.return_value = {"loads_ids": ["load-1"], "failed_jobs": 1}
+
+        stub_pipeline = MagicMock()
+        stub_pipeline.run.return_value = fake_info
+
+        monkeypatch.setattr(lemlist_dag, "build_pipeline", lambda: stub_pipeline)
+        monkeypatch.setattr(
+            lemlist_dag,
+            "lemlist_source",
+            lambda **_kwargs: [],
+        )
+
+        result = dagster.materialize(
+            [lemlist_campaigns_and_stats],
+            resources={"lemlist_auth": LemlistAuthResource(api_key="anything")},
+            run_config={
+                "ops": {
+                    "lemlist_campaigns_and_stats": {
+                        "config": {"snapshot_date": "2026-04-17"},
+                    }
+                }
+            },
+            raise_on_error=False,
+        )
+        assert not result.success
+        step_failures = [event for event in result.all_events if event.event_type_value == "STEP_FAILURE"]
+        assert step_failures, "expected a STEP_FAILURE event when dlt reports failed jobs"
+        assert "failed load jobs" in str(step_failures[0])
+
+
+# --------------------------------------------------------------------------- #
+# lemlist_campaigns_and_stats asset — configuration.
+# --------------------------------------------------------------------------- #
+
+
+class TestLemlistAssetConfiguration:
+    def test_asset_declares_retry_policy(self):
+        # ``node_def`` is typed as ``NodeDefinition`` which doesn't expose
+        # ``retry_policy``, but asset decoration always produces an ``OpDefinition``.
+        op_def = lemlist_campaigns_and_stats.node_def
+        assert op_def.retry_policy is LEMLIST_RETRY_POLICY  # type: ignore[attr-defined]
+        assert LEMLIST_RETRY_POLICY.max_retries >= 1
+
+
+# --------------------------------------------------------------------------- #
+# destination.scoped_snake_case_naming
+# --------------------------------------------------------------------------- #
+
+
+class TestScopedSnakeCaseNaming:
+    def test_sets_env_within_block_and_restores_previous_value(self, monkeypatch):
+        monkeypatch.setenv("SCHEMA__NAMING", "direct")
+
+        with scoped_snake_case_naming():
+            assert os.environ["SCHEMA__NAMING"] == "snake_case"
+
+        assert os.environ["SCHEMA__NAMING"] == "direct"
+
+    def test_removes_env_if_absent_before_entering(self, monkeypatch):
+        monkeypatch.delenv("SCHEMA__NAMING", raising=False)
+
+        with scoped_snake_case_naming():
+            assert os.environ["SCHEMA__NAMING"] == "snake_case"
+
+        assert "SCHEMA__NAMING" not in os.environ
+
+    def test_restores_previous_value_on_exception(self, monkeypatch):
+        monkeypatch.setenv("SCHEMA__NAMING", "direct")
+
+        with pytest.raises(RuntimeError):
+            with scoped_snake_case_naming():
+                raise RuntimeError("boom")
+
+        assert os.environ["SCHEMA__NAMING"] == "direct"
 
 
 # --------------------------------------------------------------------------- #
