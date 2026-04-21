@@ -3017,6 +3017,7 @@ export namespace Schemas {
 
     export const RetentionEntityKind = {
       ActionsNode: 'ActionsNode',
+      DataWarehouseNode: 'DataWarehouseNode',
       EventsNode: 'EventsNode',
     } as const;
 
@@ -3034,7 +3035,17 @@ export namespace Schemas {
     export interface RetentionEntity {
       /** @nullable */
       custom_name?: string | null;
+      /**
+       * Data warehouse field used as the actor identifier (only used when kind is DataWarehouseNode)
+       * @nullable
+       */
+      distinct_id_field?: string | null;
       id?: string | number | null;
+      /**
+       * Data warehouse row identifier field (only used when kind is DataWarehouseNode)
+       * @nullable
+       */
+      id_field?: string | null;
       kind?: RetentionEntityKind | null;
       /** @nullable */
       name?: string | null;
@@ -3045,6 +3056,16 @@ export namespace Schemas {
        * @nullable
        */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /**
+       * Data warehouse table name (only used when kind is DataWarehouseNode)
+       * @nullable
+       */
+      table_name?: string | null;
+      /**
+       * Data warehouse timestamp field (only used when kind is DataWarehouseNode)
+       * @nullable
+       */
+      timestamp_field?: string | null;
       type?: EntityType | null;
       /** @nullable */
       uuid?: string | null;
