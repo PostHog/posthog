@@ -118,13 +118,14 @@ def _format_duration(seconds: float | None) -> str:
 
 
 def get_top_pages(team: Team, limit: int = 5) -> list[dict]:
-    """Get top pages by unique visitors for the last 7 days."""
+    """Get top pages by unique visitors for the last 7 days, with week-over-week comparison."""
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_pages")
 
     try:
         query = WebStatsTableQuery(
             breakdownBy=WebStatsBreakdown.PAGE,
             dateRange=DateRange(date_from="-7d"),
+            compareFilter=CompareFilter(compare=True),
             limit=limit,
             orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
             filterTestAccounts=True,
@@ -141,7 +142,7 @@ def get_top_pages(team: Team, limit: int = 5) -> list[dict]:
                 "host": "",
                 "path": row[0] or "",
                 "visitors": row[1][0],
-                "pageviews": row[2][0],
+                "change": compute_week_over_week_change(row[1][0], row[1][1], higher_is_better=True),
             }
             for row in response.results
         ]
@@ -151,13 +152,14 @@ def get_top_pages(team: Team, limit: int = 5) -> list[dict]:
 
 
 def get_top_sources(team: Team, limit: int = 5) -> list[dict]:
-    """Get top traffic sources by unique visitors for the last 7 days."""
+    """Get top traffic sources by unique visitors for the last 7 days, with week-over-week comparison."""
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_sources")
 
     try:
         query = WebStatsTableQuery(
             breakdownBy=WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
             dateRange=DateRange(date_from="-7d"),
+            compareFilter=CompareFilter(compare=True),
             limit=limit,
             orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
             filterTestAccounts=True,
@@ -173,6 +175,7 @@ def get_top_sources(team: Team, limit: int = 5) -> list[dict]:
             {
                 "source": row[0] or "",
                 "visitors": row[1][0],
+                "change": compute_week_over_week_change(row[1][0], row[1][1], higher_is_better=True),
             }
             for row in response.results
             if row[0]

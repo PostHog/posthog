@@ -1515,6 +1515,11 @@
                     "$ref": "#/definitions/AssistantFunnelsMath",
                     "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
+                "optionalInFunnel": {
+                    "default": false,
+                    "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "type": "boolean"
+                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AssistantPropertyFilter"
@@ -1542,6 +1547,11 @@
                 "name": {
                     "description": "Action name from the plan.",
                     "type": "string"
+                },
+                "optionalInFunnel": {
+                    "default": false,
+                    "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -1611,6 +1621,11 @@
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
                     "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                },
+                "optionalInFunnel": {
+                    "default": false,
+                    "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -2896,11 +2911,11 @@
             "additionalProperties": false,
             "properties": {
                 "id": {
-                    "description": "Action ID from the plan.",
+                    "description": "The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.",
                     "type": "number"
                 },
                 "name": {
-                    "description": "Action name from the plan.",
+                    "description": "Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching.",
                     "type": "string"
                 },
                 "properties": {
@@ -2915,7 +2930,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "id", "name"],
+            "required": ["type", "id"],
             "type": "object"
         },
         "AssistantRetentionEntity": {
@@ -2935,8 +2950,12 @@
                     "description": "Custom name for the event if it is needed to be renamed.",
                     "type": "string"
                 },
+                "id": {
+                    "description": "The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.",
+                    "type": "string"
+                },
                 "name": {
-                    "description": "Event name from the plan.",
+                    "description": "Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.",
                     "type": "string"
                 },
                 "properties": {
@@ -2951,7 +2970,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "name"],
+            "required": ["type", "id"],
             "type": "object"
         },
         "AssistantRetentionFilter": {
@@ -18036,7 +18055,8 @@
                 "Postmark",
                 "Granola",
                 "BuildBetter",
-                "Convex"
+                "Convex",
+                "ClickHouse"
             ],
             "type": "string"
         },
@@ -34078,6 +34098,102 @@
             "required": ["session_id", "events"],
             "type": "object"
         },
+        "SessionProblemEventEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "current_url": {
+                    "type": "string"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "interaction_text": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            },
+            "required": ["event", "timestamp"],
+            "type": "object"
+        },
+        "SessionProblemSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id": {
+                    "type": "string"
+                },
+                "end_time": {
+                    "type": "string"
+                },
+                "event_history": {
+                    "items": {
+                        "$ref": "#/definitions/SessionProblemEventEntry"
+                    },
+                    "type": "array"
+                },
+                "exported_asset_id": {
+                    "type": "number"
+                },
+                "problem_type": {
+                    "enum": ["confusion", "abandonment", "blocking_exception", "non_blocking_exception", "failure"],
+                    "type": "string"
+                },
+                "segment_title": {
+                    "type": "string"
+                },
+                "session_active_seconds": {
+                    "type": "number"
+                },
+                "session_duration": {
+                    "type": "number"
+                },
+                "session_end_time": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "session_start_time": {
+                    "type": "string"
+                },
+                "start_time": {
+                    "type": "string"
+                }
+            },
+            "required": ["session_id", "segment_title", "start_time", "end_time", "problem_type", "distinct_id"],
+            "type": "object"
+        },
+        "SessionProblemSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SessionProblemSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "session_replay",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "session_problem",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "SessionPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -34300,6 +34416,7 @@
         },
         "SessionReplaySegment": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "content": {
                     "type": "string"
@@ -34322,6 +34439,7 @@
         },
         "SessionSegmentClusterMetrics": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "active_users_in_period": {
                     "type": "number"
@@ -34338,6 +34456,7 @@
         },
         "SessionSegmentClusterSignalExtra": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "actionable": {
                     "type": "boolean"
@@ -34360,6 +34479,7 @@
         },
         "SessionSegmentClusterSignalInput": {
             "additionalProperties": false,
+            "deprecated": "No longer emitted.",
             "properties": {
                 "description": {
                     "type": "string"
@@ -34658,7 +34778,7 @@
             },
             "oneOf": [
                 {
-                    "$ref": "#/definitions/SessionSegmentClusterSignalInput"
+                    "$ref": "#/definitions/SessionProblemSignalInput"
                 },
                 {
                     "$ref": "#/definitions/LlmEvaluationSignalInput"
@@ -34719,6 +34839,7 @@
         "SignalSourceType": {
             "enum": [
                 "session_analysis_cluster",
+                "session_problem",
                 "evaluation",
                 "issue",
                 "ticket",
