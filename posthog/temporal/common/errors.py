@@ -2,22 +2,14 @@ import traceback
 
 from temporalio.exceptions import ActivityError, ApplicationError
 
-# Temporal's gRPC payload hard limit is 2 MiB. Cap error strings well under that so
-# message, trace, envelope framing, and any activity-return metadata all fit together
-# even when an upstream exception (ClickHouse 5xx body, Playwright HTML dump) stuffs
-# a multi-MB string into str(e).
+# Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
+# can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000
 MAX_ERROR_TRACE_CHARS = 32_000
 
 
 def truncate_for_temporal_payload(value: str, limit: int) -> str:
-    """Trim ``value`` so it can ride inside a Temporal payload.
-
-    When truncation is needed the first ``limit`` chars are kept and a short
-    diagnostic marker (``… (truncated, original N chars)``, ~40 chars) is appended —
-    so the returned string is at most ``limit + ~40`` chars, not strictly ``limit``.
-    Limits are chosen with the marker overhead in mind at call sites.
-    """
+    """Trim ``value`` to ``limit`` chars plus a ~40-char marker (max output ~``limit + 40``)."""
     if len(value) <= limit:
         return value
     return f"{value[:limit]}… (truncated, original {len(value)} chars)"

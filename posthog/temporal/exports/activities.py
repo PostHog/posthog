@@ -49,14 +49,11 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 exception_class=exception_class,
                 error=str(e),
             )
-            # Wrap in ApplicationError to propagate failure metadata as details
-            # while preserving the exception class name for retry policy matching.
-            # Only known transient errors (CH/network) are worth retrying — unknown
-            # errors like Chrome crashes or programming errors should fail fast.
-            # exception_class is on .type; details carry [error_trace]
-            # See: posthog.temporal.exports.types.extract_error_details
-            # Truncate to keep the failure envelope under Temporal's 2 MiB payload limit;
-            # upstream exceptions (CH 5xx bodies, Playwright HTML dumps) can exceed it alone.
+            # Wrap in ApplicationError to propagate failure metadata as details while
+            # preserving the exception class for retry-policy matching (transient CH/network
+            # errors retry; programming errors and Chrome crashes fail fast). See
+            # posthog.temporal.exports.types.extract_error_details. Strings are truncated so
+            # an upstream exception can't blow out the 2 MiB payload envelope.
             raise ApplicationError(
                 truncate_for_temporal_payload(str(e), MAX_ERROR_MESSAGE_CHARS),
                 truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),

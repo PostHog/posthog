@@ -21,8 +21,6 @@ def test_truncate_for_temporal_payload(value, limit, expected):
 
 
 def test_default_limits_fit_under_temporal_payload_limit():
-    # Temporal's hard gRPC payload limit is 2 MiB. UTF-8 uses up to 4 bytes per codepoint,
-    # so bound the worst case (multi-byte Unicode payload) under the limit — keeps metadata
-    # and framing room even if every char turns out to be astral.
+    # UTF-8 is up to 4 bytes/char; assert the worst case stays under Temporal's 2 MiB limit.
     worst_case_bytes = (MAX_ERROR_MESSAGE_CHARS + MAX_ERROR_TRACE_CHARS) * 4
     assert worst_case_bytes < 2 * 1024 * 1024
