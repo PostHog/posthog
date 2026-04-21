@@ -26,7 +26,13 @@ pub fn read_block_header<R: RowBinaryRead + ?Sized>(r: &mut R) -> CodecResult<Ve
     let mut types = Vec::with_capacity(n);
     for _ in 0..n {
         let type_str = String::from_utf8(r.read_bytes()?).map_err(|_| CodecError::InvalidUtf8)?;
-        let node = DataTypeNode::new(&type_str)
+        // ClickHouse emits `Nothing` for empty-literal arrays (e.g. `[]` has type
+        // `Array(Nothing)`). The clickhouse-types crate doesn't know about it, and
+        // our readers will treat zero-length arrays as empty regardless of element
+        // type — so substitute a concrete type the parser accepts. Any non-empty
+        // array can't carry `Nothing` anyway (CH would have errored upstream).
+        let normalized = type_str.replace("Nothing", "Int8");
+        let node = DataTypeNode::new(&normalized)
             .map_err(|e| CodecError::UnknownType(format!("{type_str:?}: {e}")))?;
         types.push(node);
     }

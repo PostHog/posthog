@@ -207,18 +207,18 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
                 mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
                 arraySort(x -> -x.1,
                     aggregate_funnel_array(
-                        CAST({num_steps} AS UInt8),
-                        CAST({conversion_window_seconds} AS UInt64),
+                        {num_steps},
+                        {conversion_window_seconds},
                         'first_touch',
                         '{funnel_order_type}',
-                        CAST(array(array('')) AS Array(Array(String))),
-                        CAST([] AS Array(Int8)),
-                        CAST(arraySort(t -> t.1, groupArray(tuple(
+                        array(array('')),
+                        [],
+                        arraySort(t -> t.1, groupArray(tuple(
                             toFloat(metric_events.timestamp),
                             metric_events.uuid,
                             array(''),
                             arrayFilter(x -> x > 0, [{step_conditions_str}])
-                        ))) AS Array(Tuple(Nullable(Float64), UUID, Array(String), Array(Int8))))
+                        )))
                     )
                 )[1] as af_tuple,
                 af_tuple.1 as step_reached,

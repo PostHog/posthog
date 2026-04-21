@@ -24,7 +24,7 @@ pub struct Event {
     pub steps: Vec<i8>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct Args {
     pub num_steps: usize,
     #[serde(deserialize_with = "u64_or_string")]

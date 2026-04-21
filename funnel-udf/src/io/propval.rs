@@ -75,17 +75,35 @@ pub fn shape_output_type(shape: BreakdownShape) -> DataTypeNode {
 }
 
 /// Detects the intended `BreakdownShape` from the actual `prop_vals` column type
-/// on the wire. Callers cast to exactly one of the three XML shapes.
+/// on the wire. We're permissive about wire types (see io/column.rs for the
+/// rationale) so each shape accepts a family of near-variants:
+///   - U64: any integer element (cohort ids fit in UInt64; narrower widths are fine)
+///   - ArrayString: nested `Array(String)` (with or without LowCardinality)
+///   - NullableString: Nullable(String) or plain String (treat non-nullable as always-non-null)
 pub fn detect_shape(prop_vals_type: &DataTypeNode) -> CodecResult<BreakdownShape> {
     let inner = array_elem(prop_vals_type, "detect_shape on prop_vals")?;
-    match inner {
-        DataTypeNode::UInt64 => Ok(BreakdownShape::U64),
-        DataTypeNode::Array(el) if matches!(**el, DataTypeNode::String) => {
+    let peeled = match inner {
+        DataTypeNode::LowCardinality(x) => x.as_ref(),
+        other => other,
+    };
+    match peeled {
+        DataTypeNode::UInt8
+        | DataTypeNode::UInt16
+        | DataTypeNode::UInt32
+        | DataTypeNode::UInt64
+        | DataTypeNode::Int8
+        | DataTypeNode::Int16
+        | DataTypeNode::Int32
+        | DataTypeNode::Int64 => Ok(BreakdownShape::U64),
+        DataTypeNode::Array(el)
+            if matches!(**el, DataTypeNode::String | DataTypeNode::LowCardinality(_)) =>
+        {
             Ok(BreakdownShape::ArrayString)
         }
         DataTypeNode::Nullable(el) if matches!(**el, DataTypeNode::String) => {
             Ok(BreakdownShape::NullableString)
         }
+        DataTypeNode::String => Ok(BreakdownShape::NullableString),
         other => Err(CodecError::TypeMismatch(format!(
             "prop_vals: unsupported element type {other}"
         ))),
@@ -120,9 +138,28 @@ mod tests {
     }
 
     #[test]
-    fn shape_detection_rejects_plain_string() {
-        let err = detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::String))).unwrap_err();
-        assert!(matches!(err, CodecError::TypeMismatch(_)));
+    fn shape_detection_accepts_plain_string_as_nullable() {
+        // HogQL-generated queries don't always wrap string breakdowns in Nullable.
+        // Plain `Array(String)` should map to the NullableString shape and be
+        // treated as always-non-null on read.
+        assert_eq!(
+            detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::String))).unwrap(),
+            BreakdownShape::NullableString
+        );
+    }
+
+    #[test]
+    fn shape_detection_accepts_narrower_int_widths() {
+        // Cohort breakdowns may arrive as Int64 (HogQL's default for int literals)
+        // or other widths; they all map to the U64 shape.
+        assert_eq!(
+            detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::Int64))).unwrap(),
+            BreakdownShape::U64
+        );
+        assert_eq!(
+            detect_shape(&DataTypeNode::Array(Box::new(DataTypeNode::UInt32))).unwrap(),
+            BreakdownShape::U64
+        );
     }
 
     #[test]

@@ -18,7 +18,15 @@ pub enum CodecError {
     UnexpectedEof,
     UnknownType(String),
     TypeMismatch(String),
-    SchemaLen { got: usize, want: usize },
+    IntOutOfRange {
+        from: &'static str,
+        to: &'static str,
+        value: i128,
+    },
+    SchemaLen {
+        got: usize,
+        want: usize,
+    },
 }
 
 impl std::fmt::Display for CodecError {
@@ -41,6 +49,12 @@ impl std::fmt::Display for CodecError {
             Self::UnexpectedEof => write!(f, "unexpected eof mid-row"),
             Self::UnknownType(s) => write!(f, "unsupported ClickHouse type from header: {s}"),
             Self::TypeMismatch(s) => write!(f, "type mismatch: {s}"),
+            Self::IntOutOfRange { from, to, value } => {
+                write!(
+                    f,
+                    "integer out of range: {value} ({from}) does not fit in {to}"
+                )
+            }
             Self::SchemaLen { got, want } => {
                 write!(f, "block header declares {got} columns, expected {want}")
             }

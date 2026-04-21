@@ -199,8 +199,10 @@ mod tests {
 
     #[test]
     fn args_rejects_wrong_wire_type() {
+        // Integer widths are now accepted interchangeably (see read_int_any);
+        // String in an integer slot still has to blow up cleanly.
         let mut cols = nullable_string_columns();
-        cols[1] = Column::new("conversion_window_limit".into(), DataTypeNode::UInt32);
+        cols[1] = Column::new("conversion_window_limit".into(), DataTypeNode::String);
         let buf = [0u8; 1];
         let mut slice = buf.as_slice();
         let err = read_args(&mut slice, BreakdownShape::NullableString, &cols).unwrap_err();

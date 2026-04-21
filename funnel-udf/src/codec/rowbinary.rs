@@ -35,6 +35,24 @@ pub trait RowBinaryRead: Read {
         Ok(u64::from_le_bytes(b))
     }
 
+    fn read_i16_le(&mut self) -> CodecResult<i16> {
+        let mut b = [0u8; 2];
+        self.read_exact(&mut b)?;
+        Ok(i16::from_le_bytes(b))
+    }
+
+    fn read_i32_le(&mut self) -> CodecResult<i32> {
+        let mut b = [0u8; 4];
+        self.read_exact(&mut b)?;
+        Ok(i32::from_le_bytes(b))
+    }
+
+    fn read_i64_le(&mut self) -> CodecResult<i64> {
+        let mut b = [0u8; 8];
+        self.read_exact(&mut b)?;
+        Ok(i64::from_le_bytes(b))
+    }
+
     fn read_f64_le(&mut self) -> CodecResult<f64> {
         let mut b = [0u8; 8];
         self.read_exact(&mut b)?;

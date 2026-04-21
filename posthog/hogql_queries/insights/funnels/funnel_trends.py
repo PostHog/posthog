@@ -127,16 +127,10 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
 
         if self.context.breakdownType == BreakdownType.COHORT:
             fn = "aggregate_funnel_cohort_trends"
-            prop_vals_type = "Array(UInt64)"
-            value_type = "Array(Tuple(Nullable(Float64), UInt64, UUID, UInt64, Array(Int8)))"
         elif self._query_has_array_breakdown():
             fn = "aggregate_funnel_array_trends"
-            prop_vals_type = "Array(Array(String))"
-            value_type = "Array(Tuple(Nullable(Float64), UInt64, UUID, Array(String), Array(Int8)))"
         else:
             fn = "aggregate_funnel_trends"
-            prop_vals_type = "Array(Nullable(String))"
-            value_type = "Array(Tuple(Nullable(Float64), UInt64, UUID, Nullable(String), Array(Int8)))"
 
         if not self.context.breakdown:
             prop_selector = self._default_breakdown_selector()
@@ -176,14 +170,14 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 ))), 1, {MAX_EVENTS_PER_ENTITY}) as events_array,
                 {prop_vals} as prop,
                 arrayJoin({fn}(
-                    CAST({from_step} AS UInt8),
-                    CAST({to_step} AS UInt8),
-                    CAST({max_steps} AS UInt8),
-                    CAST({self.conversion_window_limit()} AS UInt64),
+                    {from_step},
+                    {to_step},
+                    {max_steps},
+                    {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
-                    CAST({prop_arg} AS {prop_vals_type}),
-                    CAST(events_array AS {value_type})
+                    {prop_arg},
+                    events_array
                 )) as af_tuple,
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,
