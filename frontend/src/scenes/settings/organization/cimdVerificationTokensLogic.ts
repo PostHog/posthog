@@ -43,7 +43,6 @@ export const cimdVerificationTokensLogic = kea<cimdVerificationTokensLogicType>(
             {
                 setNewTokenLabel: (_, { label }) => label,
                 hideCreateDialog: () => '',
-                createToken: () => '',
             },
         ],
         justCreatedToken: [
