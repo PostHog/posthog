@@ -175,12 +175,15 @@ AND properties.$lib != 'web'`
                             productKey: 'session_replay',
                         })
                         breakpoint()
+                        if (!response) {
+                            throw new Error('Empty response from queryHogQL')
+                        }
                         if (response.error) {
                             throw new Error(response.error)
                         }
 
                         for (const event of existingEvents) {
-                            const result = response.results.find((x: any) => {
+                            const result = response.results?.find((x: any) => {
                                 return x[1] === event.id
                             })
 
