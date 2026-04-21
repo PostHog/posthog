@@ -159,7 +159,10 @@ class ProvisioningAuthentication(BaseAuthentication):
                         error_type=type(e).__name__,
                     )
                     capture_exception(e)
-                    app.refresh_from_db()
+                    try:
+                        app.refresh_from_db()
+                    except Exception:
+                        return None
                 return app if app.provisioning_active else None
 
             # New CIMD URL: kick off background registration, don't block the worker
