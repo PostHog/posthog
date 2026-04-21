@@ -402,16 +402,16 @@ def _is_constant_one(expr: ast.Expr) -> bool:
 def _is_valid_select_from(node: Optional[ast.JoinExpr], context: HogQLContext) -> bool:
     if not node or not isinstance(node.table, ast.Field):
         return False
-    if context.database is not None:
-        try:
-            resolved_table = context.database.get_table([str(c) for c in node.table.chain])
-        except Exception:
-            return False
-        if not isinstance(resolved_table, EventsTable):
-            return False
-    else:
-        if node.table.chain != ["events"]:
-            return False
+    # Require a database so we can resolve the chain to a real Table instance. Without a database
+    # we cannot distinguish `events` from `posthog.events` or catch aliases, so skip the transform.
+    if context.database is None:
+        return False
+    try:
+        resolved_table = context.database.get_table([str(c) for c in node.table.chain])
+    except Exception:
+        return False
+    if not isinstance(resolved_table, EventsTable):
+        return False
     if node.constraint:
         return False
     if node.sample:
