@@ -376,6 +376,39 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_on_commit.assert_called_once()
 
+    @mock.patch("django.db.transaction.on_commit")
+    def test_force_blocking_execution_coerces_async_modes(self, mock_on_commit):
+        """When force_blocking_execution is True, async modes are coerced to blocking and never enqueue a Celery task."""
+        TestQueryRunner = self.setup_test_query_runner_class()
+        TestQueryRunner.force_blocking_execution = True
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            # force_async would normally enqueue to Celery, but here it must run synchronously
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_ASYNC_ALWAYS)
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False)
+
+        mock_on_commit.assert_not_called()
+
+        runner2 = TestQueryRunner(query={"some_attr": "bla2"}, team=self.team)
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            # async mode (cache miss) — would normally enqueue; must block instead
+            response = runner2.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False)
+
+        # Even stale cache should not kick off an async recalculation
+        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
+            response = runner2.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            # Blocking recalculation rather than serving stale cache and enqueuing async
+            self.assertEqual(response.is_cached, False)
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:48:42+00:00")
+
+        mock_on_commit.assert_not_called()
+
     def test_modifier_passthrough(self):
         try:
             from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner

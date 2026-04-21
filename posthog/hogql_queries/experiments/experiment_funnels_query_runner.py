@@ -39,6 +39,8 @@ from ..insights.funnels.funnels_query_runner import FunnelsQueryRunner
 class ExperimentFunnelsQueryRunner(QueryRunner):
     query: ExperimentFunnelsQuery
     cached_response: CachedExperimentFunnelsQueryResponse
+    # Experiment queries are served synchronously from the web request; never enqueue to Celery.
+    force_blocking_execution = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

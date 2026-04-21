@@ -165,6 +165,17 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
 }
 
+# Maps each async-capable ExecutionMode to the blocking variant with the closest cache semantics.
+# Used when a query runner opts out of async execution via `force_blocking_execution`.
+_ASYNC_TO_BLOCKING_EXECUTION_MODE: dict[ExecutionMode, ExecutionMode] = {
+    ExecutionMode.CALCULATE_ASYNC_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS: (
+        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+    ),
+    ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+}
+
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
@@ -1004,6 +1015,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
     workload: Workload
+    # When True, async ExecutionModes are coerced to their blocking equivalent in `run()` so the
+    # query never gets enqueued to Celery. Set on runners whose callers request async modes but
+    # that we want served directly from the web request (e.g. experiments).
+    force_blocking_execution: bool = False
 
     def __init__(
         self,
@@ -1286,6 +1301,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.user = user
         start_time = perf_counter()
         cache_key = self.get_cache_key()
+
+        if self.force_blocking_execution:
+            execution_mode = _ASYNC_TO_BLOCKING_EXECUTION_MODE.get(execution_mode, execution_mode)
 
         with posthoganalytics.new_context():
             posthoganalytics.tag("cache_key", cache_key)
