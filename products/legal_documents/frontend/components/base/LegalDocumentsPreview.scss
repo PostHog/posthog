@@ -3,8 +3,8 @@
     font-style: normal;
     font-weight: normal;
     src:
-        url('/fonts/fairytale_serif-webfont.woff2') format('woff2'),
-        url('/fonts/fairytale_serif-webfont.woff') format('woff');
+        url('../../../../../frontend/public/fonts/fairytale_serif-webfont.woff2') format('woff2'),
+        url('../../../../../frontend/public/fonts/fairytale_serif-webfont.woff') format('woff');
     font-display: swap;
 }
 
@@ -12,7 +12,7 @@
     font-family: 'Computer Modern';
     font-style: normal;
     font-weight: normal;
-    src: url('/fonts/cmunti-webfont.woff') format('woff');
+    src: url('../../../../../frontend/public/fonts/cmunti-webfont.woff') format('woff');
     font-display: swap;
 }
 
