@@ -1859,7 +1859,7 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         }
         kwargs.update(overrides)
 
-        integration = PostgreSQLIntegration.integration_from_config(**kwargs)
+        integration = PostgreSQLIntegration.integration_from_config(**kwargs)  # type: ignore
         pq = PostgreSQLIntegration(integration)
 
         assert pq.authority() == Authority(host="db.example.com", port=5432)
