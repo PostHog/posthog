@@ -63,10 +63,8 @@ export function SecretApiKeySection(): JSX.Element {
                 </div>
 
                 {currentTeam?.secret_api_token && (
-                    <LemonBanner type="warning" className="my-2">
-                        Rotating this key will require updating it everywhere it's used. Only rotate if you suspect it
-                        has been compromised.
-                    </LemonBanner>
+                        Rotating this key will require updating it everywhere it's used. Rotate if
+                        it has been compromised or as part of your regular key rotation policy.
                 )}
 
                 {currentTeam?.secret_api_token_backup ? (
