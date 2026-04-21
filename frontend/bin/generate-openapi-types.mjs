@@ -384,6 +384,32 @@ let failed = 0
 const entries = [...schemasByOutput.entries()]
 
 /**
+ * Orval emits `export const fooDefault = null` + `.default(fooDefault)` for
+ * serializer fields with `default=None`. Zod rejects `.default(null)` on typed
+ * schemas (number, string, etc.). Replace those with `.nullish()` and drop the
+ * dead const.
+ */
+function fixNullDefaults(filePath) {
+    let content = fs.readFileSync(filePath, 'utf-8')
+
+    const nullConsts = new Set()
+    for (const m of content.matchAll(/export const (\w+Default)\s*=\s*null\s*;/g)) {
+        nullConsts.add(m[1])
+    }
+    if (nullConsts.size === 0) {
+        return
+    }
+
+    const namesPattern = [...nullConsts].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+    const defaultRe = new RegExp('\\.default\\(\\s*(?:' + namesPattern + ')\\s*[,)]', 'g')
+    const constRe = new RegExp('export const (?:' + namesPattern + ')\\s*=\\s*null\\s*;', 'g')
+    content = content.replace(defaultRe, '.nullish()')
+    content = content.replace(constRe, '')
+
+    fs.writeFileSync(filePath, content)
+}
+
+/**
  * Annotate top-level Zod exports with @__PURE__ so bundlers can tree-shake
  * unused schemas out of the bundle.
  */
@@ -605,6 +631,7 @@ for (let i = 0; i < results.length; i++) {
     if (result.status === 'fulfilled') {
         if (job.kind === 'zod') {
             const zodFile = path.join(job.outputDir, 'api.zod.ts')
+            fixNullDefaults(zodFile)
             annotatePureZodExports(zodFile)
         }
         console.log(`   ✓ ${job.label}:${job.kind} → ${path.relative(repoRoot, job.outputDir)}`)

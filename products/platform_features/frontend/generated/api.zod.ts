@@ -65,6 +65,96 @@ export const ChangeRequestsCancelCreateBody = /* @__PURE__ */ zod.object({})
  */
 export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({})
 
+export const createBodyNameMax = 64
+
+export const CreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(createBodyNameMax),
+    logo_media_id: zod.uuid().nullish(),
+    enforce_2fa: zod.boolean().nullish(),
+    members_can_invite: zod.boolean().nullish(),
+    members_can_use_personal_api_keys: zod.boolean().optional(),
+    allow_publicly_shared_resources: zod.boolean().optional(),
+    is_ai_data_processing_approved: zod.boolean().nullish(),
+    default_experiment_stats_method: zod
+        .union([
+            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['']),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+        ),
+    default_anonymize_ips: zod
+        .boolean()
+        .optional()
+        .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
+    default_role_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the role to automatically assign to new members joining the organization'),
+})
+
+export const updateBodyNameMax = 64
+
+export const UpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(updateBodyNameMax),
+    logo_media_id: zod.uuid().nullish(),
+    enforce_2fa: zod.boolean().nullish(),
+    members_can_invite: zod.boolean().nullish(),
+    members_can_use_personal_api_keys: zod.boolean().optional(),
+    allow_publicly_shared_resources: zod.boolean().optional(),
+    is_ai_data_processing_approved: zod.boolean().nullish(),
+    default_experiment_stats_method: zod
+        .union([
+            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['']),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+        ),
+    default_anonymize_ips: zod
+        .boolean()
+        .optional()
+        .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
+    default_role_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the role to automatically assign to new members joining the organization'),
+})
+
+export const partialUpdateBodyNameMax = 64
+
+export const PartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(partialUpdateBodyNameMax).optional(),
+    logo_media_id: zod.uuid().nullish(),
+    enforce_2fa: zod.boolean().nullish(),
+    members_can_invite: zod.boolean().nullish(),
+    members_can_use_personal_api_keys: zod.boolean().optional(),
+    allow_publicly_shared_resources: zod.boolean().optional(),
+    is_ai_data_processing_approved: zod.boolean().nullish(),
+    default_experiment_stats_method: zod
+        .union([
+            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['']),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+        ),
+    default_anonymize_ips: zod
+        .boolean()
+        .optional()
+        .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
+    default_role_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the role to automatically assign to new members joining the organization'),
+})
+
 export const MembersUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
@@ -109,6 +199,8 @@ export const advancedActivityLogsExportCreateBodyUserLastNameMax = 150
 
 export const advancedActivityLogsExportCreateBodyUserEmailMax = 254
 
+export const advancedActivityLogsExportCreateBodyClientMax = 32
+
 export const advancedActivityLogsExportCreateBodyActivityMax = 79
 
 export const advancedActivityLogsExportCreateBodyItemIdMax = 72
@@ -140,6 +232,7 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
     organization_id: zod.uuid().nullish(),
     was_impersonated: zod.boolean().nullish(),
     is_system: zod.boolean().nullish(),
+    client: zod.string().max(advancedActivityLogsExportCreateBodyClientMax).nullish(),
     activity: zod.string().max(advancedActivityLogsExportCreateBodyActivityMax),
     item_id: zod.string().max(advancedActivityLogsExportCreateBodyItemIdMax).nullish(),
     scope: zod.string().max(advancedActivityLogsExportCreateBodyScopeMax),

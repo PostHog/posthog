@@ -66,30 +66,33 @@ export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 export const logsAlertsCreateBodyNameMax = 255
 
-export const logsAlertsCreateBodyThresholdCountMax = 2147483647
-
+export const logsAlertsCreateBodyEnabledDefault = true
 export const logsAlertsCreateBodyThresholdOperatorDefault = `above`
-export const logsAlertsCreateBodyWindowMinutesMin = 0
-export const logsAlertsCreateBodyWindowMinutesMax = 2147483647
-
+export const logsAlertsCreateBodyWindowMinutesDefault = 5
 export const logsAlertsCreateBodyEvaluationPeriodsDefault = 1
 export const logsAlertsCreateBodyEvaluationPeriodsMax = 10
 
 export const logsAlertsCreateBodyDatapointsToAlarmDefault = 1
 export const logsAlertsCreateBodyDatapointsToAlarmMax = 10
 
+export const logsAlertsCreateBodyCooldownMinutesDefault = 0
 export const logsAlertsCreateBodyCooldownMinutesMin = 0
-export const logsAlertsCreateBodyCooldownMinutesMax = 2147483647
 
 export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsAlertsCreateBodyNameMax),
-    enabled: zod.boolean().optional(),
+    name: zod.string().max(logsAlertsCreateBodyNameMax).describe('Human-readable name for this alert.'),
+    enabled: zod
+        .boolean()
+        .default(logsAlertsCreateBodyEnabledDefault)
+        .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
         .unknown()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object).'
         ),
-    threshold_count: zod.number().min(1).max(logsAlertsCreateBodyThresholdCountMax),
+    threshold_count: zod
+        .number()
+        .min(1)
+        .describe('Number of matching log entries that constitutes a threshold breach within the evaluation window.'),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('* `above` - Above\n* `below` - Below')
@@ -99,9 +102,8 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         ),
     window_minutes: zod
         .number()
-        .min(logsAlertsCreateBodyWindowMinutesMin)
-        .max(logsAlertsCreateBodyWindowMinutesMax)
-        .optional(),
+        .default(logsAlertsCreateBodyWindowMinutesDefault)
+        .describe('Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.'),
     evaluation_periods: zod
         .number()
         .min(1)
@@ -117,37 +119,43 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
     cooldown_minutes: zod
         .number()
         .min(logsAlertsCreateBodyCooldownMinutesMin)
-        .max(logsAlertsCreateBodyCooldownMinutesMax)
-        .optional(),
-    snooze_until: zod.iso.datetime({}).nullish(),
+        .default(logsAlertsCreateBodyCooldownMinutesDefault)
+        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+    snooze_until: zod.iso
+        .datetime({})
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
 
 export const logsAlertsUpdateBodyNameMax = 255
 
-export const logsAlertsUpdateBodyThresholdCountMax = 2147483647
-
+export const logsAlertsUpdateBodyEnabledDefault = true
 export const logsAlertsUpdateBodyThresholdOperatorDefault = `above`
-export const logsAlertsUpdateBodyWindowMinutesMin = 0
-export const logsAlertsUpdateBodyWindowMinutesMax = 2147483647
-
+export const logsAlertsUpdateBodyWindowMinutesDefault = 5
 export const logsAlertsUpdateBodyEvaluationPeriodsDefault = 1
 export const logsAlertsUpdateBodyEvaluationPeriodsMax = 10
 
 export const logsAlertsUpdateBodyDatapointsToAlarmDefault = 1
 export const logsAlertsUpdateBodyDatapointsToAlarmMax = 10
 
+export const logsAlertsUpdateBodyCooldownMinutesDefault = 0
 export const logsAlertsUpdateBodyCooldownMinutesMin = 0
-export const logsAlertsUpdateBodyCooldownMinutesMax = 2147483647
 
 export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsAlertsUpdateBodyNameMax),
-    enabled: zod.boolean().optional(),
+    name: zod.string().max(logsAlertsUpdateBodyNameMax).describe('Human-readable name for this alert.'),
+    enabled: zod
+        .boolean()
+        .default(logsAlertsUpdateBodyEnabledDefault)
+        .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
         .unknown()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object).'
         ),
-    threshold_count: zod.number().min(1).max(logsAlertsUpdateBodyThresholdCountMax),
+    threshold_count: zod
+        .number()
+        .min(1)
+        .describe('Number of matching log entries that constitutes a threshold breach within the evaluation window.'),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('* `above` - Above\n* `below` - Below')
@@ -157,9 +165,8 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     window_minutes: zod
         .number()
-        .min(logsAlertsUpdateBodyWindowMinutesMin)
-        .max(logsAlertsUpdateBodyWindowMinutesMax)
-        .optional(),
+        .default(logsAlertsUpdateBodyWindowMinutesDefault)
+        .describe('Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.'),
     evaluation_periods: zod
         .number()
         .min(1)
@@ -175,38 +182,49 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
     cooldown_minutes: zod
         .number()
         .min(logsAlertsUpdateBodyCooldownMinutesMin)
-        .max(logsAlertsUpdateBodyCooldownMinutesMax)
-        .optional(),
-    snooze_until: zod.iso.datetime({}).nullish(),
+        .default(logsAlertsUpdateBodyCooldownMinutesDefault)
+        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+    snooze_until: zod.iso
+        .datetime({})
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
 
 export const logsAlertsPartialUpdateBodyNameMax = 255
 
-export const logsAlertsPartialUpdateBodyThresholdCountMax = 2147483647
-
+export const logsAlertsPartialUpdateBodyEnabledDefault = true
 export const logsAlertsPartialUpdateBodyThresholdOperatorDefault = `above`
-export const logsAlertsPartialUpdateBodyWindowMinutesMin = 0
-export const logsAlertsPartialUpdateBodyWindowMinutesMax = 2147483647
-
+export const logsAlertsPartialUpdateBodyWindowMinutesDefault = 5
 export const logsAlertsPartialUpdateBodyEvaluationPeriodsDefault = 1
 export const logsAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
 
 export const logsAlertsPartialUpdateBodyDatapointsToAlarmDefault = 1
 export const logsAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
 
+export const logsAlertsPartialUpdateBodyCooldownMinutesDefault = 0
 export const logsAlertsPartialUpdateBodyCooldownMinutesMin = 0
-export const logsAlertsPartialUpdateBodyCooldownMinutesMax = 2147483647
 
 export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsAlertsPartialUpdateBodyNameMax).optional(),
-    enabled: zod.boolean().optional(),
+    name: zod
+        .string()
+        .max(logsAlertsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name for this alert.'),
+    enabled: zod
+        .boolean()
+        .default(logsAlertsPartialUpdateBodyEnabledDefault)
+        .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
         .unknown()
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object).'
         ),
-    threshold_count: zod.number().min(1).max(logsAlertsPartialUpdateBodyThresholdCountMax).optional(),
+    threshold_count: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Number of matching log entries that constitutes a threshold breach within the evaluation window.'),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('* `above` - Above\n* `below` - Below')
@@ -216,9 +234,8 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     window_minutes: zod
         .number()
-        .min(logsAlertsPartialUpdateBodyWindowMinutesMin)
-        .max(logsAlertsPartialUpdateBodyWindowMinutesMax)
-        .optional(),
+        .default(logsAlertsPartialUpdateBodyWindowMinutesDefault)
+        .describe('Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.'),
     evaluation_periods: zod
         .number()
         .min(1)
@@ -234,9 +251,40 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     cooldown_minutes: zod
         .number()
         .min(logsAlertsPartialUpdateBodyCooldownMinutesMin)
-        .max(logsAlertsPartialUpdateBodyCooldownMinutesMax)
-        .optional(),
-    snooze_until: zod.iso.datetime({}).nullish(),
+        .default(logsAlertsPartialUpdateBodyCooldownMinutesDefault)
+        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+    snooze_until: zod.iso
+        .datetime({})
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+})
+
+/**
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ */
+export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['slack', 'webhook'])
+        .describe('* `slack` - slack\n* `webhook` - webhook')
+        .describe('Destination type — slack or webhook.\n\n* `slack` - slack\n* `webhook` - webhook'),
+    slack_workspace_id: zod
+        .number()
+        .optional()
+        .describe('Integration ID for the Slack workspace. Required when type=slack.'),
+    slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
+    slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to POST to. Required when type=webhook.'),
+})
+
+/**
+ * Delete a notification destination by deleting its HogFunction group atomically.
+ */
+
+export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
 
 /**
@@ -377,4 +425,100 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
             after: zod.string().optional().describe('Pagination cursor from previous response.'),
         })
         .describe('The logs query to execute.'),
+})
+
+export const logsSparklineCreateBodyQueryOneSeverityLevelsDefault = []
+export const logsSparklineCreateBodyQueryOneServiceNamesDefault = []
+export const logsSparklineCreateBodyQueryOneFilterGroupDefault = []
+
+export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('Date range for the sparkline. Defaults to last hour.'),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal'
+                        )
+                )
+                .default(logsSparklineCreateBodyQueryOneSeverityLevelsDefault)
+                .describe('Filter by log severity levels.'),
+            serviceNames: zod
+                .array(zod.string())
+                .default(logsSparklineCreateBodyQueryOneServiceNamesDefault)
+                .describe('Filter by service names.'),
+            searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                            ),
+                        type: zod
+                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                            .describe(
+                                '* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                            )
+                            .describe(
+                                '\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .nullish()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                            ),
+                    })
+                )
+                .default(logsSparklineCreateBodyQueryOneFilterGroupDefault)
+                .describe('Property filters for the query.'),
+            sparklineBreakdownBy: zod
+                .enum(['severity', 'service'])
+                .describe('* `severity` - severity\n* `service` - service')
+                .optional()
+                .describe(
+                    'Break down sparkline by \"severity\" (default) or \"service\".\n\n* `severity` - severity\n* `service` - service'
+                ),
+        })
+        .describe('The sparkline query to execute.'),
 })

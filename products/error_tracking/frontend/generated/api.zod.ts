@@ -9,42 +9,17 @@
  */
 import * as zod from 'zod'
 
-export const errorTrackingAssignmentRulesCreateBodyOrderKeyMin = -2147483648
-export const errorTrackingAssignmentRulesCreateBodyOrderKeyMax = 2147483647
+export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown(),
-    order_key: zod
-        .number()
-        .min(errorTrackingAssignmentRulesCreateBodyOrderKeyMin)
-        .max(errorTrackingAssignmentRulesCreateBodyOrderKeyMax),
-    disabled_data: zod.unknown().nullish(),
-})
+export const ErrorTrackingAssignmentRulesUpdateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-export const errorTrackingAssignmentRulesUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingAssignmentRulesUpdateBodyOrderKeyMax = 2147483647
-
-export const ErrorTrackingAssignmentRulesUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown(),
-    order_key: zod
-        .number()
-        .min(errorTrackingAssignmentRulesUpdateBodyOrderKeyMin)
-        .max(errorTrackingAssignmentRulesUpdateBodyOrderKeyMax),
-    disabled_data: zod.unknown().nullish(),
-})
-
-export const errorTrackingAssignmentRulesPartialUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingAssignmentRulesPartialUpdateBodyOrderKeyMax = 2147483647
-
-export const ErrorTrackingAssignmentRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    order_key: zod
-        .number()
-        .min(errorTrackingAssignmentRulesPartialUpdateBodyOrderKeyMin)
-        .max(errorTrackingAssignmentRulesPartialUpdateBodyOrderKeyMax)
-        .optional(),
-    disabled_data: zod.unknown().nullish(),
-})
+export const ErrorTrackingAssignmentRulesPartialUpdateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
 export const errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMax = 2147483647
@@ -60,112 +35,21 @@ export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__
 })
 
 export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
-    external_url: zod.string(),
-    id: zod.string(),
-    integration: zod.object({
-        display_name: zod.string(),
-        id: zod.number(),
-        kind: zod.enum([
-            'slack',
-            'slack-posthog-code',
-            'salesforce',
-            'hubspot',
-            'google-pubsub',
-            'google-cloud-service-account',
-            'google-cloud-storage',
-            'google-ads',
-            'google-sheets',
-            'linkedin-ads',
-            'snapchat',
-            'intercom',
-            'email',
-            'twilio',
-            'linear',
-            'github',
-            'gitlab',
-            'meta-ads',
-            'clickup',
-            'reddit-ads',
-            'databricks',
-            'tiktok-ads',
-            'bing-ads',
-            'vercel',
-            'azure-blob',
-            'firebase',
-            'jira',
-            'pinterest-ads',
-            'customerio-app',
-            'customerio-webhook',
-            'customerio-track',
-        ]),
-    }),
+    integration_id: zod.number(),
+    config: zod.unknown(),
+    issue: zod.uuid(),
 })
 
-export const ErrorTrackingExternalReferencesUpdateBody = /* @__PURE__ */ zod.object({
-    external_url: zod.string(),
-    id: zod.string(),
-    integration: zod.object({
-        display_name: zod.string(),
-        id: zod.number(),
-        kind: zod.enum([
-            'slack',
-            'slack-posthog-code',
-            'salesforce',
-            'hubspot',
-            'google-pubsub',
-            'google-cloud-service-account',
-            'google-cloud-storage',
-            'google-ads',
-            'google-sheets',
-            'linkedin-ads',
-            'snapchat',
-            'intercom',
-            'email',
-            'twilio',
-            'linear',
-            'github',
-            'gitlab',
-            'meta-ads',
-            'clickup',
-            'reddit-ads',
-            'databricks',
-            'tiktok-ads',
-            'bing-ads',
-            'vercel',
-            'azure-blob',
-            'firebase',
-            'jira',
-            'pinterest-ads',
-            'customerio-app',
-            'customerio-webhook',
-            'customerio-track',
-        ]),
-    }),
-})
-
-export const ErrorTrackingExternalReferencesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    integration_id: zod.number().optional(),
-    config: zod.unknown().optional(),
-    issue: zod.uuid().optional(),
-})
-
-export const errorTrackingGroupingRulesCreateBodyOrderKeyMin = -2147483648
-export const errorTrackingGroupingRulesCreateBodyOrderKeyMax = 2147483647
-
-export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown(),
-    order_key: zod
-        .number()
-        .min(errorTrackingGroupingRulesCreateBodyOrderKeyMin)
-        .max(errorTrackingGroupingRulesCreateBodyOrderKeyMax),
-    disabled_data: zod.unknown().nullish(),
-})
+export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const errorTrackingGroupingRulesUpdateBodyOrderKeyMin = -2147483648
 export const errorTrackingGroupingRulesUpdateBodyOrderKeyMax = 2147483647
 
 export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod.unknown(),
+    description: zod.string().nullish(),
     order_key: zod
         .number()
         .min(errorTrackingGroupingRulesUpdateBodyOrderKeyMin)
@@ -178,6 +62,7 @@ export const errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMax = 2147483647
 
 export const ErrorTrackingGroupingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod.unknown().optional(),
+    description: zod.string().nullish(),
     order_key: zod
         .number()
         .min(errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMin)
@@ -191,6 +76,7 @@ export const errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMax = 214
 
 export const ErrorTrackingGroupingRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod.unknown().optional(),
+    description: zod.string().nullish(),
     order_key: zod
         .number()
         .min(errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMin)
@@ -215,45 +101,16 @@ export const ErrorTrackingIssuesCreateBody = /* @__PURE__ */ zod.object({
     }),
     external_issues: zod.array(
         zod.object({
-            external_url: zod.string(),
-            id: zod.string(),
+            id: zod.uuid(),
             integration: zod.object({
-                display_name: zod.string(),
                 id: zod.number(),
-                kind: zod.enum([
-                    'slack',
-                    'slack-posthog-code',
-                    'salesforce',
-                    'hubspot',
-                    'google-pubsub',
-                    'google-cloud-service-account',
-                    'google-cloud-storage',
-                    'google-ads',
-                    'google-sheets',
-                    'linkedin-ads',
-                    'snapchat',
-                    'intercom',
-                    'email',
-                    'twilio',
-                    'linear',
-                    'github',
-                    'gitlab',
-                    'meta-ads',
-                    'clickup',
-                    'reddit-ads',
-                    'databricks',
-                    'tiktok-ads',
-                    'bing-ads',
-                    'vercel',
-                    'azure-blob',
-                    'firebase',
-                    'jira',
-                    'pinterest-ads',
-                    'customerio-app',
-                    'customerio-webhook',
-                    'customerio-track',
-                ]),
+                kind: zod.string(),
+                display_name: zod.string(),
             }),
+            integration_id: zod.number(),
+            config: zod.unknown(),
+            issue: zod.uuid(),
+            external_url: zod.string(),
         })
     ),
 })
@@ -274,45 +131,16 @@ export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
     }),
     external_issues: zod.array(
         zod.object({
-            external_url: zod.string(),
-            id: zod.string(),
+            id: zod.uuid(),
             integration: zod.object({
-                display_name: zod.string(),
                 id: zod.number(),
-                kind: zod.enum([
-                    'slack',
-                    'slack-posthog-code',
-                    'salesforce',
-                    'hubspot',
-                    'google-pubsub',
-                    'google-cloud-service-account',
-                    'google-cloud-storage',
-                    'google-ads',
-                    'google-sheets',
-                    'linkedin-ads',
-                    'snapchat',
-                    'intercom',
-                    'email',
-                    'twilio',
-                    'linear',
-                    'github',
-                    'gitlab',
-                    'meta-ads',
-                    'clickup',
-                    'reddit-ads',
-                    'databricks',
-                    'tiktok-ads',
-                    'bing-ads',
-                    'vercel',
-                    'azure-blob',
-                    'firebase',
-                    'jira',
-                    'pinterest-ads',
-                    'customerio-app',
-                    'customerio-webhook',
-                    'customerio-track',
-                ]),
+                kind: zod.string(),
+                display_name: zod.string(),
             }),
+            integration_id: zod.number(),
+            config: zod.unknown(),
+            issue: zod.uuid(),
+            external_url: zod.string(),
         })
     ),
 })
@@ -336,45 +164,16 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     external_issues: zod
         .array(
             zod.object({
-                external_url: zod.string(),
-                id: zod.string(),
+                id: zod.uuid(),
                 integration: zod.object({
-                    display_name: zod.string(),
                     id: zod.number(),
-                    kind: zod.enum([
-                        'slack',
-                        'slack-posthog-code',
-                        'salesforce',
-                        'hubspot',
-                        'google-pubsub',
-                        'google-cloud-service-account',
-                        'google-cloud-storage',
-                        'google-ads',
-                        'google-sheets',
-                        'linkedin-ads',
-                        'snapchat',
-                        'intercom',
-                        'email',
-                        'twilio',
-                        'linear',
-                        'github',
-                        'gitlab',
-                        'meta-ads',
-                        'clickup',
-                        'reddit-ads',
-                        'databricks',
-                        'tiktok-ads',
-                        'bing-ads',
-                        'vercel',
-                        'azure-blob',
-                        'firebase',
-                        'jira',
-                        'pinterest-ads',
-                        'customerio-app',
-                        'customerio-webhook',
-                        'customerio-track',
-                    ]),
+                    kind: zod.string(),
+                    display_name: zod.string(),
                 }),
+                integration_id: zod.number(),
+                config: zod.unknown(),
+                issue: zod.uuid(),
+                external_url: zod.string(),
             })
         )
         .optional(),
@@ -399,45 +198,16 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.ob
     external_issues: zod
         .array(
             zod.object({
-                external_url: zod.string(),
-                id: zod.string(),
+                id: zod.uuid(),
                 integration: zod.object({
-                    display_name: zod.string(),
                     id: zod.number(),
-                    kind: zod.enum([
-                        'slack',
-                        'slack-posthog-code',
-                        'salesforce',
-                        'hubspot',
-                        'google-pubsub',
-                        'google-cloud-service-account',
-                        'google-cloud-storage',
-                        'google-ads',
-                        'google-sheets',
-                        'linkedin-ads',
-                        'snapchat',
-                        'intercom',
-                        'email',
-                        'twilio',
-                        'linear',
-                        'github',
-                        'gitlab',
-                        'meta-ads',
-                        'clickup',
-                        'reddit-ads',
-                        'databricks',
-                        'tiktok-ads',
-                        'bing-ads',
-                        'vercel',
-                        'azure-blob',
-                        'firebase',
-                        'jira',
-                        'pinterest-ads',
-                        'customerio-app',
-                        'customerio-webhook',
-                        'customerio-track',
-                    ]),
+                    kind: zod.string(),
+                    display_name: zod.string(),
                 }),
+                integration_id: zod.number(),
+                config: zod.unknown(),
+                issue: zod.uuid(),
+                external_url: zod.string(),
             })
         )
         .optional(),
@@ -459,45 +229,16 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod.object({
     }),
     external_issues: zod.array(
         zod.object({
-            external_url: zod.string(),
-            id: zod.string(),
+            id: zod.uuid(),
             integration: zod.object({
-                display_name: zod.string(),
                 id: zod.number(),
-                kind: zod.enum([
-                    'slack',
-                    'slack-posthog-code',
-                    'salesforce',
-                    'hubspot',
-                    'google-pubsub',
-                    'google-cloud-service-account',
-                    'google-cloud-storage',
-                    'google-ads',
-                    'google-sheets',
-                    'linkedin-ads',
-                    'snapchat',
-                    'intercom',
-                    'email',
-                    'twilio',
-                    'linear',
-                    'github',
-                    'gitlab',
-                    'meta-ads',
-                    'clickup',
-                    'reddit-ads',
-                    'databricks',
-                    'tiktok-ads',
-                    'bing-ads',
-                    'vercel',
-                    'azure-blob',
-                    'firebase',
-                    'jira',
-                    'pinterest-ads',
-                    'customerio-app',
-                    'customerio-webhook',
-                    'customerio-track',
-                ]),
+                kind: zod.string(),
+                display_name: zod.string(),
             }),
+            integration_id: zod.number(),
+            config: zod.unknown(),
+            issue: zod.uuid(),
+            external_url: zod.string(),
         })
     ),
 })
@@ -507,62 +248,22 @@ export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
+    fingerprints: zod
+        .array(
+            zod.object({
+                fingerprint: zod.string().describe('Fingerprint to split into a new issue.'),
+                name: zod
+                    .string()
+                    .optional()
+                    .describe('Optional name for the new issue created from this fingerprint.'),
+                description: zod
+                    .string()
+                    .optional()
+                    .describe('Optional description for the new issue created from this fingerprint.'),
+            })
+        )
         .optional()
-        .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({}),
-    assignee: zod.object({
-        id: zod.union([zod.number(), zod.string()]).nullable(),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            external_url: zod.string(),
-            id: zod.string(),
-            integration: zod.object({
-                display_name: zod.string(),
-                id: zod.number(),
-                kind: zod.enum([
-                    'slack',
-                    'slack-posthog-code',
-                    'salesforce',
-                    'hubspot',
-                    'google-pubsub',
-                    'google-cloud-service-account',
-                    'google-cloud-storage',
-                    'google-ads',
-                    'google-sheets',
-                    'linkedin-ads',
-                    'snapchat',
-                    'intercom',
-                    'email',
-                    'twilio',
-                    'linear',
-                    'github',
-                    'gitlab',
-                    'meta-ads',
-                    'clickup',
-                    'reddit-ads',
-                    'databricks',
-                    'tiktok-ads',
-                    'bing-ads',
-                    'vercel',
-                    'azure-blob',
-                    'firebase',
-                    'jira',
-                    'pinterest-ads',
-                    'customerio-app',
-                    'customerio-webhook',
-                    'customerio-track',
-                ]),
-            }),
-        })
-    ),
+        .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
 })
 
 export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
@@ -581,45 +282,16 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
     }),
     external_issues: zod.array(
         zod.object({
-            external_url: zod.string(),
-            id: zod.string(),
+            id: zod.uuid(),
             integration: zod.object({
-                display_name: zod.string(),
                 id: zod.number(),
-                kind: zod.enum([
-                    'slack',
-                    'slack-posthog-code',
-                    'salesforce',
-                    'hubspot',
-                    'google-pubsub',
-                    'google-cloud-service-account',
-                    'google-cloud-storage',
-                    'google-ads',
-                    'google-sheets',
-                    'linkedin-ads',
-                    'snapchat',
-                    'intercom',
-                    'email',
-                    'twilio',
-                    'linear',
-                    'github',
-                    'gitlab',
-                    'meta-ads',
-                    'clickup',
-                    'reddit-ads',
-                    'databricks',
-                    'tiktok-ads',
-                    'bing-ads',
-                    'vercel',
-                    'azure-blob',
-                    'firebase',
-                    'jira',
-                    'pinterest-ads',
-                    'customerio-app',
-                    'customerio-webhook',
-                    'customerio-track',
-                ]),
+                kind: zod.string(),
+                display_name: zod.string(),
             }),
+            integration_id: zod.number(),
+            config: zod.unknown(),
+            issue: zod.uuid(),
+            external_url: zod.string(),
         })
     ),
 })
@@ -652,18 +324,9 @@ export const ErrorTrackingStackFramesBatchGetCreateBody = /* @__PURE__ */ zod.ob
     symbol_set_ref: zod.string().optional(),
 })
 
-export const errorTrackingSuppressionRulesCreateBodyOrderKeyMin = -2147483648
-export const errorTrackingSuppressionRulesCreateBodyOrderKeyMax = 2147483647
-
-export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown(),
-    order_key: zod
-        .number()
-        .min(errorTrackingSuppressionRulesCreateBodyOrderKeyMin)
-        .max(errorTrackingSuppressionRulesCreateBodyOrderKeyMax),
-    disabled_data: zod.unknown().nullish(),
-    sampling_rate: zod.number().optional(),
-})
+export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const errorTrackingSuppressionRulesUpdateBodyOrderKeyMin = -2147483648
 export const errorTrackingSuppressionRulesUpdateBodyOrderKeyMax = 2147483647

@@ -84,3 +84,10 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
     approve_all: zod.boolean().optional(),
     commit_to_github: zod.boolean().optional(),
 })
+
+/**
+ * Mark a changed snapshot as a known tolerated alternate.
+ */
+export const VisualReviewRunsTolerateCreateBody = /* @__PURE__ */ zod.object({
+    snapshot_id: zod.uuid(),
+})

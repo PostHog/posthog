@@ -204,6 +204,33 @@ export const InsightsSuggestionsCreateBody = /* @__PURE__ */ zod
     .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const insightsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(insightsBulkUpdateTagsCreateBodyIdsMax)
+        .describe('List of object IDs to update tags on.'),
+    action: zod
+        .enum(['add', 'remove', 'set'])
+        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe(
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+        ),
+    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+})
+
+/**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
 
 The QueryCoalescingMiddleware attaches cached response data to

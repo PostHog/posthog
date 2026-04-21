@@ -109,6 +109,7 @@ export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
         ai_resolved: zod.boolean().optional(),
         escalation_reason: zod.string().nullish(),
         sla_due_at: zod.iso.datetime({}).nullish().describe('SLA deadline set via workflows. Null means no SLA.'),
+        snoozed_until: zod.iso.datetime({}).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -141,6 +142,7 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
         ai_resolved: zod.boolean().optional(),
         escalation_reason: zod.string().nullish(),
         sla_due_at: zod.iso.datetime({}).nullish().describe('SLA deadline set via workflows. Null means no SLA.'),
+        snoozed_until: zod.iso.datetime({}).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -170,6 +172,34 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
         ai_resolved: zod.boolean().optional(),
         escalation_reason: zod.string().nullish(),
         sla_due_at: zod.iso.datetime({}).nullish().describe('SLA deadline set via workflows. Null means no SLA.'),
+        snoozed_until: zod.iso.datetime({}).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const conversationsTicketsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(conversationsTicketsBulkUpdateTagsCreateBodyIdsMax)
+        .describe('List of object IDs to update tags on.'),
+    action: zod
+        .enum(['add', 'remove', 'set'])
+        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe(
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+        ),
+    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+})

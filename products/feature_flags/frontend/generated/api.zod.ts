@@ -135,9 +135,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
-                                            .enum(['is_date_exact', 'is_date_after', 'is_date_before'])
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
                                             )
                                             .describe(
                                                 'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
@@ -509,9 +509,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .nullish()
                                             .describe('Group type index when using group-based filters.'),
                                         operator: zod
-                                            .enum(['is_date_exact', 'is_date_after', 'is_date_before'])
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
-                                                '* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
                                             )
                                             .describe(
                                                 'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
@@ -1109,6 +1109,33 @@ export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod
             .default(featureFlagsBulkKeysCreateBodyShouldCreateUsageDashboardDefault),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const featureFlagsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(featureFlagsBulkUpdateTagsCreateBodyIdsMax)
+        .describe('List of object IDs to update tags on.'),
+    action: zod
+        .enum(['add', 'remove', 'set'])
+        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe(
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+        ),
+    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+})
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.

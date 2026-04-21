@@ -56,6 +56,27 @@ export const SandboxCreateBody = /* @__PURE__ */ zod.object({
         .describe('If true, only the creator can see this environment. Otherwise visible to whole team.'),
 })
 
+export const taskAutomationsCreateBodyNameMax = 255
+
+export const taskAutomationsCreateBodyRepositoryMax = 255
+
+export const taskAutomationsCreateBodyCronExpressionMax = 100
+
+export const taskAutomationsCreateBodyTimezoneMax = 128
+
+export const taskAutomationsCreateBodyTemplateIdMax = 255
+
+export const TaskAutomationsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taskAutomationsCreateBodyNameMax),
+    prompt: zod.string(),
+    repository: zod.string().max(taskAutomationsCreateBodyRepositoryMax),
+    github_integration: zod.number().nullish(),
+    cron_expression: zod.string().max(taskAutomationsCreateBodyCronExpressionMax),
+    timezone: zod.string().max(taskAutomationsCreateBodyTimezoneMax).optional(),
+    template_id: zod.string().max(taskAutomationsCreateBodyTemplateIdMax).nullish(),
+    enabled: zod.boolean().optional(),
+})
+
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
@@ -94,6 +115,7 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'error_tracking',
             'eval_clusters',
             'user_created',
+            'automation',
             'slack',
             'support_queue',
             'session_summaries',
@@ -101,11 +123,15 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `signal_report` - Signal Report'
+            '* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `automation` - Automation\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `signal_report` - Signal Report'
         ),
     repository: zod.string().max(tasksPartialUpdateBodyRepositoryMax).nullish(),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
     signal_report: zod.uuid().nullish(),
+    signal_report_task_relationship: zod
+        .enum(['implementation'])
+        .describe('* `implementation` - Implementation')
+        .optional(),
     json_schema: zod
         .unknown()
         .nullish()
@@ -114,27 +140,178 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe('If true, this task is for internal use and should not be exposed to end users.'),
+    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
 })
 
 /**
  * Create a new task run and kick off the workflow.
  * @summary Run task
  */
-export const tasksRunCreateBodyModeDefault = `background`
-export const tasksRunCreateBodyBranchMax = 255
+export const tasksRunCreateBodyOneModeDefault = `background`
+export const tasksRunCreateBodyOneBranchMax = 255
 
-export const TasksRunCreateBody = /* @__PURE__ */ zod
-    .object({
+export const tasksRunCreateBodyTwoModeDefault = `background`
+export const tasksRunCreateBodyTwoBranchMax = 255
+
+export const tasksRunCreateBodyThreeModeDefault = `background`
+export const tasksRunCreateBodyThreeBranchMax = 255
+
+export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
+    zod
+        .object({
+            mode: zod
+                .enum(['interactive', 'background'])
+                .describe('* `interactive` - interactive\n* `background` - background')
+                .default(tasksRunCreateBodyOneModeDefault)
+                .describe(
+                    "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n* `interactive` - interactive\n* `background` - background"
+                ),
+            branch: zod
+                .string()
+                .max(tasksRunCreateBodyOneBranchMax)
+                .nullish()
+                .describe('Git branch to checkout in the sandbox'),
+            resume_from_run_id: zod
+                .uuid()
+                .optional()
+                .describe('ID of a previous run to resume from. Must belong to the same task.'),
+            pending_user_message: zod
+                .string()
+                .optional()
+                .describe('Initial or follow-up user message to include in the run prompt.'),
+            sandbox_environment_id: zod
+                .uuid()
+                .optional()
+                .describe('Optional sandbox environment to apply for this cloud run.'),
+            pr_authorship_mode: zod
+                .enum(['user', 'bot'])
+                .describe('* `user` - user\n* `bot` - bot')
+                .optional()
+                .describe(
+                    'Whether pull requests for this run should be authored by the user or the bot.\n\n* `user` - user\n* `bot` - bot'
+                ),
+            run_source: zod
+                .enum(['manual', 'signal_report'])
+                .describe('* `manual` - manual\n* `signal_report` - signal_report')
+                .optional()
+                .describe(
+                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n* `manual` - manual\n* `signal_report` - signal_report'
+                ),
+            signal_report_id: zod
+                .string()
+                .optional()
+                .describe('Optional signal report identifier when this run was started from Inbox.'),
+            runtime_adapter: zod
+                .enum(['claude'])
+                .describe('* `claude` - claude')
+                .describe(
+                    "Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.\n\n* `claude` - claude"
+                ),
+            model: zod.string().describe('LLM model identifier to run in the Claude runtime.'),
+            reasoning_effort: zod
+                .enum(['low', 'medium', 'high', 'max'])
+                .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max')
+                .optional()
+                .describe(
+                    'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max'
+                ),
+            github_user_token: zod
+                .string()
+                .optional()
+                .describe('Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.'),
+            initial_permission_mode: zod
+                .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
+                .describe(
+                    '* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions'
+                )
+                .optional()
+                .describe(
+                    'Initial permission mode for Claude runtimes.\n\n* `default` - default\n* `acceptEdits` - acceptEdits\n* `plan` - plan\n* `bypassPermissions` - bypassPermissions'
+                ),
+        })
+        .describe('Request body for creating a new task run'),
+    zod
+        .object({
+            mode: zod
+                .enum(['interactive', 'background'])
+                .describe('* `interactive` - interactive\n* `background` - background')
+                .default(tasksRunCreateBodyTwoModeDefault)
+                .describe(
+                    "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n* `interactive` - interactive\n* `background` - background"
+                ),
+            branch: zod
+                .string()
+                .max(tasksRunCreateBodyTwoBranchMax)
+                .nullish()
+                .describe('Git branch to checkout in the sandbox'),
+            resume_from_run_id: zod
+                .uuid()
+                .optional()
+                .describe('ID of a previous run to resume from. Must belong to the same task.'),
+            pending_user_message: zod
+                .string()
+                .optional()
+                .describe('Initial or follow-up user message to include in the run prompt.'),
+            sandbox_environment_id: zod
+                .uuid()
+                .optional()
+                .describe('Optional sandbox environment to apply for this cloud run.'),
+            pr_authorship_mode: zod
+                .enum(['user', 'bot'])
+                .describe('* `user` - user\n* `bot` - bot')
+                .optional()
+                .describe(
+                    'Whether pull requests for this run should be authored by the user or the bot.\n\n* `user` - user\n* `bot` - bot'
+                ),
+            run_source: zod
+                .enum(['manual', 'signal_report'])
+                .describe('* `manual` - manual\n* `signal_report` - signal_report')
+                .optional()
+                .describe(
+                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n* `manual` - manual\n* `signal_report` - signal_report'
+                ),
+            signal_report_id: zod
+                .string()
+                .optional()
+                .describe('Optional signal report identifier when this run was started from Inbox.'),
+            runtime_adapter: zod
+                .enum(['codex'])
+                .describe('* `codex` - codex')
+                .describe(
+                    "Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.\n\n* `codex` - codex"
+                ),
+            model: zod.string().describe('LLM model identifier to run in the Codex runtime.'),
+            reasoning_effort: zod
+                .enum(['low', 'medium', 'high', 'max'])
+                .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max')
+                .optional()
+                .describe(
+                    'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max'
+                ),
+            github_user_token: zod
+                .string()
+                .optional()
+                .describe('Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.'),
+            initial_permission_mode: zod
+                .enum(['auto', 'read-only', 'full-access'])
+                .describe('* `auto` - auto\n* `read-only` - read-only\n* `full-access` - full-access')
+                .optional()
+                .describe(
+                    'Initial permission mode for Codex runtimes.\n\n* `auto` - auto\n* `read-only` - read-only\n* `full-access` - full-access'
+                ),
+        })
+        .describe('Request body for creating a new task run'),
+    zod.object({
         mode: zod
             .enum(['interactive', 'background'])
             .describe('* `interactive` - interactive\n* `background` - background')
-            .default(tasksRunCreateBodyModeDefault)
+            .default(tasksRunCreateBodyThreeModeDefault)
             .describe(
                 "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n* `interactive` - interactive\n* `background` - background"
             ),
         branch: zod
             .string()
-            .max(tasksRunCreateBodyBranchMax)
+            .max(tasksRunCreateBodyThreeBranchMax)
             .nullish()
             .describe('Git branch to checkout in the sandbox'),
         resume_from_run_id: zod
@@ -171,8 +348,8 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe('Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.'),
-    })
-    .describe('Request body for creating a new task run')
+    }),
+])
 
 /**
  * API for managing task runs. Each run represents an execution of a task.
@@ -252,7 +429,7 @@ export const TasksRunsArtifactsPresignCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, and close commands.
+ * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, close, permission_response, and set_config_option commands.
  * @summary Send command to agent server
  */
 export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
@@ -262,10 +439,12 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
             .describe('* `2.0` - 2.0')
             .describe("JSON-RPC version, must be '2.0'\n\n* `2.0` - 2.0"),
         method: zod
-            .enum(['user_message', 'cancel', 'close'])
-            .describe('* `user_message` - user_message\n* `cancel` - cancel\n* `close` - close')
+            .enum(['user_message', 'cancel', 'close', 'permission_response', 'set_config_option'])
             .describe(
-                'Command method to execute on the agent server\n\n* `user_message` - user_message\n* `cancel` - cancel\n* `close` - close'
+                '* `user_message` - user_message\n* `cancel` - cancel\n* `close` - close\n* `permission_response` - permission_response\n* `set_config_option` - set_config_option'
+            )
+            .describe(
+                'Command method to execute on the agent server\n\n* `user_message` - user_message\n* `cancel` - cancel\n* `close` - close\n* `permission_response` - permission_response\n* `set_config_option` - set_config_option'
             ),
         params: zod.record(zod.string(), zod.unknown()).optional().describe('Parameters for the command'),
         id: zod.unknown().optional().describe('Optional JSON-RPC request ID (string or number)'),

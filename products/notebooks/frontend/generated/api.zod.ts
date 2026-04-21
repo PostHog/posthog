@@ -84,6 +84,23 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksCollabSaveCreateBodyTextContentDefault = ``
+
+export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
+    client_id: zod.string().describe('Unique identifier for the client session.'),
+    version: zod.number().describe("The collab version the client's steps are based on."),
+    steps: zod.array(zod.unknown()).describe('List of ProseMirror step JSON objects to apply.'),
+    content: zod.unknown().describe('The resulting ProseMirror document after applying the steps locally.'),
+    text_content: zod
+        .string()
+        .default(notebooksCollabSaveCreateBodyTextContentDefault)
+        .describe('Plain text for search indexing.'),
+    title: zod.string().optional().describe('Updated notebook title.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksHogqlExecuteCreateBodyTitleMax = 256
 
 export const notebooksHogqlExecuteCreateBodyVersionMin = -2147483648

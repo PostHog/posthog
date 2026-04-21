@@ -59,6 +59,30 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
 })
 
+export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
+})
+
+export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
+})
+
+export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
+})
+
+export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
+})
+
+export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
+})
+
+export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
+    should_sync: zod.boolean().optional(),
+})
+
 /**
  * Create, Read, Update and Delete External data Sources.
  */
@@ -109,6 +133,45 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
         job_inputs: zod.unknown().nullish(),
     })
     .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
+    schemas: zod
+        .array(
+            zod.object({
+                id: zod.uuid().describe('Schema identifier to update.'),
+                should_sync: zod.boolean().optional().describe('Whether the schema should be queryable/synced.'),
+                sync_type: zod
+                    .union([zod.enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc']), zod.literal(null)])
+                    .nullish()
+                    .describe(
+                        'Requested sync mode for the schema.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                    ),
+                incremental_field: zod
+                    .string()
+                    .nullish()
+                    .describe('Incremental cursor field for incremental or append syncs.'),
+                incremental_field_type: zod.string().nullish().describe('Type of the incremental cursor field.'),
+                sync_frequency: zod.string().nullish().describe('Human-readable sync frequency value.'),
+                sync_time_of_day: zod.iso.time({}).nullish().describe('UTC anchor time for scheduled syncs.'),
+                cdc_table_mode: zod
+                    .union([
+                        zod
+                            .enum(['consolidated', 'cdc_only', 'both'])
+                            .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+                        zod.literal(null),
+                    ])
+                    .nullish()
+                    .describe(
+                        'How CDC-backed tables should be exposed.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+                    ),
+            })
+        )
+        .optional()
+        .describe('Schema updates to apply in a single batch.'),
+})
 
 /**
  * Create, Read, Update and Delete External data Sources.

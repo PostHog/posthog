@@ -17,6 +17,7 @@
             "@posthog/mosaic/*": ["../common/mosaic/src/*"],
             "@posthog/replay-shared": ["../common/replay-shared/src/index.ts"],
             "@posthog/replay-shared/*": ["../common/replay-shared/src/*"],
+            "zod": ["node_modules/zod"],
             // Needed to access the subpath since torph didn't set up types properly
             "torph/react": ["node_modules/torph/dist/react/index"]
         },

@@ -62,3 +62,30 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         default_columns: zod.array(zod.string()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const eventDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const EventDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(eventDefinitionsBulkUpdateTagsCreateBodyIdsMax)
+        .describe('List of object IDs to update tags on.'),
+    action: zod
+        .enum(['add', 'remove', 'set'])
+        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe(
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+        ),
+    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+})

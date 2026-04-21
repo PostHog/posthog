@@ -26,7 +26,9 @@ export const MessagingCategoriesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Import subscription topics and globally unsubscribed users from Customer.io API
+ * Import subscription topics and globally unsubscribed users from Customer.io API.
+Persists the App API key in Integration(kind="customerio-app").
+If no app_api_key is provided, reuses the stored Integration key.
  */
 export const messagingCategoriesImportFromCustomerioCreateBodyKeyMax = 64
 
@@ -55,6 +57,54 @@ export const messagingCategoriesImportPreferencesCsvCreateBodyNameMax = 128
 export const MessagingCategoriesImportPreferencesCsvCreateBody = /* @__PURE__ */ zod.object({
     key: zod.string().max(messagingCategoriesImportPreferencesCsvCreateBodyKeyMax),
     name: zod.string().max(messagingCategoriesImportPreferencesCsvCreateBodyNameMax),
+    description: zod.string().optional(),
+    public_description: zod.string().optional(),
+    category_type: zod
+        .enum(['marketing', 'transactional'])
+        .optional()
+        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+    deleted: zod.boolean().optional(),
+})
+
+/**
+ * Save Customer.io Track API credentials and/or toggle outbound sync.
+
+Accepts:
+  - site_id (optional): set on first creation only
+  - api_key (optional): set on first creation only
+  - region (optional): "us" or "eu", set on first creation only
+  - track_enabled (required): enable or disable outbound sync
+ */
+export const messagingCategoriesSaveTrackConfigCreateBodyKeyMax = 64
+
+export const messagingCategoriesSaveTrackConfigCreateBodyNameMax = 128
+
+export const MessagingCategoriesSaveTrackConfigCreateBody = /* @__PURE__ */ zod.object({
+    key: zod.string().max(messagingCategoriesSaveTrackConfigCreateBodyKeyMax),
+    name: zod.string().max(messagingCategoriesSaveTrackConfigCreateBodyNameMax),
+    description: zod.string().optional(),
+    public_description: zod.string().optional(),
+    category_type: zod
+        .enum(['marketing', 'transactional'])
+        .optional()
+        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+    deleted: zod.boolean().optional(),
+})
+
+/**
+ * Save webhook signing secret and/or toggle the Customer.io webhook sync.
+
+Accepts:
+  - webhook_signing_secret (optional): set on first creation only
+  - webhook_enabled (required): enable or disable the webhook
+ */
+export const messagingCategoriesSaveWebhookConfigCreateBodyKeyMax = 64
+
+export const messagingCategoriesSaveWebhookConfigCreateBodyNameMax = 128
+
+export const MessagingCategoriesSaveWebhookConfigCreateBody = /* @__PURE__ */ zod.object({
+    key: zod.string().max(messagingCategoriesSaveWebhookConfigCreateBodyKeyMax),
+    name: zod.string().max(messagingCategoriesSaveWebhookConfigCreateBodyNameMax),
     description: zod.string().optional(),
     public_description: zod.string().optional(),
     category_type: zod

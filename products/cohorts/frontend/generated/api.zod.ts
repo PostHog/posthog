@@ -13,33 +13,8 @@ export const cohortsCreateBodyNameMax = 400
 
 export const cohortsCreateBodyDescriptionMax = 1000
 
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneBytecodeDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneBytecodeErrorDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneConditionHashDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneTimeValueDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneTimeIntervalDefault = null
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneOperatorDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneOperatorValueDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneSeqTimeIntervalDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneSeqTimeValueDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneSeqEventDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneSeqEventTypeDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneTotalPeriodsDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneMinPeriodsDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemOneOperatorDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemTwoValueDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneEventFiltersDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneExplicitDatetimeDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemTwoBytecodeDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemTwoBytecodeErrorDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemTwoConditionHashDefault = null
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeBytecodeDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeBytecodeErrorDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeConditionHashDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeOperatorDefault = null
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeValueDefault = null
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsCreateBodyCreateStaticPersonIdsDefault = []
 
@@ -56,52 +31,26 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                     values: zod.array(
                         zod.union([
                             zod.object({
-                                bytecode: zod
-                                    .array(zod.unknown())
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneBytecodeDefault),
-                                bytecode_error: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneBytecodeErrorDefault),
-                                conditionHash: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneConditionHashDefault),
+                                bytecode: zod.array(zod.unknown()).nullish(),
+                                bytecode_error: zod.string().nullish(),
+                                conditionHash: zod.string().nullish(),
                                 type: zod.enum(['behavioral']),
                                 key: zod.union([zod.string(), zod.number()]),
                                 value: zod.string(),
                                 event_type: zod.string(),
-                                time_value: zod
-                                    .number()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneTimeValueDefault),
-                                time_interval: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneTimeIntervalDefault),
+                                time_value: zod.number().nullish(),
+                                time_interval: zod.string().nullish(),
                                 negation: zod
                                     .boolean()
                                     .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneNegationDefault),
-                                operator: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneOperatorDefault),
-                                operator_value: zod
-                                    .number()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneOperatorValueDefault),
-                                seq_time_interval: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneSeqTimeIntervalDefault),
-                                seq_time_value: zod
-                                    .number()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneSeqTimeValueDefault),
-                                seq_event: zod
-                                    .union([zod.string(), zod.number()])
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneSeqEventDefault),
-                                seq_event_type: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneSeqEventTypeDefault),
-                                total_periods: zod
-                                    .number()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneTotalPeriodsDefault),
-                                min_periods: zod
-                                    .number()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneMinPeriodsDefault),
+                                operator: zod.string().nullish(),
+                                operator_value: zod.number().nullish(),
+                                seq_time_interval: zod.string().nullish(),
+                                seq_time_value: zod.number().nullish(),
+                                seq_event: zod.union([zod.string(), zod.number()]).nullish(),
+                                seq_event_type: zod.string().nullish(),
+                                total_periods: zod.number().nullish(),
+                                min_periods: zod.number().nullish(),
                                 event_filters: zod
                                     .array(
                                         zod.union([
@@ -109,38 +58,22 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                                 type: zod.enum(['event', 'element']),
                                                 key: zod.string(),
                                                 value: zod.unknown(),
-                                                operator: zod
-                                                    .string()
-                                                    .default(
-                                                        cohortsCreateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemOneOperatorDefault
-                                                    ),
+                                                operator: zod.string().nullish(),
                                             }),
                                             zod.object({
                                                 type: zod.enum(['hogql']),
                                                 key: zod.string(),
-                                                value: zod
-                                                    .unknown()
-                                                    .default(
-                                                        cohortsCreateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemTwoValueDefault
-                                                    ),
+                                                value: zod.unknown().nullish(),
                                             }),
                                         ])
                                     )
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneEventFiltersDefault),
-                                explicit_datetime: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneExplicitDatetimeDefault),
+                                    .nullish(),
+                                explicit_datetime: zod.string().nullish(),
                             }),
                             zod.object({
-                                bytecode: zod
-                                    .array(zod.unknown())
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemTwoBytecodeDefault),
-                                bytecode_error: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemTwoBytecodeErrorDefault),
-                                conditionHash: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemTwoConditionHashDefault),
+                                bytecode: zod.array(zod.unknown()).nullish(),
+                                bytecode_error: zod.string().nullish(),
+                                conditionHash: zod.string().nullish(),
                                 type: zod.enum(['cohort']),
                                 key: zod.enum(['id']),
                                 value: zod.number(),
@@ -149,23 +82,13 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                     .default(cohortsCreateBodyFiltersOnePropertiesValuesItemTwoNegationDefault),
                             }),
                             zod.object({
-                                bytecode: zod
-                                    .array(zod.unknown())
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemThreeBytecodeDefault),
-                                bytecode_error: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemThreeBytecodeErrorDefault),
-                                conditionHash: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemThreeConditionHashDefault),
+                                bytecode: zod.array(zod.unknown()).nullish(),
+                                bytecode_error: zod.string().nullish(),
+                                conditionHash: zod.string().nullish(),
                                 type: zod.enum(['person']),
                                 key: zod.string(),
-                                operator: zod
-                                    .string()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemThreeOperatorDefault),
-                                value: zod
-                                    .unknown()
-                                    .default(cohortsCreateBodyFiltersOnePropertiesValuesItemThreeValueDefault),
+                                operator: zod.string().nullish(),
+                                value: zod.unknown().nullish(),
                                 negation: zod
                                     .boolean()
                                     .default(cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault),
@@ -203,33 +126,8 @@ export const cohortsUpdateBodyNameMax = 400
 
 export const cohortsUpdateBodyDescriptionMax = 1000
 
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneBytecodeDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneBytecodeErrorDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneConditionHashDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneTimeValueDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneTimeIntervalDefault = null
 export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneOperatorDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneOperatorValueDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneSeqTimeIntervalDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneSeqTimeValueDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneSeqEventDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneSeqEventTypeDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneTotalPeriodsDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneMinPeriodsDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemOneOperatorDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemTwoValueDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemOneExplicitDatetimeDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoBytecodeDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoBytecodeErrorDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoConditionHashDefault = null
 export const cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeBytecodeDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeBytecodeErrorDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeConditionHashDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeOperatorDefault = null
-export const cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeValueDefault = null
 export const cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsUpdateBodyCreateStaticPersonIdsDefault = []
 
@@ -246,52 +144,26 @@ export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
                     values: zod.array(
                         zod.union([
                             zod.object({
-                                bytecode: zod
-                                    .array(zod.unknown())
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneBytecodeDefault),
-                                bytecode_error: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneBytecodeErrorDefault),
-                                conditionHash: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneConditionHashDefault),
+                                bytecode: zod.array(zod.unknown()).nullish(),
+                                bytecode_error: zod.string().nullish(),
+                                conditionHash: zod.string().nullish(),
                                 type: zod.enum(['behavioral']),
                                 key: zod.union([zod.string(), zod.number()]),
                                 value: zod.string(),
                                 event_type: zod.string(),
-                                time_value: zod
-                                    .number()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneTimeValueDefault),
-                                time_interval: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneTimeIntervalDefault),
+                                time_value: zod.number().nullish(),
+                                time_interval: zod.string().nullish(),
                                 negation: zod
                                     .boolean()
                                     .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault),
-                                operator: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneOperatorDefault),
-                                operator_value: zod
-                                    .number()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneOperatorValueDefault),
-                                seq_time_interval: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneSeqTimeIntervalDefault),
-                                seq_time_value: zod
-                                    .number()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneSeqTimeValueDefault),
-                                seq_event: zod
-                                    .union([zod.string(), zod.number()])
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneSeqEventDefault),
-                                seq_event_type: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneSeqEventTypeDefault),
-                                total_periods: zod
-                                    .number()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneTotalPeriodsDefault),
-                                min_periods: zod
-                                    .number()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneMinPeriodsDefault),
+                                operator: zod.string().nullish(),
+                                operator_value: zod.number().nullish(),
+                                seq_time_interval: zod.string().nullish(),
+                                seq_time_value: zod.number().nullish(),
+                                seq_event: zod.union([zod.string(), zod.number()]).nullish(),
+                                seq_event_type: zod.string().nullish(),
+                                total_periods: zod.number().nullish(),
+                                min_periods: zod.number().nullish(),
                                 event_filters: zod
                                     .array(
                                         zod.union([
@@ -299,38 +171,22 @@ export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
                                                 type: zod.enum(['event', 'element']),
                                                 key: zod.string(),
                                                 value: zod.unknown(),
-                                                operator: zod
-                                                    .string()
-                                                    .default(
-                                                        cohortsUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemOneOperatorDefault
-                                                    ),
+                                                operator: zod.string().nullish(),
                                             }),
                                             zod.object({
                                                 type: zod.enum(['hogql']),
                                                 key: zod.string(),
-                                                value: zod
-                                                    .unknown()
-                                                    .default(
-                                                        cohortsUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemTwoValueDefault
-                                                    ),
+                                                value: zod.unknown().nullish(),
                                             }),
                                         ])
                                     )
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersDefault),
-                                explicit_datetime: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemOneExplicitDatetimeDefault),
+                                    .nullish(),
+                                explicit_datetime: zod.string().nullish(),
                             }),
                             zod.object({
-                                bytecode: zod
-                                    .array(zod.unknown())
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoBytecodeDefault),
-                                bytecode_error: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoBytecodeErrorDefault),
-                                conditionHash: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoConditionHashDefault),
+                                bytecode: zod.array(zod.unknown()).nullish(),
+                                bytecode_error: zod.string().nullish(),
+                                conditionHash: zod.string().nullish(),
                                 type: zod.enum(['cohort']),
                                 key: zod.enum(['id']),
                                 value: zod.number(),
@@ -339,23 +195,13 @@ export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
                                     .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault),
                             }),
                             zod.object({
-                                bytecode: zod
-                                    .array(zod.unknown())
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeBytecodeDefault),
-                                bytecode_error: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeBytecodeErrorDefault),
-                                conditionHash: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeConditionHashDefault),
+                                bytecode: zod.array(zod.unknown()).nullish(),
+                                bytecode_error: zod.string().nullish(),
+                                conditionHash: zod.string().nullish(),
                                 type: zod.enum(['person']),
                                 key: zod.string(),
-                                operator: zod
-                                    .string()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeOperatorDefault),
-                                value: zod
-                                    .unknown()
-                                    .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeValueDefault),
+                                operator: zod.string().nullish(),
+                                value: zod.unknown().nullish(),
                                 negation: zod
                                     .boolean()
                                     .default(cohortsUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault),
@@ -393,33 +239,8 @@ export const cohortsPartialUpdateBodyNameMax = 400
 
 export const cohortsPartialUpdateBodyDescriptionMax = 1000
 
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneBytecodeDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneBytecodeErrorDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneConditionHashDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneTimeValueDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneTimeIntervalDefault = null
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneOperatorDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneOperatorValueDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneSeqTimeIntervalDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneSeqTimeValueDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneSeqEventDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneSeqEventTypeDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneTotalPeriodsDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneMinPeriodsDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemOneOperatorDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemTwoValueDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneExplicitDatetimeDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoBytecodeDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoBytecodeErrorDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoConditionHashDefault = null
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeBytecodeDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeBytecodeErrorDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeConditionHashDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeOperatorDefault = null
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeValueDefault = null
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsPartialUpdateBodyCreateStaticPersonIdsDefault = []
 
@@ -436,70 +257,26 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     values: zod.array(
                         zod.union([
                             zod.object({
-                                bytecode: zod
-                                    .array(zod.unknown())
-                                    .default(cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneBytecodeDefault),
-                                bytecode_error: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneBytecodeErrorDefault
-                                    ),
-                                conditionHash: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneConditionHashDefault
-                                    ),
+                                bytecode: zod.array(zod.unknown()).nullish(),
+                                bytecode_error: zod.string().nullish(),
+                                conditionHash: zod.string().nullish(),
                                 type: zod.enum(['behavioral']),
                                 key: zod.union([zod.string(), zod.number()]),
                                 value: zod.string(),
                                 event_type: zod.string(),
-                                time_value: zod
-                                    .number()
-                                    .default(cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneTimeValueDefault),
-                                time_interval: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneTimeIntervalDefault
-                                    ),
+                                time_value: zod.number().nullish(),
+                                time_interval: zod.string().nullish(),
                                 negation: zod
                                     .boolean()
                                     .default(cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault),
-                                operator: zod
-                                    .string()
-                                    .default(cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneOperatorDefault),
-                                operator_value: zod
-                                    .number()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneOperatorValueDefault
-                                    ),
-                                seq_time_interval: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneSeqTimeIntervalDefault
-                                    ),
-                                seq_time_value: zod
-                                    .number()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneSeqTimeValueDefault
-                                    ),
-                                seq_event: zod
-                                    .union([zod.string(), zod.number()])
-                                    .default(cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneSeqEventDefault),
-                                seq_event_type: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneSeqEventTypeDefault
-                                    ),
-                                total_periods: zod
-                                    .number()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneTotalPeriodsDefault
-                                    ),
-                                min_periods: zod
-                                    .number()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneMinPeriodsDefault
-                                    ),
+                                operator: zod.string().nullish(),
+                                operator_value: zod.number().nullish(),
+                                seq_time_interval: zod.string().nullish(),
+                                seq_time_value: zod.number().nullish(),
+                                seq_event: zod.union([zod.string(), zod.number()]).nullish(),
+                                seq_event_type: zod.string().nullish(),
+                                total_periods: zod.number().nullish(),
+                                min_periods: zod.number().nullish(),
                                 event_filters: zod
                                     .array(
                                         zod.union([
@@ -507,46 +284,22 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 type: zod.enum(['event', 'element']),
                                                 key: zod.string(),
                                                 value: zod.unknown(),
-                                                operator: zod
-                                                    .string()
-                                                    .default(
-                                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemOneOperatorDefault
-                                                    ),
+                                                operator: zod.string().nullish(),
                                             }),
                                             zod.object({
                                                 type: zod.enum(['hogql']),
                                                 key: zod.string(),
-                                                value: zod
-                                                    .unknown()
-                                                    .default(
-                                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersItemTwoValueDefault
-                                                    ),
+                                                value: zod.unknown().nullish(),
                                             }),
                                         ])
                                     )
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersDefault
-                                    ),
-                                explicit_datetime: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneExplicitDatetimeDefault
-                                    ),
+                                    .nullish(),
+                                explicit_datetime: zod.string().nullish(),
                             }),
                             zod.object({
-                                bytecode: zod
-                                    .array(zod.unknown())
-                                    .default(cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoBytecodeDefault),
-                                bytecode_error: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoBytecodeErrorDefault
-                                    ),
-                                conditionHash: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoConditionHashDefault
-                                    ),
+                                bytecode: zod.array(zod.unknown()).nullish(),
+                                bytecode_error: zod.string().nullish(),
+                                conditionHash: zod.string().nullish(),
                                 type: zod.enum(['cohort']),
                                 key: zod.enum(['id']),
                                 value: zod.number(),
@@ -555,31 +308,13 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     .default(cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault),
                             }),
                             zod.object({
-                                bytecode: zod
-                                    .array(zod.unknown())
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeBytecodeDefault
-                                    ),
-                                bytecode_error: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeBytecodeErrorDefault
-                                    ),
-                                conditionHash: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeConditionHashDefault
-                                    ),
+                                bytecode: zod.array(zod.unknown()).nullish(),
+                                bytecode_error: zod.string().nullish(),
+                                conditionHash: zod.string().nullish(),
                                 type: zod.enum(['person']),
                                 key: zod.string(),
-                                operator: zod
-                                    .string()
-                                    .default(
-                                        cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeOperatorDefault
-                                    ),
-                                value: zod
-                                    .unknown()
-                                    .default(cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeValueDefault),
+                                operator: zod.string().nullish(),
+                                value: zod.unknown().nullish(),
                                 negation: zod
                                     .boolean()
                                     .default(

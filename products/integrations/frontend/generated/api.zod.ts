@@ -12,12 +12,12 @@ import * as zod from 'zod'
 /**
  * ViewSet for organization-level integrations.
 
-Provides read-only access to integrations that are scoped to the entire organization
+Provides access to integrations that are scoped to the entire organization
 (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
 
-This is read-only. Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Deletion requires contacting support
-due to billing implications.
+Creation is handled by the integration installation flows
+(e.g., Vercel marketplace installation). Users can disconnect integrations
+via the DELETE endpoint.
  */
 export const IntegrationsEnvironmentMappingPartialUpdateBody = /* @__PURE__ */ zod
     .object({})

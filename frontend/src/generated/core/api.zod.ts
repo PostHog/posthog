@@ -157,8 +157,6 @@ export const create2BodyProductDescriptionMax = 1000
 
 export const create2BodyAppUrlsItemMax = 200
 
-export const create2BodySlackIncomingWebhookMax = 500
-
 export const create2BodyPersonDisplayNamePropertiesItemMax = 400
 
 export const create2BodySessionRecordingSampleRateRegExp = new RegExp('^-?\\d{0,1}(?:\\.\\d{0,2})?$')
@@ -174,7 +172,6 @@ export const Create2Body = /* @__PURE__ */ zod
         name: zod.string().min(1).max(create2BodyNameMax).optional(),
         product_description: zod.string().max(create2BodyProductDescriptionMax).nullish(),
         app_urls: zod.array(zod.string().max(create2BodyAppUrlsItemMax).nullable()).optional(),
-        slack_incoming_webhook: zod.string().max(create2BodySlackIncomingWebhookMax).nullish(),
         anonymize_ips: zod.boolean().optional(),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod.unknown().optional(),
@@ -269,8 +266,6 @@ export const update2BodyProductDescriptionMax = 1000
 
 export const update2BodyAppUrlsItemMax = 200
 
-export const update2BodySlackIncomingWebhookMax = 500
-
 export const update2BodyPersonDisplayNamePropertiesItemMax = 400
 
 export const update2BodySessionRecordingSampleRateRegExp = new RegExp('^-?\\d{0,1}(?:\\.\\d{0,2})?$')
@@ -286,7 +281,6 @@ export const Update2Body = /* @__PURE__ */ zod
         name: zod.string().min(1).max(update2BodyNameMax).optional(),
         product_description: zod.string().max(update2BodyProductDescriptionMax).nullish(),
         app_urls: zod.array(zod.string().max(update2BodyAppUrlsItemMax).nullable()).optional(),
-        slack_incoming_webhook: zod.string().max(update2BodySlackIncomingWebhookMax).nullish(),
         anonymize_ips: zod.boolean().optional(),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod.unknown().optional(),
@@ -381,8 +375,6 @@ export const partialUpdate2BodyProductDescriptionMax = 1000
 
 export const partialUpdate2BodyAppUrlsItemMax = 200
 
-export const partialUpdate2BodySlackIncomingWebhookMax = 500
-
 export const partialUpdate2BodyPersonDisplayNamePropertiesItemMax = 400
 
 export const partialUpdate2BodySessionRecordingSampleRateRegExp = new RegExp('^-?\\d{0,1}(?:\\.\\d{0,2})?$')
@@ -398,7 +390,6 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
         name: zod.string().min(1).max(partialUpdate2BodyNameMax).optional(),
         product_description: zod.string().max(partialUpdate2BodyProductDescriptionMax).nullish(),
         app_urls: zod.array(zod.string().max(partialUpdate2BodyAppUrlsItemMax).nullable()).optional(),
-        slack_incoming_webhook: zod.string().max(partialUpdate2BodySlackIncomingWebhookMax).nullish(),
         anonymize_ips: zod.boolean().optional(),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod.unknown().optional(),
@@ -493,8 +484,6 @@ export const addProductIntentPartialUpdateBodyProductDescriptionMax = 1000
 
 export const addProductIntentPartialUpdateBodyAppUrlsItemMax = 200
 
-export const addProductIntentPartialUpdateBodySlackIncomingWebhookMax = 500
-
 export const addProductIntentPartialUpdateBodyPersonDisplayNamePropertiesItemMax = 400
 
 export const addProductIntentPartialUpdateBodySessionRecordingSampleRateRegExp = new RegExp(
@@ -512,7 +501,6 @@ export const AddProductIntentPartialUpdateBody = /* @__PURE__ */ zod
         name: zod.string().min(1).max(addProductIntentPartialUpdateBodyNameMax).optional(),
         product_description: zod.string().max(addProductIntentPartialUpdateBodyProductDescriptionMax).nullish(),
         app_urls: zod.array(zod.string().max(addProductIntentPartialUpdateBodyAppUrlsItemMax).nullable()).optional(),
-        slack_incoming_webhook: zod.string().max(addProductIntentPartialUpdateBodySlackIncomingWebhookMax).nullish(),
         anonymize_ips: zod.boolean().optional(),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod.unknown().optional(),
@@ -612,8 +600,6 @@ export const changeOrganizationCreateBodyProductDescriptionMax = 1000
 
 export const changeOrganizationCreateBodyAppUrlsItemMax = 200
 
-export const changeOrganizationCreateBodySlackIncomingWebhookMax = 500
-
 export const changeOrganizationCreateBodyPersonDisplayNamePropertiesItemMax = 400
 
 export const changeOrganizationCreateBodySessionRecordingSampleRateRegExp = new RegExp('^-?\\d{0,1}(?:\\.\\d{0,2})?$')
@@ -629,7 +615,6 @@ export const ChangeOrganizationCreateBody = /* @__PURE__ */ zod
         name: zod.string().min(1).max(changeOrganizationCreateBodyNameMax).optional(),
         product_description: zod.string().max(changeOrganizationCreateBodyProductDescriptionMax).nullish(),
         app_urls: zod.array(zod.string().max(changeOrganizationCreateBodyAppUrlsItemMax).nullable()).optional(),
-        slack_incoming_webhook: zod.string().max(changeOrganizationCreateBodySlackIncomingWebhookMax).nullish(),
         anonymize_ips: zod.boolean().optional(),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod.unknown().optional(),
@@ -729,8 +714,6 @@ export const completeProductOnboardingPartialUpdateBodyProductDescriptionMax = 1
 
 export const completeProductOnboardingPartialUpdateBodyAppUrlsItemMax = 200
 
-export const completeProductOnboardingPartialUpdateBodySlackIncomingWebhookMax = 500
-
 export const completeProductOnboardingPartialUpdateBodyPersonDisplayNamePropertiesItemMax = 400
 
 export const completeProductOnboardingPartialUpdateBodySessionRecordingSampleRateRegExp = new RegExp(
@@ -753,10 +736,6 @@ export const CompleteProductOnboardingPartialUpdateBody = /* @__PURE__ */ zod
         app_urls: zod
             .array(zod.string().max(completeProductOnboardingPartialUpdateBodyAppUrlsItemMax).nullable())
             .optional(),
-        slack_incoming_webhook: zod
-            .string()
-            .max(completeProductOnboardingPartialUpdateBodySlackIncomingWebhookMax)
-            .nullish(),
         anonymize_ips: zod.boolean().optional(),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod.unknown().optional(),
@@ -856,8 +835,6 @@ export const deleteSecretTokenBackupPartialUpdateBodyProductDescriptionMax = 100
 
 export const deleteSecretTokenBackupPartialUpdateBodyAppUrlsItemMax = 200
 
-export const deleteSecretTokenBackupPartialUpdateBodySlackIncomingWebhookMax = 500
-
 export const deleteSecretTokenBackupPartialUpdateBodyPersonDisplayNamePropertiesItemMax = 400
 
 export const deleteSecretTokenBackupPartialUpdateBodySessionRecordingSampleRateRegExp = new RegExp(
@@ -877,10 +854,6 @@ export const DeleteSecretTokenBackupPartialUpdateBody = /* @__PURE__ */ zod
         app_urls: zod
             .array(zod.string().max(deleteSecretTokenBackupPartialUpdateBodyAppUrlsItemMax).nullable())
             .optional(),
-        slack_incoming_webhook: zod
-            .string()
-            .max(deleteSecretTokenBackupPartialUpdateBodySlackIncomingWebhookMax)
-            .nullish(),
         anonymize_ips: zod.boolean().optional(),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod.unknown().optional(),
@@ -980,8 +953,6 @@ export const generateConversationsPublicTokenCreateBodyProductDescriptionMax = 1
 
 export const generateConversationsPublicTokenCreateBodyAppUrlsItemMax = 200
 
-export const generateConversationsPublicTokenCreateBodySlackIncomingWebhookMax = 500
-
 export const generateConversationsPublicTokenCreateBodyPersonDisplayNamePropertiesItemMax = 400
 
 export const generateConversationsPublicTokenCreateBodySessionRecordingSampleRateRegExp = new RegExp(
@@ -1004,10 +975,6 @@ export const GenerateConversationsPublicTokenCreateBody = /* @__PURE__ */ zod
         app_urls: zod
             .array(zod.string().max(generateConversationsPublicTokenCreateBodyAppUrlsItemMax).nullable())
             .optional(),
-        slack_incoming_webhook: zod
-            .string()
-            .max(generateConversationsPublicTokenCreateBodySlackIncomingWebhookMax)
-            .nullish(),
         anonymize_ips: zod.boolean().optional(),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod.unknown().optional(),
@@ -1107,8 +1074,6 @@ export const resetTokenPartialUpdateBodyProductDescriptionMax = 1000
 
 export const resetTokenPartialUpdateBodyAppUrlsItemMax = 200
 
-export const resetTokenPartialUpdateBodySlackIncomingWebhookMax = 500
-
 export const resetTokenPartialUpdateBodyPersonDisplayNamePropertiesItemMax = 400
 
 export const resetTokenPartialUpdateBodySessionRecordingSampleRateRegExp = new RegExp('^-?\\d{0,1}(?:\\.\\d{0,2})?$')
@@ -1124,7 +1089,6 @@ export const ResetTokenPartialUpdateBody = /* @__PURE__ */ zod
         name: zod.string().min(1).max(resetTokenPartialUpdateBodyNameMax).optional(),
         product_description: zod.string().max(resetTokenPartialUpdateBodyProductDescriptionMax).nullish(),
         app_urls: zod.array(zod.string().max(resetTokenPartialUpdateBodyAppUrlsItemMax).nullable()).optional(),
-        slack_incoming_webhook: zod.string().max(resetTokenPartialUpdateBodySlackIncomingWebhookMax).nullish(),
         anonymize_ips: zod.boolean().optional(),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod.unknown().optional(),
@@ -1224,8 +1188,6 @@ export const rotateSecretTokenPartialUpdateBodyProductDescriptionMax = 1000
 
 export const rotateSecretTokenPartialUpdateBodyAppUrlsItemMax = 200
 
-export const rotateSecretTokenPartialUpdateBodySlackIncomingWebhookMax = 500
-
 export const rotateSecretTokenPartialUpdateBodyPersonDisplayNamePropertiesItemMax = 400
 
 export const rotateSecretTokenPartialUpdateBodySessionRecordingSampleRateRegExp = new RegExp(
@@ -1243,7 +1205,6 @@ export const RotateSecretTokenPartialUpdateBody = /* @__PURE__ */ zod
         name: zod.string().min(1).max(rotateSecretTokenPartialUpdateBodyNameMax).optional(),
         product_description: zod.string().max(rotateSecretTokenPartialUpdateBodyProductDescriptionMax).nullish(),
         app_urls: zod.array(zod.string().max(rotateSecretTokenPartialUpdateBodyAppUrlsItemMax).nullable()).optional(),
-        slack_incoming_webhook: zod.string().max(rotateSecretTokenPartialUpdateBodySlackIncomingWebhookMax).nullish(),
         anonymize_ips: zod.boolean().optional(),
         completed_snippet_onboarding: zod.boolean().optional(),
         test_account_filters: zod.unknown().optional(),
@@ -1624,6 +1585,33 @@ export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const propertyDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(propertyDefinitionsBulkUpdateTagsCreateBodyIdsMax)
+        .describe('List of object IDs to update tags on.'),
+    action: zod
+        .enum(['add', 'remove', 'set'])
+        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe(
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+        ),
+    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+})
+
+/**
  * Create a new password for the sharing configuration.
  */
 export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
@@ -1649,23 +1637,47 @@ export const subscriptionsCreateBodyCountMax = 2147483647
 
 export const subscriptionsCreateBodyTitleMax = 100
 
+export const subscriptionsCreateBodySummaryPromptGuideMax = 500
+
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
-        dashboard: zod.number().nullish(),
-        insight: zod.number().nullish(),
-        dashboard_export_insights: zod.array(zod.number()).optional(),
+        dashboard: zod
+            .number()
+            .nullish()
+            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
+        insight: zod
+            .number()
+            .nullish()
+            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
+        dashboard_export_insights: zod
+            .array(zod.number())
+            .optional()
+            .describe(
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+            ),
         target_type: zod
             .enum(['email', 'slack', 'webhook'])
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'),
-        target_value: zod.string(),
+            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
+            .describe(
+                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
+            ),
+        target_value: zod
+            .string()
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'),
+            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
+            .describe(
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+            ),
         interval: zod
             .number()
             .min(subscriptionsCreateBodyIntervalMin)
             .max(subscriptionsCreateBodyIntervalMax)
-            .optional(),
+            .optional()
+            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
         byweekday: zod
             .array(
                 zod
@@ -1674,19 +1686,43 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                         '* `monday` - Monday\n* `tuesday` - Tuesday\n* `wednesday` - Wednesday\n* `thursday` - Thursday\n* `friday` - Friday\n* `saturday` - Saturday\n* `sunday` - Sunday'
                     )
             )
-            .nullish(),
+            .nullish()
+            .describe(
+                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+            ),
         bysetpos: zod
             .number()
             .min(subscriptionsCreateBodyBysetposMin)
             .max(subscriptionsCreateBodyBysetposMax)
-            .nullish(),
-        count: zod.number().min(subscriptionsCreateBodyCountMin).max(subscriptionsCreateBodyCountMax).nullish(),
-        start_date: zod.iso.datetime({}),
-        until_date: zod.iso.datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
-        title: zod.string().max(subscriptionsCreateBodyTitleMax).nullish(),
-        integration_id: zod.number().nullish(),
-        invite_message: zod.string().nullish(),
+            .nullish()
+            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
+        count: zod
+            .number()
+            .min(subscriptionsCreateBodyCountMin)
+            .max(subscriptionsCreateBodyCountMax)
+            .nullish()
+            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
+        start_date: zod.iso.datetime({}).describe('When to start delivering (ISO 8601 datetime).'),
+        until_date: zod.iso
+            .datetime({})
+            .nullish()
+            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
+        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        title: zod
+            .string()
+            .max(subscriptionsCreateBodyTitleMax)
+            .nullish()
+            .describe('Human-readable name for this subscription.'),
+        integration_id: zod
+            .number()
+            .nullish()
+            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
+        invite_message: zod
+            .string()
+            .nullish()
+            .describe('Optional message included in the invitation email when adding new recipients.'),
+        summary_enabled: zod.boolean().optional(),
+        summary_prompt_guide: zod.string().max(subscriptionsCreateBodySummaryPromptGuideMax).optional(),
     })
     .describe('Standard Subscription serializer.')
 
@@ -1701,23 +1737,47 @@ export const subscriptionsUpdateBodyCountMax = 2147483647
 
 export const subscriptionsUpdateBodyTitleMax = 100
 
+export const subscriptionsUpdateBodySummaryPromptGuideMax = 500
+
 export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
     .object({
-        dashboard: zod.number().nullish(),
-        insight: zod.number().nullish(),
-        dashboard_export_insights: zod.array(zod.number()).optional(),
+        dashboard: zod
+            .number()
+            .nullish()
+            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
+        insight: zod
+            .number()
+            .nullish()
+            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
+        dashboard_export_insights: zod
+            .array(zod.number())
+            .optional()
+            .describe(
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+            ),
         target_type: zod
             .enum(['email', 'slack', 'webhook'])
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'),
-        target_value: zod.string(),
+            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
+            .describe(
+                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
+            ),
+        target_value: zod
+            .string()
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'),
+            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
+            .describe(
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+            ),
         interval: zod
             .number()
             .min(subscriptionsUpdateBodyIntervalMin)
             .max(subscriptionsUpdateBodyIntervalMax)
-            .optional(),
+            .optional()
+            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
         byweekday: zod
             .array(
                 zod
@@ -1726,19 +1786,43 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                         '* `monday` - Monday\n* `tuesday` - Tuesday\n* `wednesday` - Wednesday\n* `thursday` - Thursday\n* `friday` - Friday\n* `saturday` - Saturday\n* `sunday` - Sunday'
                     )
             )
-            .nullish(),
+            .nullish()
+            .describe(
+                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+            ),
         bysetpos: zod
             .number()
             .min(subscriptionsUpdateBodyBysetposMin)
             .max(subscriptionsUpdateBodyBysetposMax)
-            .nullish(),
-        count: zod.number().min(subscriptionsUpdateBodyCountMin).max(subscriptionsUpdateBodyCountMax).nullish(),
-        start_date: zod.iso.datetime({}),
-        until_date: zod.iso.datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
-        title: zod.string().max(subscriptionsUpdateBodyTitleMax).nullish(),
-        integration_id: zod.number().nullish(),
-        invite_message: zod.string().nullish(),
+            .nullish()
+            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
+        count: zod
+            .number()
+            .min(subscriptionsUpdateBodyCountMin)
+            .max(subscriptionsUpdateBodyCountMax)
+            .nullish()
+            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
+        start_date: zod.iso.datetime({}).describe('When to start delivering (ISO 8601 datetime).'),
+        until_date: zod.iso
+            .datetime({})
+            .nullish()
+            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
+        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        title: zod
+            .string()
+            .max(subscriptionsUpdateBodyTitleMax)
+            .nullish()
+            .describe('Human-readable name for this subscription.'),
+        integration_id: zod
+            .number()
+            .nullish()
+            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
+        invite_message: zod
+            .string()
+            .nullish()
+            .describe('Optional message included in the invitation email when adding new recipients.'),
+        summary_enabled: zod.boolean().optional(),
+        summary_prompt_guide: zod.string().max(subscriptionsUpdateBodySummaryPromptGuideMax).optional(),
     })
     .describe('Standard Subscription serializer.')
 
@@ -1753,25 +1837,50 @@ export const subscriptionsPartialUpdateBodyCountMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyTitleMax = 100
 
+export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
+
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        dashboard: zod.number().nullish(),
-        insight: zod.number().nullish(),
-        dashboard_export_insights: zod.array(zod.number()).optional(),
+        dashboard: zod
+            .number()
+            .nullish()
+            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
+        insight: zod
+            .number()
+            .nullish()
+            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
+        dashboard_export_insights: zod
+            .array(zod.number())
+            .optional()
+            .describe(
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+            ),
         target_type: zod
             .enum(['email', 'slack', 'webhook'])
+            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
             .optional()
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'),
-        target_value: zod.string().optional(),
+            .describe(
+                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
+            ),
+        target_value: zod
+            .string()
+            .optional()
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
+            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
             .optional()
-            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'),
+            .describe(
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+            ),
         interval: zod
             .number()
             .min(subscriptionsPartialUpdateBodyIntervalMin)
             .max(subscriptionsPartialUpdateBodyIntervalMax)
-            .optional(),
+            .optional()
+            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
         byweekday: zod
             .array(
                 zod
@@ -1780,23 +1889,43 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                         '* `monday` - Monday\n* `tuesday` - Tuesday\n* `wednesday` - Wednesday\n* `thursday` - Thursday\n* `friday` - Friday\n* `saturday` - Saturday\n* `sunday` - Sunday'
                     )
             )
-            .nullish(),
+            .nullish()
+            .describe(
+                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+            ),
         bysetpos: zod
             .number()
             .min(subscriptionsPartialUpdateBodyBysetposMin)
             .max(subscriptionsPartialUpdateBodyBysetposMax)
-            .nullish(),
+            .nullish()
+            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
         count: zod
             .number()
             .min(subscriptionsPartialUpdateBodyCountMin)
             .max(subscriptionsPartialUpdateBodyCountMax)
-            .nullish(),
-        start_date: zod.iso.datetime({}).optional(),
-        until_date: zod.iso.datetime({}).nullish(),
-        deleted: zod.boolean().optional(),
-        title: zod.string().max(subscriptionsPartialUpdateBodyTitleMax).nullish(),
-        integration_id: zod.number().nullish(),
-        invite_message: zod.string().nullish(),
+            .nullish()
+            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
+        start_date: zod.iso.datetime({}).optional().describe('When to start delivering (ISO 8601 datetime).'),
+        until_date: zod.iso
+            .datetime({})
+            .nullish()
+            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
+        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        title: zod
+            .string()
+            .max(subscriptionsPartialUpdateBodyTitleMax)
+            .nullish()
+            .describe('Human-readable name for this subscription.'),
+        integration_id: zod
+            .number()
+            .nullish()
+            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
+        invite_message: zod
+            .string()
+            .nullish()
+            .describe('Optional message included in the invitation email when adding new recipients.'),
+        summary_enabled: zod.boolean().optional(),
+        summary_prompt_guide: zod.string().max(subscriptionsPartialUpdateBodySummaryPromptGuideMax).optional(),
     })
     .describe('Standard Subscription serializer.')
 
