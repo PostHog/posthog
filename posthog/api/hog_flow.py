@@ -435,6 +435,7 @@ class HogFlowFilterSet(FilterSet):
 @extend_schema(tags=["workflows"])
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
+    scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet

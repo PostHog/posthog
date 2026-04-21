@@ -1,1 +1,1 @@
-1104_alter_organization_is_ai_data_processing_approved
+1105_alter_oauthapplication_authorization_grant_type

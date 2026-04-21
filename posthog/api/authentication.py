@@ -158,7 +158,7 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         query_dict["next"] = (
             f"/account/social-connected?{urlencode({'provider': backend, 'connect_from': connect_from})}"
         )
-        request.GET = query_dict  # type: ignore[assignment]
+        request.GET = query_dict  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance

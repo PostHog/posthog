@@ -259,7 +259,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_name = create_job_result.schema_name
                 last_synced_at = create_job_result.last_synced_at
                 emit_signals_enabled = create_job_result.emit_signals_enabled
-            update_inputs.job_id = job_id
+            update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
             hit_billing_limit = await workflow.execute_activity(

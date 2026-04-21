@@ -4,7 +4,7 @@ import guidelines from '@shared/guidelines.md'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
-import { ApiClient, type GroupType } from '@/api/client'
+import { ApiClient } from '@/api/client'
 import { AnalyticsEvent, evaluateFeatureFlags, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
@@ -15,7 +15,7 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError, wrapError } from '@/lib/errors'
-import { buildInstructionsV2 } from '@/lib/instructions'
+import { buildInstructionsV1, buildInstructionsV2 } from '@/lib/instructions'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
@@ -35,10 +35,6 @@ import {
     type Tool,
 } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
-
-function buildInstructions(groupTypes?: GroupType[]): string {
-    return buildInstructionsV2(INSTRUCTIONS_TEMPLATE_V2, guidelines, groupTypes)
-}
 
 export type RequestProperties = {
     userHash: string
@@ -66,8 +62,6 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
-        aiConsentGiven: undefined,
-        aiConsentFetchedAt: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -314,8 +308,20 @@ export class MCP extends McpAgent<Env> {
                 // when present, is used as the text content instead of TOON-encoding the raw result.
                 // This is useful for tools that want to return pre-formatted text (e.g. tables)
                 // or return JSON for programmatic consumption.
-                const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedResults, ...rawResult } =
-                    await handler(params)
+                const handlerResult = await handler(params)
+                // Guard against string results: object rest on a primitive string would
+                // expand it to a character-indexed object ({"0": "f", "1": "o", ...}).
+                const isStringResult = typeof handlerResult === 'string'
+                const formattedResults: string | undefined = isStringResult
+                    ? undefined
+                    : handlerResult?.[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+                let rawResult: any
+                if (isStringResult) {
+                    rawResult = handlerResult
+                } else {
+                    const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: _ignored, ...rest } = handlerResult
+                    rawResult = rest
+                }
 
                 // For tools with UI resources, include structuredContent for better UI rendering
                 // structuredContent is not added to model context, only used by UI apps
@@ -323,7 +329,7 @@ export class MCP extends McpAgent<Env> {
 
                 // If there's a UI resource, include analytics metadata for the UI app
                 let structuredContent: WithAnalytics<typeof rawResult> | typeof rawResult = rawResult
-                if (hasUiResource) {
+                if (hasUiResource && !isStringResult) {
                     const distinctId = await this.getDistinctId()
                     const analyticsMetadata: AnalyticsMetadata = {
                         distinctId,
@@ -398,10 +404,11 @@ export class MCP extends McpAgent<Env> {
     async init(): Promise<void> {
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
 
-        // Pre-seed cache, fetch group types, and evaluate feature flags in parallel
-        const groupTypesPromise = projectId ? this.getOrFetchGroupTypes(projectId) : Promise.resolve(undefined)
+        // Start feature flag resolution in parallel with cache seeding
         const flagPromise = this.resolveVersionFlag()
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
+
+        // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
@@ -409,12 +416,28 @@ export class MCP extends McpAgent<Env> {
             await this.cache.set('projectId', projectId)
         }
 
-        // Resolve group types and feature flags (started above in parallel with cache seeding)
-        const groupTypes = await groupTypesPromise
-        const flagVersion = await flagPromise
-        const toolFeatureFlags = await toolFlagsPromise
+        const context = await this.getContext()
+
+        // Resolve defaults if headers didn't provide org/project
+        if (!organizationId || !projectId) {
+            await context.stateManager.setDefaultOrganizationAndProject()
+        }
+
+        const [flagVersion, toolFeatureFlags] = await Promise.all([flagPromise, toolFlagsPromise])
         const version = flagVersion ?? clientVersion ?? 1
-        const instructions = version === 2 ? buildInstructions(groupTypes) : INSTRUCTIONS_TEMPLATE_V1
+
+        // Fetch group types and metadata in parallel (cache is now seeded)
+        const resolvedProjectId = projectId || (await this.cache.get('projectId'))
+        const [groupTypes, metadata] = await Promise.all([
+            resolvedProjectId
+                ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
+                : Promise.resolve(undefined),
+            context.stateManager.getEnvironmentPrompt(),
+        ])
+        const instructions =
+            version === 2
+                ? buildInstructionsV2(INSTRUCTIONS_TEMPLATE_V2, guidelines, groupTypes, metadata)
+                : buildInstructionsV1(INSTRUCTIONS_TEMPLATE_V1, metadata)
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
@@ -427,12 +450,12 @@ export class MCP extends McpAgent<Env> {
             excludeTools.push('switch-organization')
         }
 
-        const context = await this.getContext()
-
         // Register prompts and resources
-        await registerPrompts(this.server)
-        await registerResources(this.server, context)
-        await registerUiAppResources(this.server, context)
+        await Promise.all([
+            registerPrompts(this.server),
+            registerResources(this.server, context),
+            registerUiAppResources(this.server, context),
+        ])
 
         // Register tools
         const { getToolsFromContext } = await import('@/tools')
@@ -510,49 +533,5 @@ export class MCP extends McpAgent<Env> {
         } catch {
             return undefined
         }
-    }
-
-    private async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
-        const GROUP_TYPES_TTL_MS = 5 * 60 * 1000 // 5 minutes
-
-        try {
-            const cached = await this.cache.get(`groupTypes:${projectId}`)
-            const fetchedAt = await this.cache.get(`groupTypesFetchedAt:${projectId}`)
-            const isStale = !fetchedAt || Date.now() - fetchedAt > GROUP_TYPES_TTL_MS
-
-            if (cached !== undefined && !isStale) {
-                return cached
-            }
-
-            if (cached !== undefined) {
-                // Stale — revalidate in background, return cached immediately
-                this.ctx.waitUntil(
-                    this.fetchAndCacheGroupTypes(projectId).catch((error) => {
-                        getPostHogClient().captureException(error, undefined, {
-                            tag: 'max_ai',
-                            context: 'group_types_background_revalidation',
-                        })
-                    })
-                )
-                return cached
-            }
-
-            // No cache — fetch synchronously
-            return await this.fetchAndCacheGroupTypes(projectId)
-        } catch (error) {
-            getPostHogClient().captureException(error, undefined, {
-                tag: 'max_ai',
-                context: 'get_or_fetch_group_types',
-            })
-            return undefined
-        }
-    }
-
-    private async fetchAndCacheGroupTypes(projectId: string): Promise<GroupType[]> {
-        const api = await this.api()
-        const groupTypes = await api.getGroupTypes(projectId)
-        await this.cache.set(`groupTypes:${projectId}`, groupTypes)
-        await this.cache.set(`groupTypesFetchedAt:${projectId}`, Date.now())
-        return groupTypes
     }
 }
