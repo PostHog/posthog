@@ -105,6 +105,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return self._context
 
     @staticmethod
+    def _should_skip_followup(message: str | None, artifact_ids: list[str]) -> bool:
+        return not message and not artifact_ids
+
+    @staticmethod
     def parse_inputs(inputs: list[str]) -> ProcessTaskInput:
         loaded = json.loads(inputs[0])
         return ProcessTaskInput(
@@ -265,9 +269,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             pending_followup = self._pending_followup
                             self._pending_followup = None
                             self._last_active_time = workflow.now()
+                            message = pending_followup.get("message")
+                            artifact_ids = pending_followup.get("artifact_ids") or []
+                            if self._should_skip_followup(message, artifact_ids):
+                                workflow.logger.warning(
+                                    "empty_followup_skipped",
+                                    run_id=self.context.run_id,
+                                )
+                                continue
+
                             await self._send_followup_to_sandbox(
-                                message=pending_followup.get("message"),
-                                artifact_ids=pending_followup.get("artifact_ids") or [],
+                                message=message,
+                                artifact_ids=artifact_ids,
                             )
                             continue
 
