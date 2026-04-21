@@ -648,7 +648,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     423: ErrorCodeMeta("CANNOT_GETTIMEOFDAY"),
     424: ErrorCodeMeta("CANNOT_LINK"),
     425: ErrorCodeMeta("SYSTEM_ERROR"),
-    427: ErrorCodeMeta("CANNOT_COMPILE_REGEXP"),
+    427: ErrorCodeMeta("CANNOT_COMPILE_REGEXP", user_safe=True),
     429: ErrorCodeMeta("FAILED_TO_GETPWUID"),
     430: ErrorCodeMeta("MISMATCHING_USERS_FOR_PROCESS_AND_DATA"),
     431: ErrorCodeMeta("ILLEGAL_SYNTAX_FOR_CODEC_TYPE"),

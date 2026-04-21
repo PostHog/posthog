@@ -150,6 +150,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            ServerException(
+                "Code: 427. DB::Exception: OptimizedRegularExpression: cannot compile re2: ^/(?!test).+, error: invalid perl operator: (?!. (CANNOT_COMPILE_REGEXP)",
+                code=427,
+            ),
+            "CHQueryErrorCannotCompileRegexp",
+            "OptimizedRegularExpression: cannot compile re2: ^/(?!test).+, error: invalid perl operator: (?!. (CANNOT_COMPILE_REGEXP)",
+            427,
+            "CHQueryErrorCannotCompileRegexp",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
