@@ -52,50 +52,10 @@ export const ExternalDataSourcePayloadSchema = z
         'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
     )
 
-// Curated subset of ExternalDataSourceType — only released sources exposed to MCP.
-// When a new source is released in SourceRegistry, add its type here manually.
-// The wizard tool returns the full list; this enum gates what create accepts.
 export const ExternalDataSourceTypeSchema = z
-    .enum([
-        'Postgres',
-        'MySQL',
-        'MSSQL',
-        'Snowflake',
-        'BigQuery',
-        'Redshift',
-        'MongoDB',
-        'Supabase',
-        'Stripe',
-        'Hubspot',
-        'Salesforce',
-        'Zendesk',
-        'Shopify',
-        'GoogleSheets',
-        'GoogleAds',
-        'MetaAds',
-        'LinkedinAds',
-        'TikTokAds',
-        'RedditAds',
-        'SnapchatAds',
-        'BingAds',
-        'PinterestAds',
-        'Chargebee',
-        'Klaviyo',
-        'Mailchimp',
-        'Attio',
-        'Linear',
-        'Sentry',
-        'Github',
-        'Vitally',
-        'Clerk',
-        'Convex',
-        'DoIt',
-        'BuildBetter',
-        'Typeform',
-        'TemporalIO',
-    ])
+    .string()
     .describe(
-        'The type of external data source to create. Use external-data-sources-wizard to see available types and their required fields.'
+        'The source type name (e.g. "Postgres", "MySQL", "Stripe"). Use external-data-sources-wizard to see available types and their required fields.'
     )
 
 export const PromptListInputSchema = z.object({
