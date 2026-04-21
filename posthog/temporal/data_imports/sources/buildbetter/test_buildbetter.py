@@ -76,6 +76,10 @@ class TestMakePaginatedRequest:
         assert call.kwargs["json"]["variables"]["offset"] == expected_first_offset
 
         manager.can_resume.assert_called_once()
+        if can_resume:
+            manager.load_state.assert_called_once()
+        else:
+            manager.load_state.assert_not_called()
         # Short page terminates the loop; save_state is not invoked
         manager.save_state.assert_not_called()
 
