@@ -16,6 +16,6 @@ Each returned row contains `distinct_id`, `name`, `email`, and `event_count` (nu
 
 Guidance:
 
-- Keep the `source` trends query minimal ��� only include the filters/breakdowns needed to identify the cell.
+- Keep the `source` trends query minimal - only include the filters/breakdowns needed to identify the cell.
 - Always pick a specific `day` from the trends result.
 - For large result sets, tighten the trends query (filters, date range) rather than expecting more rows.
