@@ -158,6 +158,33 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
+/**
+ * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+ */
+export type EvaluationApiEvaluationConfig =
+    | {
+          /**
+           * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+           * @minLength 1
+           */
+          prompt: string
+      }
+    | {
+          /**
+           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * @minLength 1
+           */
+          source: string
+      }
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ */
+export type EvaluationApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+}
+
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -176,14 +203,14 @@ export interface EvaluationApi {
 * `llm_judge` - LLM as a judge
 * `hog` - Hog */
     evaluation_type: EvaluationTypeEnumApi
-    /** Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}. */
-    evaluation_config?: unknown
+    /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+    evaluation_config?: EvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
 
 * `boolean` - Boolean (Pass/Fail) */
     output_type: OutputTypeEnumApi
-    /** Optional output config, e.g. {'allows_na': true} to allow N/A results. */
-    output_config?: unknown
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    output_config?: EvaluationApiOutputConfig
     /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
     conditions?: unknown
     model_configuration?: ModelConfigurationApi | null
@@ -201,6 +228,33 @@ export interface PaginatedEvaluationListApi {
     /** @nullable */
     previous?: string | null
     results: EvaluationApi[]
+}
+
+/**
+ * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+ */
+export type PatchedEvaluationApiEvaluationConfig =
+    | {
+          /**
+           * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+           * @minLength 1
+           */
+          prompt: string
+      }
+    | {
+          /**
+           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * @minLength 1
+           */
+          source: string
+      }
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ */
+export type PatchedEvaluationApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
 }
 
 export interface PatchedEvaluationApi {
@@ -221,14 +275,14 @@ export interface PatchedEvaluationApi {
 * `llm_judge` - LLM as a judge
 * `hog` - Hog */
     evaluation_type?: EvaluationTypeEnumApi
-    /** Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}. */
-    evaluation_config?: unknown
+    /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+    evaluation_config?: PatchedEvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
 
 * `boolean` - Boolean (Pass/Fail) */
     output_type?: OutputTypeEnumApi
-    /** Optional output config, e.g. {'allows_na': true} to allow N/A results. */
-    output_config?: unknown
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    output_config?: PatchedEvaluationApiOutputConfig
     /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
     conditions?: unknown
     model_configuration?: ModelConfigurationApi | null

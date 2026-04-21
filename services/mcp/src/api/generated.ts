@@ -14906,6 +14906,31 @@ export namespace Schemas {
     }
 
     /**
+     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     */
+    export type EvaluationEvaluationConfig = {
+      /**
+       * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+       * @minLength 1
+       */
+      prompt: string;
+    } | {
+      /**
+       * Hog source code. Must return true (pass), false (fail), or null for N/A.
+       * @minLength 1
+       */
+      source: string;
+    };
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     */
+    export type EvaluationOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+    };
+
+    /**
      * * `active` - Active
     * `paused` - Paused
     * `error` - Error
@@ -15004,14 +15029,14 @@ export namespace Schemas {
     * `llm_judge` - LLM as a judge
     * `hog` - Hog */
       evaluation_type: EvaluationTypeEnum;
-      /** Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}. */
-      evaluation_config?: unknown;
+      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      evaluation_config?: EvaluationEvaluationConfig;
       /** Output format. Currently only 'boolean' is supported.
 
     * `boolean` - Boolean (Pass/Fail) */
       output_type: OutputTypeEnum;
-      /** Optional output config, e.g. {'allows_na': true} to allow N/A results. */
-      output_config?: unknown;
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      output_config?: EvaluationOutputConfig;
       /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
       conditions?: unknown;
       model_configuration?: ModelConfiguration | null;
@@ -25378,6 +25403,31 @@ export namespace Schemas {
       readonly release?: PatchedErrorTrackingSymbolSetRelease;
     }
 
+    /**
+     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     */
+    export type PatchedEvaluationEvaluationConfig = {
+      /**
+       * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+       * @minLength 1
+       */
+      prompt: string;
+    } | {
+      /**
+       * Hog source code. Must return true (pass), false (fail), or null for N/A.
+       * @minLength 1
+       */
+      source: string;
+    };
+
+    /**
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     */
+    export type PatchedEvaluationOutputConfig = {
+      /** Whether the evaluation can return N/A for non-applicable generations. */
+      allows_na?: boolean;
+    };
+
     export interface PatchedEvaluation {
       readonly id?: string;
       /**
@@ -25396,14 +25446,14 @@ export namespace Schemas {
     * `llm_judge` - LLM as a judge
     * `hog` - Hog */
       evaluation_type?: EvaluationTypeEnum;
-      /** Configuration dict. For llm_judge: {'prompt': '...'}. For hog: {'source': '...'}. */
-      evaluation_config?: unknown;
+      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      evaluation_config?: PatchedEvaluationEvaluationConfig;
       /** Output format. Currently only 'boolean' is supported.
 
     * `boolean` - Boolean (Pass/Fail) */
       output_type?: OutputTypeEnum;
-      /** Optional output config, e.g. {'allows_na': true} to allow N/A results. */
-      output_config?: unknown;
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      output_config?: PatchedEvaluationOutputConfig;
       /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
       conditions?: unknown;
       model_configuration?: ModelConfiguration | null;
