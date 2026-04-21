@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 
 import requests
@@ -5,6 +6,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.linear.queries import QUERIES, VIEWER_QUERY
 from posthog.temporal.data_imports.sources.linear.settings import (
     LINEAR_API_URL,
@@ -17,10 +19,16 @@ class LinearRetryableError(Exception):
     pass
 
 
+@dataclasses.dataclass
+class LinearResumeConfig:
+    cursor: str
+
+
 def _make_paginated_request(
     access_token: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[LinearResumeConfig],
     updated_at_gte: str | None = None,
 ):
     endpoint_config = LINEAR_ENDPOINTS.get(endpoint_name)
@@ -82,6 +90,11 @@ def _make_paginated_request(
     if updated_at_gte:
         variables["filter"] = {"updatedAt": {"gt": updated_at_gte}}
 
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None:
+        variables["cursor"] = resume_config.cursor
+        logger.debug(f"Linear: resuming {endpoint_name} from saved cursor")
+
     try:
         has_next_page = True
         while has_next_page:
@@ -95,6 +108,9 @@ def _make_paginated_request(
             has_next_page = page_info["hasNextPage"]
             if has_next_page:
                 variables["cursor"] = page_info["endCursor"]
+                # Checkpoint points at the next page to fetch; duplicates on resume
+                # are dedup'd via the endpoint's primary_key.
+                resumable_source_manager.save_state(LinearResumeConfig(cursor=page_info["endCursor"]))
     finally:
         sess.close()
 
@@ -103,6 +119,7 @@ def linear_source(
     access_token: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[LinearResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any | None = None,
 ) -> SourceResponse:
@@ -120,6 +137,7 @@ def linear_source(
             access_token=access_token,
             endpoint_name=endpoint_name,
             logger=logger,
+            resumable_source_manager=resumable_source_manager,
             updated_at_gte=updated_at_gte,
         )
 
