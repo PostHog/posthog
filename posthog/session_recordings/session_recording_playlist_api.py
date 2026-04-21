@@ -103,8 +103,7 @@ def count_collection_recordings(
 ) -> dict[str, int | bool | None]:
     playlist_items: QuerySet[SessionRecordingPlaylistItem] = playlist.playlist_items.exclude(deleted=True)
     watched_playlist_items = current_user_viewed(
-        # mypy can't detect that it's safe to pass queryset to list() 🤷
-        list(playlist.playlist_items.values_list("recording_id", flat=True)),  # type: ignore
+        list(playlist.playlist_items.values_list("recording_id", flat=True)),
         user,
         team,
     )
