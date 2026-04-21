@@ -451,6 +451,7 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
         mock_get.return_value = _mock_response(_make_metadata(), headers={})
 
         app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        assert app is not None
 
         self.assertTrue(app.is_cimd_client)
         self.assertEqual(app.cimd_metadata_url, VALID_CIMD_URL)
@@ -493,6 +494,7 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
         self.assertFalse(existing.is_provisioning_partner)
 
         app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        assert app is not None
 
         self.assertEqual(app.pk, existing.pk)
         self.assertEqual(app.provisioning_auth_method, "pkce")
@@ -513,6 +515,7 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
         )
 
         app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        assert app is not None
 
         self.assertEqual(app.provisioning_auth_method, "hmac")
         self.assertFalse(app.provisioning_active)
