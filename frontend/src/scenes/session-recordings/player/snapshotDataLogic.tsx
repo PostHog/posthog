@@ -208,6 +208,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         )
                     ).sort((a, b) => a.timestamp - b.timestamp)
 
+                    // If the logic unmounted during parseEncodedSnapshots, bail before
+                    // touching the connected windowIdRegistryLogic selectors/actions,
+                    // which would throw "Can not find path ... in the store".
+                    breakpoint()
+
                     // Sync any newly discovered window IDs to the shared registry
                     for (const uuid of Object.keys(localWindowIds)) {
                         if (!(uuid in values.uuidToIndex)) {
