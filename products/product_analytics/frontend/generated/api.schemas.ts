@@ -2689,8 +2689,8 @@ export type RetentionEntityKindApi = (typeof RetentionEntityKindApi)[keyof typeo
 
 export const RetentionEntityKindApi = {
     ActionsNode: 'ActionsNode',
-    DataWarehouseNode: 'DataWarehouseNode',
     EventsNode: 'EventsNode',
+    DataWarehouseNode: 'DataWarehouseNode',
 } as const
 
 export type EntityTypeApi = (typeof EntityTypeApi)[keyof typeof EntityTypeApi]

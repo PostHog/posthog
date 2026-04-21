@@ -3017,8 +3017,8 @@ export namespace Schemas {
 
     export const RetentionEntityKind = {
       ActionsNode: 'ActionsNode',
-      DataWarehouseNode: 'DataWarehouseNode',
       EventsNode: 'EventsNode',
+      DataWarehouseNode: 'DataWarehouseNode',
     } as const;
 
     export type EntityType = typeof EntityType[keyof typeof EntityType];
