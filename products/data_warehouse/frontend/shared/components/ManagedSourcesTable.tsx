@@ -13,9 +13,12 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -25,6 +28,7 @@ import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../logics/sourceManagementLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
+import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
 import { SourceIcon } from './SourceIcon'
 
@@ -33,6 +37,8 @@ export function ManagedSourcesTable(): JSX.Element {
         useValues(sourceManagementLogic)
     const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     if (availableSourcesLoading) {
         return <LemonSkeleton />
@@ -110,6 +116,30 @@ export function ManagedSourcesTable(): JSX.Element {
                                 .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
                                 .toLocaleString(),
                     },
+                    ...(showMetrics
+                        ? [
+                              {
+                                  title: 'Rows synced (7d)',
+                                  key: 'rows_synced_sparkline',
+                                  render: function RenderSparkline(_: unknown, source: { id: string }) {
+                                      return (
+                                          <AppMetricsSparkline
+                                              logicKey={`dwh-source-sparkline-${source.id}`}
+                                              loadOnChanges
+                                              forceParams={{
+                                                  appSource: DATA_WAREHOUSE_APP_SOURCE,
+                                                  appSourceId: source.id,
+                                                  metricName: ['rows_synced'],
+                                                  breakdownBy: 'metric_name',
+                                                  interval: 'day',
+                                                  dateFrom: '-7d',
+                                              }}
+                                          />
+                                      )
+                                  },
+                              },
+                          ]
+                        : []),
                     {
                         title: 'Status',
                         key: 'status',

@@ -4,6 +4,7 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, ProductManifest } from '~/types'
 
+import type { SchemaSceneTab } from './frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
 export const manifest: ProductManifest = {
@@ -56,12 +57,25 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'New data warehouse source',
         },
+        DataWarehouseSourceSchema: {
+            import: () => import('./frontend/scenes/SchemaScene/SchemaScene'),
+            projectBased: true,
+            name: 'Data warehouse schema',
+        },
     },
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
         '/models': ['Models', 'models'],
         '/models/:id': ['NodeDetail', 'nodeDetail'],
         '/data-management/sources': ['Sources', 'sources'],
+        '/data-management/sources/:sourceId/schemas/:schemaId': [
+            'DataWarehouseSourceSchema',
+            'dataWarehouseSourceSchema',
+        ],
+        '/data-management/sources/:sourceId/schemas/:schemaId/:tab': [
+            'DataWarehouseSourceSchema',
+            'dataWarehouseSourceSchema',
+        ],
         '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
         '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     },
@@ -76,6 +90,8 @@ export const manifest: ProductManifest = {
         sources: (): string => '/data-management/sources',
         dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
             `/data-management/sources/${id}/${tab ?? 'schemas'}`,
+        dataWarehouseSourceSchema: (sourceId: string, schemaId: string, tab?: SchemaSceneTab): string =>
+            `/data-management/sources/${sourceId}/schemas/${schemaId}${tab ? `/${tab}` : ''}`,
         dataWarehouseSourceNew: (
             kind?: string,
             returnUrl?: string,
