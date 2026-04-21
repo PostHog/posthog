@@ -13,15 +13,17 @@ import {
     IconShieldLock,
     IconShieldPeople,
 } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { humanFriendlyCurrency } from 'lib/utils'
+import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
 
 import { BillingFeatureType, BillingPlan, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
+import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
 import { PlanIcon } from './PlanComparison'
@@ -83,15 +85,17 @@ const buildComparisonFeatures = (addons: BillingProductV2AddonType[]): Compariso
 }
 
 const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
+    const { billing } = useValues(billingLogic)
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product: addon }))
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const coreFeatures = CORE_FEATURES[addon.type] || []
+    const isOnTrial = billing?.trial?.target === addon.type
 
     return (
         <div
             className={clsx(
                 'flex flex-col gap-3 p-5 rounded bg-surface-secondary',
-                addon.subscribed && 'ring-2 ring-accent'
+                (addon.subscribed || isOnTrial) && 'ring-2 ring-brand-red'
             )}
         >
             <div className="flex items-center gap-2">
@@ -100,6 +104,24 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
                     <LemonTag type="primary" icon={<IconCheckCircle />}>
                         Subscribed
                     </LemonTag>
+                )}
+                {isOnTrial && (
+                    <Tooltip
+                        title={
+                            <p>
+                                You are currently on a free trial for{' '}
+                                <b>{toSentenceCase(billing?.trial?.target || '')}</b> until{' '}
+                                <b>{dayjs(billing?.trial?.expires_at).format('LL')}</b>. At the end of the trial{' '}
+                                {billing?.trial?.type === 'autosubscribe'
+                                    ? 'you will be automatically subscribed to the plan.'
+                                    : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
+                            </p>
+                        }
+                    >
+                        <LemonTag type="completion" icon={<IconCheckCircle />}>
+                            You're on a trial
+                        </LemonTag>
+                    </Tooltip>
                 )}
             </div>
             {coreFeatures.length > 0 && (
@@ -120,7 +142,7 @@ const PlanCard = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element 
                 </div>
             )}
             <div className="-mt-2">
-                <BillingProductAddonActions addon={addon} buttonSize="small" align="left" />
+                <BillingProductAddonActions addon={addon} buttonSize="small" align="left" hideTrialTag />
             </div>
         </div>
     )
@@ -132,7 +154,7 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
     const currentPlan = currentAndUpgradePlans?.currentPlan
 
     return (
-        <div className="flex flex-col gap-3 p-5 rounded bg-surface-secondary ring-2 ring-accent">
+        <div className="flex flex-col gap-3 p-5 rounded bg-surface-secondary ring-2 ring-brand-red">
             <div className="flex items-start justify-between gap-4">
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">

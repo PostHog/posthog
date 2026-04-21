@@ -27,6 +27,8 @@ interface BillingProductAddonActionsProps {
     buttonSize?: LemonButtonProps['size']
     ctaTextOverride?: string
     align?: 'left' | 'right'
+    /** Skip rendering the trial status tag when the caller already shows it elsewhere. */
+    hideTrialTag?: boolean
 }
 
 export const BillingProductAddonActions = ({
@@ -35,6 +37,7 @@ export const BillingProductAddonActions = ({
     buttonSize,
     ctaTextOverride,
     align = 'right',
+    hideTrialTag = false,
 }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
         useValues(billingLogic)
@@ -85,21 +88,23 @@ export const BillingProductAddonActions = ({
 
     const renderTrialActions = (): JSX.Element => (
         <div className={clsx('flex flex-col', align === 'left' ? 'items-start' : 'items-end justify-end')}>
-            <Tooltip
-                title={
-                    <p>
-                        You are currently on a free trial for <b>{toSentenceCase(billing?.trial?.target || '')}</b>{' '}
-                        until <b>{dayjs(billing?.trial?.expires_at).format('LL')}</b>. At the end of the trial{' '}
-                        {billing?.trial?.type === 'autosubscribe'
-                            ? 'you will be automatically subscribed to the plan.'
-                            : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
-                    </p>
-                }
-            >
-                <LemonTag type="completion" icon={<IconCheckCircle />}>
-                    You're on a trial for this add-on
-                </LemonTag>
-            </Tooltip>
+            {!hideTrialTag && (
+                <Tooltip
+                    title={
+                        <p>
+                            You are currently on a free trial for <b>{toSentenceCase(billing?.trial?.target || '')}</b>{' '}
+                            until <b>{dayjs(billing?.trial?.expires_at).format('LL')}</b>. At the end of the trial{' '}
+                            {billing?.trial?.type === 'autosubscribe'
+                                ? 'you will be automatically subscribed to the plan.'
+                                : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
+                        </p>
+                    }
+                >
+                    <LemonTag type="completion" icon={<IconCheckCircle />}>
+                        You're on a trial for this add-on
+                    </LemonTag>
+                </Tooltip>
+            )}
             {/* Hide Cancel button only for Enterprise 'standard' trials (typically sales-managed) */}
             {(addon.type !== 'enterprise' || billing?.trial?.type === 'autosubscribe') && (
                 <LemonButton
@@ -110,7 +115,7 @@ export const BillingProductAddonActions = ({
                         reportSurveyShown(TRIAL_CANCELLATION_SURVEY_ID, addon.type)
                     }}
                     loading={trialLoading}
-                    className="mt-1"
+                    className={hideTrialTag ? undefined : 'mt-1'}
                 >
                     Cancel trial
                 </LemonButton>
