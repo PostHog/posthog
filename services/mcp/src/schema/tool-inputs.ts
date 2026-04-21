@@ -34,6 +34,18 @@ export const ExternalDataSchemaCdcTableModeSchema = z
     .enum(['consolidated', 'cdc_only', 'both'])
     .describe('For CDC syncs: consolidated (merge changes into one table), cdc_only (only change log), or both.')
 
+export const ExternalDataJobsAfterSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created after this date (e.g. "2025-01-01T00:00:00Z").')
+
+export const ExternalDataJobsBeforeSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created before this date (e.g. "2025-12-31T23:59:59Z").')
+
+export const ExternalDataJobsSchemasSchema = z
+    .array(z.string())
+    .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
+
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
     .describe(

@@ -16,7 +16,6 @@ import {
     ExternalDataSchemasRetrieveParams,
     ExternalDataSourcesCreateBody,
     ExternalDataSourcesDestroyParams,
-    ExternalDataSourcesJobsRetrieveParams,
     ExternalDataSourcesListQueryParams,
     ExternalDataSourcesPartialUpdateBody,
     ExternalDataSourcesPartialUpdateParams,
@@ -199,21 +198,6 @@ const externalDataSourcesDestroy = (): ToolBase<typeof ExternalDataSourcesDestro
         const result = await context.api.request<unknown>({
             method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const ExternalDataSourcesJobsSchema = ExternalDataSourcesJobsRetrieveParams.omit({ project_id: true })
-
-const externalDataSourcesJobs = (): ToolBase<typeof ExternalDataSourcesJobsSchema, unknown> => ({
-    name: 'external-data-sources-jobs',
-    schema: ExternalDataSourcesJobsSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesJobsSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/jobs/`,
         })
         return result
     },
@@ -735,7 +719,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-retrieve': externalDataSourcesRetrieve,
     'external-data-sources-partial-update': externalDataSourcesPartialUpdate,
     'external-data-sources-destroy': externalDataSourcesDestroy,
-    'external-data-sources-jobs': externalDataSourcesJobs,
     'external-data-sources-refresh-schemas': externalDataSourcesRefreshSchemas,
     'external-data-sources-reload': externalDataSourcesReload,
     'external-data-sources-wizard': externalDataSourcesWizard,

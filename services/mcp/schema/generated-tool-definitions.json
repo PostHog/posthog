@@ -764,21 +764,6 @@
             "readOnlyHint": false
         }
     },
-    "external-data-sources-jobs": {
-        "description": "List sync job history for a data warehouse source. Returns jobs sorted by most recent first, with status, duration, rows synced, and errors. Supports filtering by date range (after/before query params as ISO timestamps) and by schema name (schemas query param).",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
-        "summary": "List sync jobs for a source",
-        "title": "List sync jobs for a source",
-        "required_scopes": ["external_data_source:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "external-data-sources-refresh-schemas": {
         "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. Does not trigger a data sync. Use this after adding new tables to a source database to make them available for syncing.",
         "category": "Data warehouse",

@@ -178,18 +178,7 @@ tools:
             resume syncing.
     external-data-sources-jobs:
         operation: external_data_sources_jobs_retrieve
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List sync jobs for a source
-        description: >
-            List sync job history for a data warehouse source. Returns jobs sorted by most recent first, with status,
-            duration, rows synced, and errors. Supports filtering by date range (after/before query params as ISO
-            timestamps) and by schema name (schemas query param).
+        enabled: false
     external-data-sources-refresh-schemas:
         operation: external_data_sources_refresh_schemas_create
         enabled: true
