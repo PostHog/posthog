@@ -1,3 +1,4 @@
+import ssl
 import json
 import uuid
 import typing
@@ -11,12 +12,12 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 
 import pyarrow as pa
+import aiokafka
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.kafka_client.routing import async_producer_scope
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
@@ -640,6 +641,14 @@ async def try_produce_app_metrics(
 
     The metric name and kind will depend on the reported status.
     """
+    producer = aiokafka.AIOKafkaProducer(
+        bootstrap_servers=settings.KAFKA_HOSTS,
+        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        acks="all",
+        api_version="2.5.0",
+        ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
+    )
+
     match status:
         case BatchExportRun.Status.COMPLETED:
             metric_kind = "success"
@@ -678,16 +687,13 @@ async def try_produce_app_metrics(
         }
     ).encode("utf-8")
 
-    async with async_producer_scope(topic=KAFKA_APP_METRICS2) as producer:
+    async with producer:
 
         async def send(message: bytes):
             try:
-                fut = await producer.produce(
-                    topic=KAFKA_APP_METRICS2,
-                    data=message,
-                    value_serializer=lambda v: v,
-                )
+                fut = await producer.send(KAFKA_APP_METRICS2, message)
                 await fut
+                await producer.flush()
             except Exception:
                 LOGGER.exception(
                     "Metrics production failed",
@@ -699,6 +705,16 @@ async def try_produce_app_metrics(
         async with asyncio.TaskGroup() as tg:
             for metric in (run_metric, rows_metric):
                 _ = tg.create_task(send(metric))
+
+
+def configure_default_ssl_context():
+    """Setup a default SSL context for Kafka."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.options |= ssl.OP_NO_SSLv2
+    context.options |= ssl.OP_NO_SSLv3
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.load_default_certs()
+    return context
 
 
 async def check_if_over_failure_threshold(batch_export_id: str, check_window: int, failure_threshold: int):
