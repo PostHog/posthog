@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cursor": {
+            "description": "The pagination cursor value.",
+            "type": "string"
+        },
+        "status": {
+            "description": "Return only deliveries in this run status (starting, completed, failed, or skipped).",
+            "enum": ["completed", "failed", "skipped", "starting"],
+            "type": "string"
+        },
+        "subscription_id": {
+            "type": "number"
+        }
+    },
+    "required": ["subscription_id"],
+    "type": "object"
+}
