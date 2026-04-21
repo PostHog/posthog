@@ -139,9 +139,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Must not raise CHQueryErrorIllegalTypeOfArgument
-        result, _ = self._get_events_for_query(
-            funnels_query, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS
-        )
+        result, _ = self._get_events_for_query(funnels_query, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
         assert isinstance(result, list)
 
     def test_basic_funnel_correlation_with_events(self):

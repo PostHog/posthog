@@ -36,7 +36,7 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'user did things'), 1, 0) AS step_1,
-                  ([e__person.properties___fish] AS value) AS prop_basic,
+                  ([ifNull(toString(e__person.properties___fish), '')] AS value) AS prop_basic,
                   prop_basic AS prop
            FROM events AS e
            LEFT OUTER JOIN
