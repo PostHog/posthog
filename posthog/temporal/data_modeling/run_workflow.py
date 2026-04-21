@@ -484,7 +484,14 @@ async def materialize_model(
     if not query_columns:
         query_columns = await database_sync_to_async(saved_query.get_columns)()
 
-    hogql_query = saved_query.query["query"]
+    if not isinstance(saved_query.query, dict):
+        raise ValueError(f"Saved query {saved_query.id} is missing its query payload")
+
+    hogql_query_value = saved_query.query.get("query")
+    if not isinstance(hogql_query_value, str):
+        raise ValueError(f"Saved query {saved_query.id} has an invalid query payload")
+
+    hogql_query = hogql_query_value
 
     try:
         row_count = 0
@@ -900,28 +907,29 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                     ]
 
                     # We can safely assume there is at least one element in this array due to the outer `if`
-                    call_tuple = call_tuples[0]
+                    selected_call_tuple = call_tuples[0]
 
                     has_type_to_convert = True
-                    query_typings.append((column_name, ch_type, call_tuple))
+                    query_typings.append((column_name, ch_type, selected_call_tuple))
                 else:
                     query_typings.append((column_name, ch_type, None))
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
 
         select_fields: list[ast.Expr] = []
-        for column_name, ch_type, call_tuple in query_typings:
-            if call_tuple:
+        for column_name, ch_type, conversion_tuple in query_typings:
+            if conversion_tuple is not None:
+                function_name, function_args = conversion_tuple
                 is_array = ch_type.lower().startswith("array(")
 
                 if is_array:
                     await logger.adebug(
-                        f"Converting {column_name} of type {ch_type} using arrayMap with {call_tuple[0]}(..)"
+                        f"Converting {column_name} of type {ch_type} using arrayMap with {function_name}(..)"
                     )
                     # Use arrayMap to apply the conversion function to each array element
                     lambda_expr = ast.Lambda(
                         args=["x"],
-                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=["x"]), *call_tuple[1]]),
+                        expr=ast.Call(name=function_name, args=[ast.Field(chain=["x"]), *function_args]),
                     )
                     select_fields.append(
                         ast.Alias(
@@ -931,11 +939,11 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                     )
                 else:
                     await logger.adebug(
-                        f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
+                        f"Converting {column_name} of type {ch_type} to be wrapped with {function_name}(..)"
                     )
                     select_fields.append(
                         ast.Alias(
-                            expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                            expr=ast.Call(name=function_name, args=[ast.Field(chain=[column_name]), *function_args]),
                             alias=column_name,
                         )
                     )
@@ -1130,7 +1138,7 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
             except Exception:
                 # Fallback: cast via string, truncate, then cast to reduced decimal
                 reduced_decimal_type = pa.decimal128(precision, scale)
-                string_col = pc.cast(col, pa.string())
+                string_col = typing.cast(pa.StringArray, pc.cast(col, pa.string()))
                 truncated = pc.utf8_slice_codeunits(string_col, 0, precision)
                 cast_reduced = pc.cast(truncated, reduced_decimal_type)
                 new_fields.append(field.with_type(reduced_decimal_type))
@@ -1230,9 +1238,11 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
         selector_paths: SelectorPaths = {}
 
         if not inputs.select:
-            matching_paths = await database_sync_to_async(list)(
-                DataWarehouseModelPath.objects.filter(team_id=inputs.team_id).values_list("path", flat=True)
-            )
+            matching_paths: list[str] = await database_sync_to_async(
+                lambda: list(
+                    DataWarehouseModelPath.objects.filter(team_id=inputs.team_id).values_list("path", flat=True)
+                )
+            )()
             selector_paths[
                 Selector(
                     label="*",
@@ -1246,11 +1256,13 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
             query = f"*.{selector_input.label}.*"
 
             # TODO: Make this one database fetch for all selectors, instead of one per selector
-            matching_paths = await database_sync_to_async(list)(
-                DataWarehouseModelPath.objects.filter(team_id=inputs.team_id, path__lquery=query).values_list(
-                    "path", flat=True
+            matching_paths = await database_sync_to_async(
+                lambda query_value=query: list(
+                    DataWarehouseModelPath.objects.filter(team_id=inputs.team_id, path__lquery=query_value).values_list(
+                        "path", flat=True
+                    )
                 )
-            )
+            )()
 
             selector_paths[selector_input] = matching_paths
 

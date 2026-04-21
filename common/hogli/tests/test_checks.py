@@ -41,6 +41,7 @@ def _make_product(
     if isolated:
         (backend_dir / "facade").mkdir(parents=True, exist_ok=True)
         (backend_dir / "facade" / "contracts.py").write_text("")
+        (backend_dir / "facade" / "api.py").write_text("def get_thing():\n    pass\n")
 
     if scripts is not None:
         (product_dir / "package.json").write_text(json.dumps({"scripts": scripts}))

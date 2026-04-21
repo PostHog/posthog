@@ -29,7 +29,7 @@ class TestRetentionGeneratorNode(BaseTest):
         self.action = Action.objects.create(team=self.team, name="Test Action")
         self.schema = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionEventsNode(name="targetEntity"),
+                targetEntity=AssistantRetentionEventsNode(id="targetEntity"),
                 returningEntity=AssistantRetentionActionsNode(name=self.action.name, id=self.action.id),
             )
         )
