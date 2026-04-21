@@ -346,13 +346,6 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
 ]
 
-const NO_USER_AGENT_DEFINITION: BotDefinition = {
-    name: 'No user agent',
-    category: 'no_user_agent',
-    trafficType: 'Automation',
-    operator: 'Unknown',
-}
-
 export const CATEGORY_LABELS: Record<BotCategory, string> = {
     ai_crawler: 'AI crawler',
     ai_search: 'AI search',
@@ -369,7 +362,7 @@ export const CATEGORY_LABELS: Record<BotCategory, string> = {
 
 export const detectBot = (userAgent: string | null | undefined): BotDefinition | null => {
     if (userAgent == null || userAgent === '') {
-        return NO_USER_AGENT_DEFINITION
+        return null
     }
     for (const { pattern, definition } of BOT_DEFINITIONS) {
         if (userAgent.includes(pattern)) {

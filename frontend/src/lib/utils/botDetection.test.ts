@@ -44,10 +44,10 @@ describe('botDetection', () => {
             ).toBeNull()
         })
 
-        it('treats empty or missing user agent as "No user agent"', () => {
-            expect(detectBot('')?.category).toBe('no_user_agent')
-            expect(detectBot(null)?.category).toBe('no_user_agent')
-            expect(detectBot(undefined)?.category).toBe('no_user_agent')
+        it('returns null for empty or missing user agent', () => {
+            expect(detectBot('')).toBeNull()
+            expect(detectBot(null)).toBeNull()
+            expect(detectBot(undefined)).toBeNull()
         })
     })
 
@@ -64,9 +64,9 @@ describe('botDetection', () => {
         it('returns true for a known bot', () => {
             expect(isBot('GPTBot/1.0')).toBe(true)
         })
-        it('returns true for empty user agent (treated as automation)', () => {
-            expect(isBot('')).toBe(true)
-            expect(isBot(null)).toBe(true)
+        it('returns false for empty or missing user agent', () => {
+            expect(isBot('')).toBe(false)
+            expect(isBot(null)).toBe(false)
         })
         it('returns false for a regular browser', () => {
             expect(isBot('Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36')).toBe(false)
