@@ -332,10 +332,12 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         with materialized("events", "$browser", is_nullable=False):
             values, sql = self._run_and_collect()
         # Rewrite fired: raw JSONExtractString on properties replaced by the bare mat
-        # column, no nullIf wrap (thanks to skip_nullable_wrap).
+        # column, no nullIf wrap around the mat column (thanks to skip_nullable_wrap).
+        # Other columns in the query (e.g. properties.tag) still use the standard
+        # nullIf-wrapped access path, so the assertion only targets mat_$browser.
         assert "JSONExtractString(events.properties" not in sql, sql
         assert "mat_$browser" in sql, sql
-        assert "nullIf" not in sql, sql
+        assert "nullIf(events.`mat_$browser`" not in sql, sql
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "unset": ""}
 
     def test_rewrite_value_semantics_nullable_mat_column(self):
